@@ -88,14 +88,14 @@ bool NormEncoder::Init(int numParity, int vecSizeMax)
 // Free memory allocated for encoder state (Encoder must be re-inited before use)
 void NormEncoder::Destroy()
 {
-	if(scratch)
+	if(NULL != scratch)
     {
-		delete []scratch;
+		delete[] scratch;
 		scratch = NULL;
     }
-    if (genPoly) 
+    if (NULL != genPoly) 
     {
-	    delete genPoly;
+	    delete[] genPoly;
 	    genPoly = NULL;
     }
 }  // end NormEncoder::Destroy()
@@ -432,7 +432,6 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
 	        data++;
 	    }
     }
-    
     return erasureCount;
 }  // end NormDecoder::Decode()
 

@@ -161,9 +161,10 @@ NormApp::NormApp()
 
 NormApp::~NormApp()
 {
-    if (address) delete address;
-    if (rx_cache_path) delete rx_cache_path;
-    if (post_processor) delete post_processor;
+    if (address) delete[] address;
+    if (interface_name) delete[] interface_name;
+    if (rx_cache_path) delete[] rx_cache_path;
+    if (post_processor) delete[] post_processor;
 }
 
 // NOTE on message flushing mode:

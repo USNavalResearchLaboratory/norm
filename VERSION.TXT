@@ -1,5 +1,11 @@
 			           NORM Version History
 
+Version 1.2b8
+=============
+    - Fixed bug introduced during "alignment" changes
+      in previous release.
+    - Fixed Protolib WIN32 build issue
+    
 Version 1.2b7
 =============
     - Changed normMessage.[h|cpp] to fix alignment issues

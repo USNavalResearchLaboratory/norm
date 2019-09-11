@@ -1983,7 +1983,7 @@ void NormNodeTree::AttachNode(NormNode *node)
         }
     }
     root = node;  // root _was_ NULL
-}  // end NormNodeTree::AddNode()
+}  // end NormNodeTree::AttachNode()
 
 
 void NormNodeTree::DetachNode(NormNode* node)
@@ -2040,7 +2040,7 @@ void NormNodeTree::DetachNode(NormNode* node)
         }
         if ((y->left = node->left)) y->left->parent = y;
         if ((y->right = node->right)) y->right->parent = y;
-    }         
+    }        
 }  // end NormNodeTree::DetachNode()
 
 

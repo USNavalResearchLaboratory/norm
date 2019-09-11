@@ -363,12 +363,22 @@ void NormSession::StopServer()
 {
     if (probe_timer.IsActive()) probe_timer.Deactivate();
     encoder.Destroy();
+    acking_node_tree.Destroy();
+    cc_node_list.Destroy();
+    // Iterate tx_table and release objects
+    while (!tx_table.IsEmpty())
+    {
+        NormObject* obj = tx_table.Find(tx_table.RangeLo());
+        ASSERT(obj);
+        tx_table.Remove(obj);
+        obj->Release();   
+    }
+    // Then destroy table
     tx_table.Destroy();
     block_pool.Destroy();
     segment_pool.Destroy();
     tx_repair_mask.Destroy();
     tx_pending_mask.Destroy();
-    tx_table.Destroy();
     is_server = false;
     if (!IsClient()) Close();
 }   // end NormSession::StopServer()
@@ -386,7 +396,17 @@ bool NormSession::StartClient(unsigned long bufferSize, const char* interfaceNam
 
 void NormSession::StopClient()
 {    
-    server_tree.Destroy();
+    // Iterate server_tree and close/release server nodes
+    NormServerNode* serverNode = 
+        static_cast<NormServerNode*>(server_tree.GetRoot());
+    while (serverNode)
+    {
+        server_tree.DetachNode(serverNode);
+        serverNode->Close();
+        serverNode->Release();
+        serverNode = 
+            static_cast<NormServerNode*>(server_tree.GetRoot());
+    }
     is_client = false;
     if (!is_server) Close();
 }
@@ -639,7 +659,8 @@ void NormSession::ServerRemoveAckingNode(NormNodeId nodeId)
     {
         if (watermark_pending && theNode->AckReceived())
             acks_collected--;
-        acking_node_tree.DeleteNode(theNode);
+        acking_node_tree.DetachNode(theNode);
+        delete theNode;
         acking_node_count--;
     }
 }  // end NormSession::RemoveAckingNode()
@@ -982,8 +1003,6 @@ bool NormSession::QueueTxObject(NormObject* obj)
     ASSERT(tx_pending_mask.Test(obj->GetId()));
     next_tx_object_id++;
     TouchServer();
-    //posted_tx_queue_empty = false;
-    //Serve();
     return true;
 }  // end NormSession::QueueTxObject()
 

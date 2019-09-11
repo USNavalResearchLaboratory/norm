@@ -511,7 +511,6 @@ void NormInstance::Shutdown()
             default:
                 break;   
         }
-        
         notify_pool.Append(previous_notification);   
         previous_notification = NULL;   
     }
@@ -545,7 +544,6 @@ void NormInstance::Shutdown()
         }   
         delete n;        
     }
-    
     notify_pool.Destroy();
 }  // end NormInstance::Shutdown()
 

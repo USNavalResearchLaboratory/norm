@@ -457,14 +457,9 @@ class NormNodeTree
         NormNodeTree();
         ~NormNodeTree();
         NormNode* FindNodeById(NormNodeId nodeId) const;
-        void DeleteNode(NormNode *theNode)
-        {
-            ASSERT(theNode);
-            DetachNode(theNode);
-            delete theNode;
-        }
         void AttachNode(NormNode *theNode);
         void DetachNode(NormNode *theNode);   
+        NormNode* GetRoot() const {return root;}
         void Destroy();    // delete all nodes in tree
        
     private: 
@@ -505,8 +500,7 @@ class NormNodeList
         }
         void Destroy();  // delete all nodes in list
         const NormNode* Head() {return head;}
-        
-        
+               
     // Members
     private:
         NormNode*                    head;

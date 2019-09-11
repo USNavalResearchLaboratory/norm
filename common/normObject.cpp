@@ -67,6 +67,7 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     // DATA or FILE objects, buffer size for STREAM objects
     // In either case, we need our sliding bit masks to be of 
     // appropriate size.
+    ASSERT(!IsOpen());
     if (server)
     {
         if (infoLen > 0) 
@@ -1950,7 +1951,7 @@ NormDataObject::~NormDataObject()
     {
         if (data_ptr)
         {
-            delete data_ptr;
+            delete[] data_ptr;
             data_ptr = NULL;
         }
         data_released = false;
@@ -1964,6 +1965,12 @@ bool NormDataObject::Open(char*       dataPtr,
                           const char* infoPtr,
                           UINT16      infoLen)
 {
+    if (data_released && (NULL != data_ptr))
+    {
+        delete[] data_ptr;
+        data_ptr = NULL;
+        data_released = false;   
+    }
     if (server)  
     {
         // We're receiving this data object 
@@ -3067,7 +3074,7 @@ void NormObjectTable::Destroy()
         while((obj = Find(range_lo)))
         {
             Remove(obj);
-            delete obj;   
+            delete obj;  // (TBD - make this obj->Release() ???
         }
         delete []table;
         table = (NormObject**)NULL;
