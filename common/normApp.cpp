@@ -9,6 +9,7 @@
 #include <signal.h>  // for SIGTERM/SIGINT handling
 #include <errno.h>
 #include <stdlib.h>
+#include <ctype.h>  // for "isspace()"
 
 // Command-line application using Protolib EventDispatcher
 class NormApp : public NormController, public ProtoApp
@@ -22,7 +23,7 @@ class NormApp : public NormController, public ProtoApp
         bool ProcessCommands(int argc, const char*const* argv);
         void OnShutdown();
         
-        bool ProcessCommand(const char* cmd, const char* val);
+        bool OnCommand(const char* cmd, const char* val);
         
         static void DoInputReady(ProtoDispatcher::Descriptor descriptor, 
                                  ProtoDispatcher::Event      theEvent, 
@@ -41,6 +42,7 @@ class NormApp : public NormController, public ProtoApp
                         class NormObject*     object);
         
         bool OnIntervalTimeout(ProtoTimer& theTimer);
+        void OnControlEvent(ProtoSocket& theSocket, ProtoSocket::Event theEvent);
     
         static const char* const cmd_list[];
         
@@ -48,6 +50,8 @@ class NormApp : public NormController, public ProtoApp
         static void SignalHandler(int sigNum);
 #endif // UNIX
             
+        ProtoPipe           control_pipe;  // for remote control
+        bool                control_remote;
         NormSessionMgr      session_mgr;
         NormSession*        session;
         NormStreamObject*   tx_stream;
@@ -90,6 +94,7 @@ class NormApp : public NormController, public ProtoApp
         double              tx_object_interval;
         int                 tx_repeat_count;
         double              tx_repeat_interval;
+        bool                tx_repeat_clear;
         ProtoTimer          interval_timer;
         
         // NormSession client-only parameters
@@ -108,7 +113,8 @@ class NormApp : public NormController, public ProtoApp
 }; // end class NormApp
 
 NormApp::NormApp()
- : session_mgr(GetTimerMgr(), GetSocketNotifier()),
+ : control_pipe(ProtoPipe::MESSAGE), control_remote(false), 
+   session_mgr(GetTimerMgr(), GetSocketNotifier()),
    session(NULL), tx_stream(NULL), rx_stream(NULL), input(NULL), output(NULL), 
    input_index(0), input_length(0), input_active(false),
    push_stream(false), msg_flush_mode(NormStreamObject::FLUSH_PASSIVE),
@@ -118,12 +124,16 @@ NormApp::NormApp()
    segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
    backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
    tx_buffer_size(1024*1024), 
-   tx_object_interval(0.0), tx_repeat_count(0), tx_repeat_interval(0.0),
+   tx_object_interval(0.0), tx_repeat_count(0), tx_repeat_interval(2.0), tx_repeat_clear(true),
    rx_buffer_size(1024*1024), rx_cache_path(NULL), unicast_nacks(false), silent_client(false),
    tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
+    
+    control_pipe.SetListener(this, &NormApp::OnControlEvent);
+    control_pipe.SetNotifier(&GetSocketNotifier());
+    
     // Init tx_timer for 1.0 second interval, infinite repeats
-     session_mgr.SetController(this);
+    session_mgr.SetController(this);
     
     interval_timer.SetListener(this, &NormApp::OnIntervalTimeout);
     interval_timer.SetInterval(0.0);
@@ -161,8 +171,9 @@ const char* const NormApp::cmd_list[] =
     "+moutput",      // recv message stream output
     "+sendfile",     // file/directory list to transmit
     "+interval",     // delay time (sec) between files (0.0 sec default)
-    "+repeatcount",  // How many times to repeat the file/directory list
+    "+repeatcount",  // How many times to repeat the file/directory list tx
     "+rinterval",    // Interval (sec) between file/directory list repeats
+    "-updatesOnly",  // only send updated files on repeat transmission
     "+rxcachedir",   // recv file cache directory
     "+segment",      // payload segment size (bytes)
     "+block",        // User data packets per FEC coding block (blockSize)
@@ -175,18 +186,86 @@ const char* const NormApp::cmd_list[] =
     "-unicastNacks", // unicast instead of multicast feedback messages
     "-silentClient", // "silent" (non-nacking) client (EMCON mode)
     "+processor",    // receive file post processing command
+    "+instance",     // specify norm instance name for commands
     NULL         
 };
+
+void NormApp::OnControlEvent(ProtoSocket& /*theSocket*/, ProtoSocket::Event theEvent)
+{
+    TRACE("NormApp::OnControlEvent() ...\n");
+    switch (theEvent)
+    {
+        case ProtoSocket::RECV:
+        {
+            char buffer[8192];
+            unsigned int len = 8192;
+            if (control_pipe.Recv(buffer, len))
+            {
+                buffer[len] = '\0';
+                TRACE("norm: received command \"%s\"\n", buffer);
+                char* cmd = buffer;
+                char* val = NULL;
+                for (unsigned int i = 0; i < len; i++)
+                {
+                    if (isspace(buffer[i]))
+                    {
+                        buffer[i++] = '\0';   
+                        val = buffer + i;
+                    }
+                }
+                if (!OnCommand(cmd, val))
+                    DMSG(0, "NormApp::OnControlEvent() bad command received\n");  
+            }
+            else
+            {
+                DMSG(0, "NormApp::OnControlEvent() error receiving remote command\n");   
+            }
+            break;
+        }
+            
+        default: 
+            DMSG(0, "NormApp::OnControlEvent() unhandled event type: %d\n", theEvent);
+            break; 
+    }
+}  // end NormApp::OnControlEvent()
     
-bool NormApp::ProcessCommand(const char* cmd, const char* val)
+bool NormApp::OnCommand(const char* cmd, const char* val)
 {
     CmdType type = CommandType(cmd);
     ASSERT(CMD_INVALID != type);
     unsigned int len = strlen(cmd);
     if ((CMD_ARG == type) && !val)
     {
-        DMSG(0, "NormApp::ProcessCommand(%s) missing argument\n", cmd);
+        DMSG(0, "NormApp::OnCommand(%s) missing argument\n", cmd);
         return false;        
+    }
+    
+    if (control_remote)
+    {
+        // Since the "instance" already exists, we send the command
+        // to the pre-existing "instance" instead of processing it ourself
+        char buffer[8192];
+        buffer[0] = '\0';
+        if (cmd) strncpy(buffer, cmd, 8191);
+        unsigned int len = strlen(buffer);
+        len = (len > 8191) ? 8191 : len;
+        if (val)
+        {
+            buffer[len++] = ' ';
+            strncat(buffer, val, 8192 - strlen(buffer));
+        }
+        len = strlen(buffer);
+        len = (len > 8191) ? 8191 : len;
+        buffer[len++] = '\0';
+        if (!control_pipe.Send(buffer, len))
+        {
+            DMSG(0, "NormApp::OnCommand() error sending command to remote instance\n");
+            return false;
+        }     
+        else
+        {
+            DMSG(0, "NormApp::OnCommand() sent \"%s\" to remote\n", buffer);
+        }   
     }
     
     if (!strncmp("debug", cmd, len))
@@ -195,7 +274,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         int debugLevel = atoi(val);
         if ((debugLevel < 0) || (debugLevel > 12))
         {
-            DMSG(0, "NormApp::ProcessCommand(segment) invalid debug level!\n");   
+            DMSG(0, "NormApp::OnCommand(segment) invalid debug level!\n");   
             return false;
         }
         SetDebugLevel(debugLevel);
@@ -214,7 +293,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         double txLoss = atof(val);
         if (txLoss < 0)
         {
-            DMSG(0, "NormApp::ProcessCommand(txloss) invalid txRate!\n");   
+            DMSG(0, "NormApp::OnCommand(txloss) invalid txRate!\n");   
             return false;
         }
         tx_loss = txLoss;
@@ -225,7 +304,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         double rxLoss = atof(val);
         if (rxLoss < 0)
         {
-            DMSG(0, "NormApp::ProcessCommand(rxloss) invalid txRate!\n");   
+            DMSG(0, "NormApp::OnCommand(rxloss) invalid txRate!\n");   
             return false;
         }
         rx_loss = rxLoss;
@@ -237,7 +316,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         if (address) delete address;
         if (!(address = new char[len+1]))
         {
-            DMSG(0, "NormApp::ProcessCommand(address) allocation error:%s\n",
+            DMSG(0, "NormApp::OnCommand(address) allocation error:%s\n",
                 strerror(errno)); 
             return false;
         }
@@ -247,7 +326,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         {
             delete address;
             address = NULL;
-            DMSG(0, "NormApp::ProcessCommand(address) missing port number!\n");   
+            DMSG(0, "NormApp::OnCommand(address) missing port number!\n");   
             return false;
         }
         *ptr++ = '\0';
@@ -256,7 +335,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         {
             delete address;
             address = NULL;
-            DMSG(0, "NormApp::ProcessCommand(address) invalid port number!\n");   
+            DMSG(0, "NormApp::OnCommand(address) invalid port number!\n");   
             return false;
         }
         port = portNum;
@@ -266,7 +345,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         int ttlTemp = atoi(val);
         if ((ttlTemp < 1) || (ttlTemp > 255))
         {
-            DMSG(0, "NormApp::ProcessCommand(ttl) invalid value!\n");   
+            DMSG(0, "NormApp::OnCommand(ttl) invalid value!\n");   
             return false;
         }
         ttl = ttlTemp;
@@ -276,7 +355,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         double txRate = atof(val);
         if (txRate < 0)
         {
-            DMSG(0, "NormApp::ProcessCommand(rate) invalid txRate!\n");   
+            DMSG(0, "NormApp::OnCommand(rate) invalid txRate!\n");   
             return false;
         }
         tx_rate = txRate;
@@ -294,7 +373,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         }
         else
         {
-            DMSG(0, "NormApp::ProcessCommand(cc) invalid option!\n");   
+            DMSG(0, "NormApp::OnCommand(cc) invalid option!\n");   
             return false;
         }
         if (session) session->SetCongestionControl(cc_enable);
@@ -307,7 +386,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
 	    }
         else if (!(input = fopen(val, "rb")))
         {
-            DMSG(0, "NormApp::ProcessCommand(input) fopen() error: %s\n",
+            DMSG(0, "NormApp::OnCommand(input) fopen() error: %s\n",
                     strerror(errno));
             return false;   
         }
@@ -316,7 +395,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
 #ifdef UNIX
         // Set input non-blocking
         if(-1 == fcntl(fileno(input), F_SETFL, fcntl(fileno(input), F_GETFL, 0) | O_NONBLOCK))
-            perror("NormApp::ProcessCommand(input) fcntl(F_SETFL(O_NONBLOCK)) error");
+            perror("NormApp::OnCommand(input) fcntl(F_SETFL(O_NONBLOCK)) error");
 #endif // UNIX
     }
     else if (!strncmp("output", cmd, len))
@@ -327,7 +406,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
 	    }
         else if (!(output = fopen(val, "wb")))
         {
-            DMSG(0, "NormApp::ProcessCommand(output) fopen() error: %s\n",
+            DMSG(0, "NormApp::OnCommand(output) fopen() error: %s\n",
                     strerror(errno));
             return false;   
         }
@@ -343,7 +422,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
 	    }
         else if (!(input = fopen(val, "rb")))
         {
-            DMSG(0, "NormApp::ProcessCommand(input) fopen() error: %s\n",
+            DMSG(0, "NormApp::OnCommand(input) fopen() error: %s\n",
                     strerror(errno));
             return false;   
         }
@@ -352,7 +431,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
 #ifdef UNIX
         // Set input non-blocking
         if(-1 == fcntl(fileno(input), F_SETFL, fcntl(fileno(input), F_GETFL, 0) | O_NONBLOCK))
-            perror("NormApp::ProcessCommand(input) fcntl(F_SETFL(O_NONBLOCK)) error");
+            perror("NormApp::OnCommand(input) fcntl(F_SETFL(O_NONBLOCK)) error");
 #endif // UNIX
     }
     else if (!strncmp("moutput", cmd, len))
@@ -363,7 +442,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
 	    }
         else if (!(output = fopen(val, "wb")))
         {
-            DMSG(0, "NormApp::ProcessCommand(output) fopen() error: %s\n",
+            DMSG(0, "NormApp::OnCommand(output) fopen() error: %s\n",
                     strerror(errno));
             return false;   
         }
@@ -375,7 +454,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
     {
         if (!tx_file_list.Append(val))
         {
-            DMSG(0, "NormApp::ProcessCommand(sendfile) Error appending \"%s\" "
+            DMSG(0, "NormApp::OnCommand(sendfile) Error appending \"%s\" "
                     "to tx file list.\n", val);
             return false;   
         }
@@ -386,7 +465,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
             tx_object_interval = -1.0;
         if (tx_object_interval < 0.0)
         {
-            DMSG(0, "NormApp::ProcessCommand(interval) Invalid tx object interval: %s\n",
+            DMSG(0, "NormApp::OnCommand(interval) Invalid tx object interval: %s\n",
                      val);
             tx_object_interval = 0.0;
             return false;
@@ -402,12 +481,16 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
             tx_repeat_interval = -1.0;
         if (tx_repeat_interval < 0.0)
         {
-            DMSG(0, "NormApp::ProcessCommand(rinterval) Invalid tx repeat interval: %s\n",
+            DMSG(0, "NormApp::OnCommand(rinterval) Invalid tx repeat interval: %s\n",
                      val);
             tx_repeat_interval = 0.0;
             return false;
         }
-    }   
+    }      
+    else if (!strncmp("updatesOnly", cmd, len))
+    {
+        tx_file_list.InitUpdateTime(true);
+    }
     else if (!strncmp("rxcachedir", cmd, len))
     {
         unsigned int length = strlen(val);   
@@ -418,7 +501,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
             length += 1;
         if (!(rx_cache_path = new char[length]))
         {
-             DMSG(0, "NormApp::ProcessCommand(rxcachedir) alloc error: %s\n",
+             DMSG(0, "NormApp::OnCommand(rxcachedir) alloc error: %s\n",
                     strerror(errno));
             return false;  
         }
@@ -431,7 +514,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         int segmentSize = atoi(val);
         if ((segmentSize < 0) || (segmentSize > 8000))
         {
-            DMSG(0, "NormApp::ProcessCommand(segment) invalid segment size!\n");   
+            DMSG(0, "NormApp::OnCommand(segment) invalid segment size!\n");   
             return false;
         }
         segment_size = segmentSize;
@@ -441,7 +524,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         int blockSize = atoi(val);
         if ((blockSize < 1) || (blockSize > 255))
         {
-            DMSG(0, "NormApp::ProcessCommand(block) invalid block size!\n");   
+            DMSG(0, "NormApp::OnCommand(block) invalid block size!\n");   
             return false;
         }
         ndata = blockSize;
@@ -451,7 +534,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         int numParity = atoi(val);
         if ((numParity < 0) || (numParity > 254))
         {
-            DMSG(0, "NormApp::ProcessCommand(parity) invalid value!\n");   
+            DMSG(0, "NormApp::OnCommand(parity) invalid value!\n");   
             return false;
         }
         nparity = numParity;
@@ -461,7 +544,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         int autoParity = atoi(val);
         if ((autoParity < 0) || (autoParity > 254))
         {
-            DMSG(0, "NormApp::ProcessCommand(auto) invalid value!\n");   
+            DMSG(0, "NormApp::OnCommand(auto) invalid value!\n");   
             return false;
         }
         auto_parity = autoParity;
@@ -472,7 +555,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         int extraParity = atoi(val);
         if ((extraParity < 0) || (extraParity > 254))
         {
-            DMSG(0, "NormApp::ProcessCommand(extra) invalid value!\n");   
+            DMSG(0, "NormApp::OnCommand(extra) invalid value!\n");   
             return false;
         }
         extra_parity = extraParity;
@@ -483,7 +566,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         double backoffFactor = atof(val);
         if (backoffFactor < 0)
         {
-            DMSG(0, "NormSimAgent::ProcessCommand(backoff) invalid txRate!\n");   
+            DMSG(0, "NormSimAgent::OnCommand(backoff) invalid txRate!\n");   
             return false;
         }
         backoff_factor = backoffFactor;
@@ -493,7 +576,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
     {
         if (1 != sscanf(val, "%lu", &tx_buffer_size))
         {
-            DMSG(0, "NormApp::ProcessCommand(txbuffer) invalid value!\n");   
+            DMSG(0, "NormApp::OnCommand(txbuffer) invalid value!\n");   
             return false;
         }
     }
@@ -501,7 +584,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
     {
         if (1 != sscanf(val, "%lu", &rx_buffer_size))
         {
-            DMSG(0, "NormApp::ProcessCommand(rxbuffer) invalid value!\n");   
+            DMSG(0, "NormApp::OnCommand(rxbuffer) invalid value!\n");   
             return false;
         }
     }
@@ -530,7 +613,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
             msg_flush_mode = NormStreamObject::FLUSH_ACTIVE;
         else
         {
-            DMSG(0, "NormApp::ProcessCommand(flush) invalid msg flush mode!\n");   
+            DMSG(0, "NormApp::OnCommand(flush) invalid msg flush mode!\n");   
             return false;
         }
     }
@@ -538,12 +621,31 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
     {
         if (!post_processor->SetCommand(val))
         {
-            DMSG(0, "NormApp::ProcessCommand(processor) error!\n");   
+            DMSG(0, "NormApp::OnCommand(processor) error!\n");   
             return false;
         }
     }
+    else if (!strncmp("instance", cmd, len))
+    {
+        // First, try to connect to see if instance is already running
+        if (control_pipe.Connect(val))
+        {
+            TRACE("connected to \"%s\"\n", val);
+            control_remote = true;
+        }
+        else if (control_pipe.Listen(val))
+        {
+            TRACE("listening as \"%s\"\n", val);
+            control_remote = false;
+        }
+        else
+        {
+            DMSG(0, "NormApp::OnCommand(instance) error opening control pipe\n");
+            return false;   
+        }
+    }
     return true;
-}  // end NormApp::ProcessCommand()
+}  // end NormApp::OnCommand()
 
 
 NormApp::CmdType NormApp::CommandType(const char* cmd)
@@ -590,18 +692,18 @@ bool NormApp::ProcessCommands(int argc, const char*const* argv)
                         argv[i]);
                 return false;
             case CMD_NOARG:
-                if (!ProcessCommand(argv[i], NULL))
+                if (!OnCommand(argv[i], NULL))
                 {
-                    DMSG(0, "NormApp::ProcessCommands() ProcessCommand(%s) error\n", 
+                    DMSG(0, "NormApp::ProcessCommands() OnCommand(%s) error\n", 
                             argv[i]);
                     return false;
                 }
                 i++;
                 break;
             case CMD_ARG:
-                if (!ProcessCommand(argv[i], argv[i+1]))
+                if (!OnCommand(argv[i], argv[i+1]))
                 {
-                    DMSG(0, "NormApp::ProcessCommands() ProcessCommand(%s, %s) error\n", 
+                    DMSG(0, "NormApp::ProcessCommands() OnCommand(%s, %s) error\n", 
                             argv[i], argv[i+1]);
                     return false;
                 }
@@ -1085,6 +1187,7 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
     char fileName[PATH_MAX];
     if (tx_file_list.GetNextFile(fileName))
     {
+        tx_repeat_clear = true;
         char pathName[PATH_MAX];
         tx_file_list.GetCurrentBasePath(pathName);
         unsigned int len = strlen(pathName);
@@ -1132,11 +1235,24 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
         }
         else
         {
-            return OnIntervalTimeout(interval_timer);
+            if (tx_repeat_clear)
+            {
+                tx_repeat_clear = false;
+                return OnIntervalTimeout(interval_timer);
+            }
+            else
+            {
+                tx_repeat_clear = true;
+                if (interval_timer.IsActive()) interval_timer.Deactivate();
+                interval_timer.SetInterval(tx_repeat_interval);
+                ActivateTimer(interval_timer);
+                return false; 
+            }
         }
     }
     else
     {
+        tx_repeat_clear = true;
         DMSG(0, "norm: End of tx file list reached.\n");  
     }   
     return true;
@@ -1160,6 +1276,8 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
 #ifdef UNIX    
     signal(SIGCHLD, SignalHandler);
 #endif // UNIX
+    
+    if (control_remote) return false;
         
     // Validate our application settings
     if (!address)
@@ -1183,7 +1301,7 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
         session->SetTrace(tracing);
         session->SetTxLoss(tx_loss);
         session->SetRxLoss(rx_loss);
-        session->SetBackoffFactor(backoff_factor);          
+        session->SetBackoffFactor(backoff_factor);         
             
         if (input || !tx_file_list.IsEmpty())
         {

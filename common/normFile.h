@@ -137,6 +137,12 @@ class NormFileList
         {
             updates_only = updatesOnly;
             last_time = this_time = big_time = initTime;
+            if (0 == initTime)
+            {
+                struct timeval currentTime;
+                ProtoSystemTime(currentTime);
+                this_time = currentTime.tv_sec;   
+            }
         }
         
         bool Append(const char* path);

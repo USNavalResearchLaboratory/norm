@@ -46,51 +46,52 @@ class NormSimAgent : public NormController
     
         static const char* const cmd_list[];
 
-        NormSessionMgr      session_mgr;
-        NormSession*        session;
-           
+        NormSessionMgr              session_mgr;
+        NormSession*                session;
+
         // session parameters
-        char*               address;        // session address
-        UINT16              port;           // session port number
-        UINT8               ttl;
-        double              tx_rate;        // bits/sec
-        bool                cc_enable;
-        bool                unicast_nacks;
-        bool                silent_client;
-        double              backoff_factor;
-        UINT16              segment_size;
-        UINT8               ndata;
-        UINT8               nparity;
-        UINT8               auto_parity;
-        UINT8               extra_parity;
-        double              group_size;
-        unsigned long       tx_buffer_size; // bytes
-        unsigned long       rx_buffer_size; // bytes
-        
+        char*                       address;        // session address
+        UINT16                      port;           // session port number
+        UINT8                       ttl;
+        double                      tx_rate;        // bits/sec
+        bool                        cc_enable;
+        bool                        unicast_nacks;
+        bool                        silent_client;
+        double                      backoff_factor;
+        UINT16                      segment_size;
+        UINT8                       ndata;
+        UINT8                       nparity;
+        UINT8                       auto_parity;
+        UINT8                       extra_parity;
+        double                      group_size;
+        unsigned long               tx_buffer_size; // bytes
+        unsigned long               rx_buffer_size; // bytes
+
         // for simulated transmission (streams or files)
-        unsigned long       tx_object_size;
-        double              tx_object_interval;
-        int                 tx_repeat_count;
-        double              tx_repeat_interval;
-               
-        NormStreamObject*   stream;
-        bool                auto_stream;
-        bool                push_stream;
-        char*               tx_msg_buffer;
-        unsigned int        tx_msg_len;
-        unsigned int        tx_msg_index;
-        Mgen*               mgen;
-        char                mgen_buffer[64];
-        bool                msg_sync;
-        unsigned int        mgen_bytes;
-        unsigned int        mgen_pending_bytes;
+        unsigned long               tx_object_size;
+        double                      tx_object_interval;
+        int                         tx_repeat_count;
+        double                      tx_repeat_interval;
+
+        NormStreamObject*           stream;
+        bool                        auto_stream;
+        bool                        push_stream;
+        NormStreamObject::FlushType flush_mode;
+        char*                       tx_msg_buffer;
+        unsigned int                tx_msg_len;
+        unsigned int                tx_msg_index;
+        Mgen*                       mgen;
+        char                        mgen_buffer[64];
+        bool                        msg_sync;
+        unsigned int                mgen_bytes;
+        unsigned int                mgen_pending_bytes;
         
-        ProtoTimer          interval_timer;  
+        ProtoTimer                  interval_timer;  
         
         // protocol debug parameters
-        bool                tracing;
-        double              tx_loss;
-        double              rx_loss;
+        bool                        tracing;
+        double                      tx_loss;
+        double                      rx_loss;
     
 }; // end class NormSimAgent
 

@@ -1710,7 +1710,9 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         }
                         else
                         {
-                            block->HandleSegmentRequest(nextSegmentId, lastSegmentId, ndata, nparity, numErasures);
+                            block->HandleSegmentRequest(nextSegmentId, lastSegmentId, 
+                                                        object->GetBlockSize(block->Id()), 
+                                                        nparity, numErasures);
                             startTimer = true;
                         }  // end if/else (holdoff)
                         inRange = false;
