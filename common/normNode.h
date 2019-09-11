@@ -16,6 +16,8 @@ class NormNode
     public:
         NormNode(class NormSession& theSession, NormNodeId nodeId);
         virtual ~NormNode();
+        
+        NormSession& GetSession() const {return session;}
         void Retain();
         void Release();
         

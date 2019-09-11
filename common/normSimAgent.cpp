@@ -20,7 +20,7 @@ NormSimAgent::NormSimAgent(ProtoTimerMgr&         timerMgr,
    tx_object_size(0), tx_object_interval(0.0), 
    tx_object_size_min(0), tx_object_size_max(0), 
    tx_repeat_count(0), tx_repeat_interval(0.0),
-   stream(NULL), auto_stream(false), push_stream(false),
+   stream(NULL), auto_stream(false), push_mode(false),
    flush_mode(NormStreamObject::FLUSH_PASSIVE),
    mgen(NULL), msg_sync(false), mgen_bytes(0), mgen_pending_bytes(0),
    tracing(false), tx_loss(0.0), rx_loss(0.0)
@@ -397,6 +397,8 @@ bool NormSimAgent::ProcessCommand(const char* cmd, const char* val)
                 DMSG(0, "NormSimAgent::ProcessCommand(sendStream) error opening stream!\n");
                 return false;
             }
+            stream->SetFlushMode(flush_mode);
+            stream->SetPushMode(push_mode);
             auto_stream = true;
         }
         else
@@ -430,6 +432,8 @@ bool NormSimAgent::ProcessCommand(const char* cmd, const char* val)
                 DMSG(0, "NormSimAgent::ProcessCommand(openStream) error opening stream!\n");
                 return false;
             }
+            stream->SetFlushMode(flush_mode);
+            stream->SetPushMode(push_mode);
             auto_stream = false;  
             tx_msg_len = tx_msg_index = 0;
         }
@@ -469,9 +473,9 @@ bool NormSimAgent::ProcessCommand(const char* cmd, const char* val)
     else if (!strncmp("push", cmd, len))
     {
         if (!strcmp(val, "on"))
-            push_stream = true;
+            push_mode = true;
         else if (!strcmp(val, "off"))
-            push_stream = false;
+            push_mode = false;
         else
         {
             DMSG(0, "NormSimAgent::ProcessCommand(push) invalid argument!\n");   
@@ -592,13 +596,12 @@ void NormSimAgent::OnInputReady()
     {
         unsigned int bytesWrote = stream->Write(tx_msg_buffer+tx_msg_index,
                                                 tx_msg_len - tx_msg_index,
-                                                NormStreamObject::FLUSH_NONE, 
-                                                false, push_stream);
+                                                false);
         tx_msg_index += bytesWrote;
         if (tx_msg_index == tx_msg_len)
         {
-            // Provide EOM indication to norm stream
-            stream->Write(NULL, 0, flush_mode, true, false);   
+            // Mark EOM _and_ flush (using set flush mode)
+            stream->Write(NULL, 0, true);    
             tx_msg_index = tx_msg_len = 0;
         }   
     }
@@ -609,7 +612,7 @@ bool NormSimAgent::FlushStream()
 {
     if (stream && session && session->IsServer())
     {
-        stream->Write(NULL, 0, NormStreamObject::FLUSH_ACTIVE, false, false);
+        stream->Flush(true);
         return true;
     }
     else
@@ -636,9 +639,7 @@ void NormSimAgent::Notify(NormController::Event event,
                     // sending a dummy byte stream
                     char buffer[NormMsg::MAX_SIZE];
                     unsigned int count = 
-                        stream->Write(buffer, segment_size, 
-                                      NormStreamObject::FLUSH_NONE, 
-                                      false, false);
+                        stream->Write(buffer, segment_size, false);
                 }
                 else
                 {

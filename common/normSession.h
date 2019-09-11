@@ -20,11 +20,12 @@ class NormController
             TX_OBJECT_PURGED,
             LOCAL_SERVER_CLOSED,
             REMOTE_SERVER_NEW,
-            REMOTE_SERVER_INACTIVE,
             REMOTE_SERVER_ACTIVE,
+            REMOTE_SERVER_INACTIVE,
+            REMOTE_SERVER_PURGED,
             RX_OBJECT_NEW,
             RX_OBJECT_INFO,
-            RX_OBJECT_UPDATE,
+            RX_OBJECT_UPDATED,
             RX_OBJECT_COMPLETED,
             RX_OBJECT_ABORTED
         };
@@ -102,6 +103,7 @@ class NormSession
         bool IsOpen() {return (rx_socket.IsOpen() || tx_socket.IsOpen());}
         const ProtoAddress& Address() {return address;}
         void SetAddress(const ProtoAddress& addr) {address = addr;}
+        bool SetMulticastInterface(const char* interfaceName);
         bool SetTTL(UINT8 theTTL) 
         {
             bool result = tx_socket.IsOpen() ? tx_socket.SetTTL(theTTL) : true;
@@ -129,6 +131,7 @@ class NormSession
         void SetBackoffFactor(double value) {backoff_factor = value;}
         bool CongestionControl() {return cc_enable;}
         void SetCongestionControl(bool state) {cc_enable = state;}
+        void SetTxRateBounds(double rateMin, double rateMax);
         
         void Notify(NormController::Event event,
                     class NormServerNode* server,
@@ -249,8 +252,8 @@ class NormSession
         bool IsClient() const {return is_client;}
         unsigned long RemoteServerBufferSize() const
             {return remote_server_buffer_size;}
-        void SetUnicastNacks(bool state) {unicast_nacks = state;}
-        bool UnicastNacks() const {return unicast_nacks;}
+        void ClientSetUnicastNacks(bool state) {unicast_nacks = state;}
+        bool ClientGetUnicastNacks() const {return unicast_nacks;}
         void ClientSetSilent(bool state) {client_silent = state;}
         bool ClientIsSilent() const {return client_silent;}
         
@@ -342,6 +345,8 @@ class NormSession
         bool                            loopback; // to receive own traffic
         char                            interface_name[32];    
         double                          tx_rate;  // bytes per second
+        double                          tx_rate_min;
+        double                          tx_rate_max;
         double                          backoff_factor;
         
         // Server parameters and state

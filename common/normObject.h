@@ -51,7 +51,9 @@ class NormObject
         const NormObjectId& GetId() const {return transport_id;}  
         const NormObjectSize& GetSize() const {return object_size;}
         bool HaveInfo() const {return (info_len > 0);}
-        const char* GetInfo() const {return info;}
+        bool HasInfo() const {return (NULL != info_ptr);}
+        
+        const char* GetInfo() const {return info_ptr;}
         UINT16 GetInfoLength() const {return info_len;}
         bool IsStream() const {return (STREAM == type);}
         
@@ -257,7 +259,7 @@ class NormObject
         NormBlockId           final_block_id;
         UINT16                final_segment_size;
         NackingMode           nacking_mode;
-        char*                 info;
+        char*                 info_ptr;
         UINT16                info_len;
         
         // Here are some members used to let us know
@@ -321,12 +323,19 @@ class NormDataObject : public NormObject
         
         bool Open(char*       dataPtr,
                   UINT32      dataLen,
+                  bool        dataRelease,
                   const char* infoPtr = NULL,
                   UINT16      infoLen = 0);
-        bool Accept(char* dataPtr, UINT32 dataMax);
+        bool Accept(char* dataPtr, UINT32 dataMax, bool dataRelease);
         void Close();
         
         const char* GetData() {return data_ptr;}
+        char* DetachData() 
+        {
+            char* dataPtr = data_ptr;
+            data_ptr = NULL;
+            return dataPtr;
+        }
         
         virtual bool WriteSegment(NormBlockId   blockId, 
                                   NormSegmentId segmentId, 
@@ -346,6 +355,8 @@ class NormDataObject : public NormObject
         NormObjectSize  small_block_length;
         char*           data_ptr;
         UINT32          data_max;
+        bool            data_released;   // when true, data_ptr is deleted 
+                                         // on NormDataObject destruction
 };  // end class NormDataObject
 
 
@@ -357,7 +368,7 @@ class NormStreamObject : public NormObject
                          const NormObjectId&      objectId);
         ~NormStreamObject(); 
 
-        bool Open(UINT32 bufferSize, 
+        bool Open(UINT32        bufferSize, 
                   const char*   infoPtr = NULL, 
                   UINT16        infoLen = 0);
         void Close();
@@ -477,12 +488,9 @@ class NormSimObject : public NormObject
                       const NormObjectId&      objectId);
         ~NormSimObject();
         
-        bool Open(UINT32 objectSize,
+        bool Open(UINT32        objectSize,
                   const char*   infoPtr = NULL,
-                  UINT16        infoLen = 0)
-        {
-            return server ? true : NormObject::Open(objectSize, infoPtr, infoLen);
-        }
+                  UINT16        infoLen = 0);
         bool Accept() {NormObject::Accept(); return true;}
         void Close() {NormObject::Close();}
         
@@ -497,10 +505,7 @@ class NormSimObject : public NormObject
                                    bool*          msgStart = NULL);
         
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId)
-        {
-            return server ? server->GetRetrievalSegment() : NULL;   
-        }
+                                      NormSegmentId segmentId);
 };  // end class NormSimObject
 #endif // SIMULATE
 

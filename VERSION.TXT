@@ -1,9 +1,14 @@
 			           NORM Version History
 
+Version 1.2b5
+=============
+    - Initial release with theoretically-working API 
+      (including "Norm Developer's Guide!")
+
 Version 1.2b4
 =============
     - Finally remembered to update this file!
-    - Added "help" command to "norm" demo app (Thanks Marinho Barcellos)
+    - Added "help" command to "norm" demo app (Thanks Marinho Barcellos!)
     - New rxbuffer mgmnt scheme to better use limited buffer space.
     - Removed explicit rate limit on receiver feedback messages
     - API more complete and established better API naming conventions
@@ -12,6 +17,7 @@ Version 1.2b4
     - NORM RFC 3940 was released and this version is in compliance.
     - Added optional positive acknowledgements for sender-defined
       "watermarks".
+    - Fixed multicast leave problem when interfaceName was used for join
     
 Version 1.1b9
 =============

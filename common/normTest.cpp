@@ -64,7 +64,7 @@ int main(int argc, char* argv[])
     
     // NORM_FLUSH_PASSIVE automatically flushes full writes to
     // the stream.
-    NormStreamSetFlushMode(stream, NORM_FLUSH_PASSIVE);
+    NormStreamSetAutoFlush(stream, NORM_FLUSH_PASSIVE);
     
     
     // Some variable for stream input/output
@@ -143,18 +143,11 @@ int main(int argc, char* argv[])
                 // Assume info contains '/' delimited <path/fileName> string
                 if (NORM_OBJECT_FILE == NormObjectGetType(theEvent.object))
                 {
-                    NormObjectTransportId id = NormObjectGetTransportId(theEvent.object);
-                    if (0 != (id & 0x01))
-                    {
-                        //NormObjectCancel(theEvent.object);
-                        //break;
-                    }
-
                     char fileName[PATH_MAX];
                     strcpy(fileName, cachePath);
                     int pathLen = strlen(fileName);
                     unsigned short nameLen = PATH_MAX - pathLen;
-                    NormObjectGetInfo(theEvent.object, fileName+pathLen, &nameLen);
+                    nameLen = NormObjectGetInfo(theEvent.object, fileName+pathLen, nameLen);
                     fileName[nameLen + pathLen] = '\0';
                     char* ptr = fileName + 5;
                     while ('\0' != *ptr)
@@ -170,7 +163,7 @@ int main(int argc, char* argv[])
                 }
                 break;
 
-            case NORM_RX_OBJECT_UPDATE:
+            case NORM_RX_OBJECT_UPDATED:
             {
                 //TRACE("normTest: NORM_RX_OBJECT_UPDATE event ...\n");
                 if (NORM_OBJECT_STREAM != NormObjectGetType(theEvent.object))

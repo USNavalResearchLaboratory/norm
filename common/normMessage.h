@@ -8,6 +8,7 @@
 #include <string.h>  // for memcpy(), etc
 #include <math.h>
 #include <stdlib.h>  // for rand(), etc
+#include <sys/types.h>  // for off_t
 
 #ifdef SIMULATE
 #define SIM_PAYLOAD_MAX (36+8)   // MGEN message size + StreamPayloadHeaderLen()
@@ -94,7 +95,9 @@ inline double NormUnquantizeRate(unsigned short rate)
 }
 
 // This class is used to describe object "size" and/or "offset"
-// (TBD) This hokey implementation should use "off_t"
+// (TBD) This hokey implementation should use "off_t" as it's
+// native storage format and get rid of this custom crap !!!
+// (We should just get rid of this class !!!!!!!!)
 class NormObjectSize
 {
     public:
@@ -109,6 +112,7 @@ class NormObjectSize
             size >>= 32;
             ASSERT(0 == (size & 0xffff0000));   
             msb = size & 0x0000ffff;
+            msb = 0;
         }
         
         UINT16 MSB() const {return msb;}
@@ -159,6 +163,7 @@ class NormObjectSize
         NormObjectSize operator/(const NormObjectSize& b) const;
         off_t GetOffset() const
         {
+
            off_t offset = msb;
            offset <<= 32;
            offset += lsb;

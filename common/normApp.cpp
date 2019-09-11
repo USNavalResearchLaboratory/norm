@@ -761,7 +761,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     else if (!strncmp("unicastNacks", cmd, len))
     {
         unicast_nacks = true;
-        if (session) session->SetUnicastNacks(true);
+        if (session) session->ClientSetUnicastNacks(true);
     }
     else if (!strncmp("silentClient", cmd, len))
     {
@@ -1198,8 +1198,8 @@ void NormApp::Notify(NormController::Event event,
             }  // end switch(object->GetType())
             break;
             
-        case RX_OBJECT_UPDATE:
-            //DMSG(0, "NormApp::Notify(RX_OBJECT_UPDATE) ...\n");
+        case RX_OBJECT_UPDATED:
+            //DMSG(0, "NormApp::Notify(RX_OBJECT_UPDATED) ...\n");
             switch (object->GetType())
             {
                 case NormObject::FILE:
@@ -1212,7 +1212,7 @@ void NormApp::Notify(NormController::Event event,
                 {
                     if (object != rx_stream)
                     {
-                        DMSG(0, "NormApp::Notify(RX_OBJECT_UPDATE) update for invalid stream\n");
+                        DMSG(0, "NormApp::Notify(RX_OBJECT_UPDATED) update for invalid stream\n");
                         break;   
                     }
                     // Read the stream when it's updated  
@@ -1532,7 +1532,7 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
         if (output || rx_cache_path)
         {
             // StartClient(bufferMax (per-sender))
-            session->SetUnicastNacks(unicast_nacks);
+            session->ClientSetUnicastNacks(unicast_nacks);
             session->ClientSetSilent(silent_client);
             if (!session->StartClient(rx_buffer_size, interface_name))
             {

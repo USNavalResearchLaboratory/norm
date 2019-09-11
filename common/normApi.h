@@ -6,6 +6,8 @@
 #include <windows.h>
 #endif // WIN32
 
+#include <sys/types.h>  // for "off_t" type
+
 ////////////////////////////////////////////////////////////
 // IMPORTANT NOTICE
 //  The NORM API is _very_ much in a developmental phase
@@ -18,105 +20,26 @@
 //  is removed, the API shouldn't be considered final.
 
 
+/** NORM API Data Types and Constants
+ *  These are data types and constants defined
+ * for the NORM API
+ */
+ 
 typedef const void* NormInstanceHandle;
 extern const NormInstanceHandle NORM_INSTANCE_INVALID;
 
-NormInstanceHandle NormCreateInstance();
-void NormDestroyInstance(NormInstanceHandle instanceHandle);
-
-// NORM session creation and control
 typedef const void* NormSessionHandle;
 extern const NormSessionHandle NORM_SESSION_INVALID;
+
+typedef const void* NormNodeHandle;
+extern const NormNodeHandle NORM_NODE_INVALID;
 typedef unsigned long NormNodeId;
 extern const NormNodeId NORM_NODE_NONE;
 extern const NormNodeId NORM_NODE_ANY;
 
-NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
-                                    const char*        sessionAddress,
-                                    unsigned short     sessionPort,
-                                    NormNodeId         localNodeId);
-
-void NormDestroySession(NormSessionHandle sessionHandle);
-
-// Session management and parameters
-
-void NormSetTransmitRate(NormSessionHandle sessionHandle,
-                         double            bitsPerSecond);
-
-void NormSetGrttEstimate(NormSessionHandle sessionHandle,
-                         double            grttEstimate);
-
-NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle);
-
-bool NormSetLoopback(NormSessionHandle sessionHandle, bool state);
-
-// Debug parameters
-void NormSetMessageTrace(NormSessionHandle sessionHandle, bool state);
-void NormSetTxLoss(NormSessionHandle sessionHandle, double percent);
-void NormSetRxLoss(NormSessionHandle sessionHandle, double percent);
-
-// Sender control & parameters
-bool NormStartSender(NormSessionHandle  sessionHandle,
-                     unsigned long      bufferSpace,
-                     unsigned short     segmentSize,
-                     unsigned char      numData,
-                     unsigned char      numParity);
-
-void NormStopSender(NormSessionHandle sessionHandle);
-
-bool NormAddAckingNode(NormSessionHandle  sessionHandle,
-                       NormNodeId         nodeId);
-
-void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
-                          NormNodeId         nodeId);
-
-
-// Receiver control & parameters
-bool NormStartReceiver(NormSessionHandle  sessionHandle,
-                       unsigned long      bufferSpace);
-
-void NormStopReceiver(NormSessionHandle  sessionHandle);
-
-void NormSetDefaultUnicastNack(NormSessionHandle sessionHandle,
-                               bool              state);
-
-typedef const void* NormNodeHandle;
-extern const NormNodeHandle NORM_NODE_INVALID;
 typedef const void* NormObjectHandle;
 extern const NormObjectHandle NORM_OBJECT_INVALID;
 typedef unsigned short NormObjectTransportId;
-
-enum NormNackingMode
-{
-    NORM_NACK_NONE,
-    NORM_NACK_INFO_ONLY,
-    NORM_NACK_NORMAL  
-};
-    
-void NormSetDefaultNackingMode(NormSessionHandle sessionHandle,
-                               NormNackingMode   nackingMode);
-    
-enum NormRepairBoundary
-{
-    NORM_BOUNDARY_BLOCK,
-    NORM_BOUNDARY_OBJECT
-};
-    
-void NormSetDefaultRepairBoundary(NormSessionHandle  sessionHandle,
-                                  NormRepairBoundary repairBoundary); 
-
-NormRepairBoundary NormNodeGetRepairBoundary(NormNodeHandle nodeHandle);
-
-void NormNodeSetRepairBoundary(NormNodeHandle     nodeHandle,
-                               NormRepairBoundary repairBoundary);
-
-NormNodeId NormNodeGetId(NormNodeHandle nodeHandle);
-
-void NormNodeSetNackingMode(NormNodeHandle   nodeHandle,
-                            NormNackingMode  nackingMode);
-
-                                          
-// General NormObject functions
 
 enum NormObjectType
 {
@@ -126,95 +49,27 @@ enum NormObjectType
     NORM_OBJECT_STREAM   
 };
     
-    
-NormObjectType NormObjectGetType(NormObjectHandle objectHandle);
-
-
-bool NormObjectGetInfo(NormObjectHandle   objectHandle,
-                       char*              infoBuffer,
-                       unsigned short*    infoLen);
-
-NormObjectTransportId NormObjectGetTransportId(NormObjectHandle objectHandle);
-
-void NormObjectCancel(NormObjectHandle objectHandle);
-
-
-void NormObjectReNormObjectRetaintain(NormObjectHandle objectHandle);
-void NormObjectRelease(NormObjectHandle objectHandle);
-
-
-// Receiver-only NormObject functions
-NormNackingMode NormObjectGetNackingMode(NormObjectHandle objectHandle);
-        
-void NormObjectSetNackingMode(NormObjectHandle objectHandle,
-                              NormNackingMode  nackingMode);
-
-
-
-
-// Sender-only NormObject functions
-bool NormSetWatermark(NormSessionHandle  sessionHandle,
-                      NormObjectHandle   objectHandle);
-
-        
-// NormStreamObject functions
-
-NormObjectHandle NormStreamOpen(NormSessionHandle sessionHandle,
-                                unsigned long     bufferSize);
-
-void NormStreamClose(NormObjectHandle streamHandle);
-
 enum NormFlushMode
 {
     NORM_FLUSH_NONE,
     NORM_FLUSH_PASSIVE,
     NORM_FLUSH_ACTIVE   
 };
+    
 
-void NormStreamSetFlushMode(NormObjectHandle    streamHandle,
-                            NormFlushMode       flushMode);
-
-void NormStreamSetPushMode(NormObjectHandle streamHandle, 
-                           bool             state);
-
-unsigned int NormStreamWrite(NormObjectHandle   streamHandle,
-                             const char*        buffer,
-                             unsigned int       numBytes);
-
-void NormStreamFlush(NormObjectHandle streamHandle, bool eom = false);
-
-void NormStreamMarkEom(NormObjectHandle streamHandle);
-
-bool NormStreamRead(NormObjectHandle   streamHandle,
-                    char*              buffer,
-                    unsigned int*      numBytes);
-
-bool NormStreamSeekMsgStart(NormObjectHandle streamHandle);
-
-// NormFileObject Functions
-NormObjectHandle NormFileEnqueue(NormSessionHandle sessionHandle,
-                                 const char*  fileName,
-                                 const char*  infoPtr = (const char*)0, 
-                                 unsigned int infoLen = 0);
-
-bool NormSetCacheDirectory(NormInstanceHandle instanceHandle, 
-                           const char*        cachePath);
-
-bool NormFileGetName(NormObjectHandle   fileHandle,
-                     char*              nameBuffer,
-                     unsigned int       bufferLen);
-
-bool NormFileRename(NormObjectHandle   fileHandle,
-                    const char*        fileName);
-
-// NormDataObject Functions
-bool NormDataEnqueue(const char*   dataPtr,
-                     unsigned long dataLen,
-                     const char*   infoPtr = (const char*)0, 
-                     unsigned int  infoLen = 0);
-
-// NORM Event Notification Routines
-
+enum NormNackingMode
+{
+    NORM_NACK_NONE,
+    NORM_NACK_INFO_ONLY,
+    NORM_NACK_NORMAL  
+};
+    
+enum NormRepairBoundary
+{
+    NORM_BOUNDARY_BLOCK,
+    NORM_BOUNDARY_OBJECT
+};
+    
 enum NormEventType
 {
     NORM_EVENT_INVALID = 0,
@@ -224,11 +79,12 @@ enum NormEventType
     NORM_TX_OBJECT_PURGED,
     NORM_LOCAL_SERVER_CLOSED,
     NORM_REMOTE_SERVER_NEW,
-    NORM_REMOTE_SERVER_INACTIVE,
     NORM_REMOTE_SERVER_ACTIVE,
+    NORM_REMOTE_SERVER_INACTIVE,
+    NORM_REMOTE_SERVER_PURGED,
     NORM_RX_OBJECT_NEW,
     NORM_RX_OBJECT_INFO,
-    NORM_RX_OBJECT_UPDATE,
+    NORM_RX_OBJECT_UPDATED,
     NORM_RX_OBJECT_COMPLETED,
     NORM_RX_OBJECT_ABORTED
 };
@@ -240,7 +96,17 @@ typedef struct
     NormNodeHandle      sender;
     NormObjectHandle    object;
 } NormEvent;
+    
 
+/** NORM API General Initialization and Operation Functions */
+
+NormInstanceHandle NormCreateInstance();
+
+void NormDestroyInstance(NormInstanceHandle instanceHandle);
+
+// This MUST be set to enable NORM_OBJECT_FILE reception!
+bool NormSetCacheDirectory(NormInstanceHandle instanceHandle, 
+                           const char*        cachePath);
 
 // This call blocks until the next NormEvent is ready unless asynchronous
 // notification is used (see below)
@@ -252,7 +118,7 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent);
 // with system calls like "WaitForSingleEvent()", and on Unix the
 // returned descriptor can be used in a "select()" call.  If this type
 // of asynchronous notification is used, calls to "NormGetNextEvent()" will
-// not block.
+// not block when the notification is posted.
 
 #ifdef WIN32
 typedef HANDLE NormDescriptor;
@@ -260,5 +126,185 @@ typedef HANDLE NormDescriptor;
 typedef int NormDescriptor;
 #endif // if/else WIN32/UNIX
 NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle);
+
+/** NORM Session Creation and Control Functions */
+
+NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
+                                    const char*        sessionAddress,
+                                    unsigned short     sessionPort,
+                                    NormNodeId         localNodeId);
+
+void NormDestroySession(NormSessionHandle sessionHandle);
+
+NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle);
+
+bool NormSetMulticastInterface(NormSessionHandle sessionHandle,
+                               const char*       interfaceName);
+
+bool NormSetTTL(NormSessionHandle sessionHandle,
+                unsigned char     ttl);
+
+bool NormSetTOS(NormSessionHandle sessionHandle,
+                unsigned char     tos);
+
+bool NormSetLoopback(NormSessionHandle sessionHandle,
+                     bool              loopback);
+
+// Special functions for debug support
+void NormSetMessageTrace(NormSessionHandle sessionHandle, bool state);
+void NormSetTxLoss(NormSessionHandle sessionHandle, double percent);
+void NormSetRxLoss(NormSessionHandle sessionHandle, double percent);
+
+
+/** NORM Sender Functions */
+
+bool NormStartSender(NormSessionHandle  sessionHandle,
+                     unsigned long      bufferSpace,
+                     unsigned short     segmentSize,
+                     unsigned char      numData,
+                     unsigned char      numParity);
+
+void NormStopSender(NormSessionHandle sessionHandle);
+
+void NormSetTransmitRate(NormSessionHandle sessionHandle,
+                         double            bitsPerSecond);
+
+void NormSetCongestionControl(NormSessionHandle sessionHandle,
+                              bool              state);
+
+void NormSetTransmitRateBounds(NormSessionHandle sessionHandle,
+                               double            rateMin,
+                               double            rateMax);
+
+void NormSetAutoParity(NormSessionHandle sessionHandle,
+                       unsigned char     autoParity);
+
+void NormSetGrttEstimate(NormSessionHandle sessionHandle,
+                         double            grttEstimate);
+
+bool NormAddAckingNode(NormSessionHandle  sessionHandle,
+                       NormNodeId         nodeId);
+
+void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
+                          NormNodeId         nodeId);
+
+NormObjectHandle NormFileEnqueue(NormSessionHandle sessionHandle,
+                                 const char*  fileName,
+                                 const char*  infoPtr = (const char*)0, 
+                                 unsigned int infoLen = 0);
+
+bool NormDataEnqueue(const char*   dataPtr,
+                     unsigned long dataLen,
+                     const char*   infoPtr = (const char*)0, 
+                     unsigned int  infoLen = 0);
+
+
+
+NormObjectHandle NormStreamOpen(NormSessionHandle sessionHandle,
+                                unsigned long     bufferSize);
+
+void NormStreamClose(NormObjectHandle streamHandle);
+
+unsigned int NormStreamWrite(NormObjectHandle streamHandle,
+                             const char*      buffer,
+                             unsigned int     numBytes);
+
+void NormStreamFlush(NormObjectHandle streamHandle, 
+                     bool             eom = false,
+                     NormFlushMode    flushMode = NORM_FLUSH_PASSIVE);
+
+void NormStreamSetAutoFlush(NormObjectHandle streamHandle,
+                            NormFlushMode    flushMode);
+
+void NormStreamSetPushEnable(NormObjectHandle streamHandle, 
+                             bool             pushEnable);
+
+void NormStreamMarkEom(NormObjectHandle streamHandle);
+
+bool NormSetWatermark(NormSessionHandle  sessionHandle,
+                      NormObjectHandle   objectHandle);
+
+/** NORM Receiver Functions */
+
+bool NormStartReceiver(NormSessionHandle  sessionHandle,
+                       unsigned long      bufferSpace);
+
+void NormStopReceiver(NormSessionHandle sessionHandle);
+
+void NormSetSilentReceiver(NormSessionHandle sessionHandle,
+                           bool              silent);
+
+void NormSetDefaultUnicastNack(NormSessionHandle sessionHandle,
+                               bool              unicastNacks);
+
+void NormNodeSetUnicastNack(NormNodeHandle   remoteSender,
+                            bool             unicastNacks);
+
+void NormSetDefaultNackingMode(NormSessionHandle sessionHandle,
+                               NormNackingMode   nackingMode);
+    
+void NormNodeSetNackingMode(NormNodeHandle   nodeHandle,
+                            NormNackingMode  nackingMode);
+
+void NormObjectSetNackingMode(NormObjectHandle objectHandle,
+                              NormNackingMode  nackingMode);    
+
+void NormSetDefaultRepairBoundary(NormSessionHandle  sessionHandle,
+                                  NormRepairBoundary repairBoundary); 
+
+void NormNodeSetRepairBoundary(NormNodeHandle     nodeHandle,
+                               NormRepairBoundary repairBoundary);
+
+bool NormStreamRead(NormObjectHandle   streamHandle,
+                    char*              buffer,
+                    unsigned int*      numBytes);
+
+bool NormStreamSeekMsgStart(NormObjectHandle streamHandle);
+
+unsigned long NormStreamGetReadOffset(NormObjectHandle streamHandle);
+
+
+/** NORM Object Functions */
+
+NormObjectType NormObjectGetType(NormObjectHandle objectHandle);
+
+bool NormObjectHasInfo(NormObjectHandle objectHandle);
+
+unsigned short NormObjectGetInfoLength(NormObjectHandle objectHandle);
+
+unsigned short NormObjectGetInfo(NormObjectHandle objectHandle,
+                                  char*           buffer,
+                                  unsigned short  bufferLen);
+
+off_t NormObjectGetSize(NormObjectHandle objectHandle);
+
+void NormObjectCancel(NormObjectHandle objectHandle);
+
+void NormObjectRetain(NormObjectHandle objectHandle);
+
+void NormObjectRelease(NormObjectHandle objectHandle);
+
+bool NormFileGetName(NormObjectHandle   fileHandle,
+                     char*              nameBuffer,
+                     unsigned int       bufferLen);
+
+bool NormFileRename(NormObjectHandle   fileHandle,
+                    const char*        fileName);
+
+const char*volatile NormDataAccessData(NormObjectHandle objectHandle);
+
+char* NormDataDetachData(NormObjectHandle objectHandle);
+
+NormNodeHandle NormObjectGetSender(NormObjectHandle objectHandle);
+
+
+/** NORM Node Functions */
+
+NormNodeId NormNodeGetId(NormNodeHandle nodeHandle);
+
+void NormNodeRetain(NormNodeHandle nodeHandle);
+
+void NormNodeRelease(NormNodeHandle nodeHandle);
+
 
 #endif // _NORM_API

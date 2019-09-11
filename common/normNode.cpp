@@ -59,7 +59,7 @@ NormServerNode::NormServerNode(class NormSession& theSession, NormNodeId nodeId)
     
     repair_boundary = session.ClientGetDefaultRepairBoundary();
     default_nacking_mode = session.ClientGetDefaultNackingMode();
-    unicast_nacks = session.UnicastNacks();
+    unicast_nacks = session.ClientGetUnicastNacks();
     // (TBD) get "max_pending_range" value from NormSession parameter
             
     repair_timer.SetListener(this, &NormServerNode::OnRepairTimeout);
@@ -1706,6 +1706,7 @@ void NormServerNode::Activate()
         activity_timer.SetInterval(grtt_estimate*NORM_ROBUST_FACTOR);
         session.ActivateTimer(activity_timer);
         server_active = false;
+        session.Notify(NormController::REMOTE_SERVER_ACTIVE, this, NULL);
     }
     else
     {
@@ -1725,7 +1726,7 @@ bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
         DMSG(0, "NormServerNode::OnActivityTimeout() node>%lu server>%lu gone inactive?\n",
                 LocalNodeId(), GetId());
         FreeBuffers();
-        // (TBD) Notify application
+        session.Notify(NormController::REMOTE_SERVER_INACTIVE, this, NULL);
     }
     else
     {

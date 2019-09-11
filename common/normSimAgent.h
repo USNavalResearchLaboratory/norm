@@ -78,8 +78,8 @@ class NormSimAgent : public NormController
 
         NormStreamObject*           stream;
         bool                        auto_stream;
-        bool                        push_stream;
-        NormStreamObject::FlushType flush_mode;
+        bool                        push_mode;
+        NormStreamObject::FlushMode flush_mode;
         char*                       tx_msg_buffer;
         unsigned int                tx_msg_len;
         unsigned int                tx_msg_index;

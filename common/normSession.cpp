@@ -20,7 +20,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    tx_socket(ProtoSocket::UDP), rx_socket(ProtoSocket::UDP),     
    local_node_id(localNodeId), 
    ttl(DEFAULT_TTL), loopback(false),
-   tx_rate(DEFAULT_TRANSMIT_RATE/8.0), 
+   tx_rate(DEFAULT_TRANSMIT_RATE/8.0), tx_rate_min(-1.0), tx_rate_max(-1.0),
    backoff_factor(DEFAULT_BACKOFF_FACTOR), is_server(false), session_id(0),
    ndata(DEFAULT_NDATA), nparity(DEFAULT_NPARITY), auto_parity(0), extra_parity(0),
    next_tx_object_id(0), tx_cache_count_min(8), tx_cache_count_max(256),
@@ -112,12 +112,6 @@ bool NormSession::Open(const char* interfaceName)
     
     if (address.IsMulticast())
     {
-        if (!rx_socket.JoinGroup(address, interfaceName)) 
-        {
-            DMSG(0, "NormSession::Open() rx_socket join group error\n");
-            Close();
-            return false;
-        }   
         if (!tx_socket.SetTTL(ttl))
         {
             DMSG(0, "NormSession::Open() tx_socket set ttl error\n");
@@ -132,11 +126,27 @@ bool NormSession::Open(const char* interfaceName)
         }
         if (interfaceName)
         {
-            rx_socket.SetMulticastInterface(interfaceName);
-            tx_socket.SetMulticastInterface(interfaceName);
             strncpy(interface_name, interfaceName, 31);
             interface_name[31] = '\0';
         }
+        if ('\0' != interface_name[0])
+        {
+            bool result = rx_socket.SetMulticastInterface(interface_name);
+            result &= tx_socket.SetMulticastInterface(interface_name);
+            if (!result)
+            {
+                DMSG(0, "NormSession::Open() error setting multicast interface\n");
+                Close();
+                return false;
+            }
+            interfaceName = interface_name;
+        }
+        if (!rx_socket.JoinGroup(address, interfaceName)) 
+        {
+            DMSG(0, "NormSession::Open() rx_socket join group error\n");
+            Close();
+            return false;
+        }   
     }
     for (unsigned int i = 0; i < DEFAULT_MESSAGE_POOL_DEPTH; i++)
     {
@@ -179,6 +189,24 @@ void NormSession::Close()
 }  // end NormSession::Close()
 
 
+bool NormSession::SetMulticastInterface(const char* interfaceName)
+{
+    if (interfaceName)
+    {
+        bool result = true;
+        if (rx_socket.IsOpen())
+            result &= rx_socket.SetMulticastInterface(interfaceName);
+        if (tx_socket.IsOpen())
+            result &= tx_socket.SetMulticastInterface(interfaceName);
+        return result;
+    }
+    else
+    {
+        interface_name[0] = '\0';  
+        return true; 
+    }
+}  // end NormSession::SetMulticastInterface()
+
 void NormSession::SetTxRate(double txRate)
 {
     txRate /= 8.0; // convert to bytes/sec
@@ -193,7 +221,7 @@ void NormSession::SetTxRate(double txRate)
         }
         tx_rate = txRate;
     }
-    else if (0.0 == tx_rate)
+    else if ((0.0 == tx_rate) && IsOpen())
     {
         tx_rate = txRate;
         tx_timer.SetInterval(0.0);
@@ -204,6 +232,37 @@ void NormSession::SetTxRate(double txRate)
         tx_rate = txRate;   
     }
 }  // end NormSession::SetTxRate()
+
+void NormSession::SetTxRateBounds(double rateMin, double rateMax)
+{
+    // Make sure min <= max
+    if ((rateMin >= 0.0) && (rateMax >= 0.0))
+    {
+        if (rateMin > rateMax)
+        {
+            double temp = rateMin;
+            rateMin = rateMax;
+            rateMax = temp;   
+        }   
+    }
+    if (rateMin < 0.0)
+        tx_rate_min = -1.0;
+    else
+        tx_rate_min = rateMin/8.0;  // convert to bytes/second
+    if (rateMax < 0.0)
+        tx_rate_max = -1.0;
+    else
+        tx_rate_max = rateMax/8.0;  // convert to bytes/second
+    if (cc_enable)
+    {
+        if ((tx_rate_min >= 0.0) && (tx_rate < tx_rate_min))
+            tx_rate = tx_rate_min;
+        if ((tx_rate_max >= 0.0) && (tx_rate > tx_rate_max))
+            tx_rate = tx_rate_max;
+        SetTxRate(tx_rate*8.0);
+    }
+}  // end NormSession::SetTxRateBounds()
+        
 
 bool NormSession::StartServer(UINT32        bufferSpace,
                               UINT16        segmentSize,
@@ -285,7 +344,15 @@ bool NormSession::StartServer(UINT32        bufferSpace,
     //probe_timer.SetInterval(0.0);
     probe_pending = probe_reset = false;
     
-    if (cc_enable) tx_rate = segmentSize;
+    if (cc_enable) 
+    {
+        tx_rate = segmentSize;
+        if ((tx_rate_min >= 0.0) && (tx_rate < tx_rate_min))
+            tx_rate = tx_rate_min;
+        if ((tx_rate_max >= 0.0) && (tx_rate > tx_rate_max))
+            tx_rate = tx_rate_max;
+    }
+            
     OnProbeTimeout(probe_timer);
     ActivateTimer(probe_timer);
     return true;
@@ -782,7 +849,7 @@ NormDataObject* NormSession::QueueTxData(const char* dataPtr,
                 strerror(errno));
         return NULL; 
     }
-    if (!obj->Open((char*)dataPtr, dataLen, infoPtr, infoLen))
+    if (!obj->Open((char*)dataPtr, dataLen, false, infoPtr, infoLen))
     {
        DMSG(0, "NormSession::QueueTxData() object open error\n");
        delete obj;
@@ -1263,6 +1330,7 @@ void NormSession::ClientHandleObjectMessage(const struct timeval&   currentTime,
     {
         if ((theServer = new NormServerNode(*this, msg.GetSourceId())))
         {
+            Notify(NormController::REMOTE_SERVER_NEW, theServer, NULL);
             if (theServer->Open(msg.GetSessionId()))
             {
                 server_tree.AttachNode(theServer);
@@ -2821,9 +2889,17 @@ void NormSession::AdjustRate(bool onResponse)
             
         }*/
     }
+    
+    // Don't let tx_rate below MIN(one segment per grtt, one segment per second)
     double minRate = ((double)segment_size) / grtt_measured;
     minRate = MIN((double)segment_size, minRate);   
     tx_rate = MAX(tx_rate, minRate);
+    
+    // Keep "tx_rate" within user set rate bounds (if any)
+    if ((tx_rate_min >= 0.0) && (tx_rate < tx_rate_min))
+        tx_rate = tx_rate_min;
+    if ((tx_rate_max >= 0.0) && (tx_rate > tx_rate_max))
+        tx_rate = tx_rate_max;
     
     struct timeval currentTime;
     ::ProtoSystemTime(currentTime);

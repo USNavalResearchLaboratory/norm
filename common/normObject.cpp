@@ -11,7 +11,7 @@ NormObject::NormObject(NormObject::Type      theType,
    transport_id(transportId), segment_size(0), pending_info(false), repair_info(false),
    current_block_id(0), next_segment_id(0), 
    max_pending_block(0), max_pending_segment(0),
-   info(NULL), info_len(0), accepted(false), notify_on_update(true)
+   info_ptr(NULL), info_len(0), accepted(false), notify_on_update(true)
 {
     if (theServer)
         nacking_mode = theServer->GetDefaultNackingMode();
@@ -22,10 +22,10 @@ NormObject::NormObject(NormObject::Type      theType,
 NormObject::~NormObject()
 {
     Close();
-    if (info) 
+    if (info_ptr) 
     {
-        delete info;
-        info = NULL;
+        delete info_ptr;
+        info_ptr = NULL;
     }
 }
 
@@ -73,7 +73,7 @@ bool NormObject::Open(const NormObjectSize& objectSize,
         {
             pending_info = true;
             info_len = 0;
-            if (!(info = new char[segmentSize]))
+            if (!(info_ptr = new char[segmentSize]))
             {
                 DMSG(0, "NormObject::Open() info allocation error\n");
                 return false;
@@ -84,20 +84,20 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     {
         if (infoPtr)
         {
-            if (info) delete []info;
+            if (info_ptr) delete []info_ptr;
             if (infoLen > segmentSize)
             {
                 DMSG(0, "NormObject::Open() info too big error\n");
                 info_len = 0;
                 return false;
             }        
-            if (!(info = new char[infoLen]))
+            if (!(info_ptr = new char[infoLen]))
             {
                 DMSG(0, "NormObject::Open() info allocation error\n");
                 info_len = 0;
                 return false;
             } 
-            memcpy(info, infoPtr, infoLen);
+            memcpy(info_ptr, infoPtr, infoLen);
             info_len = infoLen;
             pending_info = true;
         }
@@ -207,7 +207,7 @@ void NormObject::Close()
 bool NormObject::HandleInfoRequest()
 {
     bool increasedRepair = false;
-    if (info)
+    if (info_ptr)
     {
         if (!repair_info)
         {
@@ -1047,7 +1047,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                     "Warning! info too long.\n", LocalNodeId(), server->GetId(),
                          (UINT16)transport_id);   
             }
-            memcpy(info, infoMsg.GetInfo(), info_len);
+            memcpy(info_ptr, infoMsg.GetInfo(), info_len);
             pending_info = false;
             session.Notify(NormController::RX_OBJECT_INFO, server, this);
         }
@@ -1219,9 +1219,10 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                                         block->SetPending(nextSegment);
                                         block->IncrementErasureCount();
                                         // Clear any erasure/retrieval segments
-                                        for (UINT16 i = 0; i < erasureCount; i++) 
+                                        UINT16 i;
+                                        for (i = 0; i < erasureCount; i++) 
                                             block->DetachSegment(server->GetErasureLoc(i));
-                                        for (UINT16 i = 0; i < retrievalCount; i++) 
+                                        for (i = 0; i < retrievalCount; i++) 
                                             block->DetachSegment(server->GetRetrievalLoc(i));
                                         return;   
                                     } 
@@ -1272,7 +1273,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 if (objectUpdated && notify_on_update)
                 {
                     notify_on_update = false;
-                    session.Notify(NormController::RX_OBJECT_UPDATE, server, this);
+                    session.Notify(NormController::RX_OBJECT_UPDATED, server, this);
                 }   
             }
             else
@@ -1418,7 +1419,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         default:
             break;
     }
-    if (info) msg->SetFlag(NormObjectMsg::FLAG_INFO);
+    if (info_ptr) msg->SetFlag(NormObjectMsg::FLAG_INFO);
     msg->SetFecId(129);
     msg->SetObjectId(transport_id);
     
@@ -1435,7 +1436,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
     {
         // (TBD) set REPAIR_FLAG for retransmitted info
         NormInfoMsg* infoMsg = (NormInfoMsg*)msg;
-        infoMsg->SetInfo(info, info_len);
+        infoMsg->SetInfo(info_ptr, info_len);
         pending_info = false;
         return true;
     }
@@ -1938,7 +1939,7 @@ NormDataObject::NormDataObject(class NormSession&       theSession,
                                const NormObjectId&      objectId)
  : NormObject(DATA, theSession, theServer, objectId), 
    large_block_length(0,0), small_block_length(0,0),
-   data_ptr(NULL), data_max(0)
+   data_ptr(NULL), data_max(0), data_released(false)
 {
     
 }
@@ -1946,11 +1947,21 @@ NormDataObject::NormDataObject(class NormSession&       theSession,
 NormDataObject::~NormDataObject()
 {
     Close();
+    if (data_released)
+    {
+        if (data_ptr)
+        {
+            delete data_ptr;
+            data_ptr = NULL;
+        }
+        data_released = false;
+    }
 }
 
 // Assign data object to data ptr
 bool NormDataObject::Open(char*       dataPtr,
                           UINT32      dataLen,
+                          bool        dataRelease,
                           const char* infoPtr,
                           UINT16      infoLen)
 {
@@ -1976,15 +1987,16 @@ bool NormDataObject::Open(char*       dataPtr,
     }
     data_ptr = dataPtr;
     data_max = dataLen;
+    data_released = dataRelease;
     large_block_length = NormObjectSize(large_block_size) * segment_size;
     small_block_length = NormObjectSize(small_block_size) * segment_size;
     return true;
 }  // end NormDataObject::Open()
                 
-bool NormDataObject::Accept(char* dataPtr, UINT32 dataMax)
+bool NormDataObject::Accept(char* dataPtr, UINT32 dataMax, bool dataRelease)
 {
     ASSERT(NULL == server);
-    if (Open(dataPtr, dataMax))
+    if (Open(dataPtr, dataMax, dataRelease))
     {
         NormObject::Accept(); 
         return true;  
@@ -2005,6 +2017,11 @@ bool NormDataObject::WriteSegment(NormBlockId   blockId,
                                   const char*   buffer,
                                   bool          /*msgStart*/)
 {
+    if (NULL == data_ptr)
+    {
+        DMSG(0, "NormDataObject::WriteSegment() error: NULL data_ptr\n");
+        return false;    
+    }    
     UINT16 len;  
     if (blockId == final_block_id)
     { 
@@ -2046,6 +2063,11 @@ UINT16 NormDataObject::ReadSegment(NormBlockId      blockId,
                                    char*            buffer,
                                    bool*            /*msgStart*/)            
 {
+    if (NULL == data_ptr)
+    {
+        DMSG(0, "NormDataObject::ReadSegment() error: NULL data_ptr\n");
+        return 0;    
+    }    
     // Determine segment length from blockId::segmentId
     UINT16 len;
     if (blockId == final_block_id)
@@ -2075,14 +2097,23 @@ UINT16 NormDataObject::ReadSegment(NormBlockId      blockId,
                                         segmentSize*segmentId;
     }
     ASSERT(0 == segmentOffset.MSB());
-    ASSERT(data_max >= (segmentOffset.LSB() + len));
+    if (data_max <= segmentOffset.LSB())
+        return 0;
+    else if (data_max <= (segmentOffset.LSB() + len))
+        len -= (segmentOffset.LSB() + len - data_max);
+    
     memcpy(buffer, data_ptr + segmentOffset.LSB(), len);
-    return true;
+    return len;
 }  // end NormDataObject::ReadSegment()
 
 char* NormDataObject::RetrieveSegment(NormBlockId      blockId, 
                                       NormSegmentId    segmentId)
 {
+    if (NULL == data_ptr)
+    {
+        DMSG(0, "NormDataObject::RetrieveSegment() error: NULL data_ptr\n");
+        return NULL;    
+    }    
     // Determine segment length from blockId::segmentId
     UINT16 len;
     if (blockId == final_block_id)
@@ -2101,7 +2132,7 @@ char* NormDataObject::RetrieveSegment(NormBlockId      blockId,
         if (server)
         {
             char* segment = server->GetRetrievalSegment();
-            ReadSegment(blockId, segmentId, segment);
+            len = ReadSegment(blockId, segmentId, segment);
             memset(segment+len, 0, segment_size-len);
             return segment;
         }
@@ -2490,7 +2521,7 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
                 block->GetFirstPending(read_index.segment);
                 NormBlock* tempBlock = block;
                 UINT32 tempOffset = read_offset; 
-                session.Notify(NormController::RX_OBJECT_UPDATE, server, this);  
+                session.Notify(NormController::RX_OBJECT_UPDATED, server, this);  
                 block = stream_buffer.Find(stream_buffer.RangeLo());
                 if (tempBlock == block)
                 {
@@ -2954,6 +2985,18 @@ NormSimObject::~NormSimObject()
     
 }
 
+bool NormSimObject::Open(UINT32        objectSize,
+                         const char*   infoPtr ,
+                         UINT16        infoLen)
+{
+    return (server ?
+                true : 
+                NormObject::Open(objectSize, infoPtr, infoLen, 
+                                 session.ServerSegmentSize(),
+                                 session.ServerBlockSize(),
+                                 session.ServerNumParity()));
+}  // end NormSimObject::Open()
+
 UINT16 NormSimObject::ReadSegment(NormBlockId      blockId, 
                                   NormSegmentId    segmentId,
                                   char*            buffer,
@@ -2974,6 +3017,12 @@ UINT16 NormSimObject::ReadSegment(NormBlockId      blockId,
     }
     return len;
 }  // end NormSimObject::ReadSegment()
+
+char* NormSimObject::RetrieveSegment(NormBlockId   blockId,
+                                     NormSegmentId segmentId)
+{
+    return server ? server->GetRetrievalSegment() : NULL;   
+}  // end NormSimObject::RetrieveSegment()
 
 #endif // SIMULATE      
 
