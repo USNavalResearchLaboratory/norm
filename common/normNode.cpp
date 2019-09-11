@@ -274,10 +274,12 @@ void NormServerNode::FreeBuffers()
     while ((obj = rx_table.Find(rx_table.RangeLo()))) 
     {
         session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
+        UINT16 objectId = obj->GetId();
         DeleteObject(obj);
         // We do the following to remember which objects were pending
-        rx_pending_mask.Set(obj->GetId());
+        rx_pending_mask.Set(objectId);
     }
+    
     segment_pool.Destroy();
     block_pool.Destroy();
     segment_size = ndata = nparity = 0; 
@@ -605,7 +607,7 @@ void NormServerNode::HandleNackMessage(const NormNackMsg& nack)
 // Clients use this method to process NACK content overheard from other 
 // clients or via NORM_CMD(REPAIR_ADV) messages received from the server.  
 // Such content can "suppress" pending NACKs
-void NormServerNode::HandleRepairContent(const char* buffer, UINT16 bufferLen)
+void NormServerNode::HandleRepairContent(const UINT32* buffer, UINT16 bufferLen)
 {
     // Parse NACK and incorporate into repair state masks
     NormRepairRequest req;
@@ -619,7 +621,7 @@ void NormServerNode::HandleRepairContent(const char* buffer, UINT16 bufferLen)
     while ((requestLength = req.Unpack(buffer, bufferLen)))
     {      
         // Point "buffer" to next request and adjust "bufferLen"
-        buffer += requestLength; 
+        buffer += (requestLength/4); 
         bufferLen -= requestLength;
         // Process request
         enum NormRequestLevel {SEGMENT, BLOCK, INFO, OBJECT};
@@ -1067,9 +1069,9 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
             // Reliable reception of this object has completed
             if (NormObject::FILE == obj->GetType()) 
 #ifdef SIMULATE
-                ((NormSimObject*)obj)->Close();           
+                static_cast<NormSimObject*>(obj)->Close();           
 #else
-                ((NormFileObject*)obj)->Close();
+                static_cast<NormFileObject*>(obj)->Close();
 #endif // !SIMULATE
             if (NormObject::STREAM != obj->GetType())
             {

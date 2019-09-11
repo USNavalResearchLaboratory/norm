@@ -20,41 +20,36 @@ bool NormMsg::InitFromBuffer(UINT16 msgLength)
     header_length = GetHeaderLength();
     // "header_length_base" is type dependent
     switch (GetType())
-    {
-        
+    {       
         // for INFO, DATA, and  
         case INFO:
             header_length_base = 16;
             break;
         case DATA:
-            // (TBD) look at "fec_id" to determine "fec_payload_id" size 
-            // (we _assume_ "fec_id" == 129 here
-            if ((unsigned char)buffer[NormObjectMsg::FEC_ID_OFFSET] == 129)
+            if (((UINT8*)buffer)[NormObjectMsg::FEC_ID_OFFSET] == 129)
             {
                 header_length_base = 24;
             }
             else
             {
                 DMSG(0, "NormMsg::InitFromBuffer(DATA) unknown fec_id value: %u\n",
-                         buffer[NormObjectMsg::FEC_ID_OFFSET]);
+                         ((UINT8*)buffer)[NormObjectMsg::FEC_ID_OFFSET]);
                 return false;
             }
             break;
         case CMD:
-            switch (buffer[NormCmdMsg::FLAVOR_OFFSET])
+            switch (((UINT8*)buffer)[NormCmdMsg::FLAVOR_OFFSET])
             {
                 case NormCmdMsg::FLUSH:
                 case NormCmdMsg::SQUELCH:
-                    // (TBD) look at "fec_id" to determine "fec_payload_id" size 
-                    // (we _assume_ "fec_id" == 129 here
-                    if ((unsigned char)buffer[NormCmdFlushMsg::FEC_ID_OFFSET] == 129)
+                    if (((UINT8*)buffer)[NormCmdFlushMsg::FEC_ID_OFFSET] == 129)
                     {
                         header_length_base = 24;
                     }
                     else
                     {
                         DMSG(0, "NormMsg::InitFromBuffer(FLUSH|SQUELCH) unknown fec_id value: %u\n",
-                                 buffer[NormCmdFlushMsg::FEC_ID_OFFSET]);
+                                 ((UINT8*)buffer)[NormCmdFlushMsg::FEC_ID_OFFSET]);
                         return false;
                     }
                     break;
@@ -67,6 +62,11 @@ bool NormMsg::InitFromBuffer(UINT16 msgLength)
                 case NormCmdMsg::CC:
                     header_length_base = 24;
                     break;
+                default:
+                    DMSG(0, "NormMsg::InitFromBuffer() recv'd unkown cmd flavor:%d\n",
+                        ((UINT8*)buffer)[NormCmdMsg::FLAVOR_OFFSET]);
+                    ASSERT(0);
+                    return false;
             }
             break;
         case NACK:
@@ -91,20 +91,20 @@ bool NormCmdCCMsg::GetCCNode(NormNodeId     nodeId,
                              UINT8&         rtt, 
                              UINT16&        rate) const
 {
-    UINT16 cmdLength = length;
-    UINT16 offset = header_length;
+    UINT16 cmdLength = length/4;
+    UINT16 offset = header_length/4;
     nodeId = htonl(nodeId);
     while (offset < cmdLength)
     {
-        if (nodeId == *((UINT32*)(buffer+offset)))
+        if (nodeId == buffer[offset])
         {
-            const char* ptr = buffer+offset;
-            flags = ptr[CC_FLAGS_OFFSET];
-            rtt = ptr[CC_RTT_OFFSET];
-            rate = ntohs(*((UINT16*)(ptr+CC_RATE_OFFSET)));
+            const UINT32* ptr = buffer+offset;
+            flags = ((UINT8*)ptr)[CC_FLAGS_OFFSET];
+            rtt = ((UINT8*)ptr)[CC_RTT_OFFSET];
+            rate = ntohs(((UINT16*)ptr)[CC_RATE_OFFSET]);
             return true;
         } 
-        offset += CC_ITEM_SIZE;
+        offset += CC_ITEM_SIZE/4;
     }
     return false;
 }  // end NormCmdCCMsg::GetCCNode()
@@ -120,12 +120,12 @@ bool NormCmdCCMsg::Iterator::GetNextNode(NormNodeId&    nodeId,
                                          UINT8&         rtt, 
                                          UINT16&        rate)
 {
-    if ((offset+CC_ITEM_SIZE) >  cc_cmd.GetLength()) return false; 
-    const char* ptr = cc_cmd.buffer + cc_cmd.header_length;
-    nodeId = ntohl(*((UINT32*)(ptr+offset))); 
-    flags = ptr[offset+CC_FLAGS_OFFSET];
-    rtt = ptr[offset+CC_RTT_OFFSET];
-    rate = ntohs(*((UINT16*)(ptr+CC_RATE_OFFSET)));
+    if ((offset+CC_ITEM_SIZE) > cc_cmd.GetLength()) return false; 
+    const UINT32* ptr = cc_cmd.buffer + cc_cmd.header_length/4;
+    nodeId = ntohl(ptr[offset/4]); 
+    flags = ((UINT8*)ptr)[offset+CC_FLAGS_OFFSET];
+    rtt = ((UINT8*)ptr)[offset+CC_RTT_OFFSET];
+    rate = ntohs(((UINT16*)ptr)[(offset/2)+CC_RATE_OFFSET]);
     offset += CC_ITEM_SIZE;
     return true;
 }  // end NormCmdCCMsg::Iterator::GetNextNode()
@@ -149,13 +149,13 @@ bool NormRepairRequest::AppendRepairItem(const NormObjectId& objectId,
             (UINT16)objectId, (UINT32)blockId, (UINT32)symbolId);
     if (buffer_len >= (length+ITEM_LIST_OFFSET+RepairItemLength()))
     {
-        char* ptr = buffer + length + ITEM_LIST_OFFSET;
-        ptr[FEC_ID_OFFSET] = (char)129;
-        ptr[RESERVED_OFFSET] = 0;
-        *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)objectId);
-        *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)blockId);
-        *((UINT16*)(ptr+BLOCK_LEN_OFFSET)) = htons((UINT16)blockLen);
-        *((UINT16*)(ptr+SYMBOL_ID_OFFSET)) = htons((UINT16)symbolId);
+        UINT32* ptr = buffer + (length + ITEM_LIST_OFFSET)/4;
+        ((UINT8*)ptr)[FEC_ID_OFFSET] = (char)129;
+        ((UINT8*)ptr)[RESERVED_OFFSET] = 0;
+        ((UINT16*)ptr)[OBJ_ID_OFFSET] = htons((UINT16)objectId);
+        ptr[BLOCK_ID_OFFSET] = htonl((UINT32)blockId);
+        ((UINT16*)ptr)[BLOCK_LEN_OFFSET] = htons((UINT16)blockLen);
+        ((UINT16*)ptr)[SYMBOL_ID_OFFSET] = htons((UINT16)symbolId);
         length += RepairItemLength();
         return true;
     }
@@ -180,21 +180,21 @@ bool NormRepairRequest::AppendRepairRange(const NormObjectId&   startObjectId,
     if (buffer_len >= (length+ITEM_LIST_OFFSET+RepairRangeLength()))
     {
         // range start
-        char* ptr = buffer + length + ITEM_LIST_OFFSET;
-        ptr[FEC_ID_OFFSET] = (char)129;
-        ptr[RESERVED_OFFSET] = 0;
-        *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)startObjectId);
-        *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)startBlockId);
-        *((UINT16*)(ptr+BLOCK_LEN_OFFSET)) = htons((UINT16)startBlockLen);
-        *((UINT16*)(ptr+SYMBOL_ID_OFFSET)) = htons((UINT16)startSymbolId);
-        ptr += RepairItemLength();
+        UINT32* ptr = buffer + (length + ITEM_LIST_OFFSET)/4;
+        ((UINT8*)ptr)[FEC_ID_OFFSET] = (char)129;
+        ((UINT8*)ptr)[RESERVED_OFFSET] = 0;
+        ((UINT16*)ptr)[OBJ_ID_OFFSET] = htons((UINT16)startObjectId);
+        ptr[BLOCK_ID_OFFSET] = htonl((UINT32)startBlockId);
+        ((UINT16*)ptr)[BLOCK_LEN_OFFSET] = htons((UINT16)startBlockLen);
+        ((UINT16*)ptr)[SYMBOL_ID_OFFSET] = htons((UINT16)startSymbolId);
+        ptr += (RepairItemLength()/4);
         // range end
-        ptr[FEC_ID_OFFSET] = (char)129;
-        ptr[RESERVED_OFFSET] = 0;
-        *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)endObjectId);
-        *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)endBlockId);
-        *((UINT16*)(ptr+BLOCK_LEN_OFFSET)) = htons((UINT16)endBlockLen);
-        *((UINT16*)(ptr+SYMBOL_ID_OFFSET)) = htons((UINT16)endSymbolId);
+        ((UINT8*)ptr)[FEC_ID_OFFSET] = (char)129;
+        ((UINT8*)ptr)[RESERVED_OFFSET] = 0;
+        ((UINT16*)ptr)[OBJ_ID_OFFSET] = htons((UINT16)endObjectId);
+        ptr[BLOCK_ID_OFFSET] = htonl((UINT32)endBlockId);
+        ((UINT16*)ptr)[BLOCK_LEN_OFFSET] = htons((UINT16)endBlockLen);
+        ((UINT16*)ptr)[SYMBOL_ID_OFFSET] = htons((UINT16)endSymbolId);
         length += RepairRangeLength();
         return true;
     }
@@ -211,13 +211,13 @@ bool NormRepairRequest::AppendErasureCount(const NormObjectId& objectId,
 {
     if (buffer_len >= (ITEM_LIST_OFFSET+length+ErasureItemLength()))
     {
-        char* ptr = buffer + length + ITEM_LIST_OFFSET;
-        ptr[FEC_ID_OFFSET] = (char)129;
-        ptr[RESERVED_OFFSET] = 0;
-        *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)objectId);
-        *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)blockId);
-        *((UINT16*)(ptr+BLOCK_LEN_OFFSET)) = htons((UINT16)blockLen);
-        *((UINT16*)(ptr+SYMBOL_ID_OFFSET)) = htons((UINT16)erasureCount);
+        UINT32* ptr = buffer + (length + ITEM_LIST_OFFSET)/4;
+        ((UINT8*)ptr)[FEC_ID_OFFSET] = (char)129;
+        ((UINT8*)ptr)[RESERVED_OFFSET] = 0;
+        ((UINT16*)ptr)[OBJ_ID_OFFSET] = htons((UINT16)objectId);
+        ptr[BLOCK_ID_OFFSET] = htonl((UINT32)blockId);
+        ((UINT16*)ptr)[BLOCK_LEN_OFFSET] = htons((UINT16)blockLen);
+        ((UINT16*)ptr)[SYMBOL_ID_OFFSET] = htons((UINT16)erasureCount);
         length += ErasureItemLength();
         return true;
     }
@@ -232,9 +232,9 @@ UINT16 NormRepairRequest::Pack()
 {
     if (length)
     {
-        buffer[FORM_OFFSET] = form;
-        buffer[FLAGS_OFFSET] = (char)flags;
-        *((UINT16*)(buffer+LENGTH_OFFSET)) = htons(length);
+        ((UINT8*)buffer)[FORM_OFFSET] = (UINT8)form;
+        ((UINT8*)buffer)[FLAGS_OFFSET] = (UINT8)flags;
+        ((UINT16*)buffer)[LENGTH_OFFSET] = htons(length);
         return (ITEM_LIST_OFFSET + length);
     }
     else
@@ -244,18 +244,18 @@ UINT16 NormRepairRequest::Pack()
 }  // end NormRepairRequest::Pack()
 
 
-UINT16 NormRepairRequest::Unpack(const char* bufferPtr, UINT16 bufferLen)
+UINT16 NormRepairRequest::Unpack(const UINT32* bufferPtr, UINT16 bufferLen)
 {
-    buffer =  (char*)bufferPtr;
+    buffer = (UINT32*)bufferPtr;
     buffer_len = bufferLen;
     length = 0;
     
     // Make sure there's at least a header
     if (buffer_len >= ITEM_LIST_OFFSET)
     {
-        form = (Form)buffer[FORM_OFFSET];
-        flags = (int)buffer[FLAGS_OFFSET];
-        length = ntohs(*((UINT16*)(buffer+LENGTH_OFFSET)));
+        form = (Form)((UINT8*)buffer)[FORM_OFFSET];
+        flags = (int)((UINT8*)buffer)[FLAGS_OFFSET];
+        length = ntohs(((UINT16*)buffer)[LENGTH_OFFSET]);
         if (length > (buffer_len - ITEM_LIST_OFFSET))
         {
             // Badly formed message
@@ -280,11 +280,11 @@ bool NormRepairRequest::RetrieveRepairItem(UINT16        offset,
 {
     if (length >= (offset + RepairItemLength()))
     {
-        const char* ptr = buffer+ITEM_LIST_OFFSET+offset;
-        *objectId = ntohs(*((UINT16*)(ptr+OBJ_ID_OFFSET)));
-        *blockId = ntohl(*((UINT32*)(ptr+BLOCK_ID_OFFSET)));
-        *blockLen = ntohs(*((UINT16*)(ptr+BLOCK_LEN_OFFSET)));
-        *symbolId = ntohs(*((UINT16*)(ptr+SYMBOL_ID_OFFSET)));
+        const UINT32* ptr = buffer+(ITEM_LIST_OFFSET+offset)/4;
+        *objectId = ntohs(((UINT16*)ptr)[OBJ_ID_OFFSET]);
+        *blockId = ntohl( ptr[BLOCK_ID_OFFSET]);
+        *blockLen = ntohs(((UINT16*)ptr)[BLOCK_LEN_OFFSET]);
+        *symbolId = ntohs(((UINT16*)ptr)[SYMBOL_ID_OFFSET]);
         return true;
     }
     else

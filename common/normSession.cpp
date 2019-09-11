@@ -1138,10 +1138,11 @@ void NormTrace(const struct timeval&    currentTime,
     const char* status = sent ? "dst" : "src";
     const ProtoAddress& addr = sent ? msg.GetDestination() : msg.GetSource();
     
+    UINT16 seq = msg.GetSequence();
     struct tm* ct = gmtime((time_t*)&currentTime.tv_sec);
-    DMSG(0, "trace>%02d:%02d:%02d.%06lu node>%lu %s>%s ",
+    DMSG(0, "trace>%02d:%02d:%02d.%06lu node>%lu %s>%s seq>%hu ",
             ct->tm_hour, ct->tm_min, ct->tm_sec, currentTime.tv_usec,
-            (UINT32)localId, status, addr.GetHostString());
+            (UINT32)localId, status, addr.GetHostString(), seq);
     bool clrFlag = false;
     switch (msgType)
     {
@@ -1165,9 +1166,10 @@ void NormTrace(const struct timeval&    currentTime,
             
             if (data.IsData())
             {
-                const UINT16* x = (const UINT16*)data.GetPayloadData();
+                UINT16 x;
+                memcpy(&x, data.GetPayloadData(), 2);
                 if (data.FlagIsSet(NormObjectMsg::FLAG_MSG_START))
-                    DMSG(0, "start byte>%hu ", ntohs(x[0]));   
+                    DMSG(0, "start byte>%hu ", ntohs(x));   
             }
             break;
         }
@@ -2582,6 +2584,7 @@ bool NormSession::SendMessage(NormMsg& msg)
         case NormMsg::INFO:
         case NormMsg::DATA:
             ((NormObjectMsg&)msg).SetSessionId(session_id);
+            msg.SetSequence(tx_sequence++);  // (TBD) set for session dst msgs
             break;
         case NormMsg::CMD:
             ((NormCmdMsg&)msg).SetSessionId(session_id);
@@ -2594,6 +2597,7 @@ bool NormSession::SendMessage(NormMsg& msg)
                 default:
                     break;
             }
+            msg.SetSequence(tx_sequence++);  // (TBD) set for session dst msgs
             break;
 
         case NormMsg::NACK:
@@ -2626,7 +2630,7 @@ bool NormSession::SendMessage(NormMsg& msg)
             break;
     }
     // Fill in common message fields
-    msg.SetSequence(tx_sequence++); 
+     
     msg.SetSourceId(local_node_id);
     UINT16 msgSize = msg.GetLength();
     bool result = true;

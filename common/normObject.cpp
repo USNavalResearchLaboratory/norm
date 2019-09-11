@@ -1763,7 +1763,6 @@ bool NormFileObject::Open(const char* thePath,
             off_t size = file.GetSize(); 
             if (size)
             {
-                NormObjectSize osize((off_t)size);
                 if (!NormObject::Open(NormObjectSize(size), 
                                       infoPtr, 
                                       infoLen,

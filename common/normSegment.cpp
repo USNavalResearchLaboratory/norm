@@ -53,12 +53,14 @@ bool NormSegmentPool::Init(unsigned int count, unsigned int size)
 void NormSegmentPool::Destroy()
 {
     ASSERT(seg_count == seg_total);
-    char** ptr = (char**)seg_list;
+    char* ptr;
+    memcpy(&ptr, &seg_list, sizeof(char*));
     while (ptr)
     {
-        char* next = *ptr;
+        char* next;
+        memcpy(&next, ptr, sizeof(char*));
         delete ptr;
-        ptr = (char**)next;         
+        ptr = next;         
     }
     seg_list = NULL;
     seg_count = 0;
@@ -68,10 +70,10 @@ void NormSegmentPool::Destroy()
 
 char* NormSegmentPool::Get()
 {
-    char** ptr = (char**)seg_list;
+    char* ptr = seg_list;
     if (ptr)
     {
-        seg_list = *ptr;
+        memcpy(&seg_list, ptr, sizeof(char));
         seg_count--;
 //#ifdef NORM_DEBUG
         overrun_flag = false;
@@ -88,7 +90,7 @@ char* NormSegmentPool::Get()
         } 
 //#endif // NORM_DEBUG 
     }
-    return ((char*)ptr);
+    return ptr;
 }  // end NormSegmentPool::GetSegment()
 
 

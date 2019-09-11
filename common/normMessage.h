@@ -95,7 +95,7 @@ inline double NormUnquantizeRate(unsigned short rate)
 }
 
 // This class is used to describe object "size" and/or "offset"
-// (TBD) This hokey implementation should use "off_t" as it's
+// (TBD) This hokey implementation should just use "off_t" as it's
 // native storage format and get rid of this custom crap !!!
 // (We should just get rid of this class !!!!!!!!)
 class NormObjectSize
@@ -248,25 +248,30 @@ class NormHeaderExtension
         }; 
             
         NormHeaderExtension();
-        virtual void Init(char* theBuffer) 
+        virtual void Init(UINT32* theBuffer) 
         {
             buffer = theBuffer;
             SetType(INVALID);
             SetWords(0);
         }
-        void SetType(Type type) {buffer[TYPE_OFFSET] = (UINT8)type;}
-        void SetWords(UINT8 words) {buffer[LENGTH_OFFSET] = words;}
+        void SetType(Type type) 
+            {((UINT8*)buffer)[TYPE_OFFSET] = (UINT8)type;}
+        void SetWords(UINT8 words) 
+            {((UINT8*)buffer)[LENGTH_OFFSET] = words;}
         
-        void AttachBuffer(const char* theBuffer) {buffer = (char*)theBuffer;}
-        const char* GetBuffer() {return buffer;}
+        void AttachBuffer(const UINT32* theBuffer) {buffer = (UINT32*)theBuffer;}
+        const UINT32* GetBuffer() {return buffer;}
          
         Type GetType() const
         {
-            return buffer ? (Type)((UINT8)buffer[TYPE_OFFSET]) : INVALID;  
+            return buffer ? (Type)(((UINT8*)buffer)[TYPE_OFFSET]) : INVALID;  
         }
         UINT16 GetLength() const
         {
-            return buffer ? ((GetType() < 128) ? (buffer[LENGTH_OFFSET] << 2) : 4) : 0;  
+            return (buffer ? 
+                        ((GetType() < 128) ? 
+                            ((((UINT8*)buffer)[LENGTH_OFFSET]) << 2) : 4) : 
+                        0);  
         }
                   
     protected:   
@@ -275,7 +280,7 @@ class NormHeaderExtension
             TYPE_OFFSET     = 0,
             LENGTH_OFFSET   = TYPE_OFFSET + 1
         };
-        char*   buffer;
+        UINT32*   buffer;
 };  // end class NormHeaderExtension
 
     
@@ -302,88 +307,93 @@ class NormMsg
         // Message building routines
         void SetVersion(UINT8 version) 
         {
-            buffer[VERSION_OFFSET] = (buffer[VERSION_OFFSET] & 0x0f) | (version << 4);
+            ((UINT8*)buffer)[VERSION_OFFSET] = 
+                (((UINT8*)buffer)[VERSION_OFFSET] & 0x0f) | (version << 4);
         }
         void SetType(NormMsg::Type type) 
         {
-            buffer[TYPE_OFFSET] = (buffer[VERSION_OFFSET] & 0xf0) | (type & 0x0f);
+            ((UINT8*)buffer)[TYPE_OFFSET] = 
+                (((UINT8*)buffer)[VERSION_OFFSET] & 0xf0) | (type & 0x0f);
         }
         void SetSequence(UINT16 sequence) 
         {
-            *((UINT16*)(buffer+SEQUENCE_OFFSET)) = htons(sequence);
+            ((UINT16*)buffer)[SEQUENCE_OFFSET] = htons(sequence);
         }   
         void SetSourceId(NormNodeId sourceId)
         {
-            *((UINT32*)(buffer+SOURCE_ID_OFFSET)) = htonl(sourceId); 
+            buffer[SOURCE_ID_OFFSET] = htonl(sourceId); 
         } 
         void SetDestination(const ProtoAddress& dst) {addr = dst;}
         
         void AttachExtension(NormHeaderExtension& extension)
         {
-            extension.Init(buffer+header_length);
+            extension.Init(buffer+(header_length/4));
             ExtendHeaderLength(extension.GetLength());
         }
         
         // Message processing routines
         bool InitFromBuffer(UINT16 msgLength);
-        UINT8 GetVersion() const {return buffer[VERSION_OFFSET];}
-        NormMsg::Type GetType() const {return (Type)(buffer[TYPE_OFFSET] & 0x0f);}
-        UINT16 GetHeaderLength() {return buffer[HDR_LEN_OFFSET] << 2;}
+        UINT8 GetVersion() const {return ((UINT8*)buffer)[VERSION_OFFSET];}
+        NormMsg::Type GetType() const {return (Type)(((UINT8*)buffer)[TYPE_OFFSET] & 0x0f);}
+        UINT16 GetHeaderLength() {return ((UINT8*)buffer)[HDR_LEN_OFFSET] << 2;}
         UINT16 GetSequence() const
         {
-            return (ntohs(*((UINT16*)(buffer+SEQUENCE_OFFSET))));   
+            return (ntohs((((UINT16*)buffer)[SEQUENCE_OFFSET])));   
         }
         NormNodeId GetSourceId() const
         {
-            return (ntohl(*((UINT32*)(buffer+SOURCE_ID_OFFSET))));    
+            return (ntohl(buffer[SOURCE_ID_OFFSET]));    
         }
         const ProtoAddress& GetDestination() const {return addr;}
         const ProtoAddress& GetSource() const {return addr;}
-        const char* GetBuffer() {return buffer;}
+        const char* GetBuffer() {return ((char*)buffer);}
         UINT16 GetLength() const {return length;}     
         
         // To retrieve any attached header extensions
         bool HasExtensions() const {return (header_length > header_length_base);}
         bool GetNextExtension(NormHeaderExtension& ext) const
         {
-            const char* currentBuffer = ext.GetBuffer();
-            UINT16 nextOffset = currentBuffer ? (currentBuffer - buffer + ext.GetLength()) : header_length_base;
-            bool result = (nextOffset < header_length);
-            ext.AttachBuffer(result ? (buffer+nextOffset) : NULL);
+            const UINT32* currentBuffer =  ext.GetBuffer();
+            UINT16 nextOffset = 
+                currentBuffer ? (currentBuffer - buffer + (ext.GetLength()/4)) : (header_length_base/4);
+            bool result = (nextOffset < (header_length/4));
+            ext.AttachBuffer(result ? (buffer+nextOffset) : (UINT32*)NULL);
             return result;
         }
         
         // For message reception and misc.
-        char* AccessBuffer() {return buffer;} 
+        char* AccessBuffer() {return ((char*)buffer);} 
         ProtoAddress& AccessAddress() {return addr;} 
         
     protected:
         // Common message header offsets
+        // All of our offsets reflect their offset based on the field size!
+        // (So we can efficiently dereference msg fields with proper alignment)
         enum
         {
             VERSION_OFFSET      = 0,
             TYPE_OFFSET         = VERSION_OFFSET,
-            HDR_LEN_OFFSET      = VERSION_OFFSET + 1,
-            SEQUENCE_OFFSET     = HDR_LEN_OFFSET + 1,
-            SOURCE_ID_OFFSET    = SEQUENCE_OFFSET + 2,
-            MSG_OFFSET          = SOURCE_ID_OFFSET + 4  
+            HDR_LEN_OFFSET      = VERSION_OFFSET+1,
+            SEQUENCE_OFFSET     = (HDR_LEN_OFFSET+1)/2,
+            SOURCE_ID_OFFSET    = ((SEQUENCE_OFFSET*2)+2)/4,
+            MSG_OFFSET          = (SOURCE_ID_OFFSET*4)+4 
         }; 
             
         void SetBaseHeaderLength(UINT16 len) 
         {
-            buffer[HDR_LEN_OFFSET] = len >> 2;
+            ((UINT8*)buffer)[HDR_LEN_OFFSET] = len >> 2;
             length = header_length_base = header_length = len;
         }
         void ExtendHeaderLength(UINT16 len) 
         {
             header_length += len;
             length += len;
-            buffer[HDR_LEN_OFFSET] = header_length >> 2;
+            ((UINT8*)buffer)[HDR_LEN_OFFSET] = header_length >> 2;
         }
            
-        char            buffer[MAX_SIZE]; 
-        UINT16          length; 
-        UINT16          header_length;
+        UINT32          buffer[MAX_SIZE / sizeof(UINT32)]; 
+        UINT16          length;         // in bytes
+        UINT16          header_length;  
         UINT16          header_length_base;
         ProtoAddress    addr;  // src or dst address
         
@@ -410,56 +420,55 @@ class NormObjectMsg : public NormMsg
         }; 
         UINT16 GetSessionId() const
         {
-            return (ntohs(*((UINT16*)(buffer+SESSION_ID_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[SESSION_ID_OFFSET]));
         }
-        UINT8 GetGrtt() const {return buffer[GRTT_OFFSET];} 
-        UINT8 GetBackoffFactor() const {return ((buffer[GSIZE_OFFSET] >> 4) & 0x0f);}
-        UINT8 GetGroupSize() const {return (buffer[GSIZE_OFFSET] & 0x0f);} 
+        UINT8 GetGrtt() const {return ((UINT8*)buffer)[GRTT_OFFSET];} 
+        UINT8 GetBackoffFactor() const {return ((((UINT8*)buffer)[GSIZE_OFFSET] >> 4) & 0x0f);}
+        UINT8 GetGroupSize() const {return (((UINT8*)buffer)[GSIZE_OFFSET] & 0x0f);} 
         bool FlagIsSet(NormObjectMsg::Flag flag) const
-            {return (0 != (flag & buffer[FLAGS_OFFSET]));}
+            {return (0 != (flag & ((UINT8*)buffer)[FLAGS_OFFSET]));}
         bool IsStream() const {return FlagIsSet(FLAG_STREAM);}
-        UINT8 GetFecId() const {return buffer[FEC_ID_OFFSET];}
+        UINT8 GetFecId() const {return ((UINT8*)buffer)[FEC_ID_OFFSET];}
         NormObjectId GetObjectId() const
         {
-            return (ntohs(*((UINT16*)(buffer+OBJ_ID_OFFSET))));   
+            return (ntohs(((UINT16*)buffer)[OBJ_ID_OFFSET]));   
         }
         
         // Message building routines
         void SetSessionId(UINT16 sessionId)
         {
-            *((UINT16*)(buffer+SESSION_ID_OFFSET)) = htons(sessionId);
+            ((UINT16*)buffer)[SESSION_ID_OFFSET] = htons(sessionId);
         }
-        void SetGrtt(UINT8 grtt) {buffer[GRTT_OFFSET] = grtt;}
+        void SetGrtt(UINT8 grtt) {((UINT8*)buffer)[GRTT_OFFSET] = grtt;}
         void SetBackoffFactor(UINT8 backoff)
         {
-            buffer[BACKOFF_OFFSET] =  (buffer[GSIZE_OFFSET] & 0x0f) | (backoff << 4);
+            ((UINT8*)buffer)[BACKOFF_OFFSET] =  (((UINT8*)buffer)[GSIZE_OFFSET] & 0x0f) | (backoff << 4);
         }
         void SetGroupSize(UINT8 gsize) 
         {
-            buffer[GSIZE_OFFSET] =  (buffer[GSIZE_OFFSET] & 0xf0) | gsize;
+            ((UINT8*)buffer)[GSIZE_OFFSET] =  (((UINT8*)buffer)[GSIZE_OFFSET] & 0xf0) | gsize;
         }
-        void ResetFlags() {buffer[FLAGS_OFFSET] = 0;}
-        void SetFlag(NormObjectMsg::Flag flag) {buffer[FLAGS_OFFSET] |= flag;}
-        void SetFecId(UINT8 fecId) {buffer[FEC_ID_OFFSET] = fecId;}        
+        void ResetFlags() {((UINT8*)buffer)[FLAGS_OFFSET] = 0;}
+        void SetFlag(NormObjectMsg::Flag flag) {((UINT8*)buffer)[FLAGS_OFFSET] |= flag;}
+        void SetFecId(UINT8 fecId) {((UINT8*)buffer)[FEC_ID_OFFSET] = fecId;}        
         void SetObjectId(const NormObjectId& objectId)
         {
-            *((UINT16*)(buffer+OBJ_ID_OFFSET)) = htons((UINT16)objectId);
+            ((UINT16*)buffer)[OBJ_ID_OFFSET] = htons((UINT16)objectId);
         }
         
     protected: 
         enum
         {
-            SESSION_ID_OFFSET   = MSG_OFFSET,
-            GRTT_OFFSET         = SESSION_ID_OFFSET + 2,
-            BACKOFF_OFFSET      = GRTT_OFFSET + 1,
+            SESSION_ID_OFFSET   = MSG_OFFSET/2,
+            GRTT_OFFSET         = (SESSION_ID_OFFSET*2)+2,
+            BACKOFF_OFFSET      = GRTT_OFFSET+1,
             GSIZE_OFFSET        = BACKOFF_OFFSET,
-            FLAGS_OFFSET        = GSIZE_OFFSET + 1,
-            FEC_ID_OFFSET       = FLAGS_OFFSET + 1,
-            OBJ_ID_OFFSET       = FEC_ID_OFFSET + 1,
-            OBJ_MSG_OFFSET      = OBJ_ID_OFFSET + 2
+            FLAGS_OFFSET        = GSIZE_OFFSET+1,
+            FEC_ID_OFFSET       = FLAGS_OFFSET+1,
+            OBJ_ID_OFFSET       = (FEC_ID_OFFSET+1)/2,
+            OBJ_MSG_OFFSET      = (OBJ_ID_OFFSET*2)+2
         };          
 };  // end class NormObjectMsg
-
 
 
 // This FEC Object Transmission Information assumes "fec_id" == 129
@@ -468,7 +477,7 @@ class NormFtiExtension : public NormHeaderExtension
     public:
         // To build the FTI Header Extension
         // (TBD) allow for different "fec_id" types in the future
-        virtual void Init(char* theBuffer)
+        virtual void Init(UINT32* theBuffer)
         {
             AttachBuffer(theBuffer);
             SetType(FTI);
@@ -476,57 +485,58 @@ class NormFtiExtension : public NormHeaderExtension
         }        
         void SetFecInstanceId(UINT16 instanceId)
         {
-            *((UINT16*)(buffer+FEC_INSTANCE_OFFSET)) = htons(instanceId);
+            ((UINT16*)buffer)[FEC_INSTANCE_OFFSET] = htons(instanceId);
         }
         void SetFecMaxBlockLen(UINT16 ndata)
         {
-            *((UINT16*)(buffer+FEC_NDATA_OFFSET)) = htons(ndata);
+            ((UINT16*)buffer)[FEC_NDATA_OFFSET] = htons(ndata);
         }
         void SetFecNumParity(UINT16 nparity)
         {
-            *((UINT16*)(buffer+FEC_NPARITY_OFFSET)) = htons(nparity);
+            ((UINT16*)buffer)[FEC_NPARITY_OFFSET] = htons(nparity);
         }
         void SetSegmentSize(UINT16 segmentSize)
         {
-            *((UINT16*)(buffer+SEG_SIZE_OFFSET)) = htons(segmentSize);
+            ((UINT16*)buffer)[SEG_SIZE_OFFSET] = htons(segmentSize);
         }
         void SetObjectSize(const NormObjectSize& objectSize)
         {
-            *((UINT16*)(buffer+OBJ_SIZE_OFFSET)) = htons(objectSize.MSB());
-            *((UINT32*)(buffer+OBJ_SIZE_OFFSET+2)) = htonl(objectSize.LSB());
+            ((UINT16*)buffer)[OBJ_SIZE_MSB_OFFSET] = htons(objectSize.MSB());
+            buffer[OBJ_SIZE_LSB_OFFSET] = htonl(objectSize.LSB());
         }
         
         // FTI Extension parsing methods
         UINT16 GetFecInstanceId() const
         {
-            return (ntohs(*((UINT16*)(buffer+FEC_INSTANCE_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[FEC_INSTANCE_OFFSET]));
         }
         UINT16 GetFecMaxBlockLen() const
         {
-            return (ntohs(*((UINT16*)(buffer+FEC_NDATA_OFFSET)))); 
+            return (ntohs(((UINT16*)buffer)[FEC_NDATA_OFFSET])); 
         }
         UINT16 GetFecNumParity() const
         {
-            return (ntohs(*((UINT16*)(buffer+FEC_NPARITY_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[FEC_NPARITY_OFFSET]));
         }
         UINT16 GetSegmentSize() const
         {
-            return (ntohs(*((UINT16*)(buffer+SEG_SIZE_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[SEG_SIZE_OFFSET]));
         }
         NormObjectSize GetObjectSize() const
         {
-            return NormObjectSize(ntohs(*((UINT16*)(buffer+OBJ_SIZE_OFFSET))), 
-                                  ntohl(*((UINT32*)(buffer+OBJ_SIZE_OFFSET+2))));   
+            return NormObjectSize(ntohs(((UINT16*)buffer)[OBJ_SIZE_MSB_OFFSET]), 
+                                  ntohl(buffer[OBJ_SIZE_LSB_OFFSET]));   
         }
     
     private:
         enum
         {
-            OBJ_SIZE_OFFSET     = LENGTH_OFFSET + 1,
-            FEC_INSTANCE_OFFSET = OBJ_SIZE_OFFSET + 6,
-            SEG_SIZE_OFFSET     = FEC_INSTANCE_OFFSET +2,
-            FEC_NDATA_OFFSET    = SEG_SIZE_OFFSET + 2,
-            FEC_NPARITY_OFFSET  = FEC_NDATA_OFFSET + 2
+            OBJ_SIZE_MSB_OFFSET = (LENGTH_OFFSET + 1)/2,
+            OBJ_SIZE_LSB_OFFSET = ((OBJ_SIZE_MSB_OFFSET*2)+2)/4,
+            FEC_INSTANCE_OFFSET = ((OBJ_SIZE_LSB_OFFSET*4)+4)/2,
+            SEG_SIZE_OFFSET     = ((FEC_INSTANCE_OFFSET*2)+2)/2,
+            FEC_NDATA_OFFSET    = ((SEG_SIZE_OFFSET*2)+2)/2,
+            FEC_NPARITY_OFFSET  = ((FEC_NDATA_OFFSET*2)+2)/2
         };
 };  // end class NormFtiExtension
 
@@ -544,12 +554,12 @@ class NormInfoMsg : public NormObjectMsg
         }
                 
         UINT16 GetInfoLen() const {return (length - header_length);}
-        const char* GetInfo() const {return (buffer + header_length);}
+        const char* GetInfo() const {return (((char*)buffer) + header_length);}
         
         // Note: apply any header extensions first
         void SetInfo(const char* data, UINT16 size)
         {
-            memcpy(buffer+header_length, data, size);
+            memcpy(((char*)buffer)+header_length, data, size);
             length = size + header_length;
         }
     private:
@@ -570,25 +580,22 @@ class NormDataMsg : public NormObjectMsg
         // Message building methods (in addition to NormObjectMsg fields)
         void SetFecBlockId(const NormBlockId& blockId)
         {
-            UINT32 temp32 = htonl((UINT32)blockId);
-            memcpy(buffer+BLOCK_ID_OFFSET, &temp32, 4);
+            buffer[BLOCK_ID_OFFSET] = htonl((UINT32)blockId);
         }
         void SetFecBlockLen(UINT16 blockLen)
         {
-            blockLen = htons(blockLen);
-            memcpy(buffer+BLOCK_LEN_OFFSET, &blockLen, 2);
+            ((UINT16*)buffer)[BLOCK_LEN_OFFSET] = htons(blockLen);
         }
         void SetFecSymbolId(UINT16 symbolId)
         {
-            symbolId = htons(symbolId);
-            memcpy(buffer+SYMBOL_ID_OFFSET, &symbolId, 2);
+            ((UINT16*)buffer)[SYMBOL_ID_OFFSET] = htons(symbolId);
         }
         
         // Two ways to set payload content:
         // 1) Directly access payload to copy segment, then set data message length
         //    (Note NORM_STREAM_OBJECT segments must already include "payload_len"
         //    and "payload_offset" with the "payload_data"
-        char* AccessPayload() {return (buffer+header_length);}
+        char* AccessPayload() {return (((char*)buffer)+header_length);}
         // For NORM_STREAM_OBJECT segments, "dataLength" must include the PAYLOAD_HEADER_LENGTH
         void SetPayloadLength(UINT16 payloadLength)
         {
@@ -597,28 +604,23 @@ class NormDataMsg : public NormObjectMsg
         // Set "payload" directly (useful for FEC parity segments)
         void SetPayload(char* payload, UINT16 payloadLength)
         {
-            memcpy(buffer+header_length, payload, payloadLength);
+            memcpy(((char*)buffer)+header_length, payload, payloadLength);
             length = header_length + payloadLength; 
         }
         // AccessPayloadData() (useful for setting ZERO padding)
         char* AccessPayloadData() 
         {
             UINT16 payloadIndex = IsStream() ? header_length+PAYLOAD_DATA_OFFSET : header_length;
-            return (buffer+payloadIndex);
+            return (((char*)buffer)+payloadIndex);
         }
                
         // Message processing methods
         NormBlockId GetFecBlockId() const
-        {
-            return (ntohl(*((UINT32*)(buffer+BLOCK_ID_OFFSET))));   
-        }
+            {return (ntohl(buffer[BLOCK_ID_OFFSET]));}
         UINT16 GetFecBlockLen() const
-        {
-            return (ntohs(*((UINT16*)(buffer+BLOCK_LEN_OFFSET))));
-        }
-        
+            {return (ntohs(((UINT16*)buffer)[BLOCK_LEN_OFFSET]));}
         UINT16 GetFecSymbolId()  const
-            {return (ntohs(*((UINT16*)(buffer+SYMBOL_ID_OFFSET))));}
+            {return (ntohs(((UINT16*)buffer)[SYMBOL_ID_OFFSET]));}
         bool IsData() const 
             {return (GetFecSymbolId() < GetFecBlockLen());}
        
@@ -626,13 +628,13 @@ class NormDataMsg : public NormObjectMsg
         //       "payload_len", "payload_offset", and "payload_data" fields
         //       For NORM_OBJECT_FILE and NORM_OBJECT_DATA, "payload" includes
         //       "payload_data" only
-        const char* GetPayload() const {return (buffer + header_length);}
+        const char* GetPayload() const {return (((char*)buffer)+header_length);}
         UINT16 GetPayloadLength() const {return (length - header_length);}
         
         const char* GetPayloadData() const 
         {
             UINT16 dataIndex = IsStream() ? header_length+PAYLOAD_DATA_OFFSET : header_length;
-            return (buffer + dataIndex);
+            return (((char*)buffer)+dataIndex);
         }
         UINT16 GetPayloadDataLength() const 
         {
@@ -646,35 +648,41 @@ class NormDataMsg : public NormObjectMsg
         static UINT16 GetStreamPayloadHeaderLength() {return (PAYLOAD_DATA_OFFSET);}
         static void WriteStreamPayloadLength(char* payload, UINT16 len)
         {
-            *((UINT16*)(payload+PAYLOAD_LENGTH_OFFSET)) = htons(len);
+            UINT16 temp16 = htons(len);
+            memcpy(payload+PAYLOAD_LENGTH_OFFSET, &temp16, 2);
         }
         static void WriteStreamPayloadOffset(char* payload, UINT32 offset)
         {
-            *((UINT32*)(payload+PAYLOAD_OFFSET_OFFSET)) = htonl(offset);
+            UINT32 temp32 = htonl(offset);
+            memcpy(payload+PAYLOAD_OFFSET_OFFSET, &temp32, 4);
         }
         static UINT16 ReadStreamPayloadLength(const char* payload)
         {
-            return (ntohs(*((UINT16*)(payload+PAYLOAD_LENGTH_OFFSET))));
+            UINT16 temp16;
+            memcpy(&temp16, payload+PAYLOAD_LENGTH_OFFSET, 2);
+            return (ntohs(temp16));
         }
         static UINT32 ReadStreamPayloadOffset(const char* payload)
         {
-            return ntohl(*((UINT32*)(payload+PAYLOAD_OFFSET_OFFSET)));
+            UINT32 temp32;
+            memcpy(&temp32, payload+PAYLOAD_OFFSET_OFFSET, 4);
+            return (ntohl(temp32));
         }
           
     private:    
         enum
         {
-            BLOCK_ID_OFFSET     = OBJ_MSG_OFFSET,
-            BLOCK_LEN_OFFSET    = BLOCK_ID_OFFSET + 4,
-            SYMBOL_ID_OFFSET    = BLOCK_LEN_OFFSET + 2,
-            DATA_HEADER_LEN     = SYMBOL_ID_OFFSET + 2
+            BLOCK_ID_OFFSET     = OBJ_MSG_OFFSET/4,
+            BLOCK_LEN_OFFSET    = ((BLOCK_ID_OFFSET*4)+4)/2,
+            SYMBOL_ID_OFFSET    = ((BLOCK_LEN_OFFSET*2)+2)/2,
+            DATA_HEADER_LEN     = (SYMBOL_ID_OFFSET*2)+2
         };
         enum
         {
             PAYLOAD_RESERVED_OFFSET = 0,
-            PAYLOAD_LENGTH_OFFSET = PAYLOAD_RESERVED_OFFSET + 2,
-            PAYLOAD_OFFSET_OFFSET = PAYLOAD_LENGTH_OFFSET + 2,
-            PAYLOAD_DATA_OFFSET = PAYLOAD_OFFSET_OFFSET + 4   
+            PAYLOAD_LENGTH_OFFSET   = PAYLOAD_RESERVED_OFFSET+2,
+            PAYLOAD_OFFSET_OFFSET   = PAYLOAD_LENGTH_OFFSET+2,
+            PAYLOAD_DATA_OFFSET     = PAYLOAD_OFFSET_OFFSET+4   
         };
 };  // end class NormDataMsg
 
@@ -697,34 +705,34 @@ class NormCmdMsg : public NormMsg
         // Message building
         void SetSessionId(UINT16 sessionId)
         {
-            *((UINT16*)(buffer+SESSION_ID_OFFSET)) = htons(sessionId);   
+            ((UINT16*)buffer)[SESSION_ID_OFFSET] = htons(sessionId);   
         }
         void SetGrtt(UINT8 quantizedGrtt) 
-            {buffer[GRTT_OFFSET] = quantizedGrtt;}
+            {((UINT8*)buffer)[GRTT_OFFSET] = quantizedGrtt;}
         void SetBackoffFactor(UINT8 backoff)
         {
-            buffer[BACKOFF_OFFSET] =  (buffer[GSIZE_OFFSET] & 0x0f) | (backoff << 4);
+            ((UINT8*)buffer)[BACKOFF_OFFSET] = (((UINT8*)buffer)[GSIZE_OFFSET] & 0x0f) | (backoff << 4);
         }
         void SetGroupSize(UINT8 gsize) 
         {
-            buffer[GSIZE_OFFSET] =  (buffer[GSIZE_OFFSET] & 0xf0) | gsize;
+            ((UINT8*)buffer)[GSIZE_OFFSET] = (((UINT8*)buffer)[GSIZE_OFFSET] & 0xf0) | gsize;
         }
         void SetFlavor(NormCmdMsg::Flavor flavor)
-            {buffer[FLAVOR_OFFSET] = flavor;}
+            {((UINT8*)buffer)[FLAVOR_OFFSET] = (UINT8)flavor;}
         
         // Message processing
-        UINT16 GetSessionId() const {return (ntohs(*((UINT16*)(buffer+SESSION_ID_OFFSET))));}
-        UINT8 GetGrtt() const {return buffer[GRTT_OFFSET];}
-        UINT8 GetBackoffFactor() const {return ((buffer[GSIZE_OFFSET] >> 4) & 0x0f);}
-        UINT8 GetGroupSize() const {return (buffer[GSIZE_OFFSET] & 0x0f);} 
-        NormCmdMsg::Flavor GetFlavor() const {return (Flavor)buffer[FLAVOR_OFFSET];} 
+        UINT16 GetSessionId() const {return (ntohs(((UINT16*)buffer)[SESSION_ID_OFFSET]));}
+        UINT8 GetGrtt() const {return ((UINT8*)buffer)[GRTT_OFFSET];}
+        UINT8 GetBackoffFactor() const {return ((((UINT8*)buffer)[GSIZE_OFFSET] >> 4) & 0x0f);}
+        UINT8 GetGroupSize() const {return (((UINT8*)buffer)[GSIZE_OFFSET] & 0x0f);} 
+        NormCmdMsg::Flavor GetFlavor() const {return (Flavor)((UINT8*)buffer)[FLAVOR_OFFSET];} 
             
     protected:
         friend class NormMsg;
         enum
         {
-            SESSION_ID_OFFSET    = MSG_OFFSET,
-            GRTT_OFFSET          = SESSION_ID_OFFSET + 2,
+            SESSION_ID_OFFSET    = MSG_OFFSET/2,
+            GRTT_OFFSET          = (SESSION_ID_OFFSET*2)+2,
             BACKOFF_OFFSET       = GRTT_OFFSET + 1,
             GSIZE_OFFSET         = BACKOFF_OFFSET,
             FLAVOR_OFFSET        = GSIZE_OFFSET + 1
@@ -744,67 +752,67 @@ class NormCmdFlushMsg : public NormCmdMsg
             SetFecId(129);  // default "fec_id"
         }    
             
-        void SetFecId(UINT8 fecId) {buffer[FEC_ID_OFFSET] = fecId;}
+        void SetFecId(UINT8 fecId) {((UINT8*)buffer)[FEC_ID_OFFSET] = fecId;}
         void SetObjectId(const NormObjectId& objectId)
         {
-            *((UINT16*)(buffer+OBJ_ID_OFFSET)) = htons((UINT16)objectId);
+            ((UINT16*)buffer)[OBJ_ID_OFFSET] = htons((UINT16)objectId);
         }
         // "fec_payload_id" fields, assuming "fec_id" = 129
         void SetFecBlockId(const NormBlockId& blockId)
         {
-            *((UINT32*)(buffer+BLOCK_ID_OFFSET)) = htonl((UINT32)blockId);
+            buffer[BLOCK_ID_OFFSET] = htonl((UINT32)blockId);
         }
         void SetFecBlockLen(UINT16 blockLen)
         {
-            *((UINT16*)(buffer+BLOCK_LEN_OFFSET)) = htons((UINT16)blockLen);
+            ((UINT16*)buffer)[BLOCK_LEN_OFFSET] = htons((UINT16)blockLen);
         }
         void SetFecSymbolId(UINT16 symbolId)
         {
-            *((UINT16*)(buffer+SYMBOL_ID_OFFSET)) = htons((UINT16)symbolId);
+            ((UINT16*)buffer)[SYMBOL_ID_OFFSET] = htons((UINT16)symbolId);
         }
         void ResetAckingNodeList() {length = header_length;}
         bool AppendAckingNode(NormNodeId nodeId, UINT16 segmentSize)
         {
             if ((length-header_length+ 4) > segmentSize) return false;
-            *((UINT32*)(buffer+length)) = htonl(nodeId);
+            buffer[length/4] = htonl((UINT32)nodeId);
             length += 4;
             return true;
         }
         
         // Message processing
-        UINT8 GetFecId() {return buffer[FEC_ID_OFFSET];}
+        UINT8 GetFecId() {return ((UINT8*)buffer)[FEC_ID_OFFSET];}
         NormObjectId GetObjectId() const
         {
-            return (ntohs(*((UINT16*)(buffer+OBJ_ID_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[OBJ_ID_OFFSET]));
         }        
         NormBlockId GetFecBlockId() const
         {
-            return (ntohl(*((UINT32*)(buffer+BLOCK_ID_OFFSET))));
+            return (ntohl(buffer[BLOCK_ID_OFFSET]));
         }
         UINT16 GetFecBlockLen() const
         {
-            return (ntohs(*((UINT16*)(buffer+BLOCK_LEN_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[BLOCK_LEN_OFFSET]));
         }
         UINT16 GetFecSymbolId() const
         {
-            return (ntohs(*((UINT16*)(buffer+SYMBOL_ID_OFFSET))));  
+            return (ntohs(((UINT16*)buffer)[SYMBOL_ID_OFFSET]));  
         }
         UINT16 GetAckingNodeCount() const {return ((length - header_length) >> 2);}
-        const UINT32* GetAckingNodeList() const {return (UINT32*)(buffer+header_length);}
+        const UINT32* GetAckingNodeList() const {return (buffer+(header_length/4));}
         NormNodeId GetAckingNodeId(UINT16 index) const 
         {
-            return (ntohl(*((UINT32*)(buffer+header_length+(index<<2)))));   
+            return (ntohl(buffer[(header_length/4)+index]));   
         }
             
     private:
         enum
         {
             FEC_ID_OFFSET     = FLAVOR_OFFSET + 1,     
-            OBJ_ID_OFFSET     = FEC_ID_OFFSET + 1,     
-            BLOCK_ID_OFFSET   = OBJ_ID_OFFSET + 2,  
-            BLOCK_LEN_OFFSET  = BLOCK_ID_OFFSET + 4,   
-            SYMBOL_ID_OFFSET  = BLOCK_LEN_OFFSET + 2,  
-            FLUSH_HEADER_LEN  = SYMBOL_ID_OFFSET + 2 
+            OBJ_ID_OFFSET     = (FEC_ID_OFFSET + 1)/2,     
+            BLOCK_ID_OFFSET   = ((OBJ_ID_OFFSET*2)+2)/4,  
+            BLOCK_LEN_OFFSET  = ((BLOCK_ID_OFFSET*4)+4)/2,   
+            SYMBOL_ID_OFFSET  = ((BLOCK_LEN_OFFSET*2)+2)/2,  
+            FLUSH_HEADER_LEN  = (SYMBOL_ID_OFFSET*2)+2 
         };
 };  // end class NormCmdFlushMsg
 
@@ -816,7 +824,7 @@ class NormCmdEotMsg : public NormCmdMsg
             SetType(CMD);
             SetFlavor(EOT);
             SetBaseHeaderLength(EOT_HEADER_LEN);
-            memset(buffer+RESERVED_OFFSET, 0, 3);
+            memset(((char*)buffer)+RESERVED_OFFSET, 0, 3);
         }    
     private:
         enum 
@@ -838,51 +846,52 @@ class NormCmdSquelchMsg : public NormCmdMsg
             SetBaseHeaderLength(SQUELCH_HEADER_LEN);
             SetFecId(129);  // default "fec_id"
         }    
-        void SetFecId(UINT8 fecId) {buffer[FEC_ID_OFFSET] = fecId;}
+        void SetFecId(UINT8 fecId) 
+            {((UINT8*)buffer)[FEC_ID_OFFSET] = fecId;}
         void SetObjectId(const NormObjectId& objectId)
         {
-            *((UINT16*)(buffer+OBJ_ID_OFFSET)) = htons((UINT16)objectId);
+            ((UINT16*)buffer)[OBJ_ID_OFFSET] = htons((UINT16)objectId);
         }
         // "fec_payload_id" fields, assuming "fec_id" = 129
         void SetFecBlockId(const NormBlockId& blockId)
         {
-            *((UINT32*)(buffer+BLOCK_ID_OFFSET)) = htonl((UINT32)blockId);
+            buffer[BLOCK_ID_OFFSET] = htonl((UINT32)blockId);
         }
         void SetFecBlockLen(UINT16 blockLen)
         {
-            *((UINT16*)(buffer+BLOCK_LEN_OFFSET)) = htons((UINT16)blockLen);
+            ((UINT16*)buffer)[BLOCK_LEN_OFFSET] = htons((UINT16)blockLen);
         }
         void SetFecSymbolId(UINT16 symbolId)
         {
-            *((UINT16*)(buffer+SYMBOL_ID_OFFSET)) = htons((UINT16)symbolId);
+            ((UINT16*)buffer)[SYMBOL_ID_OFFSET] = htons((UINT16)symbolId);
         }
         
         void ResetInvalidObjectList() {length = header_length;}
         bool AppendInvalidObject(NormObjectId objectId, UINT16 segmentSize)
         {
             if ((length-header_length+2) > segmentSize) return false;
-            *((UINT16*)(buffer+length)) = htons((UINT16)objectId);
+            ((UINT16*)buffer)[length/2] = htons((UINT16)objectId);
             length += 2;
             return true;   
         }
         
         // Message processing
-        UINT8 GetFecId() {return buffer[FEC_ID_OFFSET];}
+        UINT8 GetFecId() {return ((UINT8*)buffer)[FEC_ID_OFFSET];}
         NormObjectId GetObjectId() const
         {
-            return (ntohs(*((UINT16*)(buffer+OBJ_ID_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[OBJ_ID_OFFSET]));
         }        
         NormBlockId GetFecBlockId() const
         {
-            return (ntohl(*((UINT32*)(buffer+BLOCK_ID_OFFSET))));
+            return (ntohl(buffer[BLOCK_ID_OFFSET]));
         }
         UINT16 GetFecBlockLen() const
         {
-            return (ntohs(*((UINT16*)(buffer+BLOCK_LEN_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[BLOCK_LEN_OFFSET]));
         }
         UINT16 GetFecSymbolId() const
         {
-            return (ntohs(*((UINT16*)(buffer+SYMBOL_ID_OFFSET))));  
+            return (ntohs(((UINT16*)buffer)[SYMBOL_ID_OFFSET]));  
         }
         
         // Use these to parse invalid object list
@@ -890,18 +899,18 @@ class NormCmdSquelchMsg : public NormCmdMsg
         UINT16* GetInvalidObjectList() const {return (UINT16*)(buffer+header_length);}
         NormObjectId GetInvalidObjectId(UINT16 index) const
         {
-            return (ntohs(*((UINT16*)(buffer+header_length+(index << 1)))));
+            return (ntohs(((UINT16*)buffer)[(header_length/2)+index]));
         }
         
     private:
         enum
         {
             FEC_ID_OFFSET      = FLAVOR_OFFSET + 1,      
-            OBJ_ID_OFFSET      = FEC_ID_OFFSET + 1,      
-            BLOCK_ID_OFFSET    = OBJ_ID_OFFSET + 2,   
-            BLOCK_LEN_OFFSET   = BLOCK_ID_OFFSET + 4,    
-            SYMBOL_ID_OFFSET   = BLOCK_LEN_OFFSET + 2,    
-            SQUELCH_HEADER_LEN = SYMBOL_ID_OFFSET + 2
+            OBJ_ID_OFFSET      = (FEC_ID_OFFSET + 1)/2,      
+            BLOCK_ID_OFFSET    = ((OBJ_ID_OFFSET*2)+2)/4,   
+            BLOCK_LEN_OFFSET   = ((BLOCK_ID_OFFSET*4)+4)/2,    
+            SYMBOL_ID_OFFSET   = ((BLOCK_LEN_OFFSET*2)+2)/2,    
+            SQUELCH_HEADER_LEN = (SYMBOL_ID_OFFSET*2)+2
         };           
 };  // end class NormCmdSquelchMsg
 
@@ -929,38 +938,38 @@ class NormCmdCCMsg : public NormCmdMsg
             SetType(CMD);
             SetFlavor(CC);
             SetBaseHeaderLength(CC_HEADER_LEN);
-            buffer[RESERVED_OFFSET] = 0;
+            ((UINT8*)buffer)[RESERVED_OFFSET] = 0;
         }
         
         void SetCCSequence(UINT16 ccSequence) 
         {
-            *((UINT16*)(buffer+CC_SEQUENCE_OFFSET)) = htons(ccSequence);
+            ((UINT16*)buffer)[CC_SEQUENCE_OFFSET] = htons(ccSequence);
         } 
         void SetSendTime(const struct timeval& sendTime)
         {
-            *((UINT32*)(buffer+SEND_TIME_OFFSET)) = htonl(sendTime.tv_sec);
-            *((UINT32*)(buffer+SEND_TIME_OFFSET+4)) = htonl(sendTime.tv_usec);
+            buffer[SEND_TIME_SEC_OFFSET] = htonl(sendTime.tv_sec);
+            buffer[SEND_TIME_USEC_OFFSET] = htonl(sendTime.tv_usec);
         }
          
         UINT16 GetCCSequence() const 
         {
-            return (ntohs(*((UINT16*)(buffer+CC_SEQUENCE_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[CC_SEQUENCE_OFFSET]));
         }
         void GetSendTime(struct timeval& sendTime) const
         {
-            sendTime.tv_sec = ntohl(*((UINT32*)(buffer+SEND_TIME_OFFSET))); 
-            sendTime.tv_usec = ntohl(*((UINT32*)(buffer+SEND_TIME_OFFSET+4)));
+            sendTime.tv_sec = ntohl(buffer[SEND_TIME_SEC_OFFSET]); 
+            sendTime.tv_usec = ntohl(buffer[SEND_TIME_USEC_OFFSET]);
         }
         
         bool AppendCCNode(UINT16 segMax, NormNodeId nodeId, UINT8 flags, 
                           UINT8 rtt, UINT16 rate)
         {
             if ((length-header_length+CC_ITEM_SIZE)> segMax) return false;
-            char* ptr = buffer+length;
-            *((UINT32*)(ptr+CC_NODE_ID_OFFSET)) = htonl(nodeId);
-            ptr[CC_FLAGS_OFFSET] = flags;
-            ptr[CC_RTT_OFFSET] = rtt;
-            *((UINT16*)(ptr+CC_RATE_OFFSET)) = htons(rate);
+            UINT32* ptr = buffer + length/4;
+            ptr[CC_NODE_ID_OFFSET] = htonl(nodeId);
+            ((UINT8*)ptr)[CC_FLAGS_OFFSET] = flags;
+            ((UINT8*)ptr)[CC_RTT_OFFSET] = rtt;
+            ((UINT16*)ptr)[CC_RATE_OFFSET] = htons(rate);
             length += CC_ITEM_SIZE;
             return true;
         } 
@@ -986,10 +995,11 @@ class NormCmdCCMsg : public NormCmdMsg
     private:
         enum
         {
-            RESERVED_OFFSET     = FLAVOR_OFFSET + 1,
-            CC_SEQUENCE_OFFSET  = RESERVED_OFFSET + 1,
-            SEND_TIME_OFFSET    = CC_SEQUENCE_OFFSET + 2,
-            CC_HEADER_LEN       = SEND_TIME_OFFSET + 8
+            RESERVED_OFFSET       = FLAVOR_OFFSET + 1,
+            CC_SEQUENCE_OFFSET    = (RESERVED_OFFSET + 1)/2,
+            SEND_TIME_SEC_OFFSET  = ((CC_SEQUENCE_OFFSET*2)+2)/4,
+            SEND_TIME_USEC_OFFSET = ((SEND_TIME_SEC_OFFSET*4)+4)/4,
+            CC_HEADER_LEN         = (SEND_TIME_USEC_OFFSET*4)+4
         };  
             
         enum
@@ -997,8 +1007,8 @@ class NormCmdCCMsg : public NormCmdMsg
             CC_NODE_ID_OFFSET   = 0,
             CC_FLAGS_OFFSET     = CC_NODE_ID_OFFSET + 4,
             CC_RTT_OFFSET       = CC_FLAGS_OFFSET + 1,
-            CC_RATE_OFFSET      = CC_RTT_OFFSET + 1,
-            CC_ITEM_SIZE        = CC_RATE_OFFSET + 2
+            CC_RATE_OFFSET      = (CC_RTT_OFFSET + 1)/2,
+            CC_ITEM_SIZE        = (CC_RATE_OFFSET*2)+2
         };
                         
 };  // end NormCmdCCMsg
@@ -1007,23 +1017,22 @@ class NormCCRateExtension : public NormHeaderExtension
 {
     public:
             
-        virtual void Init(char* theBuffer)
+        virtual void Init(UINT32* theBuffer)
         {
             AttachBuffer(theBuffer);
             SetType(CC_RATE);
-            buffer[RESERVED_OFFSET] = 0;
+            ((UINT8*)buffer)[RESERVED_OFFSET] = 0;
         }
         void SetSendRate(UINT16 sendRate)
-        {
-            *((UINT16*)(buffer+SEND_RATE_OFFSET)) = htons(sendRate);   
-        }        
-        UINT16 GetSendRate() {return (ntohs(*((UINT16*)(buffer+SEND_RATE_OFFSET))));}
+            {((UINT16*)buffer)[SEND_RATE_OFFSET] = htons(sendRate);}
+        UINT16 GetSendRate() 
+            {return (ntohs(((UINT16*)buffer)[SEND_RATE_OFFSET]));}
             
     private:
         enum 
         {
             RESERVED_OFFSET  = TYPE_OFFSET + 1,
-            SEND_RATE_OFFSET = RESERVED_OFFSET + 1
+            SEND_RATE_OFFSET = (RESERVED_OFFSET + 1)/2
         };
 };  // end class NormCCRateExtension
 
@@ -1051,7 +1060,7 @@ class NormRepairRequest
             
         // Construction
         NormRepairRequest();
-        void Init(char* bufferPtr, UINT16 bufferLen)
+        void Init(UINT32* bufferPtr, UINT16 bufferLen)
         {
             buffer =  bufferPtr;
             buffer_len = bufferLen;
@@ -1091,7 +1100,7 @@ class NormRepairRequest
         UINT16 Pack();       
         
         // Repair request processing
-        UINT16 Unpack(const char* bufferPtr, UINT16 bufferLen);
+        UINT16 Unpack(const UINT32* bufferPtr, UINT16 bufferLen);
         NormRepairRequest::Form GetForm() const {return form;}
         bool FlagIsSet(NormRepairRequest::Flag theFlag) const
             {return (0 != (theFlag & flags));}
@@ -1121,8 +1130,8 @@ class NormRepairRequest
         {    
             FORM_OFFSET      = 0,
             FLAGS_OFFSET     = FORM_OFFSET + 1,   
-            LENGTH_OFFSET    = FLAGS_OFFSET + 1,
-            ITEM_LIST_OFFSET = LENGTH_OFFSET + 2
+            LENGTH_OFFSET    = (FLAGS_OFFSET + 1)/2,
+            ITEM_LIST_OFFSET = (LENGTH_OFFSET*2)+2
         }; 
             
         // These are the offsets for "fec_id" = 129 NormRepairRequest items
@@ -1130,17 +1139,17 @@ class NormRepairRequest
         {
             FEC_ID_OFFSET       = 0,
             RESERVED_OFFSET     = FEC_ID_OFFSET + 1,
-            OBJ_ID_OFFSET       = RESERVED_OFFSET + 1,
-            BLOCK_ID_OFFSET     = OBJ_ID_OFFSET + 2,
-            BLOCK_LEN_OFFSET    = BLOCK_ID_OFFSET + 4,
-            SYMBOL_ID_OFFSET    = BLOCK_LEN_OFFSET + 2
+            OBJ_ID_OFFSET       = (RESERVED_OFFSET + 1)/2,
+            BLOCK_ID_OFFSET     = ((OBJ_ID_OFFSET*2)+2)/4,
+            BLOCK_LEN_OFFSET    = ((BLOCK_ID_OFFSET*4)+4)/2,
+            SYMBOL_ID_OFFSET    = ((BLOCK_LEN_OFFSET*2)+2)/2
         };
             
         Form        form;
         int         flags;
-        UINT16      length;
-        char*       buffer;
-        UINT16      buffer_len;
+        UINT16      length;      // length of repair items
+        UINT32*     buffer;
+        UINT16      buffer_len;  // in bytes
         
 };  // end class NormRepairRequest
 
@@ -1155,19 +1164,19 @@ class NormCmdRepairAdvMsg : public NormCmdMsg
             SetFlavor(REPAIR_ADV);
             SetBaseHeaderLength(REPAIR_ADV_HEADER_LEN);
             ResetFlags();
-            *((UINT16*)(buffer+RESERVED_OFFSET)) =  0;
+            ((UINT16*)buffer)[RESERVED_OFFSET] =  0;
         }
         
         // Message building
-        void ResetFlags() {buffer[FLAGS_OFFSET] = 0;}
+        void ResetFlags() {((UINT8*)buffer)[FLAGS_OFFSET] = 0;}
         void SetFlag(NormCmdRepairAdvMsg::Flag flag) 
-            {buffer[FLAGS_OFFSET] |= (UINT8)flag;}        
+            {((UINT8*)buffer)[FLAGS_OFFSET] |= (UINT8)flag;}        
         void AttachRepairRequest(NormRepairRequest& request,
                                  UINT16             segmentMax)
         {
             int buflen = segmentMax - (length - header_length);
             buflen = (buflen>0) ? buflen : 0;
-            request.Init(buffer+length, buflen);
+            request.Init(buffer+length/4, buflen);
         }
         UINT16 PackRepairRequest(NormRepairRequest& request)
         {
@@ -1179,10 +1188,10 @@ class NormCmdRepairAdvMsg : public NormCmdMsg
         // Message processing 
         bool FlagIsSet(NormCmdRepairAdvMsg::Flag flag) const 
         {
-            return (0 != ((UINT8)flag | buffer[FLAGS_OFFSET]));
+            return (0 != ((UINT8)flag | ((UINT8*)buffer)[FLAGS_OFFSET]));
         }       
         //char* AccessRepairContent() {return (buffer + header_length);}
-        const char* GetRepairContent() const {return (buffer + header_length);}
+        const UINT32* GetRepairContent() const {return (buffer + header_length/4);}
         UINT16 GetRepairContentLength() const {return (length - header_length);}
                   
     private:
@@ -1199,43 +1208,53 @@ class NormCmdRepairAdvMsg : public NormCmdMsg
 class NormCCFeedbackExtension : public NormHeaderExtension
 {
     public:
-        virtual void Init(char* theBuffer)
+        virtual void Init(UINT32* theBuffer)
         {
             AttachBuffer(theBuffer);
             SetType(CC_FEEDBACK);
             SetWords(3);
-            buffer[CC_FLAGS_OFFSET] = 0;
-            *((UINT16*)(buffer+CC_RESERVED_OFFSET)) = 0;
+            ((UINT8*)buffer)[CC_FLAGS_OFFSET] = 0;
+            ((UINT16*)buffer)[CC_RESERVED_OFFSET] = 0;
         }
         void SetCCSequence(UINT16 ccSequence)
         {
-            *((UINT16*)(buffer+CC_SEQUENCE_OFFSET)) = htons(ccSequence);   
+            ((UINT16*)buffer)[CC_SEQUENCE_OFFSET] = htons(ccSequence);   
         }
-        void ResetCCFlags() {buffer[CC_FLAGS_OFFSET] = 0;}
-        void SetCCFlag(NormCC::Flag flag) {buffer[CC_FLAGS_OFFSET] |= (UINT8)flag;}
-        void SetCCRtt(UINT8 ccRtt) {buffer[CC_RTT_OFFSET] = ccRtt;}
-        void SetCCLoss(UINT16 ccLoss) {*((UINT16*)(buffer+CC_LOSS_OFFSET)) = htons(ccLoss);}
-        void SetCCRate(UINT16 ccRate) {*((UINT16*)(buffer+CC_RATE_OFFSET)) = htons(ccRate);}
+        void ResetCCFlags() 
+            {((UINT8*)buffer)[CC_FLAGS_OFFSET] = 0;}
+        void SetCCFlag(NormCC::Flag flag) 
+            {((UINT8*)buffer)[CC_FLAGS_OFFSET] |= (UINT8)flag;}
+        void SetCCRtt(UINT8 ccRtt) 
+            {((UINT8*)buffer)[CC_RTT_OFFSET] = ccRtt;}
+        void SetCCLoss(UINT16 ccLoss)
+            {((UINT16*)buffer)[CC_LOSS_OFFSET] = htons(ccLoss);}
+        void SetCCRate(UINT16 ccRate) 
+            {((UINT16*)buffer)[CC_RATE_OFFSET] = htons(ccRate);}
         
-        UINT16 GetCCSequence() const {return (ntohs(*((UINT16*)(buffer+CC_SEQUENCE_OFFSET))));}
-        UINT8 GetCCFlags() {return buffer[CC_FLAGS_OFFSET];}
+        UINT16 GetCCSequence() const 
+            {return (ntohs(((UINT16*)buffer)[CC_SEQUENCE_OFFSET]));}
+        UINT8 GetCCFlags() 
+            {return ((UINT8*)buffer)[CC_FLAGS_OFFSET];}
         bool CCFlagIsSet(NormCC::Flag flag) const
         {
-            return (0 != ((UINT8)flag & buffer[CC_FLAGS_OFFSET]));
+            return (0 != ((UINT8)flag & ((UINT8*)buffer)[CC_FLAGS_OFFSET]));
         }
-        UINT8 GetCCRtt() {return buffer[CC_RTT_OFFSET];}
-        UINT16 GetCCLoss() {return (ntohs(*((UINT16*)(buffer+CC_LOSS_OFFSET))));} 
-        UINT16 GetCCRate() {return (ntohs(*((UINT16*)(buffer+CC_RATE_OFFSET))));} 
+        UINT8 GetCCRtt() 
+            {return ((UINT8*)buffer)[CC_RTT_OFFSET];}
+        UINT16 GetCCLoss() 
+            {return (ntohs(((UINT16*)buffer)[CC_LOSS_OFFSET]));} 
+        UINT16 GetCCRate()
+            {return (ntohs(((UINT16*)buffer)[CC_RATE_OFFSET]));} 
             
     private:
         enum
         {
-            CC_SEQUENCE_OFFSET  = LENGTH_OFFSET + 1,
-            CC_FLAGS_OFFSET     = CC_SEQUENCE_OFFSET + 2,
+            CC_SEQUENCE_OFFSET  = (LENGTH_OFFSET+1)/2,
+            CC_FLAGS_OFFSET     = (CC_SEQUENCE_OFFSET*2)+2,
             CC_RTT_OFFSET       = CC_FLAGS_OFFSET + 1,
-            CC_LOSS_OFFSET      = CC_RTT_OFFSET + 1,
-            CC_RATE_OFFSET      = CC_LOSS_OFFSET + 2,
-            CC_RESERVED_OFFSET  = CC_RATE_OFFSET + 2
+            CC_LOSS_OFFSET      = (CC_RTT_OFFSET + 1)/2,
+            CC_RATE_OFFSET      = ((CC_LOSS_OFFSET*2)+2)/2,
+            CC_RESERVED_OFFSET  = ((CC_RATE_OFFSET*2)+2)/2
         };
                             
 };  // end class NormCCFeedbackExtension
@@ -1263,28 +1282,31 @@ class NormCmdAckReqMsg : public NormCmdMsg
             SetType(CMD);
             SetFlavor(ACK_REQ);
             SetBaseHeaderLength(ACK_REQ_HEADER_LEN);
-            buffer[RESERVED_OFFSET] =  0;
+            ((UINT8*)buffer)[RESERVED_OFFSET] =  0;
         }
         
         // Message building
-        void SetAckType(NormAck::Type ackType) {buffer[ACK_TYPE_OFFSET] = (UINT8)ackType;}
-        void SetAckId(UINT8 ackId) {buffer[ACK_ID_OFFSET] = ackId;}       
+        void SetAckType(NormAck::Type ackType) {((UINT8*)buffer)[ACK_TYPE_OFFSET] = (UINT8)ackType;}
+        void SetAckId(UINT8 ackId) {((UINT8*)buffer)[ACK_ID_OFFSET] = ackId;}       
         void ResetAckingNodeList() {length = header_length;}
         bool AppendAckingNode(NormNodeId nodeId, UINT16 segmentSize)
         {
             if ((length - header_length + 4) > segmentSize) return false;
-            *((UINT32*)(buffer+length)) = htonl(nodeId);
+            buffer[length/4] = htonl(nodeId);
             length += 4;
             return true;
         }        
         
         // Message processing
-        NormAck::Type GetAckType() const {return (NormAck::Type)buffer[ACK_TYPE_OFFSET];}
-        UINT8 GetAckId() const {return buffer[ACK_ID_OFFSET];}        
-        UINT16 GetAckingNodeCount() const {return ((length - header_length) >> 2);}
+        NormAck::Type GetAckType() const 
+            {return (NormAck::Type)(((UINT8*)buffer)[ACK_TYPE_OFFSET]);}
+        UINT8 GetAckId() const 
+            {return ((UINT8*)buffer)[ACK_ID_OFFSET];}        
+        UINT16 GetAckingNodeCount() const 
+            {return ((length - header_length) >> 2);}
         NormNodeId GetAckingNodeId(UINT16 index) const 
         {
-            return (ntohl(*((UINT32*)(buffer+header_length+(index<<2)))));
+            return (ntohl(buffer[(header_length/4)+index]));
         }
         
             
@@ -1307,18 +1329,18 @@ class NormCmdApplicationMsg : public NormCmdMsg
             SetType(CMD);
             SetFlavor(APPLICATION);
             SetBaseHeaderLength(APPLICATION_HEADER_LEN);
-            memset(buffer+RESERVED_OFFSET, 0, 3);
+            memset(((UINT8*)buffer)+RESERVED_OFFSET, 0, 3);
         }
             
         bool SetContent(const char* content, UINT16 contentLen, UINT16 segmentSize)
         {
             UINT16 len = MIN(contentLen, segmentSize);
-            memcpy(buffer+header_length, content, len);
+            memcpy(((char*)buffer)+header_length, content, len);
             return (contentLen <= segmentSize);
         }
         
         UINT16 GetContentLength() {return (length - header_length);}
-        const char* GetContent() {return (buffer+header_length);}
+        const char* GetContent() {return (((char*)buffer)+header_length);}
             
     private:
         enum 
@@ -1342,23 +1364,23 @@ class NormNackMsg : public NormMsg
         // Message building
         void SetServerId(NormNodeId serverId)
         {
-            *((UINT32*)(buffer+SERVER_ID_OFFSET)) = htonl(serverId);
+            buffer[SERVER_ID_OFFSET] = htonl(serverId);
         }
         void SetSessionId(UINT16 sessionId)
         {
-            *((UINT16*)(buffer+SESSION_ID_OFFSET)) = htons(sessionId);
+            ((UINT16*)buffer)[SESSION_ID_OFFSET] = htons(sessionId);
         }
         void SetGrttResponse(const struct timeval& grttResponse)
         {
-            *((UINT32*)(buffer+GRTT_RESPONSE_OFFSET)) = htonl(grttResponse.tv_sec);
-            *((UINT32*)(buffer+GRTT_RESPONSE_OFFSET+4)) = htonl(grttResponse.tv_usec);
+            buffer[GRTT_RESPONSE_SEC_OFFSET] = htonl(grttResponse.tv_sec);
+            buffer[GRTT_RESPONSE_USEC_OFFSET] = htonl(grttResponse.tv_usec);
         }
         void AttachRepairRequest(NormRepairRequest& request,
                                  UINT16             segmentMax)
         {
             int buflen = segmentMax - (length - header_length);
             buflen = (buflen>0) ? buflen : 0;
-            request.Init(buffer+length, buflen);
+            request.Init(buffer+length/4, buflen);
         }
         UINT16 PackRepairRequest(NormRepairRequest& request)
         {
@@ -1370,19 +1392,19 @@ class NormNackMsg : public NormMsg
         // Message processing 
         NormNodeId GetServerId() const
         {
-            return (ntohl(*((UINT32*)(buffer+SERVER_ID_OFFSET))));
+            return (ntohl(buffer[SERVER_ID_OFFSET]));
         }
         UINT16 GetSessionId() const
         {
-            return (ntohs(*((UINT16*)(buffer+SESSION_ID_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[SESSION_ID_OFFSET]));
         }
         void GetGrttResponse(struct timeval& grttResponse) const
         {
-            grttResponse.tv_sec = ntohl(*((UINT32*)(buffer+GRTT_RESPONSE_OFFSET)));
-            grttResponse.tv_usec = ntohl(*((UINT32*)(buffer+GRTT_RESPONSE_OFFSET+4)));
+            grttResponse.tv_sec = ntohl(buffer[GRTT_RESPONSE_SEC_OFFSET]);
+            grttResponse.tv_usec = ntohl(buffer[GRTT_RESPONSE_USEC_OFFSET]);
         }      
         //char* AccessRepairContent() {return (buffer + header_length);}
-        const char* GetRepairContent() const {return (buffer + header_length);}
+        const UINT32* GetRepairContent() const {return (buffer + header_length/4);}
         UINT16 GetRepairContentLength() const
             {return ((length > header_length) ? length - header_length : 0);}        
         UINT16 UnpackRepairRequest(NormRepairRequest& request,
@@ -1390,17 +1412,18 @@ class NormNackMsg : public NormMsg
         {
             int buflen = length - header_length - requestOffset;
             buflen = (buflen > 0) ? buflen : 0;
-            return request.Unpack(buffer + header_length + requestOffset, buflen);
+            return request.Unpack(buffer+(header_length+requestOffset)/4, buflen);
         }
            
     private:
         enum
         {
-            SERVER_ID_OFFSET        = MSG_OFFSET,
-            SESSION_ID_OFFSET       = SERVER_ID_OFFSET + 4,
-            RESERVED_OFFSET         = SESSION_ID_OFFSET + 2,
-            GRTT_RESPONSE_OFFSET    = SERVER_ID_OFFSET + 4,
-            NACK_HEADER_LEN         = GRTT_RESPONSE_OFFSET + 8
+            SERVER_ID_OFFSET          = MSG_OFFSET/4,
+            SESSION_ID_OFFSET         = ((SERVER_ID_OFFSET*4)+4)/2,
+            RESERVED_OFFSET           = ((SESSION_ID_OFFSET*2)+2)/2,
+            GRTT_RESPONSE_SEC_OFFSET  = ((RESERVED_OFFSET*2)+2)/4,
+            GRTT_RESPONSE_USEC_OFFSET = ((GRTT_RESPONSE_SEC_OFFSET*4)+4)/4,
+            NACK_HEADER_LEN           = (GRTT_RESPONSE_USEC_OFFSET*4)+4
         };    
 };  // end class NormNackMsg
 
@@ -1417,23 +1440,23 @@ class NormAckMsg : public NormMsg
         }
         void SetServerId(NormNodeId serverId)
         {
-            *((UINT32*)(buffer+SERVER_ID_OFFSET)) = htonl(serverId);
+            buffer[SERVER_ID_OFFSET] = htonl(serverId);
         }
         void SetSessionId(UINT16 sessionId)
         {
-            *((UINT16*)(buffer+SESSION_ID_OFFSET)) = htons(sessionId);
+            ((UINT16*)buffer)[SESSION_ID_OFFSET] = htons(sessionId);
         }
-        void SetAckType(NormAck::Type ackType) {buffer[ACK_TYPE_OFFSET] = (UINT8)ackType;}
-        void SetAckId(UINT8 ackId) {buffer[ACK_ID_OFFSET] = ackId;}
+        void SetAckType(NormAck::Type ackType) {((UINT8*)buffer)[ACK_TYPE_OFFSET] = (UINT8)ackType;}
+        void SetAckId(UINT8 ackId) {((UINT8*)buffer)[ACK_ID_OFFSET] = ackId;}
         void SetGrttResponse(const struct timeval& grttResponse)
         {
-            *((UINT32*)(buffer+GRTT_RESPONSE_OFFSET)) = htonl(grttResponse.tv_sec);
-            *((UINT32*)(buffer+GRTT_RESPONSE_OFFSET+4)) = htonl(grttResponse.tv_usec);
+            buffer[GRTT_RESPONSE_SEC_OFFSET] = htonl(grttResponse.tv_sec);
+            buffer[GRTT_RESPONSE_USEC_OFFSET] = htonl(grttResponse.tv_usec);
         }
         bool SetAckPayload(const char* payload, UINT16 payloadLen, UINT16 segmentSize)
         {
             UINT16 len = MIN(payloadLen, segmentSize);
-            memcpy(buffer+header_length, payload, len);
+            memcpy(((char*)buffer)+header_length, payload, len);
             length += len;
             return (payloadLen <= segmentSize);   
         }
@@ -1441,31 +1464,32 @@ class NormAckMsg : public NormMsg
         // Message processing 
         NormNodeId GetServerId() const
         {
-            return (ntohl(*((UINT32*)(buffer+SERVER_ID_OFFSET))));
+            return (ntohl(buffer[SERVER_ID_OFFSET]));
         }
         UINT16 GetSessionId() const
         {
-            return (ntohs(*((UINT16*)(buffer+SESSION_ID_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[SESSION_ID_OFFSET]));
         }
         void GetGrttResponse(struct timeval& grttResponse) const
         {
-            grttResponse.tv_sec = ntohl(*((UINT32*)(buffer+GRTT_RESPONSE_OFFSET)));
-            grttResponse.tv_usec = ntohl(*((UINT32*)(buffer+GRTT_RESPONSE_OFFSET+4)));
+            grttResponse.tv_sec = ntohl(buffer[GRTT_RESPONSE_SEC_OFFSET]);
+            grttResponse.tv_usec = ntohl(buffer[GRTT_RESPONSE_USEC_OFFSET]);
         }             
-        NormAck::Type GetAckType() const {return (NormAck::Type)buffer[ACK_TYPE_OFFSET];}
-        UINT8 GetAckId() const {return buffer[ACK_ID_OFFSET];}
+        NormAck::Type GetAckType() const {return (NormAck::Type)((UINT8*)buffer)[ACK_TYPE_OFFSET];}
+        UINT8 GetAckId() const {return ((UINT8*)buffer)[ACK_ID_OFFSET];}
         UINT16 GetPayloadLength() const {return (length - header_length);}
-        const char* GetPayload() const {return (buffer + header_length);}
+        const char* GetPayload() const {return (((char*)buffer) + header_length);}
         
     protected:
         enum
         {
-            SERVER_ID_OFFSET        = MSG_OFFSET,
-            SESSION_ID_OFFSET       = SERVER_ID_OFFSET + 4,
-            ACK_TYPE_OFFSET         = SESSION_ID_OFFSET + 2,
-            ACK_ID_OFFSET           = ACK_TYPE_OFFSET + 1,
-            GRTT_RESPONSE_OFFSET    = ACK_ID_OFFSET + 1,
-            ACK_HEADER_LEN          = GRTT_RESPONSE_OFFSET + 8
+            SERVER_ID_OFFSET          = MSG_OFFSET/4,
+            SESSION_ID_OFFSET         = ((SERVER_ID_OFFSET*4)+4)/2,
+            ACK_TYPE_OFFSET           = (SESSION_ID_OFFSET*2)+2,
+            ACK_ID_OFFSET             = ACK_TYPE_OFFSET + 1,
+            GRTT_RESPONSE_SEC_OFFSET  = (ACK_ID_OFFSET + 1)/4,
+            GRTT_RESPONSE_USEC_OFFSET = ((GRTT_RESPONSE_SEC_OFFSET*4)+4)/4,
+            ACK_HEADER_LEN            = (GRTT_RESPONSE_USEC_OFFSET*4)+4
         };
 };  // end class NormAckMsg
 
@@ -1478,48 +1502,47 @@ class NormAckFlushMsg : public NormAckMsg
             SetBaseHeaderLength(ACK_HEADER_LEN);
             SetAckType(NormAck::FLUSH);
             SetFecId(129); // only one supported for the moment
-            buffer[RESERVED_OFFSET] = 0;
+            ((UINT8*)buffer)[RESERVED_OFFSET] = 0;
             length = ACK_HEADER_LEN+PAYLOAD_LENGTH;
         }
         
         // Note: must apply any header exts _before_ the payload is set
         void SetFecId(UINT8 fecId) 
-            {buffer[header_length+FEC_ID_OFFSET] = fecId;}
+            {((UINT8*)buffer)[header_length+FEC_ID_OFFSET] = fecId;}
         void SetObjectId(NormObjectId objectId)
-            {*((UINT16*)(buffer+header_length+OBJ_ID_OFFSET)) = htons((UINT16)objectId);}
+        {
+            ((UINT16*)buffer)[(header_length/2)+OBJ_ID_OFFSET] = htons((UINT16)objectId);
+        }
         void SetFecBlockId(const NormBlockId& blockId)
         {
-            UINT32 temp32 = htonl((UINT32)blockId);
-            memcpy(buffer+header_length+BLOCK_ID_OFFSET, &temp32, 4);
+            buffer[(header_length/4)+BLOCK_ID_OFFSET] = htonl((UINT32)blockId);
         }
         void SetFecBlockLen(UINT16 blockLen)
         {
-            blockLen = htons(blockLen);
-            memcpy(buffer+header_length+BLOCK_LEN_OFFSET, &blockLen, 2);
+            ((UINT16*)buffer)[(header_length/2)+BLOCK_LEN_OFFSET] = htons(blockLen);
         }
         void SetFecSymbolId(UINT16 symbolId)
         {
-            symbolId = htons(symbolId);
-            memcpy(buffer+header_length+SYMBOL_ID_OFFSET, &symbolId, 2);
+            ((UINT16*)buffer)[(header_length/2)+SYMBOL_ID_OFFSET] = htons(symbolId);
         }
         
         // Message processing
-        UINT8 GetFecId() {return buffer[header_length+FEC_ID_OFFSET];}
+        UINT8 GetFecId() {return ((UINT8*)buffer)[header_length+FEC_ID_OFFSET];}
         NormObjectId GetObjectId() const
         {
-            return (ntohs(*((UINT16*)(buffer+header_length+OBJ_ID_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[(header_length/2)+OBJ_ID_OFFSET]));
         }        
         NormBlockId GetFecBlockId() const
         {
-            return (ntohl(*((UINT32*)(buffer+header_length+BLOCK_ID_OFFSET))));
+            return (ntohl(buffer[(header_length/4)+BLOCK_ID_OFFSET]));
         }
         UINT16 GetFecBlockLen() const
         {
-            return (ntohs(*((UINT16*)(buffer+header_length+BLOCK_LEN_OFFSET))));
+            return (ntohs(((UINT16*)buffer)[(header_length/2)+BLOCK_LEN_OFFSET]));
         }
         UINT16 GetFecSymbolId() const
         {
-            return (ntohs(*((UINT16*)(buffer+header_length+SYMBOL_ID_OFFSET))));  
+            return (ntohs(((UINT16*)buffer)[(header_length/2)+SYMBOL_ID_OFFSET]));  
         }
         
     private:
@@ -1529,11 +1552,11 @@ class NormAckFlushMsg : public NormAckMsg
         {
             FEC_ID_OFFSET       = 0,
             RESERVED_OFFSET     = FEC_ID_OFFSET + 1,
-            OBJ_ID_OFFSET       = RESERVED_OFFSET + 1,
-            BLOCK_ID_OFFSET     = OBJ_ID_OFFSET + 2,
-            BLOCK_LEN_OFFSET    = BLOCK_ID_OFFSET + 4,
-            SYMBOL_ID_OFFSET    = BLOCK_LEN_OFFSET + 2,
-            PAYLOAD_LENGTH      = SYMBOL_ID_OFFSET + 2
+            OBJ_ID_OFFSET       = (RESERVED_OFFSET+1)/2,
+            BLOCK_ID_OFFSET     = ((OBJ_ID_OFFSET*2)+2)/4,
+            BLOCK_LEN_OFFSET    = ((BLOCK_ID_OFFSET*4)+4)/2,
+            SYMBOL_ID_OFFSET    = ((BLOCK_LEN_OFFSET*2)+2)/2,
+            PAYLOAD_LENGTH      = (SYMBOL_ID_OFFSET*2)+2
         };
             
 };  // end class NormAckFlushMsg

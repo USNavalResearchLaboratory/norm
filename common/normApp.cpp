@@ -921,7 +921,8 @@ void NormApp::OnInputReady()
                 }
                 else
                 {
-                    input_msg_length = ntohs(*((UINT16*)input_buffer));  
+                    memcpy(&input_msg_length, input_buffer, 2);
+                    input_msg_length = ntohs(input_msg_length);
                     ASSERT(input_msg_length >= 2);
                     UINT16 bufferSpace = 1024 - input_index;
                     UINT16 msgRemainder = input_msg_length - 2;
@@ -1136,7 +1137,7 @@ void NormApp::Notify(NormController::Event event,
                             DMSG(0, "NormApp::Notify(RX_OBJECT_NEW) Warning: mkstemp() error: %s\n",
                                     strerror(errno));  
                         } 
-                        if (!((NormFileObject*)object)->Accept(fileName))
+                        if (!static_cast<NormFileObject*>(object)->Accept(fileName))
                         {
                             DMSG(0, "NormApp::Notify(RX_OBJECT_NEW) file object accept error!\n");
                         }
@@ -1184,7 +1185,7 @@ void NormApp::Notify(NormController::Event event,
                     // (TBD) and implement overwrite policy
                     //       and cache files in cache mode
                     
-                    if (!((NormFileObject*)object)->Rename(fileName))
+                    if (!(static_cast<NormFileObject*>(object)->Rename(fileName)))
                     {
                         DMSG(0, "NormApp::Notify() Error renaming rx file: %s\n",
                                 fileName);
@@ -1234,7 +1235,8 @@ void NormApp::Notify(NormController::Event event,
                             }
                             else
                             {
-                                output_msg_length = ntohs(*((UINT16*)output_buffer));
+                                memcpy(&output_msg_length, output_buffer, 2);
+                                output_msg_length = ntohs(output_msg_length);
                                 ASSERT(output_msg_length >= 2);
                                 readLength = output_msg_length - output_index;
                             }     
@@ -1340,7 +1342,7 @@ void NormApp::Notify(NormController::Event event,
             {
                 case NormObject::FILE:
                 {
-                    const char* filePath = ((NormFileObject*)object)->GetPath();
+                    const char* filePath = static_cast<NormFileObject*>(object)->GetPath();
                     //DMSG(0, "norm: Completed rx file: %s\n", filePath);
                     if (post_processor->IsEnabled())
                     {
@@ -1366,6 +1368,7 @@ void NormApp::Notify(NormController::Event event,
         default:
         {
             DMSG(4, "NormApp::Notify() unhandled event: %d\n", event);
+            break;
         }
     }  // end switch(event)
 }  // end NormApp::Notify()

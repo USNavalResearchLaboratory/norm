@@ -369,7 +369,7 @@ class NormServerNode : public NormNode
         bool OnAckTimeout(ProtoTimer& theTimer);
         
         void AttachCCFeedback(NormAckMsg& ack);
-        void HandleRepairContent(const char* buffer, UINT16 bufferLen);
+        void HandleRepairContent(const UINT32* buffer, UINT16 bufferLen);
             
         UINT16                  session_id;
         bool                    synchronized;

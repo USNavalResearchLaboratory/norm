@@ -51,7 +51,9 @@ class NormInstance : public NormController
         static NormInstance* GetInstanceFromSession(NormSessionHandle sessionHandle)
         {
             NormSession* session = (NormSession*)sessionHandle;
-            return static_cast<NormInstance*>(session->GetSessionMgr().GetController());   
+            NormInstance* theInstance = static_cast<NormInstance*>(session->GetSessionMgr().GetController());
+            return theInstance;
+            //return static_cast<NormInstance*>(session->GetSessionMgr().GetController());   
         }
         static NormInstance* GetInstanceFromNode(NormNodeHandle nodeHandle)
         {
@@ -263,7 +265,7 @@ void NormInstance::Notify(NormController::Event   event,
                             DMSG(0, "NormInstance::Notify(RX_OBJECT_NEW) Warning: mkstemp() error: %s\n",
                                     strerror(errno));  
                         } 
-                        if (!((NormFileObject*)object)->Accept(fileName))
+                        if (!static_cast<NormFileObject*>(object)->Accept(fileName))
                         {
                             DMSG(0, "NormInstance::Notify(RX_OBJECT_NEW) file object accept error!\n");
                         }

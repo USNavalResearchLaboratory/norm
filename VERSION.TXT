@@ -1,5 +1,22 @@
 			           NORM Version History
 
+Version 1.2b7
+=============
+    - Changed normMessage.[h|cpp] to fix alignment issues
+      (and other alignment stuff)
+    - Fixed bug in NormCmdCCMsg::Iterator::GetNextNode()
+      (might significantly help CC performance
+    - Fixed NormServerNode::FreeBuffers() bug which
+      could result in seg fault on remote server timeout
+      or at app shutdown\
+    - Fixed bug where tx_sequence count was being
+      incremented for all transmitted messages (The "fix"
+      does not yet address separate increment of messages
+      sent to different addresses, etc). The bug impacted
+      congestion control performance when nodes acted as
+      sender _and_ receiver (caused receives to overestimate
+      packet loss)
+    
 Version 1.2b6
 =============
     - Added normApi.cpp into libNorm.a (Norm.lib (WIN32)) builds

@@ -19,8 +19,10 @@ class NormSegmentPool
         void Put(char* segment)
         {
             ASSERT(seg_count < seg_total);
-            char** ptr = (char**)segment;
-            *ptr = seg_list;
+            //char** ptr = (char**)segment;
+            //ptr = seg_list;
+            // (TBD) avoid this system call
+            memcpy(segment, &seg_list, sizeof(char*));
             seg_list = segment;
             seg_count++;
         }

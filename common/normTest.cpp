@@ -35,9 +35,9 @@ int main(int argc, char* argv[])
     
     //NormSetMessageTrace(session, true);
     
-    NormSetTxLoss(session, 10.0);  // 10% packet loss
+    NormSetTxLoss(session, 1.0);  // 10% packet loss
     
-    NormSetGrttEstimate(session, 0.2);//0.001);  // 1 msec initial grtt
+    NormSetGrttEstimate(session, 0.5);//0.001);  // 1 msec initial grtt
     
     NormSetTransmitRate(session, 1.0e+06);  // in bits/second
     
@@ -47,7 +47,7 @@ int main(int argc, char* argv[])
     NormSetLoopback(session, true);     
     
     // Uncomment this line to participate as a receiver
-    NormStartReceiver(session, 1024*1024);
+    //NormStartReceiver(session, 1024*1024);
     
     // Uncomment the following line to start sender
     NormStartSender(session, 1024*1024, 1024, 64, 0);
