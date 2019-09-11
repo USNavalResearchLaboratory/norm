@@ -40,6 +40,7 @@ class NormApp : public NormController, public ProtoApp
     private:
         void ShowHelp();
         void OnInputReady();
+        bool AddAckingNodes(const char* ackingNodeList);
             
         enum CmdType {CMD_INVALID, CMD_NOARG, CMD_ARG};
         CmdType CommandType(const char* cmd);
@@ -111,6 +112,8 @@ class NormApp : public NormController, public ProtoApp
         double              tx_repeat_interval;
         bool                tx_repeat_clear;
         ProtoTimer          interval_timer;
+        char*               acking_node_list; // comma-delimited string
+        bool                watermark_pending;
         
         // NormSession client-only parameters
         unsigned long       rx_buffer_size; // bytes
@@ -144,6 +147,7 @@ NormApp::NormApp()
    group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
    tx_buffer_size(1024*1024), tx_one_shot(false),
    tx_object_interval(0.0), tx_repeat_count(0), tx_repeat_interval(2.0), tx_repeat_clear(true),
+   acking_node_list(NULL), watermark_pending(false),
    rx_buffer_size(1024*1024), rx_sock_buffer_size(0),
    rx_cache_path(NULL), post_processor(NULL), unicast_nacks(false), silent_client(false),
    tracing(false), tx_loss(0.0), rx_loss(0.0)
@@ -170,6 +174,7 @@ NormApp::~NormApp()
     if (interface_name) delete[] interface_name;
     if (rx_cache_path) delete[] rx_cache_path;
     if (post_processor) delete post_processor;
+    if (acking_node_list) delete[] acking_node_list;
 }
 
 // NOTE on message flushing mode:
@@ -216,6 +221,7 @@ const char* const NormApp::cmd_list[] =
     "+rinterval",    // Interval (sec) between file/directory list repeats
     "-oneshot",      // Transmit file(s), exiting upon TX_FLUSH_COMPLETED
     "-updatesOnly",  // only send updated files on repeat transmission
+    "+ackingNodes",  // comma-delimited list of node id's to from which to collect acks
     "+rxcachedir",   // recv file cache directory
     "+segment",      // payload segment size (bytes)
     "+block",        // User data packets per FEC coding block (blockSize)
@@ -267,6 +273,7 @@ void NormApp::ShowHelp()
         "   +rinterval,    // Interval (sec) between file/directory list repeats\n"
         "   -oneshot,      // Exit upon sender TX_FLUSH_COMPLETED event (sender exits after transmission)\n"
         "   -updatesOnly,  // only send updated files on repeat transmission\n"
+        "   +ackingNodes,  // comma-delimited list of node id's to from which to collect acks\n"
         "   +rxcachedir,   // recv file cache directory\n"
         "   +segment,      // payload segment size (bytes)\n"
         "   +block,        // User data packets per FEC coding block (blockSize)\n"
@@ -653,6 +660,31 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     else if (!strncmp("updatesOnly", cmd, len))
     {
         tx_file_list.InitUpdateTime(true);
+    }      
+    else if (!strncmp("ackingNodes", cmd, len))
+    {
+        size_t length = strlen(val);
+        if (NULL != acking_node_list)
+            length += strlen(acking_node_list) + 1;
+        char* tempString = new char[length + 1];
+        if (NULL == tempString)
+        {
+            DMSG(0, "NormApp::OnCommand(ackingNodes) error: %s\n", GetErrorString());
+            return false;
+        }
+        if (NULL != acking_node_list)
+        {
+            strcpy(tempString, acking_node_list);
+            strcat(tempString, ",");
+            delete[] acking_node_list;
+        }
+        else
+        {
+            tempString[0] = '\0';
+        }
+        acking_node_list = tempString;
+        strcat(acking_node_list, val);
+        if (NULL != session) return AddAckingNodes(acking_node_list);
     }
     else if (!strncmp("rxcachedir", cmd, len))
     {
@@ -909,6 +941,70 @@ bool NormApp::ProcessCommands(int argc, const char*const* argv)
     return true;
 }  // end NormApp::ProcessCommands()
 
+bool NormApp::AddAckingNodes(const char* ackingNodeList)
+{
+    if (NULL == ackingNodeList) return true;
+    if (NULL != session)
+    {
+        const char* ptr = ackingNodeList;
+        while ((NULL != ptr) && ('\0' != *ptr))
+        {
+            const char* end = strchr(ptr, ',');
+            size_t len = (NULL != end) ? (end - ptr) : strlen(ptr);
+            if (len >= 256)
+            {
+                DMSG(0, "NormApp::AddAckingNodes() error: bad acking node list\n");
+                return false;
+            }
+            char nodeString[256];
+            strncpy(nodeString, ptr, len);
+            nodeString[len] = '\0';
+            bool isNumber = true;
+            for (size_t i = 0; i < len; i++)
+            {
+                if (0 == isdigit(nodeString[i]))
+                {
+                    isNumber = false;
+                    break;
+                }
+            }
+            unsigned long nodeId;
+            if (isNumber)
+            {
+                if (1 != sscanf(nodeString, "%lu", &nodeId))
+                {
+                    DMSG(0, "NormApp::AddAckingNodes() error: bad acking node id: %s\n", nodeString);
+                    return false;
+                }
+            }
+            else
+            {
+                // It's an address or host name
+                ProtoAddress nodeAddr;
+                if (!nodeAddr.ResolveFromString(nodeString))
+                {
+                    DMSG(0, "NormApp::AddAckingNodes() error: bad acking node id: %s\n", nodeString);
+                    return false;
+                }
+                nodeId = nodeAddr.EndIdentifier();
+            }
+            if (!session->ServerAddAckingNode((UINT32)nodeId))
+            {
+                DMSG(0, "NormApp::AddAckingNodes() error: couldn't add acking node \n");
+                return false;
+            }
+            ptr = (NULL != end) ? ++end : NULL;
+        }
+        return true;
+    }
+    else
+    {
+        DMSG(0, "NormApp::AddAckingNodes() error: no session instantiated\n");
+        return false;
+    }
+}  // end NormApp::AddAckingNodes()
+
+
 void NormApp::DoInputReady(ProtoDispatcher::Descriptor /*descriptor*/, 
                            ProtoDispatcher::Event      /*theEvent*/, 
                            const void*                 userData)
@@ -1100,8 +1196,8 @@ void NormApp::Notify(NormController::Event event,
             }
             break;
         case TX_QUEUE_EMPTY:
-           // Write to stream as needed
-            //DMSG(0, "NormApp::Notify(TX_QUEUE_EMPTY) ...\n");
+            // Write to stream as needed
+            DMSG(3, "NormApp::Notify(TX_QUEUE_EMPTY) ...\n");
             if (NULL != object)
             {
                 if (input && (object == tx_stream))
@@ -1118,17 +1214,33 @@ void NormApp::Notify(NormController::Event event,
             }
             break;
             
+        case TX_OBJECT_SENT:
+            DMSG(3, "NormApp::Notify(TX_OBJECT_SENT) ...\n");
+            break;
+            
         case TX_FLUSH_COMPLETED:
+            DMSG(3, "NormApp::Notify(TX_FLUSH_COMPLETED) ...\n");
             if (tx_one_shot)
             {
                 DMSG(0, "norm: transmit flushing completed, exiting.\n");
                 Stop();
             }
             break;
+            
+        case TX_WATERMARK_COMPLETED:
+        {
+            DMSG(3, "NormApp::Notify(TX_WATERMARK_COMPLETED) ...\n");
+            NormSession::AckingStatus status = session->ServerGetAckingStatus(NORM_NODE_ANY);
+            
+            DMSG(0, "norm: positive ack collection completed (%s)\n",
+                    (NormSession::ACK_SUCCESS == status) ? "succeed" : "failed");
+            watermark_pending = false;  // enable new watermark to be set
+            break;
+        }
            
         case RX_OBJECT_NEW:
         {
-            //DMSG(0, "NormApp::Notify(RX_OBJECT_NEW) ...\n");
+            DMSG(3, "NormApp::Notify(RX_OBJECT_NEW) ...\n");
             // It's up to the app to "accept" the object
             switch (object->GetType())
             {
@@ -1230,7 +1342,7 @@ void NormApp::Notify(NormController::Event event,
         }
             
         case RX_OBJECT_INFO:
-            //DMSG(0, "NormApp::Notify(RX_OBJECT_INFO) ...\n");
+            DMSG(3, "NormApp::Notify(RX_OBJECT_INFO) ...\n");
             switch(object->GetType())
             {
                 case NormObject::FILE:
@@ -1271,7 +1383,7 @@ void NormApp::Notify(NormController::Event event,
             break;
             
         case RX_OBJECT_UPDATED:
-            //DMSG(0, "NormApp::Notify(RX_OBJECT_UPDATED) ...\n");
+            DMSG(3, "NormApp::Notify(RX_OBJECT_UPDATED) ...\n");
             switch (object->GetType())
             {
                 case NormObject::FILE:
@@ -1414,7 +1526,7 @@ void NormApp::Notify(NormController::Event event,
             // (TBD) if we're not archiving files we should
             //       manage our cache, deleting the cache
             //       on shutdown ...
-            //DMSG(0, "NormApp::Notify(RX_OBJECT_COMPLETE) ...\n");
+            DMSG(3, "NormApp::Notify(RX_OBJECT_COMPLETED) ...\n");
             switch(object->GetType())
             {
                 case NormObject::FILE:
@@ -1477,7 +1589,8 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
         char temp[PATH_MAX];
         strncpy(temp, fileNameInfo, len);
         temp[len] = '\0';
-        if (!session->QueueTxFile(fileName, fileNameInfo, (UINT16)len))
+        NormFileObject* obj;
+        if (NULL == (obj = session->QueueTxFile(fileName, fileNameInfo, (UINT16)len)))
         {
             DMSG(0, "NormApp::OnIntervalTimeout() Error queuing tx file: %s\n",
                     fileName);
@@ -1486,6 +1599,15 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
             interval_timer.SetInterval(1.0);
             ActivateTimer(interval_timer);
             return false;
+        }
+        if (!watermark_pending && (NULL != acking_node_list))
+        {
+            NormBlockId blockId = obj->GetFinalBlockId();
+            NormSegmentId segmentId = obj->GetBlockSize(blockId) - 1;
+            session->ServerSetWatermark(obj->GetId(), 
+                                        blockId,
+                                        segmentId);
+            watermark_pending = true;  // only allow one pending watermark at a time
         }
         //DMSG(0, "norm: File \"%s\" queued for transmission.\n", fileName);
         interval_timer.SetInterval(tx_object_interval);
@@ -1587,6 +1709,13 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
             session->SetBackoffFactor(backoff_factor);
             session->ServerSetGrtt(grtt_estimate);
             session->ServerSetGroupSize(group_size);
+            if (!AddAckingNodes(acking_node_list))
+            {
+                DMSG(0, "NormApp::OnStartup() error: bad acking node list\n");
+                session_mgr.Destroy();
+                return false;
+            }
+            
             // We also use the baseId as our server's "instance id" for illustrative purposes
             UINT16 instanceId = baseId;
             if (!session->StartServer(instanceId, tx_buffer_size, segment_size, ndata, nparity, interface_name))

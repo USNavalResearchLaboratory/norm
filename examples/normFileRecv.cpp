@@ -144,16 +144,16 @@ int main(int argc, char* argv[])
                 fprintf(stderr, "normFileRecv: NORM_RX_OBJECT_ABORTED event ...\n");
                 break;
 
-            case NORM_REMOTE_SERVER_NEW:
-                fprintf(stderr, "normFileRecv: NORM_REMOTE_SERVER_NEW event ...\n");
+            case NORM_REMOTE_SENDER_NEW:
+                fprintf(stderr, "normFileRecv: NORM_REMOTE_SENDER_NEW event ...\n");
                 break;
 
-            case NORM_REMOTE_SERVER_ACTIVE:
-                fprintf(stderr, "normFileRecv: NORM_REMOTE_SERVER_ACTIVE event ...\n");
+            case NORM_REMOTE_SENDER_ACTIVE:
+                fprintf(stderr, "normFileRecv: NORM_REMOTE_SENDER_ACTIVE event ...\n");
                 break;
 
-            case NORM_REMOTE_SERVER_INACTIVE:
-                fprintf(stderr, "normFileRecv: NORM_REMOTE_SERVER_INACTIVE event ...\n");
+            case NORM_REMOTE_SENDER_INACTIVE:
+                fprintf(stderr, "normFileRecv: NORM_REMOTE_SENDER_INACTIVE event ...\n");
                 break;
 
             default:

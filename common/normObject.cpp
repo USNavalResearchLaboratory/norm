@@ -15,7 +15,7 @@ NormObject::NormObject(NormObject::Type      theType,
    transport_id(transportId), segment_size(0), pending_info(false), repair_info(false),
    current_block_id(0), next_segment_id(0), 
    max_pending_block(0), max_pending_segment(0),
-   info_ptr(NULL), info_len(0), accepted(false), notify_on_update(true)
+   info_ptr(NULL), info_len(0), first_pass(true), accepted(false), notify_on_update(true)
 {
     if (theServer)
     {
@@ -48,7 +48,9 @@ void NormObject::Release()
 {
     if (server) server->Release();
     if (reference_count)
+    {
         reference_count--;
+    }
     else
     {
         DMSG(0, "NormObject::Release() releasing non-retained object?!\n");
@@ -323,6 +325,7 @@ bool NormObject::TxReset(NormBlockId firstBlock, bool requeue)
             if (requeue) block->ClearFlag(NormBlock::IN_REPAIR);  // since we're requeuing
         }
     }
+    if (requeue) first_pass = true;
     return increasedRepair;
 }  // end NormObject::TxReset()
 
@@ -544,6 +547,7 @@ bool NormObject::AppendRepairAdv(NormCmdRepairAdvMsg& cmd)
 // This is used by sender for watermark check
 bool NormObject::FindRepairIndex(NormBlockId& blockId, NormSegmentId& segmentId) const
 {
+    ASSERT(!server);
     if (repair_info)
     {
         blockId = 0;
@@ -1504,7 +1508,10 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
     NormBlockId blockId;
     if (!GetFirstPending(blockId)) 
     {
-        if (!IsStream())
+        // Attempt to advance stream (probably was repair-delayed)
+        if (IsStream())
+            static_cast<NormStreamObject*>(this)->StreamAdvance();
+        else
             DMSG(0, "NormObject::NextServerMsg() pending object w/ no pending blocks?\n");
         return false;
     }
@@ -1544,17 +1551,27 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
        }      
        
        block->TxInit(blockId, numData, session.ServerAutoParity());  
-       if (!block_buffer.Insert(block))
+       while (!block_buffer.Insert(block))
        {
            ASSERT(STREAM == type);
            if (blockId > block_buffer.RangeLo())
            {
                NormBlock* b = block_buffer.Find(block_buffer.RangeLo());
-               ASSERT(b);
-               block_buffer.Remove(b);
-               session.ServerPutFreeBlock(b);
-               bool success = block_buffer.Insert(block);
-               ASSERT(success);
+               ASSERT(NULL != b);
+               bool push = static_cast<NormStreamObject*>(this)->GetPushMode();
+               if (!push && (b->IsRepairPending() || IsRepairSet(b->GetId())))
+               {
+                   // Pending repairs delaying stream advance
+                   DMSG(0, "NormObject::NextServerMsg() node>%lu pending repairs delaying stream progress\n", LocalNodeId());
+                   return false; 
+               }
+               else
+               {
+                   // Prune old non-pending block (or even pending if "push" enabled stream)
+                   block_buffer.Remove(b);
+                   session.ServerPutFreeBlock(b);
+                   continue;
+               }
            }
            else if (IsStream())
            {
@@ -1574,6 +1591,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
            else
            {
                ASSERT(0);
+               DMSG(0, "NormObject::NextServerMsg() invalid non-stream state!\n");
                return false;
            }
        }
@@ -1629,9 +1647,9 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         ASSERT(block->ParityReady(numData));
         char* segment = block->GetSegment(segmentId);
         ASSERT(segment);
-        UINT16 payloadLength = block->GetSegSizeMax(); // segment_size;
-        if (IsStream()) payloadLength += NormDataMsg::GetStreamPayloadHeaderLength();
-        data->SetPayload(segment, payloadLength);    
+        // We only need to send FEC content to cover the biggest segment
+        // sent for the block.
+        data->SetPayload(segment, block->GetSegSizeMax()); 
     }
     block->UnsetPending(segmentId); 
     if (block->InRepair()) 
@@ -1645,16 +1663,29 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         pending_mask.Unset(blockId); 
     }
  
-    // This lets NORM_STREAM objects continue indefinitely
-    if (IsStream() && !pending_mask.IsSet()) 
-        static_cast<NormStreamObject*>(this)->StreamAdvance();
+    if (!pending_mask.IsSet())
+    {
+        if (IsStream())
+        {
+            // This lets NORM_STREAM objects continue indefinitely
+            static_cast<NormStreamObject*>(this)->StreamAdvance();
+            // (TBD) Is there a case where posting TX_OBJECT_SENT for a stream
+            //       makes sense?  E.g., so we could use NormRequeueObject() for streams?
+        }
+        else if (first_pass)
+        {
+            // "First pass" transmission of object (and any auto parity) has completed
+            first_pass = false;
+            session.Notify(NormController::TX_OBJECT_SENT, NULL, this);
+        }
+    }   
     return true;
 }  // end NormObject::NextServerMsg()
 
 void NormStreamObject::StreamAdvance()
 {
     NormBlockId nextBlockId = stream_next_id;
-    // Make sure we won't prevent about any pending repairs
+    // Make sure we won't prevent any pending repairs
     if (repair_mask.CanSet(nextBlockId))  
     {
         if (block_buffer.CanInsert(nextBlockId))
@@ -1671,6 +1702,7 @@ void NormStreamObject::StreamAdvance()
             if (!block->IsTransmitPending())
             {
                 // ??? (TBD) Should this block be returned to the pool right now???
+                //     especially for "push" enabled streams
                 if (pending_mask.Set(nextBlockId))
                     stream_next_id++;
                 else
@@ -1747,7 +1779,7 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
                 return (NormBlock*)NULL;
             }
         }      
-        // Attempt to re-generate parity
+        // Attempt to re-generate parity for the block
         if (CalculateBlockParity(block))
         {
             if (!block_buffer.Insert(block))
@@ -2582,7 +2614,7 @@ UINT16 NormStreamObject::ReadSegment(NormBlockId      blockId,
         //if ((UINT32)offsetDelta < object_size.LSB())
         ASSERT(tx_index.block <= write_index.block);
         UINT32 blockDelta = write_index.block - tx_index.block;
-        if (blockDelta < (block_pool.GetTotal() >> 1))
+        if (blockDelta <= (block_pool.GetTotal() >> 1))
         {
             NormBlock* b = stream_buffer.Find(stream_buffer.RangeLo());
             if (b && !b->IsPending()) 
@@ -2666,21 +2698,24 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
                 block->GetFirstPending(read_index.segment);
                 NormBlock* tempBlock = block;
                 UINT32 tempOffset = read_offset;
+                NormStreamObject::Index tempIndex = read_index;
                 // (TBD) uncomment the code so that only a single
                 // UPDATED notification is posted???
                 if (notify_on_update)
                 {
                     notify_on_update = false;
                     session.Notify(NormController::RX_OBJECT_UPDATED, server, this);
-                }   
+                } 
                 block = stream_buffer.Find(stream_buffer.RangeLo());
                 if (tempBlock == block)
                 {
-                    if (tempOffset == read_offset)
+                    if ((tempOffset == read_offset) && 
+                        (tempIndex.block == read_index.block) && 
+                        (tempIndex.segment == read_index.segment))
                     {
                         // App didn't want any data here, purge segment
                         //ASSERT(0);
-                        dataLost = true;
+                       dataLost = true;
                         block->UnsetPending(read_index.segment++);
                         if (read_index.segment >= ndata)
                         {
@@ -3185,12 +3220,15 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
             }
             break;   
         }
+        // This old code detected buffer "fullness" by offset instead of segment index
+        // but, the problem there was when apps wrote & flushed messages smaller than
+        // the segment_size, the buffer used up before this detected it.
         //INT32 deltaOffset = write_offset - tx_offset;  // (TBD) deprecate tx_offset
         //ASSERT(deltaOffset >= 0);
         //if (deltaOffset >= (INT32)object_size.LSB())
         ASSERT(write_index.block >= tx_index.block);
         UINT32 deltaBlock = write_index.block - tx_index.block;
-        if (deltaBlock >= (block_pool.GetTotal() >> 1))
+        if (deltaBlock > (block_pool.GetTotal() >> 1))  
         {
             write_vacancy = false;
             DMSG(8, "NormStreamObject::Write() stream buffer full (1)\n", len, eom);

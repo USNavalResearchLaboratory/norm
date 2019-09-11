@@ -167,6 +167,9 @@ class NormObject
         NormBlock* ServerRecoverBlock(NormBlockId blockId);
         bool CalculateBlockParity(NormBlock* block);
         
+        /*bool IsFirstPass() {return first_pass;}
+        void ClearFirstPass() {first_pass = false};*/
+        
         bool TxReset(NormBlockId firstBlock = NormBlockId(0), bool requeue = false);
         bool TxResetBlocks(NormBlockId nextId, NormBlockId lastId);
         bool TxUpdateBlock(NormBlock*       theBlock, 
@@ -265,6 +268,7 @@ class NormObject
         
         // Here are some members used to let us know
         // our status with respect to the rest of the world
+        bool                  first_pass;   // for sender objects
         bool                  accepted;
         bool                  notify_on_update;
         
@@ -390,6 +394,7 @@ class NormStreamObject : public NormObject
             SetFlushMode(oldFlushMode);   
         }
         void SetPushMode(bool state) {push_mode = state;}
+        bool GetPushMode() const {return push_mode;}
 
         bool IsClosing() {return stream_closing;}
         bool HasVacancy() 

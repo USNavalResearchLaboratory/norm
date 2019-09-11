@@ -459,7 +459,7 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
         // "Release" any previously-retained object or node handle
         if (NORM_OBJECT_INVALID != previous_notification->event.object)
             ((NormObject*)(previous_notification->event.object))->Release();
-        else if (NORM_NODE_INVALID != previous_notification->event.object)
+        else if (NORM_NODE_INVALID != previous_notification->event.sender)
             ((NormServerNode*)(previous_notification->event.sender))->Release();
         notify_pool.Append(previous_notification);   
         previous_notification = NULL;   
@@ -600,7 +600,7 @@ void NormInstance::Shutdown()
         // Release any previously-retained object or node handles
         if (NORM_OBJECT_INVALID != previous_notification->event.object)
             ((NormObject*)(previous_notification->event.object))->Release();
-        else if (NORM_NODE_INVALID != previous_notification->event.object)
+        else if (NORM_NODE_INVALID != previous_notification->event.sender)
             ((NormServerNode*)(previous_notification->event.sender))->Release();
         notify_pool.Append(previous_notification);   
         previous_notification = NULL;   
@@ -629,7 +629,7 @@ void NormInstance::Shutdown()
         }   
         if (NORM_OBJECT_INVALID != n->event.object)
             ((NormObject*)(n->event.object))->Release();
-        else if (NORM_NODE_INVALID != n->event.object)
+        else if (NORM_NODE_INVALID != n->event.sender)
             ((NormServerNode*)(n->event.sender))->Release();
         delete n;        
     }

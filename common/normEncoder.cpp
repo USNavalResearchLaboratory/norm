@@ -103,7 +103,7 @@ bool NormEncoder::CreateGeneratorPolynomial()
 {
     unsigned char *tp, *tp1, *tp2;
     int degree = 2*npar;    
-    if(gen_poly) delete gen_poly;
+    if(gen_poly) delete[] gen_poly;
     
     if(!(gen_poly = new unsigned char[npar+1]))
     {
@@ -116,22 +116,22 @@ bool NormEncoder::CreateGeneratorPolynomial()
     {
 	    DMSG(0, "NormEncoder: Error allocating memory while computing gen_poly: %s\n",
                 GetErrorString());
-        delete gen_poly;
+        delete[] gen_poly;
 	    return false;
     }    
     if(!(tp1 = new unsigned char[2*degree]))
     {
-	    delete tp;
-	    delete gen_poly;
+	    delete[] tp;
+	    delete[] gen_poly;
 	    DMSG(0, "NormEncoder: Error allocating memory while computing gen_poly: %s\n",
                 GetErrorString());
 	    return false;
     }    
     if(!(tp2 = new unsigned char[2*degree]))
     {
-	    delete tp1;
-	    delete tp;
-	    delete gen_poly;
+	    delete[] tp1;
+	    delete[] tp;
+	    delete[] gen_poly;
 	    DMSG(0, "NormEncoder: Error allocating memory while computing gen_poly: %s\n",
                 GetErrorString());
 	    return false;
@@ -161,9 +161,9 @@ bool NormEncoder::CreateGeneratorPolynomial()
 	    memcpy(tp1, gen_poly, (npar+1)*sizeof(unsigned char));
 	    memset(&tp1[npar+1], 0, (2*degree)-(npar+1));
     }    
-    delete tp2;
-    delete tp1;
-    delete tp; 
+    delete[] tp2;
+    delete[] tp1;
+    delete[] tp; 
     return true;  
 }  // end NormEncoder::CreateGeneratorPolynomial()
 
@@ -303,27 +303,27 @@ void NormDecoder::Destroy()
 {
     if (scratch)
     {
-        delete scratch;
+        delete[] scratch;
         scratch = NULL;
     }
     if(o_vec)
     {
 	    for(int i=0; i<npar; i++)
-	        if (o_vec[i]) delete o_vec[i];
-	    delete o_vec;
+	        if (o_vec[i]) delete[] o_vec[i];
+	    delete[] o_vec;
         o_vec = NULL;
     }	
     if(s_vec)
     {
 	    for(int i = 0; i < npar; i++)
-	        if (s_vec[i]) delete s_vec[i];
-	    delete s_vec;
+	        if (s_vec[i]) delete[] s_vec[i];
+	    delete[] s_vec;
         s_vec = NULL;
     }
     if (lambda)
     {
         
-        delete lambda;
+        delete[] lambda;
         lambda = NULL;
     }
 }  // end NormDecoder::Destroy()

@@ -148,7 +148,7 @@ class NormAckingNode : public NormNode
         NormAckingNode(class NormSession& theSession, NormNodeId nodeId);
         ~NormAckingNode();
         bool IsPending() const
-            {return (!ack_received && ( req_count > 0));}
+            {return (!ack_received && (req_count > 0));}
         void Reset(unsigned int maxAttempts = NORM_ROBUST_FACTOR)
         {
             ack_received = false;
@@ -238,7 +238,9 @@ class NormServerNode : public NormNode
         bool UnicastNacks() {return unicast_nacks;}
         void SetUnicastNacks(bool state) {unicast_nacks = state;}
         
-        double GetGrttEstimate() {return grtt_estimate;}
+        
+        void UpdateGrttEstimate(UINT8 grttQuantized);
+        double GetGrttEstimate() const {return grtt_estimate;}
         
         bool UpdateLossEstimate(const struct timeval&   currentTime,
                                 unsigned short          theSequence, 
@@ -445,7 +447,6 @@ class NormServerNode : public NormNode
         bool                    slow_start;        
         double                  send_rate;         // sender advertised rate
         double                  recv_rate;         // measured recv rate
-        unsigned short          recv_rate_quantized; 
         struct timeval          prev_update_time;  // for recv_rate measurement
         unsigned long           recv_accumulator;  // for recv_rate measurement
         double                  nominal_packet_size;

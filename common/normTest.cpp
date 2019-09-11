@@ -68,6 +68,9 @@ int main(int argc, char* argv[])
     //NormSetTOS(session, 0x20);
     
     // NOTE: These are debugging routines available (not for normal app use)
+    // (IMPORTANT NOTE: On Win32 builds with Norm.dll, this "SetDebugLevel()" has no
+    //                  effect on the Protolib instance in the NORM DLL !!!
+    //                  (TBD - provide a "NormSetDebugLevel()" function for this purpose!)
     SetDebugLevel(2);
     // Uncomment to turn on debug NORM message tracing
     //NormSetMessageTrace(session, true);
@@ -82,10 +85,10 @@ int main(int argc, char* argv[])
     
     NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 1.0e+06);  // in bits/second
+    NormSetTransmitRate(session, 1.0e+05);  // in bits/second
     
     // Uncomment to enable TCP-friendly congestion control (overrides NormSetTransmitRate())
-    NormSetCongestionControl(session, true);
+    //NormSetCongestionControl(session, true);
     
     //NormSetTransmitRateBounds(session, 1000.0, -1.0);
     
@@ -96,20 +99,22 @@ int main(int argc, char* argv[])
     //  is _not_ recommended when unicast feedback may be
     //  possible!)
     //NormSetTxPort(session, 6001); 
-       
+    
+    //NormSetDefaultUnicastNack(session, true);
+        
     // Uncomment to allow reuse of rx port
     // (This allows multiple "normTest" instances on the same machine
     //  for the same NormSession - note those instances must use
     //  unique local NormNodeIds (see NormCreateSession() above).
-    //NormSetRxPortReuse(session, true);
+    NormSetRxPortReuse(session, true);
     
     // Uncomment to receive your own traffic
-    //NormSetLoopback(session, true);     
+    NormSetLoopback(session, true);     
     
     //NormSetSilentReceiver(session, true);
     
     // Uncomment this line to participate as a receiver
-    //NormStartReceiver(session, 1024*1024);
+    NormStartReceiver(session, 1024*1024);
     
     // Uncomment to set large rx socket buffer size
     // (might be needed for high rate sessions)
@@ -119,25 +124,29 @@ int main(int argc, char* argv[])
     NormSessionId sessionId = (NormSessionId)rand();
     
     // Uncomment the following line to start sender
-    NormStartSender(session, sessionId, 1024*1024, 1400, 64, 8);
+    //NormStartSender(session, sessionId, 1024*1024, 1400, 64, 8);
     
     //NormSetAutoParity(session, 6);
 
     // Uncomment to set large tx socket buffer size
     // (might be needed for high rate sessions)
-    NormSetTxSocketBuffer(session, 512000);
+    //NormSetTxSocketBuffer(session, 512000);
     
     NormAddAckingNode(session, NORM_NODE_NONE); //15); //NormGetLocalNodeId(session));
     
     NormObjectHandle stream = NORM_OBJECT_INVALID;
+#ifdef WIN32
+    const char* filePath = "C:\\Adamson\\Images\\Art\\giger205.jpg";
+#else
     const char* filePath = "/home/adamson/images/art/giger/giger205.jpg";
+#endif
     //const char* filePath = "/home/adamson/pkgs/rh73.tgz";
     const char* fileName = "file1.jpg";
     const char* fileName2 = "file2.jpg";
     
     
     // Uncomment this line to send a stream instead of the file
-    stream = NormStreamOpen(session, 4*1024*1024);
+    //stream = NormStreamOpen(session, 4*1024*1024);
        
     // NORM_FLUSH_PASSIVE automatically flushes full writes to
     // the stream.
@@ -261,14 +270,6 @@ int main(int argc, char* argv[])
             case NORM_TX_OBJECT_PURGED:
                 DMSG(2, "normTest: NORM_TX_OBJECT_PURGED event ...\n");
                 break;  
-                
-            case NORM_CC_ACTIVE:
-                DMSG(2, "normTest: NORM_CC_ACTIVE event ...\n");
-                break;
-            
-            case NORM_CC_INACTIVE:
-                DMSG(2, "normTest: NORM_CC_INACTIVE event ...\n");
-                break;
 
             case NORM_RX_OBJECT_NEW:
                 DMSG(3, "normTest: NORM_RX_OBJECT_NEW event ...\n");
@@ -344,7 +345,7 @@ int main(int argc, char* argv[])
                                                 //else
                                                 //    TRACE("validated recv msg len:%d\n", len);
                                                 recvCount = value+1;   
-                                                if (0 == msgCount % 100)
+                                                if (0 == msgCount % 1000)
                                                 {
                                                     TRACE("normTest: status> msgCount:%d of total:%d (%lf)\n",
                                                           msgCount, recvCount, 100.0*((double)msgCount)/((double)recvCount));

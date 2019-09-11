@@ -73,7 +73,7 @@ int main(int argc, char* argv[])
     // Uncomment to turn on debug NORM message tracing
     NormSetMessageTrace(session, true);
     // Uncomment to turn on some random packet loss
-    // NormSetTxLoss(session, 10.0);  // 10% packet loss
+    //NormSetTxLoss(session, 10.0);  // 10% packet loss
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
     // Uncomment to get different packet loss patterns from run to run

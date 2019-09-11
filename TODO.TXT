@@ -44,7 +44,20 @@
 14) IMPORANT: double check ACKing in reponse to watermark polling and
     relation to cc feedback suppression, etc ... watermark acks should
     be unicast and not effect cc feedback? 
+  
+15) Implement TX_OBJECT_SENT event (COMPLETED)
+
+16) Set NORM_DATA "NORM_FLAG_REPAIR" properly  
     
+17) Set objectId in TX_FLUSH_COMPLETED and TX_WATERMARK_COMPLETED events.
     
+18) Add APIs for managing remote server state kept at receiver
+
+19) Fix "activity_timer" interval setting (COMPLETED)
+
+20) Double-check watermark check code around line 600 of normSession.cpp
+    (COMPLETED - reimplemented, adding tx_repair_pending index to use 
+     instead of seeking each time)
+
 
    

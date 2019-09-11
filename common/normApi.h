@@ -501,6 +501,23 @@ bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
 NORM_API_LINKAGE
 double NormNodeGetGrtt(NormNodeHandle nodeHandle);
 
+
+// The next 4 functions have not yet been implemented
+// (work in progress)
+NORM_API_LINKAGE
+void NormNodeSetAutoDelete(NormNodeHandle nodeHandle,
+                           bool           autoDelete);
+
+NORM_API_LINKAGE
+void NormNodeDeleteSender(NormNodeHandle nodeHandle);
+
+NORM_API_LINKAGE
+bool NormNodeAllowSender(NormNodeId senderId);
+
+NORM_API_LINKAGE
+bool NormNodeDenySender(NormNodeId senderId);        
+
+
 NORM_API_LINKAGE 
 void NormNodeRetain(NormNodeHandle nodeHandle);
 

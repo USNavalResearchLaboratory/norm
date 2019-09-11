@@ -243,6 +243,7 @@ bool NormBlock::TxReset(UINT16 numData,
                 ptr++;
             }
             erasure_count = 0;
+            seg_size_max = 0;
         }
     }
     return increasedRepair;

@@ -162,7 +162,7 @@ class NormSession
         void SetTxRate(double txRate)
         {
             txRate /= 8.0;  // convert to bytes/sec
-            SetTxRateInternal(txRate);   
+            SetTxRateInternal(txRate);
         }
         double BackoffFactor() {return backoff_factor;}
         void SetBackoffFactor(double value) {backoff_factor = value;}
@@ -457,6 +457,10 @@ class NormSession
         NormObjectId                    watermark_object_id;
         NormBlockId                     watermark_block_id;
         NormSegmentId                   watermark_segment_id;
+        bool                            tx_repair_pending;
+        NormObjectId                    tx_repair_object_min;
+        NormBlockId                     tx_repair_block_min;
+        NormSegmentId                   tx_repair_segment_min;
         
         // for unicast nack/cc feedback suppression
         bool                            advertise_repairs;

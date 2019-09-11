@@ -8,6 +8,36 @@ Version 1.3b9
       message erroneously dereferenced a NormObject pointer as
       NormFileObject (led to run-time issue in optimized code build)
       (thanks to Charlie Davis once again)
+    - Fixed places where NORM_CMD(FLUSH/SQUELCH) messages didn't have
+      FEC source block length properly set (thanks to Ron in 't Velt)
+    - Fixed misuse of "delete" operator where "delete[]" should have 
+      been used instead in "normEncoder.cpp" (thanks to Jon of Totient?)
+    - Fixed error in NormQuantizeRate() and NormUnQuantizeRate() functions
+      in "normMessage.h".  (Thanks to Julian Onions for getting it right
+      in the Ethereal NORM dissector he created).
+    - Fixed case in NormObject::NextServerMsg() where old recovered block
+      could cause assertion failure (thanks to John Wood for the stress testing)
+    - Fixed "normApi.cpp" code that was resulting in NormServerNode reference
+      counts not being updated properly (thanks to Jon Dyte for this)
+    - Fixed missed initialization of NormServerNode::nominal_packet_count and
+      NormLossEstimator2::init members (Thanks to Jon Dyte again).
+    - Fixed bug where NORM_DATA messages containing FEC parity content had
+      8 bytes of extraneous content appended in their payload (Thanks to
+      Jon Jannucci for finding this one).
+    - Fixed bug where receiver loss estimate returning to ZERO could result
+      in a floating point exception in NormSession::CalculateRate()
+      (thanks to Ian Downard for finding this one)
+    - Re-ordered NORM_DATA "payload_length" and "payload_msg_start" fields
+      to be consistent with revised NORM spec.
+    - Corrected the detection of "data loss" when application (or API)
+      fails to consume received stream data before it is discarded.
+    - Fixed bug where when small "txbuffersize" was set for sender, but
+      a relatively large FEC block size was kept, the sender app would 
+      not be notified by stream "vacancy"
+    - Fixed bug with initialization of grtt_estimate when NormSetTransmitRate()
+      was called _before_ NormStartSender()
+    - Fixed intermediate issue where flush_timer mis-scheduling caused
+      sender to "hang" (Thanks to Scott Bates for quickly noticing this)
     
 Version 1.3b8
 =============

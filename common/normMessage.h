@@ -92,14 +92,14 @@ inline double NormUnquantizeLoss(unsigned short lossQuantized)
 inline unsigned short NormQuantizeRate(double rate)
 {
     if (rate <= 0.0) return 0x01;  // rate = 0.0
-    unsigned char exponent = (unsigned char)log10(rate);
-    unsigned short mantissa = (unsigned short)((256.0/10.0) * rate / pow(10.0, (double)exponent));
-    return ((mantissa << 8) | exponent);
+    unsigned short exponent = (unsigned short)log10(rate);
+    unsigned short mantissa = (unsigned short)((4096.0/10.0) * (rate / pow(10.0, (double)exponent)) + 0.5);
+    return ((mantissa << 4) | exponent);
 }
 inline double NormUnquantizeRate(unsigned short rate)
 {
-    double mantissa = ((double)(rate >> 8)) * (10.0/256.0);
-    double exponent = (double)(rate & 0xff);
+    double mantissa = ((double)(rate >> 4)) * (10.0/4096.0);
+    double exponent = (double)(rate & 0x000f);
     return mantissa * pow(10.0, exponent);   
 }
 
@@ -663,31 +663,31 @@ class NormDataMsg : public NormObjectMsg
         {
             ((UINT8*)payload)[PAYLOAD_FLAGS_OFFSET] |= flag;
         }*/
-        static void WriteStreamPayloadMsgStart(char* payload, UINT16 msgStartOffset)
-        {
-            UINT16 temp16 = htons(msgStartOffset);
-            memcpy(payload+PAYLOAD_MSG_START_OFFSET, &temp16, 2);
-        }
         static void WriteStreamPayloadLength(char* payload, UINT16 len)
         {
             UINT16 temp16 = htons(len);
             memcpy(payload+PAYLOAD_LENGTH_OFFSET, &temp16, 2);
+        }
+        static void WriteStreamPayloadMsgStart(char* payload, UINT16 msgStartOffset)
+        {
+            UINT16 temp16 = htons(msgStartOffset);
+            memcpy(payload+PAYLOAD_MSG_START_OFFSET, &temp16, 2);
         }
         static void WriteStreamPayloadOffset(char* payload, UINT32 offset)
         {
             UINT32 temp32 = htonl(offset);
             memcpy(payload+PAYLOAD_OFFSET_OFFSET, &temp32, 4);
         }
-        static UINT16 ReadStreamPayloadMsgStart(const char* payload)
-        {
-            UINT16 temp16;
-            memcpy(&temp16, payload+PAYLOAD_MSG_START_OFFSET, 2);
-            return (ntohs(temp16));
-        }
         static UINT16 ReadStreamPayloadLength(const char* payload)
         {
             UINT16 temp16;
             memcpy(&temp16, payload+PAYLOAD_LENGTH_OFFSET, 2);
+            return (ntohs(temp16));
+        }
+        static UINT16 ReadStreamPayloadMsgStart(const char* payload)
+        {
+            UINT16 temp16;
+            memcpy(&temp16, payload+PAYLOAD_MSG_START_OFFSET, 2);
             return (ntohs(temp16));
         }
         static UINT32 ReadStreamPayloadOffset(const char* payload)
@@ -696,8 +696,6 @@ class NormDataMsg : public NormObjectMsg
             memcpy(&temp32, payload+PAYLOAD_OFFSET_OFFSET, 4);
             return (ntohl(temp32));
         }
-        
-        
           
     private:    
         enum
@@ -710,9 +708,9 @@ class NormDataMsg : public NormObjectMsg
         enum
         {
             //PAYLOAD_FLAGS_OFFSET    = 0,  // deprecated
-            PAYLOAD_MSG_START_OFFSET = 0,    
-            PAYLOAD_LENGTH_OFFSET    = PAYLOAD_MSG_START_OFFSET+2,
-            PAYLOAD_OFFSET_OFFSET    = PAYLOAD_LENGTH_OFFSET+2,
+            PAYLOAD_LENGTH_OFFSET    = 0,    
+            PAYLOAD_MSG_START_OFFSET = PAYLOAD_LENGTH_OFFSET+2,
+            PAYLOAD_OFFSET_OFFSET    = PAYLOAD_MSG_START_OFFSET+2,
             PAYLOAD_DATA_OFFSET      = PAYLOAD_OFFSET_OFFSET+4   
         };
 };  // end class NormDataMsg
@@ -1578,7 +1576,7 @@ class NormAckFlushMsg : public NormAckMsg
         }
         
     private:
-        // These are the payload offsets for "fec_id" = 129 
+        // Note - These are the payload offsets for "fec_id" = 129 
         // "fec_payload_id" field
         enum
         {

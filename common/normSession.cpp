@@ -26,7 +26,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    tx_cache_size_max((UINT32)20*1024*1024),
    flush_count(NORM_ROBUST_FACTOR+1),
    posted_tx_queue_empty(false), 
-   acking_node_count(0), watermark_pending(false), advertise_repairs(false),
+   acking_node_count(0), watermark_pending(false), tx_repair_pending(false), advertise_repairs(false),
    suppress_nonconfirmed(false), suppress_rate(-1.0), suppress_rtt(-1.0),
    probe_proactive(true), probe_pending(false), probe_reset(true), probe_data_check(false),
    grtt_interval(0.5), 
@@ -68,7 +68,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
     
     grtt_quantized = NormQuantizeRtt(DEFAULT_GRTT_ESTIMATE);
     grtt_measured = grtt_advertised = NormUnquantizeRtt(grtt_quantized);
-            
+    
     gsize_measured = DEFAULT_GSIZE_ESTIMATE;
     gsize_quantized = NormQuantizeGroupSize(DEFAULT_GSIZE_ESTIMATE);
     gsize_advertised = NormUnquantizeGroupSize(gsize_quantized);
@@ -249,6 +249,11 @@ bool NormSession::SetMulticastInterface(const char* interfaceName)
 
 void NormSession::SetTxRateInternal(double txRate)
 {
+    if (!is_server) 
+    {
+        tx_rate = txRate;
+        return;
+    }
     if (txRate < 0.0) 
     {
         DMSG(0, "NormSession::SetTxRateInternal() invalid transmit rate!\n");
@@ -287,6 +292,7 @@ void NormSession::SetTxRateInternal(double txRate)
             grtt_quantized = NormQuantizeRtt(grtt_measured);
         grtt_advertised = NormUnquantizeRtt(grtt_quantized);
         
+        
         // What do we do when "pktInterval" > "grtt_max"?
         // We will take our lumps with some extra activity timeout NACKs when they happen?
         if (grtt_advertised > grtt_max)
@@ -294,7 +300,6 @@ void NormSession::SetTxRateInternal(double txRate)
             grtt_quantized = NormQuantizeRtt(grtt_max); 
             grtt_advertised = NormUnquantizeRtt(grtt_quantized);    
         }
-        
         if (grttQuantizedOld != grtt_quantized)
         {
             DMSG(4, "NormSession::SetTxRateInternal() node>%lu %s to new grtt to: %lf sec\n",
@@ -439,6 +444,10 @@ bool NormSession::StartServer(UINT16        instanceId,
         //tx_rate = txRate;             // keep grtt at initial
         SetTxRateInternal(txRate);  // adjusts grtt_advertised as needed
     }
+    else
+    {
+        SetTxRateInternal(tx_rate); // takes segment size into account, etc on server start
+    }
     cc_slow_start = true;
     cc_active = false;
     
@@ -451,6 +460,7 @@ bool NormSession::StartServer(UINT16        instanceId,
         OnProbeTimeout(probe_timer);
         ActivateTimer(probe_timer);
     }
+    
     return true;
 }  // end NormSession::StartServer()
 
@@ -461,6 +471,11 @@ void NormSession::StopServer()
     {
         probe_timer.Deactivate();
         probe_reset = true;
+    }
+    if (repair_timer.IsActive())
+    {
+        repair_timer.Deactivate();
+        tx_repair_pending = false;
     }
     encoder.Destroy();
     acking_node_tree.Destroy();
@@ -525,8 +540,9 @@ void NormSession::Serve()
         obj = tx_table.Find(objectId);
         ASSERT(obj);
     }
-    
-    if (watermark_pending)
+
+    // (TBD) Work on this whole watermark flush check logic!    
+    if (watermark_pending && !flush_timer.IsActive())
     {
         // Determine next message (objectId::blockId::segmentId) to be sent
         NormObject* nextObj;
@@ -535,7 +551,7 @@ void NormSession::Serve()
         NormSegmentId nextSegmentId = 0;
         if (obj)
         {
-            // Use current transmit pending object
+            // Get index (objectId::blockId::segmentId) of next transmit pending segment
             nextObj = obj;
             nextObjectId = objectId;
             if (nextObj->IsPending())
@@ -551,9 +567,8 @@ void NormSession::Serve()
                         block->GetFirstPending(nextSegmentId);
 #endif  // if/else PROTO_DEBUG
                         // Adjust so watermark segmentId < block length
-                        if (nextSegmentId >= nextObj->GetBlockSize(nextBlockId))
-                            nextSegmentId = nextObj->GetBlockSize(nextBlockId) - 1;
-                        
+                        UINT16 nextBlockSize = nextObj->GetBlockSize(nextBlockId);
+                        if (nextSegmentId >= nextBlockSize) nextSegmentId = nextBlockSize - 1;
                     }
                 }
                 else
@@ -564,56 +579,77 @@ void NormSession::Serve()
             else
             {
                 // Must be an active, but non-pending stream object 
+                ASSERT(nextObj->IsStream());
                 nextBlockId = static_cast<NormStreamObject*>(nextObj)->GetNextBlockId();
                 nextSegmentId = static_cast<NormStreamObject*>(nextObj)->GetNextSegmentId();  
             }           
         }
-        else
+        
+        if (tx_repair_pending)
         {
-            // Nothing transmit pending, check for repair pending object
+            
+            if ((tx_repair_object_min < nextObjectId) ||
+                ((tx_repair_object_min == nextObjectId) &&
+                 ((tx_repair_block_min < nextBlockId) ||
+                  ((tx_repair_block_min == nextBlockId) &&
+                   (tx_repair_segment_min < nextSegmentId)))))
+            {
+                nextObjectId = tx_repair_object_min;
+                nextBlockId = tx_repair_block_min;
+                nextSegmentId = tx_repair_segment_min;
+                
+                DMSG(8, "watermark>%hu:%lu:%hu check against repair index>%hu:%lu:%hu\n",
+                       (UINT16)watermark_object_id, (UINT32)watermark_block_id, (UINT16)watermark_segment_id, 
+                       (UINT16)nextObjectId, (UINT32)nextBlockId, (UINT16)nextSegmentId);
+            }
+            /*
+            
+            // Get index (objectId::blockId::segmentId) of next repair pending segment
+            // (This seems like alot of work to do for each call to NormSession::Serve(). Yuk!
+            //  (well when a watermark is pending ... which could be alot of the time
+            //  i.e. iterating through the tx_table, looking for repair pending objects ...
+            //  (TBD) Is there a better way such as keeping state elsewhere on minimum
+            //  pending repairs to save doing the work here?jo
+            NormObjectId repairObjectId = next_tx_object_id;
+            NormBlockId repairBlockId = 0;
+            NormSegmentId repairSegmentId = 0;
+            if (!ServerGetFirstRepairPending(repairObjectId)) 
+                repairObjectId = next_tx_object_id;
             NormObjectTable::Iterator iterator(tx_table);
-            if (ServerGetFirstRepairPending(nextObjectId))
+            while ((nextObj = iterator.GetNextObject()))
             {
-                while ((nextObj = iterator.GetNextObject()))
+                if (repairObjectId < nextObj->GetId())
                 {
-                    if (nextObjectId < nextObj->GetId())
-                    {
-                        nextObj = tx_table.Find(nextObjectId);   
-                        break;
-                    }
-                    else if (nextObj->IsRepairPending())
-                    {
-                        nextObjectId = nextObj->GetId();
-                        break;
-                    }
-                }          
-            }
-            else
-            {
-                nextObjectId = next_tx_object_id;
-                while ((nextObj = iterator.GetNextObject()))
+                    nextObj = tx_table.Find(repairObjectId);   
+                    break;
+                }
+                else if (nextObj->IsRepairPending())
                 {
-                    if (nextObj->IsRepairPending())
-                    {
-                        nextObjectId = nextObj->GetId();
-                        break;
-                    }
-                }  
-            }
-            if (nextObj)
+                    repairObjectId = nextObj->GetId();
+                    break;
+                }
+            }          
+            if (nextObj) nextObj->FindRepairIndex(repairBlockId, repairSegmentId); 
+        
+            // Get min of next transmit pending or repair pending segment
+            if ((repairObjectId < nextObjectId) ||
+                ((repairObjectId == nextObjectId) &&
+                 ((repairBlockId < nextBlockId) ||
+                  ((repairBlockId == nextBlockId) &&
+                   (repairSegmentId < nextSegmentId)))))
             {
-#ifdef PROTO_DEBUG
-                ASSERT(nextObj->FindRepairIndex(nextBlockId, nextSegmentId));
-#else
-                nextObj->FindRepairIndex(nextBlockId, nextSegmentId);
-#endif
+                nextObjectId = repairObjectId;
+                nextBlockId = repairBlockId;
+                nextSegmentId = repairSegmentId;
             }
-        } 
+            */
+        }  // end if (tx_repair_pending)
+        
         if ((nextObjectId > watermark_object_id) ||
             ((nextObjectId == watermark_object_id) &&
              ((nextBlockId > watermark_block_id) ||
-              (((nextBlockId == watermark_block_id) &&
-                (nextSegmentId > watermark_segment_id))))))
+              ((nextBlockId == watermark_block_id) &&
+                (nextSegmentId > watermark_segment_id)))))
         {
             if (ServerQueueWatermarkFlush()) 
             {
@@ -637,8 +673,7 @@ void NormSession::Serve()
                 NormAckingNode* next;
                 while ((next = static_cast<NormAckingNode*>(iterator.GetNextNode())))
                 {
-                    //if (next->IsPending())
-                        next->ResetReqCount();
+                    next->ResetReqCount();
                 }
             }            
         }
@@ -674,21 +709,15 @@ void NormSession::Serve()
                 msg->SetGroupSize(gsize_quantized);
                 QueueMessage(msg);
                 flush_count = 0;
-                //if (flush_timer.IsActive()) flush_timer.Deactivate();
-                if (!obj->IsPending())
-                {
-                    if (obj->IsStream())
-                        posted_tx_queue_empty = true; // repair-delayed stream advance
-                    else
-                        tx_pending_mask.Unset(obj->GetId());
-                    // (TBD) post TX_OBJECT_SENT notification
-                                    
-                }
-                else if (obj->IsStream())
-                {
-                    // Is there room write to the stream
-                    // should we post TX_QUEUE_VACANCY here?      
-                }
+                // (TBD) ??? should streams every allowed to be non-pending?
+                //       we _could_ re-architect streams a little bit and allow
+                //       for this by having NormStreamObject::Write() control
+                //       stream advancement ... I think it would be cleaner.
+                //       (mod NormStreamObject::StreamAdvance() to depend upon
+                //        what has been written and conversely set some pending
+                //        state as calls to NormStreamObject::Write() are made.
+                if (!obj->IsPending() && !obj->IsStream())
+                    tx_pending_mask.Unset(obj->GetId());
             }
             else
             {
@@ -720,7 +749,7 @@ void NormSession::Serve()
                             }
                         }
                     }
-                    if (!posted_tx_queue_empty && !stream->IsClosing())
+                    if (!posted_tx_queue_empty && stream->IsPending() && !stream->IsClosing())
                     {
                         //data_active = false;
                         posted_tx_queue_empty = true;
@@ -758,7 +787,11 @@ void NormSession::Serve()
         if (flush_count < NORM_ROBUST_FACTOR)
         {
             // Queue flush message
-            ServerQueueFlush();
+            if (!tx_repair_pending)  // don't queue flush if repair pending
+                ServerQueueFlush();
+            else
+                DMSG(8, "NormSession::Serve() node>%lu NORM_CMD(FLUSH) deferred by pending repairs ...\n",
+                        LocalNodeId());
         }   
         else if (flush_count == NORM_ROBUST_FACTOR)
         {
@@ -878,6 +911,16 @@ bool NormSession::ServerQueueWatermarkFlush()
         flush->SetGroupSize(gsize_quantized);
         flush->SetObjectId(watermark_object_id);
         flush->SetFecBlockId(watermark_block_id);
+        // _Attempt_ to set the fec_payload_id source block length field appropriately
+        UINT16 blockLen;
+        NormObject* obj = tx_table.Find(watermark_object_id);
+        if (NULL != obj)
+            blockLen = obj->GetBlockSize(watermark_block_id);
+        else if (watermark_segment_id < ndata)
+            blockLen = ndata;
+        else
+            blockLen = watermark_segment_id;
+        flush->SetFecBlockLen(blockLen);
         flush->SetFecSymbolId(watermark_segment_id);
         NormNodeTreeIterator iterator(acking_node_tree);
         NormAckingNode* next;
@@ -960,7 +1003,7 @@ bool NormSession::ServerQueueWatermarkFlush()
         
 void NormSession::ServerQueueFlush()
 {
-    // (TBD) Deal with EOT or pre-queued squelch on squelch case
+    // (TBD) Don't enqueue a new flush if there is already one in our tx_queue!
     if (flush_timer.IsActive()) return;
     NormObject* obj = tx_table.Find(tx_table.RangeHi());
     NormObjectId objectId;
@@ -981,17 +1024,43 @@ void NormSession::ServerQueueFlush()
             blockId = obj->GetFinalBlockId();
             segmentId = obj->GetBlockSize(blockId) - 1;
         }
+        NormCmdFlushMsg* flush = (NormCmdFlushMsg*)GetMessageFromPool();
+        if (flush)
+        {
+            flush->Init();
+            flush->SetDestination(address);
+            flush->SetGrtt(grtt_quantized);
+            flush->SetBackoffFactor((unsigned char)backoff_factor);
+            flush->SetGroupSize(gsize_quantized);
+            flush->SetObjectId(objectId);
+            flush->SetFecBlockId(blockId);
+            flush->SetFecBlockLen(obj->GetBlockSize(blockId));
+            flush->SetFecSymbolId(segmentId);
+            QueueMessage(flush);
+            if (flush_count < NORM_ROBUST_FACTOR) flush_count++;
+            DMSG(4, "NormSession::ServerQueueFlush() node>%lu, flush queued (flush_count:%u)...\n",
+                    LocalNodeId(), flush_count);
+        }
+        else
+        {
+            DMSG(0, "NormSession::ServerQueueFlush() node>%lu message_pool exhausted! (couldn't flush)\n",
+                    LocalNodeId()); 
+        } 
+        
     }
     else
     {
         // Why did I do this? - Brian // Because a squelch keeps the receivers from NACKing in futility
         // (TBD) send NORM_CMD(EOT) instead? - no
+        // Perhaps I should send a flush anyway w/ (next_tx_object_id - 1) and squelch accordingly?
+        // This condition shouldn't occur if we have state on the most recent object ... we should
+        // unless the app does bad things like "cancel" all of its tx objects ...
+        // Maybe we shouldn't send anything if we have no pending tx objects? No need to flush, etc
+        // if all tx object state is gone ...
         if (ServerQueueSquelch(next_tx_object_id))
         {
             if (flush_count < NORM_ROBUST_FACTOR) flush_count++;
-            flush_timer.SetInterval(4*grtt_advertised);
-            ActivateTimer(flush_timer);
-            DMSG(8, "NormSession::ServerQueueFlush() node>%lu squelch queued (flush_count:%u)...\n",
+            DMSG(4, "NormSession::ServerQueueFlush() node>%lu squelch queued (flush_count:%u)...\n",
                  LocalNodeId(), flush_count);
         }
         else
@@ -999,30 +1068,8 @@ void NormSession::ServerQueueFlush()
             DMSG(0, "NormSession::ServerQueueFlush() warning: node>%lu unable to queue squelch\n",
                     LocalNodeId());  
         }
-        return;  
     }
-    NormCmdFlushMsg* flush = (NormCmdFlushMsg*)GetMessageFromPool();
-    if (flush)
-    {
-        flush->Init();
-        flush->SetDestination(address);
-        flush->SetGrtt(grtt_quantized);
-        flush->SetBackoffFactor((unsigned char)backoff_factor);
-        flush->SetGroupSize(gsize_quantized);
-        flush->SetObjectId(objectId);
-        flush->SetFecBlockId(blockId);
-        flush->SetFecSymbolId(segmentId);
-        QueueMessage(flush);
-        if (flush_count < NORM_ROBUST_FACTOR) flush_count++;
-        DMSG(4, "NormSession::ServerQueueFlush() node>%lu, flush queued (flush_count:%u)...\n",
-                LocalNodeId(), flush_count);
-    }
-    else
-    {
-        DMSG(0, "NormSession::ServerQueueFlush() node>%lu message_pool exhausted! (couldn't flush)\n",
-                LocalNodeId());  
-    }   
-    flush_timer.SetInterval(4*grtt_advertised); 
+    flush_timer.SetInterval(2*grtt_advertised); 
     ActivateTimer(flush_timer);
 }  // end NormSession::ServerQueueFlush()
 
@@ -2098,6 +2145,8 @@ void NormSession::ServerHandleAckMessage(const struct timeval& currentTime, cons
                         }
                         else
                         {
+                            // This can happen when new watermarks are set when an old watermark is still
+                            // pending.
                             DMSG(0, "NormSession::ServerHandleAckMessage() received wrong watermark ACK?!\n");    
                         }
                     }
@@ -2168,6 +2217,7 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
     
     bool squelchQueued = false;
     
+    // Get the index of our next pending NORM_DATA transmission
     NormObjectId txObjectIndex;
     NormBlockId txBlockIndex;
     if (ServerGetFirstPending(txObjectIndex))
@@ -2193,7 +2243,7 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
         txObjectIndex = next_tx_object_id;
         txBlockIndex = 0;
     }
-                
+    
     bool holdoff = (repair_timer.IsActive() && !repair_timer.GetRepeatCount());    
     enum NormRequestLevel {SEGMENT, BLOCK, INFO, OBJECT};
     while ((requestLength = nack.UnpackRepairRequest(req, requestOffset)))
@@ -2202,15 +2252,26 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
         requestOffset += requestLength;
         NormRequestLevel requestLevel;
         if (req.FlagIsSet(NormRepairRequest::SEGMENT))
+        {
             requestLevel = SEGMENT;
+        }
         else if (req.FlagIsSet(NormRepairRequest::BLOCK))
+        {
             requestLevel = BLOCK;
+        }
         else if (req.FlagIsSet(NormRepairRequest::OBJECT))
+        {
             requestLevel = OBJECT;
-        else
+        }
+        else if (req.FlagIsSet(NormRepairRequest::INFO))
         {
             requestLevel = INFO;
-            ASSERT(req.FlagIsSet(NormRepairRequest::INFO));
+        }
+        else
+        {
+            DMSG(0, "NormSession::ServerHandleNackMessage() node>%lu recvd repair request w/ invalid repair level\n",
+                    LocalNodeId());
+            continue;
         }
         
         NormRepairRequest::Iterator iterator(req);
@@ -2280,6 +2341,23 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         }
                         else
                         {
+                            // Update our minimum tx repair index as needed
+                            if (tx_repair_pending)
+                            {
+                                if (nextObjectId <= tx_repair_object_min)
+                                {
+                                    tx_repair_object_min = nextObjectId;
+                                    tx_repair_block_min = 0;
+                                    tx_repair_segment_min = 0;
+                                }
+                            }
+                            else
+                            {
+                                tx_repair_pending = true;
+                                tx_repair_object_min = nextObjectId;
+                                tx_repair_block_min = 0;
+                                tx_repair_segment_min = 0;         
+                            }
                             object->HandleInfoRequest();
                             startTimer = true;
                         }
@@ -2307,6 +2385,23 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         }
                         else
                         {
+                            // Update our minimum tx repair index as needed
+                            if (tx_repair_pending)
+                            {
+                                if (nextObjectId <= tx_repair_object_min)
+                                {
+                                    tx_repair_object_min = nextObjectId;
+                                    tx_repair_block_min = 0;
+                                    tx_repair_segment_min = 0;
+                                }
+                            }
+                            else
+                            {
+                                tx_repair_pending = true;
+                                tx_repair_object_min = nextObjectId;
+                                tx_repair_block_min = 0;
+                                tx_repair_segment_min = 0;         
+                            }
                             tx_repair_mask.Set(nextObjectId);
                             startTimer = true;   
                         }
@@ -2382,6 +2477,31 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         }
                         else
                         {
+                            // Update our minimum tx repair index as needed
+                            if (tx_repair_pending)
+                            {
+                                if (nextObjectId < tx_repair_object_min)
+                                {
+                                    tx_repair_object_min = nextObjectId;
+                                    tx_repair_block_min = nextBlockId;
+                                    tx_repair_segment_min = 0;
+                                }
+                                else if (nextObjectId == tx_repair_object_min)
+                                {
+                                    if (nextBlockId <= tx_repair_block_min)
+                                    {
+                                        tx_repair_block_min = nextBlockId;
+                                        tx_repair_segment_min = 0;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                tx_repair_pending = true;
+                                tx_repair_object_min = nextObjectId;
+                                tx_repair_block_min = nextBlockId;
+                                tx_repair_segment_min = 0;
+                            }
                             object->HandleBlockRequest(nextBlockId, lastBlockId);
                             startTimer = true;
                         }
@@ -2394,17 +2514,23 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         if (nextBlockId != prevBlockId) freshBlock = true;
                         if (freshBlock)
                         {
-                            freshBlock = false;
                             // Is this entire block already repair pending?
                             if (object->IsRepairSet(nextBlockId)) 
-                                break;
-                            if (!(block = object->FindBlock(nextBlockId)))
+                                continue;
+                            if (NULL == (block = object->FindBlock(nextBlockId)))
                             {
                                 // Is this entire block already tx pending?
-                                if (!object->IsPendingSet(nextBlockId))
+                                if (object->IsPendingSet(nextBlockId))
+                                {
+                                    // Entire block already tx pending, don't worry about individual segments
+                                    DMSG(4, "NormSession::ServerHandleNackMessage() node>%lu "
+                                            "recvd SEGMENT repair request for pending block.\n");
+                                    continue;   
+                                }
+                                else
                                 {
                                     // Try to recover block including parity calculation 
-                                    if (!(block = object->ServerRecoverBlock(nextBlockId)))
+                                    if (NULL == (block = object->ServerRecoverBlock(nextBlockId)))
                                     {
                                         if (NormObject::STREAM == object->GetType())
                                         {
@@ -2419,26 +2545,20 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                         }
                                         else
                                         {
-                                            // Resource constrained, move on.
+                                            // Resource constrained, move on to next repair request
                                             DMSG(2, "NormSession::ServerHandleNackMessage() node>%lu "
                                                     "Warning - server is resource contrained ...\n");
                                         }  
-                                        break;
+                                        continue;
                                     }
                                 }
-                                else
-                                {
-                                    // Entire block already tx pending, don't recover
-                                    DMSG(4, "NormSession::ServerHandleNackMessage() node>%lu "
-                                            "recvd SEGMENT repair request for pending block.\n");
-                                    break;   
-                                }
                             }
+                            freshBlock = false;
                             numErasures = extra_parity;
                             prevBlockId = nextBlockId;
-                        }
+                        }  // end if (freshBlock)
+                        ASSERT(NULL != block);
                         // If stream && explicit data repair, lock the data for retransmission
-                        
                         if (object->IsStream() && (nextSegmentId < ndata))
                         {
                             bool attemptLock = true;
@@ -2541,16 +2661,50 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         }
                         else
                         {
+                            // Update our minimum tx repair index as needed
+                            ASSERT(nextBlockId == block->GetId());
+                            UINT16 nextBlockSize = object->GetBlockSize(nextBlockId);
+                            if (tx_repair_pending)
+                            {
+                                if (nextObjectId < tx_repair_object_min)
+                                {
+                                    tx_repair_block_min = nextBlockId;
+                                    tx_repair_segment_min = (nextSegmentId < nextBlockSize) ?
+                                                                nextSegmentId : (nextBlockSize - 1);
+                                }
+                                else if (nextObjectId == tx_repair_object_min)
+                                {
+                                    if (nextBlockId < tx_repair_block_min)
+                                    {
+                                        tx_repair_block_min = nextBlockId;
+                                        tx_repair_segment_min = (nextSegmentId < nextBlockSize) ?
+                                                                nextSegmentId : (nextBlockSize - 1);
+                                    }
+                                    else if (nextBlockId == tx_repair_block_min)
+                                    {
+                                        if (nextSegmentId < tx_repair_segment_min)
+                                            tx_repair_segment_min = nextSegmentId;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                tx_repair_pending = true;
+                                tx_repair_object_min = nextObjectId;
+                                tx_repair_block_min = nextBlockId;
+                                tx_repair_segment_min = (nextSegmentId < nextBlockSize) ?
+                                                                nextSegmentId : (nextBlockSize - 1);
+                            }
                             block->HandleSegmentRequest(nextSegmentId, lastSegmentId, 
-                                                        object->GetBlockSize(block->GetId()), 
-                                                        nparity, numErasures);
+                                                        nextBlockSize, nparity, 
+                                                        numErasures);
                             startTimer = true;
                         }  // end if/else (holdoff)
                         break;
                     case INFO:
+                        // We already dealt with INFO request above with respect to initiating repair
                         nextObjectId++;
-                        if (nextObjectId > lastObjectId) 
-                            inRange = false;
+                        if (nextObjectId > lastObjectId) inRange = false;
                         break; 
                 }  // end switch(requestLevel)
             }  // end while(inRange)
@@ -2649,7 +2803,9 @@ bool NormSession::ServerQueueSquelch(NormObjectId objectId)
         {
             ASSERT(NormObject::STREAM == obj->GetType());
             squelch->SetObjectId(objectId);
-            squelch->SetFecBlockId(((NormStreamObject*)obj)->StreamBufferLo());
+            NormBlockId blockId = static_cast<NormStreamObject*>(obj)->StreamBufferLo();
+            squelch->SetFecBlockId(blockId);
+            squelch->SetFecBlockLen(obj->GetBlockSize(blockId));
             squelch->SetFecSymbolId(0);
             squelch->ResetInvalidObjectList();
             while ((obj = iterator.GetNextObject()))
@@ -2662,10 +2818,13 @@ bool NormSession::ServerQueueSquelch(NormObjectId objectId)
             if (obj)
             {
                squelch->SetObjectId(obj->GetId());
+               NormBlockId blockId;
                if (obj->IsStream())
-                   squelch->SetFecBlockId(((NormStreamObject*)obj)->StreamBufferLo());
+                   blockId =static_cast<NormStreamObject*>(obj)->StreamBufferLo();
                else
-                   squelch->SetFecBlockId(0);
+                   blockId = NormBlockId(0);
+               squelch->SetFecBlockId(blockId);
+               squelch->SetFecBlockLen(obj->GetBlockSize(blockId));
                squelch->SetFecSymbolId(0); 
                nextId = obj->GetId() + 1;
             }
@@ -2674,6 +2833,7 @@ bool NormSession::ServerQueueSquelch(NormObjectId objectId)
                 // Squelch to point to future object
                 squelch->SetObjectId(next_tx_object_id);
                 squelch->SetFecBlockId(0);
+                squelch->SetFecBlockLen(0);  // (TBD) should this be "ndata" instead? but we can't be sure
                 squelch->SetFecSymbolId(0);
                 nextId = next_tx_object_id;
             }
@@ -2821,6 +2981,7 @@ bool NormSession::ServerBuildRepairAdv(NormCmdRepairAdvMsg& cmd)
 
 bool NormSession::OnRepairTimeout(ProtoTimer& /*theTimer*/)
 {
+    tx_repair_pending = false;
     if (repair_timer.GetRepeatCount())
     {
         // NACK aggregation period has ended. (incorporate accumulated repair requests)
@@ -2859,9 +3020,7 @@ bool NormSession::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                 }  
             } 
         }  // end while (iterator.GetNextObject())   
-        // (TBD) should this be just PromptServer() instead???
-        // (note we do set posted_tx_queue_empty when repair state blocks stream progress)           
-        TouchServer(); 
+        PromptServer();
         // BACKOFF related code
         // Holdoff initiation of new repair cycle for one GRTT 
         // (TBD) for unicast sessions, use CLR RTT ???
@@ -3053,8 +3212,7 @@ bool NormSession::SendMessage(NormMsg& msg)
     }    
     else
     {
-        if (tx_socket->SendTo(msg.GetBuffer(), msgSize,
-                              msg.GetDestination()))
+        if (tx_socket->SendTo(msg.GetBuffer(), msgSize, msg.GetDestination()))
         {
             // Separate send/recv tracing
             if (trace) 
