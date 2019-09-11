@@ -1569,7 +1569,8 @@ void NormApp::Notify(NormController::Event event,
             PLOG(PL_DEBUG, "NormApp::Notify(RX_OBJECT_NEW) ...\n");
             struct timeval currentTime;
             ProtoSystemTime(currentTime);
-            struct tm* timePtr = gmtime((time_t*)&currentTime.tv_sec); 
+            time_t secs = (time_t)currentTime.tv_sec;
+            struct tm* timePtr = gmtime(&secs); 
             PLOG(PL_INFO, "%02d:%02d:%02d.%06lu start rx object>%hu sender>%lu\n",
 		            timePtr->tm_hour, timePtr->tm_min, timePtr->tm_sec, 
 		            (unsigned long)currentTime.tv_usec, (UINT16)object->GetId(), sender->GetId());
@@ -1870,8 +1871,8 @@ void NormApp::Notify(NormController::Event event,
             {
                 struct timeval currentTime;
                 ProtoSystemTime(currentTime);
-                struct tm* timePtr = gmtime((time_t*)&currentTime.tv_sec); 
-            
+                time_t secs = (time_t)currentTime.tv_sec;
+                struct tm* timePtr = gmtime(&secs);
                 PLOG(PL_INFO, "%02d:%02d:%02d.%06u completed rx object>%hu ",
 		                (int)timePtr->tm_hour, (int)timePtr->tm_min, (int)timePtr->tm_sec, (unsigned int)currentTime.tv_usec, 
                         (UINT16)object->GetId());
@@ -1910,7 +1911,8 @@ void NormApp::Notify(NormController::Event event,
             PLOG(PL_FATAL, "NormApp::Notify(RX_OBJECT_ABORTED) ...\n");
             struct timeval currentTime;
             ProtoSystemTime(currentTime);
-            struct tm* timePtr = gmtime((time_t*)&currentTime.tv_sec); 
+            time_t secs = (time_t)currentTime.tv_sec;
+            struct tm* timePtr = gmtime(&secs); 
             PLOG(PL_INFO, "%02d:%02d:%02d.%06lu aborted rx object>%hu sender>%lu\n",
 		            timePtr->tm_hour, timePtr->tm_min, timePtr->tm_sec, 
 		            (unsigned long)currentTime.tv_usec, (UINT16)object->GetId(), sender->GetId());
@@ -2031,7 +2033,8 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
         
         struct timeval currentTime;
         ProtoSystemTime(currentTime);
-        struct tm* timePtr = gmtime((time_t*)&currentTime.tv_sec); 
+        time_t secs = (time_t)currentTime.tv_sec;
+        struct tm* timePtr = gmtime(&secs); 
         PLOG(PL_INFO, "%02d:%02d:%02d.%06lu enqueued tx object>%hu sender>%lu\n",
 		        timePtr->tm_hour, timePtr->tm_min, timePtr->tm_sec, 
 		        (unsigned long)currentTime.tv_usec, (UINT16)obj->GetId(), session->LocalNodeId());

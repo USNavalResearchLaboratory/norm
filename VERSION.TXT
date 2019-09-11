@@ -1,5 +1,12 @@
 			           NORM Version History
 
+Version 1.5r6
+=============
+    - Fixed Protolib ProtoBitmask bug for NDEBUG (release) builds.
+      This is an IMPORTANT fix! (Thanks to Deepak Pengoria and 
+      Kirill Kropivyanskiy)
+    - Fix to use of gmtime() call in normApp.cpp for WIN32 builds
+
 Version 1.5r5
 =============
     - Added NORM_REMOTE_SENDER_RESET event to notify app when the sender

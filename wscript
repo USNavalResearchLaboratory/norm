@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env  
 '''
 wscript - Waf build script for NORM
 See http://waf.googlecode.com/ for more information.

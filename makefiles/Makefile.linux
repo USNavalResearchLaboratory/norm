@@ -36,14 +36,14 @@ SYSTEM_LIBS = -ldl
 #
 
 SYSTEM_HAVES = -DLINUX -DECN_SUPPORT -DHAVE_IPV6 -DHAVE_GETLOGIN -D_FILE_OFFSET_BITS=64 -DHAVE_LOCKF \
--DHAVE_OLD_SIGNALHANDLER -DHAVE_DIRFD -DHAVE_ASSERT  
+-DHAVE_OLD_SIGNALHANDLER -DHAVE_DIRFD -DHAVE_ASSERT
 
 SYSTEM_SRC = ../protolib/src/linux/linuxCap.cpp
 
 SYSTEM = linux
 
 export CC = g++
-export SYSTEM_CFLAGS = -fPIC -Wall -Wcast-align
+export SYSTEM_CFLAGS = -Wall -Wcast-align -pedantic -fPIC
 export SYSTEM_SOFLAGS = -shared -Wl,-soname,libnorm.so.1
 SYSTEM_SOEXT = so
 export RANLIB = ranlib

@@ -1627,6 +1627,7 @@ NormBlock* NormObject::StealOldestBlock(bool excludeBlock, NormBlockId excludeId
 
 bool NormObject::NextSenderMsg(NormObjectMsg* msg)
 {
+    
     // Init() the message
     if (pending_info)
     {
@@ -1815,9 +1816,10 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
     if (!block->GetFirstPending(segmentId)) 
     {
         PLOG(PL_ERROR, "NormObject::NextSenderMsg() nothing pending!?\n");
+        fprintf(stderr, "NormObject::NextSenderMsg() nothing pending!?\n");
         ASSERT(0);
+        return false;
     }
-    
     // Try to read segment 
     if (segmentId < numData)
     {
@@ -1901,7 +1903,7 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
     if (!block->IsPending()) 
     {
         // End of block reached
-        block->ResetParityCount(nparity);  
+        block->ResetParityCount(nparity);       
         pending_mask.Unset(blockId); 
         // for EMCON sending, mark NORM_INFO for re-transmission, if applicable
         if (session.SndrEmcon() && HaveInfo())

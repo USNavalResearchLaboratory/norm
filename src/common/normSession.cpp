@@ -5037,7 +5037,6 @@ bool NormSession::OnReportTimeout(ProtoTimer& /*theTimer*/)
 #else            
     time_t secs = (time_t)currentTime.tv_sec;
     struct tm timeStruct;
-    //struct tm* ct = gmtime(&secs);
 #ifdef WIN32
 	gmtime_s(&timeStruct, &secs);
 	struct tm* ct = &timeStruct;

@@ -528,6 +528,11 @@ bool NormMsgr::EnqueueMessageObject()
             NormSetWatermark(norm_session, object);
             norm_tx_watermark_pending = true;
         }
+        else
+        {
+            // TBD - make non-flow control acking separable option?
+            NormSetWatermark(norm_session, object);
+        }
     }
     return true;
 }  // end NormMsgr::EnqueueMessageObject()
@@ -550,8 +555,11 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
             if (NORM_ACK_SUCCESS == NormGetAckingStatus(norm_session))
             {
                 //fprintf(stderr, "WATERMARK COMPLETED\n");
-                norm_tx_queue_count -= (norm_tx_queue_max / 2);
-                norm_tx_watermark_pending = false;
+                if (norm_tx_watermark_pending)
+                {
+                    norm_tx_queue_count -= (norm_tx_queue_max / 2);
+                    norm_tx_watermark_pending = false;
+                }
             }
             else
             {
@@ -964,8 +972,6 @@ NormMsgr::Message::Message(char* buffer, unsigned int size)
     uint16_t msgSize = size + MSG_HEADER_SIZE;
     msgSize = htons(msgSize);
     memcpy(msg_header, &msgSize, MSG_HEADER_SIZE);
-    
-    fprintf(stderr, "output msg ctor data = %.20s\n", buffer);
 } 
 
 NormMsgr::Message::~Message()
