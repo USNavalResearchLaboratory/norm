@@ -3,11 +3,10 @@
 #
 
 
-
 # 1) System specific additional libraries, include paths, etc
 #    (Where to find X11 libraries, etc)
 #
-SYSTEM_INCLUDES = -DIRIX -n32 -woff 3333 -cfront
+SYSTEM_INCLUDES = -DIRIX -n32 -woff 3333
 SYSTEM_LDFLAGS = 
 SYSTEM_LIBS = 
 

@@ -45,10 +45,7 @@ static class NsNormAgentClass : public TclClass
 
 
 NsNormAgent::NsNormAgent()
- : NormSimAgent(ProtoSimAgent::TimerInstaller, 
-                static_cast<ProtoSimAgent*>(this),
-                ProtoSimAgent::SocketInstaller, 
-                static_cast<ProtoSimAgent*>(this))
+ : NormSimAgent(GetTimerMgr(), GetSocketNotifier())
 {
  
 }  
@@ -57,7 +54,25 @@ NsNormAgent::~NsNormAgent()
 {    
 }
 
-int NsNormAgent::command(int argc, const char*const* argv) 
+bool NsNormAgent::OnStartup(int argc, const char*const* argv)
+{
+    if (ProcessCommands(argc, argv))
+    {
+        return true;
+    }
+    else
+    {
+        fprintf(stderr, "NsNormAgent::OnStartup() error processing commands\n");
+        return false;
+    }
+} // end NsNormAgent::OnStartup()
+
+void NsNormAgent::OnShutdown()
+{
+    NormSimAgent::Stop(); 
+}  // end NsNormAgent::OnShutdown()
+
+bool NsNormAgent::ProcessCommands(int argc, const char*const* argv) 
 {   
     // Process commands, passing unknown commands to base Agent class
     int i = 1;
@@ -70,8 +85,8 @@ int NsNormAgent::command(int argc, const char*const* argv)
             // Attach Agent/MGEN to this NormSimAgent 
             if (++i >= argc)
             {
-                DMSG(0, "NsNormAgent::command() ProcessCommand(attach-mgen) error: insufficent arguments\n");
-                return TCL_ERROR;
+                DMSG(0, "NsNormAgent::ProcessCommands() ProcessCommand(attach-mgen) error: insufficent arguments\n");
+                return false;
             } 
             Tcl& tcl = Tcl::instance();  
             NsMgenAgent* mgenAgent = dynamic_cast<NsMgenAgent*> (tcl.lookup(argv[i]));
@@ -83,8 +98,8 @@ int NsNormAgent::command(int argc, const char*const* argv)
             }
             else
             {
-                DMSG(0, "NsNormAgent::command() ProcessCommand(attach-mgen) error: invalid mgen agent\n");
-                return TCL_ERROR;
+                DMSG(0, "NsNormAgent::ProcessCommands() ProcessCommand(attach-mgen) error: invalid mgen agent\n");
+                return false;
             }
         }
         else if (!strcmp(argv[i], "active"))
@@ -105,9 +120,9 @@ int NsNormAgent::command(int argc, const char*const* argv)
             case NormSimAgent::CMD_NOARG:
                 if (!ProcessCommand(argv[i], NULL))
                 {
-                    DMSG(0, "NsNormAgent::command() ProcessCommand(%s) error\n", 
+                    DMSG(0, "NsNormAgent::ProcessCommands() ProcessCommand(%s) error\n", 
                             argv[i]);
-                    return TCL_ERROR;
+                    return false;
                 }
                 i++;
                 break;
@@ -115,23 +130,23 @@ int NsNormAgent::command(int argc, const char*const* argv)
             case NormSimAgent::CMD_ARG:
                 if (!ProcessCommand(argv[i], argv[i+1]))
                 {
-                    DMSG(0, "NsNormAgent::command() ProcessCommand(%s, %s) error\n", 
+                    DMSG(0, "NsNormAgent::ProcessCommands() ProcessCommand(%s, %s) error\n", 
                             argv[i], argv[i+1]);
-                    return TCL_ERROR;
+                    return false;
                 }
                 i += 2;
                 break;
                 
             case NormSimAgent::CMD_INVALID:
-                return NsProtoAgent::command(argc, argv);
+                return false;
         }
     }
-    return TCL_OK; 
-}  // end NsNormAgent::command()
+    return true; 
+}  // end NsNormAgent::ProcessCommands()
 
-bool NsNormAgent::SendMgenMessage(const NetworkAddress* dstAddr,
-                                  const char*           txBuffer,
-                                  unsigned int          len)
+bool NsNormAgent::SendMgenMessage(const char*           txBuffer,
+                                  unsigned int          len,
+                                  const ProtoAddress&   /*dstAddr*/)
 {
     return SendMessage(len, txBuffer);
 }  // end NsNormAgent::SendMgenMessage()

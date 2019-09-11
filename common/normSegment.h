@@ -157,9 +157,9 @@ class NormBlock
         UINT16 ParityCount() const {return parity_count;}
         
         NormSymbolId FirstPending() const
-            {return pending_mask.FirstSet();}
+            {return (NormSymbolId)pending_mask.FirstSet();}
         NormSymbolId FirstRepair()  const
-            {return repair_mask.FirstSet();}
+            {return (NormSymbolId)repair_mask.FirstSet();}
         bool SetPending(NormSymbolId s) 
             {return pending_mask.Set(s);}
         bool SetPending(NormSymbolId firstId, UINT16 count)
@@ -192,7 +192,7 @@ class NormBlock
         
             
         NormSymbolId NextPending(NormSymbolId index) const
-            {return pending_mask.NextSet(index);}
+            {return ((NormSymbolId)pending_mask.NextSet(index));}
         
         
         bool AppendRepairRequest(NormNackMsg&    nack, 

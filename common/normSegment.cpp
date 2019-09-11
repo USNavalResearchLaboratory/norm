@@ -184,14 +184,14 @@ bool NormBlock::IsRepairPending(UINT16 ndata, UINT16 nparity)
         if (nparity)
         {
             UINT16 i = nparity;
-            NormSegmentId nextId = pending_mask.FirstSet();
+            NormSegmentId nextId = (UINT16)pending_mask.FirstSet();
             while (i--)
             {
                 // (TBD) for more NACK suppression, we could skip ahead
                 // if this bit is already set in repair_mask?
                 repair_mask.Set(nextId);  // set bit a parity can fill
                 nextId++;
-                nextId = pending_mask.NextSet(nextId);  
+                nextId = (UINT16)pending_mask.NextSet(nextId);  
             } 
         }
         else if (size > ndata)
@@ -390,7 +390,7 @@ bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd,
     NormRepairRequest req;
     req.SetFlag(NormRepairRequest::SEGMENT);
     if (repairInfo) req.SetFlag(NormRepairRequest::INFO);
-    UINT16 nextId = repair_mask.FirstSet();
+    UINT16 nextId = (UINT16)repair_mask.FirstSet();
     UINT16 blockSize = size;
     NormRepairRequest::Form prevForm = NormRepairRequest::INVALID;
     UINT16 segmentCount = 0;
@@ -398,7 +398,7 @@ bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd,
     while (nextId < blockSize)
     {
         UINT16 currentId = nextId;
-        nextId = repair_mask.NextSet(++nextId);
+        nextId = (UINT16)repair_mask.NextSet(++nextId);
         if (!segmentCount) firstId = currentId;
         
         segmentCount++;
@@ -467,19 +467,19 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
     if (erasure_count > nparity)
     {
         // Request explicit repair 
-        nextId = pending_mask.FirstSet();
+        nextId = (UINT16)pending_mask.FirstSet();
         UINT16 i = nparity;
         // Skip nparity missing data segments
         while (i--)
         {
             nextId++;
-            endId = pending_mask.NextSet(nextId);
+            endId = (UINT16)pending_mask.NextSet(nextId);
         }
         endId = ndata + nparity;
     }
     else
     {
-        nextId = pending_mask.NextSet(ndata);
+        nextId = (UINT16)pending_mask.NextSet(ndata);
         endId = ndata + erasure_count;   
     }
     NormRepairRequest req;
@@ -492,7 +492,7 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
     while (nextId < endId)
     {
         UINT16 currentId = nextId;
-        nextId = pending_mask.NextSet(++nextId);
+        nextId = (UINT16)pending_mask.NextSet(++nextId);
         if (0 == segmentCount) firstId = currentId;
         segmentCount++;
         // Check for break in consecutive series or end

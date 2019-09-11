@@ -146,13 +146,14 @@ bool NormEncoder::CreateGeneratorPolynomial()
 	    for (int i = 0; i < degree; i++)
 	    {
 	        memset(&tp2[degree], 0, degree*sizeof(unsigned char));
+            int j;
 	        // Scale tp2 by p1[i] 
-	        for(int j=0; j<degree; j++) tp2[j]=gmult(tp1[j], tp[i]);
+	        for(j=0; j<degree; j++) tp2[j]=gmult(tp1[j], tp[i]);
 	        // Mult(shift) tp2 right by i 
-	        for (int j = (degree*2)-1; j >= i; j--) tp2[j] = tp2[j-i];
+	        for (j = (degree*2)-1; j >= i; j--) tp2[j] = tp2[j-i];
 	        memset(tp2, 0, i*sizeof(unsigned char));
 	        // Add into partial product 
-	        for(int j=0; j < (npar+1); j++) genPoly[j] ^= tp2[j];
+	        for(j=0; j < (npar+1); j++) genPoly[j] ^= tp2[j];
 	    }    
 	    memcpy(tp1, genPoly, (npar+1)*sizeof(unsigned char));
 	    memset(&tp1[npar+1], 0, (2*degree)-(npar+1));
@@ -343,7 +344,8 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
     int vecSize = vector_size;
 #endif // if/else SIMUATE
     
-    for (int i = 0; i < npar; i++)
+    int i;
+    for (i = 0; i < npar; i++)
     {
 	    int X = gexp(i+1);
 	    unsigned char* synVec = sVec[i];
@@ -365,7 +367,7 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
     int nvecsMinusOne = nvecs - 1;
     memset(Lambda, 0, degree*sizeof(char));
     Lambda[0] = 1;
-    for (int i = 0; i < erasureCount; i++)
+    for (i = 0; i < erasureCount; i++)
     {
 	    int X = gexp(nvecsMinusOne - erasureLocs[i]);
 	    for(int j = (degree-1); j > 0; j--)
@@ -373,7 +375,7 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
     }
 
     // (C) Compute modified Omega using Lambda 
-    for(int i = 0; i < npar; i++)
+    for(i = 0; i < npar; i++)
     {
 	    int k = i;
 	    memset(oVec[i], 0, vecSize*sizeof(char));
@@ -389,7 +391,7 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
     }
 
     // (D) Finally, fill in the erasures 
-    for (int i = 0; i < erasureCount; i++)
+    for (i = 0; i < erasureCount; i++)
     {       
         // Only fill _data_ erasures
         if (erasureLocs[i] >= ndata) break;//return erasureCount;
@@ -398,14 +400,15 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
 	    // ( all odd powers disappear) 
 	    int k = nvecsMinusOne - erasureLocs[i];
 	    int denom = 0;
-	    for (int j = 1; j < degree; j += 2)
+        int j;
+	    for (j = 1; j < degree; j += 2)
 	        denom ^= gmult(Lambda[j], gexp(((255-k)*(j-1)) % 255));
 	    // Invert for use computing errror value below 
 	    denom = ginv(denom);
 
 	    // Now evaluate Omega at alpha^(-i) (numerator) 
 	    unsigned char* eVec = (unsigned char*)dVec[erasureLocs[i]];
-	    for (int j = 0; j < npar; j++)
+	    for (j = 0; j < npar; j++)
 	    {
             unsigned char* data = eVec;
 	        unsigned char* Omega = oVec[j];

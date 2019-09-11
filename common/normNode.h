@@ -4,7 +4,8 @@
 #include "normMessage.h"
 #include "normObject.h"
 #include "normEncoder.h"
-#include "protocolTimer.h"
+#include "protokit.h"
+
 class NormNode
 {
     friend class NormNodeTree;
@@ -16,28 +17,22 @@ class NormNode
         NormNode(class NormSession* theSession, NormNodeId nodeId);
         virtual ~NormNode();
         
-        void SetAddress(const NetworkAddress& address) {addr = address;}
-        const NetworkAddress& GetAddress() const {return addr;} 
-        
-        const NormNodeId& Id() const {return id;}
-        inline const NormNodeId& LocalNodeId() const; 
-        
+        const ProtoAddress& GetAddress() const {return addr;} 
+        void SetAddress(const ProtoAddress& address) {addr = address;}
+        const NormNodeId& GetId() const {return id;}
         void SetId(const NormNodeId& nodeId) {id = nodeId;}
+        inline const NormNodeId& LocalNodeId() const; 
     
     protected:
-        class NormSession*    session;
+        class NormSession*  session;
         
     private:
-        NormNodeId            id;
-        NetworkAddress        addr;
-        
-        NormNode*             parent;
-        NormNode*             right;
-        NormNode*             left;
-        
-        //NormNode*             prev;
-        //NormNode*             next;
-        
+        NormNodeId          id;
+        ProtoAddress        addr;
+        // We keep NormNodes in a binary tree
+        NormNode*           parent;
+        NormNode*           right;
+        NormNode*           left;
 };  // end class NormNode
 
 // Weighted-history loss event estimator
@@ -156,7 +151,7 @@ class NormCCNode : public NormNode
        double GetRtt() const {return rtt;}
        double GetLoss() const {return loss;}
        double GetRate() const {return rate;}
-       UINT8 GetCCSequence() const {return cc_sequence;}
+       UINT16 GetCCSequence() const {return cc_sequence;}
        
        void SetActive(bool state) {is_active = state;}
        void SetClrStatus(bool state) {is_clr = state;}
@@ -169,7 +164,7 @@ class NormCCNode : public NormNode
        }
        void SetLoss(double value) {loss = value;}
        void SetRate(double value) {rate = value;}
-       void SetCCSequence(UINT8 value) {cc_sequence = value;}
+       void SetCCSequence(UINT16 value) {cc_sequence = value;}
        
     private:
         bool    is_clr; // true if worst path representative
@@ -179,7 +174,7 @@ class NormCCNode : public NormNode
         double  rtt;    // in seconds
         double  loss;   // loss fraction
         double  rate;   // in bytes per second
-        UINT8   cc_sequence;
+        UINT16  cc_sequence;
 };  // end class NormCCNode
 
 class NormServerNode : public NormNode
@@ -275,9 +270,9 @@ class NormServerNode : public NormNode
                          NormBlockId            blockId,
                          NormSegmentId          segmentId);
     
-        bool OnActivityTimeout();
-        bool OnRepairTimeout();
-        bool OnCCTimeout();
+        bool OnActivityTimeout(ProtoTimer& theTimer);
+        bool OnRepairTimeout(ProtoTimer& theTimer);
+        bool OnCCTimeout(ProtoTimer& theTimer);
         void HandleRepairContent(const char* buffer, UINT16 bufferLen);
             
         UINT16              session_id;
@@ -298,25 +293,26 @@ class NormServerNode : public NormNode
         NormDecoder         decoder;
         UINT16*             erasure_loc;
         
-        ProtocolTimer       activity_timer;
-        ProtocolTimer       repair_timer;
+        ProtoTimer          activity_timer;
+        ProtoTimer          repair_timer;
         NormObjectId        current_object_id;  // index for suppression
         NormObjectId        max_pending_object; // index for NACK construction
-                
+        
+        // Remote server grtt measurement state       
         double              grtt_estimate;
         UINT8               grtt_quantized;
         struct timeval      grtt_send_time;
         struct timeval      grtt_recv_time;
         double              gsize_estimate;
         UINT8               gsize_quantized;
+        double              backoff_factor;
         
-        // Congestion control state
+        // Remote server congestion control state
         NormLossEstimator2  loss_estimator;
-        //NormLossEstimator   loss_estimator;
-        UINT8               cc_sequence;
+        UINT16              cc_sequence;
         bool                cc_enable;
-        double              cc_rate;     // ccRate at start of cc_timer
-        ProtocolTimer       cc_timer;
+        double              cc_rate;           // ccRate at start of cc_timer
+        ProtoTimer          cc_timer;
         double              rtt_estimate;
         UINT8               rtt_quantized;
         bool                rtt_confirmed;
@@ -330,13 +326,13 @@ class NormServerNode : public NormNode
         double              nominal_packet_size;
         
         // For statistics tracking
-        unsigned long       recv_total;   // total recvd accumulator
-        unsigned long       recv_goodput; // goodput recvd accumulator
+        unsigned long       recv_total;        // total recvd accumulator
+        unsigned long       recv_goodput;      // goodput recvd accumulator
         unsigned long       resync_count;
         unsigned long       nack_count;
         unsigned long       suppress_count;
         unsigned long       completion_count;
-        unsigned long       failure_count;  // due to re-syncs
+        unsigned long       failure_count;     // usually due to re-syncs
         
 };  // end class NormServerNode
     

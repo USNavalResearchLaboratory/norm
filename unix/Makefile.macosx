@@ -5,6 +5,7 @@
 # 1) System specific additional libraries, include paths, etc
 #    (Where to find X11 libraries, etc)
 #
+
 SYSTEM_INCLUDES = -I/usr/X11R6/include 
 SYSTEM_LDFLAGS = -L/usr/X11R6/lib 
 SYSTEM_LIBS =  
@@ -35,7 +36,12 @@ SYSTEM_LIBS =
 # (We export these for other Makefiles as needed)
 #
 
-export SYSTEM_HAVES = -DHAVE_ASSERT -DHAVE_GETLOGIN -DHAVE_FLOCK -DHAVE_DIRFD $(DNETSEC) -DSOCKLEN_T=int
+export SYSTEM_HAVES = -DMACOSX -DHAVE_IPV6 -DHAVE_ASSERT -DHAVE_GETLOGIN -DHAVE_FLOCK -DHAVE_DIRFD $(DNETSEC) -DSOCKLEN_T=int
+
+SYSTEM_SRC = bsdRouteMgr.cpp
+
+# The "SYSTEM" keyword can be used for dependent makes
+SYSTEM = macosx
 
 export CC = g++
 export RANLIB = ranlib

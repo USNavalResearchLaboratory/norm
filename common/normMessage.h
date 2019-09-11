@@ -2,14 +2,12 @@
 #define _NORM_MESSAGE
 
 // PROTOLIB includes
-#include "networkAddress.h" // for NetworkAddress class
-#include "sysdefs.h"        // for UINT typedefs
-#include "debug.h"
+#include "protokit.h"
 
 // standard includes
 #include <string.h>  // for memcpy(), etc
 #include <math.h>
-
+#include <stdlib.h>  // for rand(), etc
 
 #ifdef SIMULATE
 #define SIM_PAYLOAD_MAX 36   // MGEN message size
@@ -21,6 +19,22 @@ const UINT8 NORM_PROTOCOL_VERSION = 1;
 //       taking advantage of the alignment of NORM messsages
 
 const int NORM_ROBUST_FACTOR = 20;  // default robust factor
+
+
+// Pick a random number from 0..max
+inline double UniformRand(double max)
+{
+  return (max * ((double)rand() / (double)RAND_MAX));
+}
+
+// Pick a random number from 0..max
+// (truncated exponential dist. lambda = log(groupSize) + 1)
+inline double ExponentialRand(double max, double groupSize)
+{
+    double lambda = log(groupSize) + 1;
+    double x = UniformRand(lambda/max)+lambda/(max*(exp(lambda)-1));
+    return ((max/lambda)*log(x*(exp(lambda)-1)*(max/lambda)));   
+}
 
 // These are the GRTT estimation bounds set for the current
 // NORM protocol.  (Note that our Grtt quantization routines
@@ -39,13 +53,20 @@ unsigned char NormQuantizeRtt(double rtt);
 
 inline double NormUnquantizeGroupSize(unsigned char gsize)
 {
-    return ((double)(gsize >> 4) * pow(10.0, (double)(gsize & 0x0f)));   
+    double exponent = (double)((gsize & 0x07) + 1);
+    double mantissa = (0 != (gsize & 0x08)) ? 5.0 : 1.0;
+    return (mantissa * pow(10.0, exponent)); 
 }
 inline unsigned char NormQuantizeGroupSize(double gsize)
 {
-    unsigned char exponent = (unsigned char)log10(gsize);
-    exponent = MIN(exponent, 0x0f);
-    return ((((unsigned char)(gsize / pow(10.0, (double)exponent) + 0.5)) << 4) | exponent);
+    unsigned char ebits = (unsigned char)log10(gsize);
+    int mantissa = (int)((gsize/pow(10.0, (double)ebits)) + 0.5);
+    // round up quantized group size
+    unsigned char mbit = (mantissa > 1) ? ((mantissa > 5) ? 0x00 : 0x08) : 0x00;
+    ebits = (mantissa > 5) ? ebits : ebits+1;
+    mbit = (ebits > 0x07) ? 0x08 : mbit;
+    ebits = (ebits > 0x07) ? 0x07 : ebits;
+    return (mbit | ebits);
 }
 
 inline unsigned short NormQuantizeLoss(double lossFraction)
@@ -62,8 +83,7 @@ inline double NormUnquantizeLoss(unsigned short lossQuantized)
 
 inline unsigned short NormQuantizeRate(double rate)
 {
-    unsigned char exponent = (unsigned short)log10(rate);                             
-    exponent = MIN(exponent, 0xff);
+    unsigned char exponent = (unsigned char)log10(rate);
     unsigned short mantissa = (unsigned short)((256.0/10.0) * rate / pow(10.0, (double)exponent));
     return ((mantissa << 8) | exponent);
 }
@@ -88,7 +108,11 @@ class NormObjectSize
         UINT32 LSB() const {return lsb;}
         
         bool operator<(const NormObjectSize& size) const;
+        bool operator<=(const NormObjectSize& size) const
+            {return ((*this == size) || (*this<size));}
         bool operator>(const NormObjectSize& size) const;
+        bool operator>=(const NormObjectSize& size) const
+            {return ((*this == size) || (*this>size));}
         bool operator==(const NormObjectSize& size) const
             {return ((msb == size.msb) && (lsb == size.lsb));}
         bool operator!=(const NormObjectSize& size) const
@@ -135,7 +159,11 @@ class NormObjectId
         NormObjectId(const NormObjectId& id) {value = id.value;}
         operator UINT16() const {return value;}
         bool operator<(const NormObjectId& id) const;
+        bool operator<=(const NormObjectId& id) const
+            {return ((value == id.value) || (*this<id));}
         bool operator>(const NormObjectId& id) const;
+        bool operator>=(const NormObjectId& id) const
+            {return ((value == id.value) || (*this>id));}
         bool operator==(const NormObjectId& id) const
             {return (value == id.value);}
         bool operator!=(const NormObjectId& id) const
@@ -251,7 +279,7 @@ class NormMsg
         {
             *((UINT32*)(buffer+SOURCE_ID_OFFSET)) = htonl(sourceId); 
         } 
-        void SetDestination(const NetworkAddress& dst) {addr = dst;}
+        void SetDestination(const ProtoAddress& dst) {addr = dst;}
         
         void AttachExtension(NormHeaderExtension& extension)
         {
@@ -272,8 +300,8 @@ class NormMsg
         {
             return (ntohl(*((UINT32*)(buffer+SOURCE_ID_OFFSET))));    
         }
-        const NetworkAddress& GetDestination() const {return addr;}
-        const NetworkAddress& GetSource() const {return addr;}
+        const ProtoAddress& GetDestination() const {return addr;}
+        const ProtoAddress& GetSource() const {return addr;}
         const char* GetBuffer() {return buffer;}
         UINT16 GetLength() const {return length;}     
         
@@ -286,12 +314,11 @@ class NormMsg
             bool result = (nextOffset < header_length);
             ext.AttachBuffer(result ? (buffer+nextOffset) : NULL);
             return result;
-        }    
-      
+        }
         
         // For message reception and misc.
         char* AccessBuffer() {return buffer;} 
-        NetworkAddress* AccessAddress() {return &addr;} 
+        ProtoAddress& AccessAddress() {return addr;} 
         
     protected:
         // Common message header offsets
@@ -321,7 +348,7 @@ class NormMsg
         UINT16          length; 
         UINT16          header_length;
         UINT16          header_length_base;
-        NetworkAddress  addr;  // src or dst address
+        ProtoAddress  addr;  // src or dst address
         
         NormMsg*        prev;
         NormMsg*        next;
@@ -349,7 +376,8 @@ class NormObjectMsg : public NormMsg
             return (ntohs(*((UINT16*)(buffer+SESSION_ID_OFFSET))));
         }
         UINT8 GetGrtt() const {return buffer[GRTT_OFFSET];} 
-        UINT8 GetGroupSize() const {return buffer[GSIZE_OFFSET];} 
+        UINT8 GetBackoffFactor() const {return ((buffer[GSIZE_OFFSET] >> 4) & 0x0f);}
+        UINT8 GetGroupSize() const {return (buffer[GSIZE_OFFSET] & 0x0f);} 
         bool FlagIsSet(NormObjectMsg::Flag flag) const
             {return (0 != (flag & buffer[FLAGS_OFFSET]));}
         UINT8 GetFecId() const {return buffer[FEC_ID_OFFSET];}
@@ -364,7 +392,14 @@ class NormObjectMsg : public NormMsg
             *((UINT16*)(buffer+SESSION_ID_OFFSET)) = htons(sessionId);
         }
         void SetGrtt(UINT8 grtt) {buffer[GRTT_OFFSET] = grtt;}
-        void SetGroupSize(UINT8 gsize) {buffer[GSIZE_OFFSET] = gsize;}
+        void SetBackoffFactor(UINT8 backoff)
+        {
+            buffer[BACKOFF_OFFSET] =  (buffer[GSIZE_OFFSET] & 0x0f) | (backoff << 4);
+        }
+        void SetGroupSize(UINT8 gsize) 
+        {
+            buffer[GSIZE_OFFSET] =  (buffer[GSIZE_OFFSET] & 0xf0) | gsize;
+        }
         void ResetFlags() {buffer[FLAGS_OFFSET] = 0;}
         void SetFlag(NormObjectMsg::Flag flag) {buffer[FLAGS_OFFSET] |= flag;}
         void SetFecId(UINT8 fecId) {buffer[FEC_ID_OFFSET] = fecId;}        
@@ -378,7 +413,8 @@ class NormObjectMsg : public NormMsg
         {
             SESSION_ID_OFFSET   = MSG_OFFSET,
             GRTT_OFFSET         = SESSION_ID_OFFSET + 2,
-            GSIZE_OFFSET        = GRTT_OFFSET + 1,
+            BACKOFF_OFFSET      = GRTT_OFFSET + 1,
+            GSIZE_OFFSET        = BACKOFF_OFFSET,
             FLAGS_OFFSET        = GSIZE_OFFSET + 1,
             FEC_ID_OFFSET       = FLAGS_OFFSET + 1,
             OBJ_ID_OFFSET       = FEC_ID_OFFSET + 1,
@@ -448,11 +484,11 @@ class NormFtiExtension : public NormHeaderExtension
     private:
         enum
         {
-            FEC_INSTANCE_OFFSET = LENGTH_OFFSET + 1,
-            FEC_NDATA_OFFSET    = FEC_INSTANCE_OFFSET +2,
-            FEC_NPARITY_OFFSET  = FEC_NDATA_OFFSET + 2,
-            SEG_SIZE_OFFSET     = FEC_NPARITY_OFFSET+2,
-            OBJ_SIZE_OFFSET     = SEG_SIZE_OFFSET + 2
+            OBJ_SIZE_OFFSET     = LENGTH_OFFSET + 1,
+            FEC_INSTANCE_OFFSET = OBJ_SIZE_OFFSET + 6,
+            SEG_SIZE_OFFSET     = FEC_INSTANCE_OFFSET +2,
+            FEC_NDATA_OFFSET    = SEG_SIZE_OFFSET + 2,
+            FEC_NPARITY_OFFSET  = FEC_NDATA_OFFSET + 2
         };
 };  // end class NormFtiExtension
 
@@ -617,23 +653,32 @@ class NormCmdMsg : public NormMsg
         }
         void SetGrtt(UINT8 quantizedGrtt) 
             {buffer[GRTT_OFFSET] = quantizedGrtt;}
-        void SetGroupSize(UINT8 quantizedGroupSize)
-            {buffer[GSIZE_OFFSET] = quantizedGroupSize;}
+        void SetBackoffFactor(UINT8 backoff)
+        {
+            buffer[BACKOFF_OFFSET] =  (buffer[GSIZE_OFFSET] & 0x0f) | (backoff << 4);
+        }
+        void SetGroupSize(UINT8 gsize) 
+        {
+            buffer[GSIZE_OFFSET] =  (buffer[GSIZE_OFFSET] & 0xf0) | gsize;
+        }
         void SetFlavor(NormCmdMsg::Flavor flavor)
             {buffer[FLAVOR_OFFSET] = flavor;}
         
         // Message processing
         UINT16 GetSessionId() const {return (ntohs(*((UINT16*)(buffer+SESSION_ID_OFFSET))));}
         UINT8 GetGrtt() const {return buffer[GRTT_OFFSET];}
-        UINT8 GetGroupSize() const {return buffer[GSIZE_OFFSET];}
+        UINT8 GetBackoffFactor() const {return ((buffer[GSIZE_OFFSET] >> 4) & 0x0f);}
+        UINT8 GetGroupSize() const {return (buffer[GSIZE_OFFSET] & 0x0f);} 
         NormCmdMsg::Flavor GetFlavor() const {return (Flavor)buffer[FLAVOR_OFFSET];} 
             
     protected:
+        friend class NormMsg;
         enum
         {
             SESSION_ID_OFFSET    = MSG_OFFSET,
             GRTT_OFFSET          = SESSION_ID_OFFSET + 2,
-            GSIZE_OFFSET         = GRTT_OFFSET + 1,
+            BACKOFF_OFFSET       = GRTT_OFFSET + 1,
+            GSIZE_OFFSET         = BACKOFF_OFFSET,
             FLAVOR_OFFSET        = GSIZE_OFFSET + 1
         }; 
 };  // end class NormCmdMsg

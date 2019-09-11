@@ -1,7 +1,8 @@
 #ifndef _NORM_BITMASK_
 #define _NORM_BITMASK_
 
-#include "debug.h" // for PROTO_DEBUG stuff
+#include "protokit.h" // for PROTO_DEBUG stuff
+
 #include <string.h>  // for memset()
 #include <stdio.h>   // for fprintf()
 
@@ -183,7 +184,6 @@ class NormSlidingMask
         long            start;
         long            end;
         unsigned long   offset;
-        unsigned char*  mask2;
 };  // end class NormSlidingMask
 
 #endif // _NORM_BITMASK_

@@ -37,18 +37,26 @@ NormServerNode::NormServerNode(class NormSession* theSession, NormNodeId nodeId)
    recv_total(0), recv_goodput(0), resync_count(0),
    nack_count(0), suppress_count(0), completion_count(0), failure_count(0)
 {
-    repair_timer.Init(0.0, 1, (ProtocolTimerOwner*)this, 
-                      (ProtocolTimeoutFunc)&NormServerNode::OnRepairTimeout);
-    activity_timer.Init(0.0, -1, (ProtocolTimerOwner*)this, 
-                        (ProtocolTimeoutFunc)&NormServerNode::OnActivityTimeout);
-    cc_timer.Init(0.0, 1, (ProtocolTimerOwner*)this, 
-                  (ProtocolTimeoutFunc)&NormServerNode::OnCCTimeout);
+    repair_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormServerNode::OnRepairTimeout);
+    repair_timer.SetInterval(0.0);
+    repair_timer.SetRepeat(1);
+    
+    activity_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormServerNode::OnActivityTimeout);
+    activity_timer.SetInterval(NormSession::DEFAULT_GRTT_ESTIMATE*NORM_ROBUST_FACTOR);
+    activity_timer.SetRepeat(NORM_ROBUST_FACTOR);
+    
+    cc_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormServerNode::OnCCTimeout);
+    cc_timer.SetInterval(0.0);
+    cc_timer.SetRepeat(1);
+    
     grtt_send_time.tv_sec = 0;
     grtt_send_time.tv_usec = 0;
     grtt_quantized = NormQuantizeRtt(NormSession::DEFAULT_GRTT_ESTIMATE);
     grtt_estimate = NormUnquantizeRtt(grtt_quantized);
     gsize_quantized = NormQuantizeGroupSize(NormSession::DEFAULT_GSIZE_ESTIMATE);
     gsize_estimate = NormUnquantizeGroupSize(gsize_quantized);
+    
+    backoff_factor = NormSession::DEFAULT_BACKOFF_FACTOR;
     
     rtt_quantized = NormQuantizeRtt(NormSession::DEFAULT_GRTT_ESTIMATE);
     rtt_estimate = NormUnquantizeRtt(rtt_quantized);
@@ -142,6 +150,7 @@ bool NormServerNode::Open(UINT16 sessionId, UINT16 segmentSize, UINT16 numData, 
 
 void NormServerNode::Close()
 {
+    if (activity_timer.IsActive()) activity_timer.Deactivate();
     decoder.Destroy();
     if (erasure_loc)
     {
@@ -169,9 +178,9 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
         grtt_quantized = grttQuantized;
         grtt_estimate = NormUnquantizeRtt(grttQuantized);
         DMSG(4, "NormServerNode::HandleCommand() node>%lu server>%lu new grtt: %lf sec\n",
-                LocalNodeId(), Id(), grtt_estimate);
-        activity_timer.SetInterval(grtt_estimate);
-        activity_timer.Reset();
+                LocalNodeId(), GetId(), grtt_estimate);
+        activity_timer.SetInterval(grtt_estimate*NORM_ROBUST_FACTOR);
+        if (activity_timer.IsActive()) activity_timer.Reschedule();
     }
     UINT8 gsizeQuantized = cmd.GetGroupSize();
     if (gsizeQuantized != gsize_quantized)
@@ -179,8 +188,9 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
         gsize_quantized = gsizeQuantized;
         gsize_estimate = NormUnquantizeGroupSize(gsizeQuantized);
         DMSG(4, "NormServerNode::HandleCommand() node>%lu server>%lu new group size:%lf\n",
-                LocalNodeId(), Id(), gsize_estimate);
+                LocalNodeId(), GetId(), gsize_estimate);
     }
+    backoff_factor = (double)cmd.GetBackoffFactor();
         
     NormCmdMsg::Flavor flavor = cmd.GetFlavor();
     switch (flavor)
@@ -255,8 +265,8 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                     {
                         // Respond immediately
                         if (cc_timer.IsActive()) cc_timer.Deactivate();
-                        cc_timer.ResetRepeats();
-                        OnCCTimeout();
+                        cc_timer.ResetRepeat();
+                        OnCCTimeout(cc_timer);
                     }
                     else if (!cc_timer.IsActive())
                     {
@@ -292,7 +302,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                         cc_timer.SetInterval(backoffTime);
                         DMSG(4, "NormServerNode::HandleCommand() node>%lu begin CC back-off: %lf sec)...\n",
                                 LocalNodeId(), backoffTime);
-                        session->InstallTimer(&cc_timer);    
+                        session->ActivateTimer(cc_timer);    
                     }
                 }  // end if (CC_RATE == ext.GetType())
             }  // end while (GetNextExtension())
@@ -316,7 +326,8 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
         {
             const NormCmdRepairAdvMsg& repairAdv = (const NormCmdRepairAdvMsg&)cmd;
             // Does the CC feedback of this ACK suppress our CC feedback
-            if (!is_clr && !is_plr && cc_timer.IsActive() && cc_timer.RepeatCount())
+            if (!is_clr && !is_plr && cc_timer.IsActive() && 
+                cc_timer.GetRepeatCount())
             {
                 NormCCFeedbackExtension ext;
                 while (repairAdv.GetNextExtension(ext))
@@ -328,7 +339,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                     }
                 }
             }   
-            if (repair_timer.IsActive() && repair_timer.RepeatCount())
+            if (repair_timer.IsActive() && repair_timer.GetRepeatCount())
             {
                 HandleRepairContent(repairAdv.GetRepairContent(), 
                                     repairAdv.GetRepairContentLength());
@@ -345,7 +356,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
 
 void NormServerNode::HandleCCFeedback(UINT8 ccFlags, double ccRate)
 {
-    ASSERT(cc_timer.IsActive() && cc_timer.RepeatCount());
+    ASSERT(cc_timer.IsActive() && cc_timer.GetRepeatCount());
     if (0 == (ccFlags & NormCC::CLR))
     {
         // We're suppressed by non-CLR receivers with no RTT confirmed
@@ -386,7 +397,7 @@ void NormServerNode::HandleCCFeedback(UINT8 ccFlags, double ccRate)
         {
             if (cc_timer.IsActive()) cc_timer.Deactivate();
             cc_timer.SetInterval(grtt_estimate*session->BackoffFactor());
-            session->InstallTimer(&cc_timer);
+            session->ActivateTimer(cc_timer);
             cc_timer.DecrementRepeatCount();
         }
     }
@@ -395,7 +406,7 @@ void NormServerNode::HandleCCFeedback(UINT8 ccFlags, double ccRate)
 void NormServerNode::HandleAckMessage(const NormAckMsg& ack)
 {
     // Does the CC feedback of this ACK suppress our CC feedback
-    if (!is_clr && !is_plr && cc_timer.IsActive() && cc_timer.RepeatCount())
+    if (!is_clr && !is_plr && cc_timer.IsActive() && cc_timer.GetRepeatCount())
     {
         NormCCFeedbackExtension ext;
         while (ack.GetNextExtension(ext))
@@ -412,7 +423,7 @@ void NormServerNode::HandleAckMessage(const NormAckMsg& ack)
 void NormServerNode::HandleNackMessage(const NormNackMsg& nack)
 {
     // Does the CC feedback of this NACK suppress our CC feedback
-    if (!is_clr && !is_plr && cc_timer.IsActive() && cc_timer.RepeatCount())
+    if (!is_clr && !is_plr && cc_timer.IsActive() && cc_timer.GetRepeatCount())
     {
         NormCCFeedbackExtension ext;
         while (nack.GetNextExtension(ext))
@@ -425,7 +436,7 @@ void NormServerNode::HandleNackMessage(const NormNackMsg& nack)
         }
     }
     // Clients also care about recvd NACKS for NACK suppression
-    if (repair_timer.IsActive() && repair_timer.RepeatCount())
+    if (repair_timer.IsActive() && repair_timer.GetRepeatCount())
         HandleRepairContent(nack.GetRepairContent(), nack.GetRepairContentLength());
 }  // end NormServerNode::HandleNackMessage()
 
@@ -441,7 +452,7 @@ void NormServerNode::HandleRepairContent(const char* buffer, UINT16 bufferLen)
     NormObjectId prevObjectId;
     NormObject* object = NULL;
     bool freshBlock = true;
-    NormBlockId prevBlockId;
+    NormBlockId prevBlockId = 0;
     NormBlock* block = NULL;
     while ((requestLength = req.Unpack(buffer, bufferLen)))
     {      
@@ -670,9 +681,9 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
         grtt_quantized = grttQuantized;
         grtt_estimate = NormUnquantizeRtt(grttQuantized);
         DMSG(4, "NormServerNode::HandleObjectMessage() node>%lu server>%lu new grtt: %lf sec\n",
-                LocalNodeId(), Id(), grtt_estimate);
-        activity_timer.SetInterval(grtt_estimate);
-        activity_timer.Reset();
+                LocalNodeId(), GetId(), grtt_estimate);
+        activity_timer.SetInterval(grtt_estimate*NORM_ROBUST_FACTOR);
+        if (activity_timer.IsActive()) activity_timer.Reschedule();
     }
     UINT8 gsizeQuantized = msg.GetGroupSize();
     if (gsizeQuantized != gsize_quantized)
@@ -680,8 +691,9 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
         gsize_quantized = gsizeQuantized;
         gsize_estimate = NormUnquantizeGroupSize(gsizeQuantized);
         DMSG(4, "NormServerNode::HandleObjectMessage() node>%lu server>%lu new group size: %lf\n",
-                LocalNodeId(), Id(), gsize_estimate);
+                LocalNodeId(), GetId(), gsize_estimate);
     }
+    backoff_factor = (double)msg.GetBackoffFactor();
     
     
     if (IsOpen())
@@ -689,7 +701,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
         if (msg.GetSessionId() != session_id)
         {
             DMSG(2, "NormServerNode::HandleObjectMessage() node>%lu server>%lu sessionId change - resyncing.\n",
-                     LocalNodeId(), Id());
+                     LocalNodeId(), GetId());
             Close();
             resync_count++;
         }
@@ -711,7 +723,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                           fti.GetFecNumParity()))
                 {
                     DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu open error\n",
-                            LocalNodeId(), Id());
+                            LocalNodeId(), GetId());
                     // (TBD) notify app of error ??
                     return;
                 }  
@@ -721,7 +733,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
         if (!IsOpen())
         {
             DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu - no FTI provided!\n",
-                     LocalNodeId(), Id());
+                     LocalNodeId(), GetId());
             // (TBD) notify app of error ??
             return;  
         }             
@@ -770,7 +782,8 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
     switch (status)
     {
         case OBJ_PENDING:
-            if ((obj = rx_table.Find(objectId))) break;
+            if ((obj = rx_table.Find(objectId))) 
+                break;
         case OBJ_NEW:
         {
             if (msg.FlagIsSet(NormObjectMsg::FLAG_STREAM))
@@ -816,7 +829,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                                     ((NormStreamObject*)obj)->StreamUpdateStatus(blockId);
                                 rx_table.Insert(obj);
                                 DMSG(8, "NormServerNode::HandleObjectMessage() node>%lu server>%lu new obj>%hu\n", 
-                                    LocalNodeId(), Id(), (UINT16)objectId);
+                                    LocalNodeId(), GetId(), (UINT16)objectId);
                             }
                             else
                             {
@@ -835,7 +848,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                 if (obj && !obj->IsOpen())
                 {
                     DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu "
-                            "new obj>%hu - no FTI provided!\n", LocalNodeId(), Id(), (UINT16)objectId);
+                            "new obj>%hu - no FTI provided!\n", LocalNodeId(), GetId(), (UINT16)objectId);
                     DeleteObject(obj);
                     obj = NULL;
                 }
@@ -855,7 +868,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
         obj->HandleObjectMessage(msg, msgType, blockId, segmentId);
         if (!obj->IsPending())
         {
-
+            // Reliable reception of this object has completed
             if (NormObject::FILE == obj->GetType()) 
 #ifdef SIMULATE
                 ((NormSimObject*)obj)->Close();           
@@ -870,8 +883,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                 completion_count++;
             }
         } 
-    }     
-    
+    }  
     RepairCheck(NormObject::TO_BLOCK, objectId, blockId, segmentId);
 }  // end NormServerNode::HandleObjectMessage()
 
@@ -897,8 +909,8 @@ void NormServerNode::Sync(NormObjectId objectId)
     {
         if (rx_pending_mask.IsSet())
         {
-            NormObjectId firstSet = NormObjectId(rx_pending_mask.FirstSet());
-            if ((objectId > NormObjectId(rx_pending_mask.LastSet())) ||
+            NormObjectId firstSet = NormObjectId((UINT16)rx_pending_mask.FirstSet());
+            if ((objectId > NormObjectId((UINT16)rx_pending_mask.LastSet())) ||
                 ((next_id - objectId) > 256))
             {
                 NormObject* obj;
@@ -949,7 +961,7 @@ NormServerNode::ObjectStatus NormServerNode::UpdateSyncStatus(const NormObjectId
             //       or revert to fresh sync if sync is totally lost,
             //       otherwise SQUELCH process will get things in order
             DMSG(2, "NormServerNode::HandleObjectMessage() node>%lu re-syncing to server>%lu...\n",
-                    LocalNodeId(), Id());
+                    LocalNodeId(), GetId());
             Sync(objectId);
             resync_count++;
             status = OBJ_NEW;
@@ -975,7 +987,7 @@ void NormServerNode::SetPending(NormObjectId objectId)
         rx_pending_mask.SetBits(next_id, objectId - next_id + 1);
         next_id = objectId + 1; 
         // This prevents the "sync_id" from getting stale
-        sync_id = rx_pending_mask.FirstSet();
+        sync_id = (UINT16)rx_pending_mask.FirstSet();
     }
 }  // end NormServerNode::SetPending()
 
@@ -1024,7 +1036,7 @@ NormServerNode::ObjectStatus NormServerNode::GetObjectStatus(const NormObjectId&
                 else
                 {
                     NormObjectId delta = objectId - next_id + 1;
-                    if (delta > NormObjectId(rx_pending_mask.Size()))
+                    if (delta > NormObjectId((UINT16)rx_pending_mask.Size()))
                     {
                         return OBJ_INVALID;
                     }
@@ -1056,8 +1068,8 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
         if (rx_pending_mask.IsSet())
         {
             if (rx_repair_mask.IsSet()) rx_repair_mask.Clear();
-            NormObjectId nextId = rx_pending_mask.FirstSet();
-            NormObjectId lastId = rx_pending_mask.LastSet();
+            NormObjectId nextId = (UINT16)rx_pending_mask.FirstSet();
+            NormObjectId lastId = (UINT16)rx_pending_mask.LastSet();
             if (objectId < lastId) lastId = objectId;
             while (nextId <= lastId)
             {
@@ -1077,7 +1089,7 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
                     startTimer = true;
                 }
                 nextId++;
-                nextId = rx_pending_mask.NextSet(nextId);
+                nextId = (UINT16)rx_pending_mask.NextSet(nextId);
             }
             current_object_id = objectId;
             if (startTimer)
@@ -1090,11 +1102,11 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
                 repair_timer.SetInterval(backoffInterval);
                 DMSG(3, "NormServerNode::RepairCheck() node>%lu begin NACK back-off: %lf sec)...\n",
                         LocalNodeId(), backoffInterval);
-                session->InstallTimer(&repair_timer);  
+                session->ActivateTimer(repair_timer);  
             }
         }
     }
-    else if (repair_timer.RepeatCount())
+    else if (repair_timer.GetRepeatCount())
     {
         // Repair timer in backoff phase
         // Trim server current transmit position reference
@@ -1115,7 +1127,7 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
         if (rewindDetected)
         {
             repair_timer.Deactivate();
-            DMSG(0, "NormServerNode::RepairCheck() node>%lu server rewind detected, ending NACK hold-off ...\n",
+            DMSG(4, "NormServerNode::RepairCheck() node>%lu server rewind detected, ending NACK hold-off ...\n",
                     LocalNodeId());
             
             RepairCheck(checkLevel, objectId, blockId, segmentId);
@@ -1125,10 +1137,10 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
 
 // When repair timer fires, possibly build a NACK
 // and queue for transmission to this server node
-bool NormServerNode::OnRepairTimeout()
+bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
 {
     
-    switch(repair_timer.RepeatCount())
+    switch(repair_timer.GetRepeatCount())
     {
         case 0:  // hold-off time complete
             DMSG(4, "NormServerNode::OnRepairTimeout() node>%lu end NACK hold-off ...\n",
@@ -1143,8 +1155,8 @@ bool NormServerNode::OnRepairTimeout()
             if (rx_pending_mask.IsSet())
             {
                 bool repairPending = false;
-                NormObjectId nextId = rx_pending_mask.FirstSet();
-                NormObjectId lastId = rx_pending_mask.LastSet();
+                NormObjectId nextId = (UINT16)rx_pending_mask.FirstSet();
+                NormObjectId lastId = (UINT16)rx_pending_mask.LastSet();
                 if (current_object_id < lastId) lastId = current_object_id;
                 while (nextId <= lastId)
                 {
@@ -1158,7 +1170,7 @@ bool NormServerNode::OnRepairTimeout()
                         }                        
                     }
                     nextId++;
-                    nextId = rx_pending_mask.NextSet(nextId);
+                    nextId = (UINT16)rx_pending_mask.NextSet(nextId);
                 } // end while (nextId <= current_block_id)
                 if (repairPending)
                 {
@@ -1208,7 +1220,7 @@ bool NormServerNode::OnRepairTimeout()
                         {
                             cc_timer.Deactivate();
                             cc_timer.SetInterval(grtt_estimate*session->BackoffFactor());
-                            session->InstallTimer(&cc_timer);
+                            session->ActivateTimer(cc_timer);
                             cc_timer.DecrementRepeatCount();   
                         }
                     }
@@ -1217,8 +1229,8 @@ bool NormServerNode::OnRepairTimeout()
                     NormObjectId prevId;
                     UINT16 reqCount = 0;
                     NormRepairRequest::Form prevForm = NormRepairRequest::INVALID;
-                    nextId = rx_pending_mask.FirstSet();
-                    lastId = rx_pending_mask.LastSet();
+                    nextId = (UINT16)rx_pending_mask.FirstSet();
+                    lastId = (UINT16)rx_pending_mask.LastSet();
                     if (max_pending_object < lastId) lastId = max_pending_object;
                     lastId++;  // force loop to fully flush nack building.
                     while ((nextId <= lastId) || (reqCount > 0))
@@ -1298,12 +1310,12 @@ bool NormServerNode::OnRepairTimeout()
                         }
                         nextId++;
                         if (nextId <= lastId) 
-                            nextId = rx_pending_mask.NextSet(nextId);
+                            nextId = (UINT16)rx_pending_mask.NextSet(nextId);
                     }  // end while(nextId <= lastId)
                     if (NormRepairRequest::INVALID != prevForm)
                         nack->PackRepairRequest(req);  // (TBD) error check 
                     // Queue NACK for transmission
-                    nack->SetServerId(Id());
+                    nack->SetServerId(GetId());
                     nack->SetSessionId(session_id);
                     // GRTT response is deferred until transmit time
                     
@@ -1382,29 +1394,30 @@ void NormServerNode::Activate()
 {
     if (activity_timer.IsActive())
     {
-        activity_timer.ResetRepeats();
+        activity_timer.ResetRepeat();
     }
     else
     {
-        activity_timer.SetInterval(grtt_estimate);
-        session->InstallTimer(&activity_timer);
+        activity_timer.SetInterval(grtt_estimate*NORM_ROBUST_FACTOR);
+        session->ActivateTimer(activity_timer);
     }
 }  // end NormServerNode::Activate()
 
-bool NormServerNode::OnActivityTimeout()
+bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
 {
-    if ((activity_timer.Repeats() - activity_timer.RepeatCount()) > 1)
+    if ((activity_timer.GetRepeat() - activity_timer.GetRepeatCount()) > 1)
     {
         DMSG(4, "NormServerNode::OnActivityTimeout() node>%lu for server>%lu\n",
-            LocalNodeId(), Id());
+            LocalNodeId(), GetId());
         struct timeval currentTime;
-        ::GetSystemTime(&currentTime);
+        ::ProtoSystemTime(currentTime);
         UpdateRecvRate(currentTime, 0);
     }
-    if (!activity_timer.RepeatCount())
+    if (0 == activity_timer.GetRepeatCount())
     {
         DMSG(0, "NormServerNode::OnActivityTimeout() node>%lu server>%lu gone inactive?\n",
-                LocalNodeId(), Id());
+                LocalNodeId(), GetId());
+        Close();
     }
     return true;       
 }  // end NormServerNode::OnActivityTimeout()
@@ -1427,10 +1440,10 @@ bool NormServerNode::UpdateLossEstimate(const struct timeval& currentTime,
     return result;
 }
 
-bool NormServerNode::OnCCTimeout()
+bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
 {
     // Build and queue ACK()   
-    switch (cc_timer.RepeatCount())
+    switch (cc_timer.GetRepeatCount())
     {
         case 0:
             // "hold-off" time has ended
@@ -1448,7 +1461,7 @@ bool NormServerNode::OnCCTimeout()
                 return false;   
             }
             ack->Init();
-            ack->SetServerId(Id());
+            ack->SetServerId(GetId());
             ack->SetSessionId(session_id);
             ack->SetAckType(NormAck::CC);
             ack->SetAckId(0);
@@ -1522,7 +1535,7 @@ NormNodeTree::~NormNodeTree()
 }
 
 
-NormNode *NormNodeTree::FindNodeById(unsigned long nodeId) const
+NormNode *NormNodeTree::FindNodeById(NormNodeId nodeId) const
 {
     NormNode* x = root;
     while(x && (x->id != nodeId))
@@ -1854,7 +1867,8 @@ double NormLossEstimator::LossFraction()
     double s0 = 0.0;
     const double* wptr = weight;
     const unsigned int* h = history;
-    for (unsigned int i = 0; i < DEPTH; i++)
+    unsigned int i;
+    for (i = 0; i < DEPTH; i++)
     {
         if (0 == *h) break;
         s0 += *wptr * *h++;
@@ -1866,7 +1880,7 @@ double NormLossEstimator::LossFraction()
     double s1 = 0.0;
     wptr = weight;
     h = history + 1;
-    for (unsigned int i = 0; i < DEPTH; i++)
+    for (i = 0; i < DEPTH; i++)
     {
         if (0 == *h) break;
         s1 += *wptr * *h++;  // ave loss interval w/out current interval

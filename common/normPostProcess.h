@@ -1,35 +1,29 @@
+
 #ifndef _NORM_POST_PROCESS
 #define _NORM_POST_PROCESS
 
-
+#include "protoDefs.h"  // for NULL
+        
 class NormPostProcessor
 {
     public:
         NormPostProcessor();
-        ~NormPostProcessor();
+        virtual ~NormPostProcessor();
+        // Implement this per derivation
+        static NormPostProcessor* Create();
         
-        bool IsEnabled() {return (0 != process_argv);}
+        bool IsEnabled() {return (NULL != process_argv);}
         bool SetCommand(const char* cmd);
-        bool ProcessFile(const char* path);
-        void Kill();
-        bool IsActive()
-        {
-#ifdef UNIX
-            return (0 != process_id);
-#endif  // UNIX            
-        }
+        void GetCommand(char* buffer, unsigned int buflen);
         
-        void HandleSIGCHLD();
+        virtual bool ProcessFile(const char* path) = 0;
+        virtual void Kill() = 0;
+        virtual bool IsActive() = 0;
+        virtual void OnDeath() {}; 
         
-    private:
-        const char**    process_argv;
+    protected:
+        char**          process_argv;
         unsigned int    process_argc;
-#ifdef UNIX
-        int             process_id;
-#endif
-#ifdef WIN32
-        HANDLE          process_handle;  
-#endif                
 };  // end class NormPostProcessor
 
 #endif // _NORM_POST_PROCESS

@@ -1,9 +1,8 @@
 
 // normSimAgent.h - Generic (base class) NORM simulation agent
 
-#include "protoLib.h"
-#include "protoSim.h"
 #include "normSession.h"
+#include "protokit.h"
 
 #include "mgen.h"  // for MGEN instance attachment
 
@@ -25,10 +24,8 @@ class NormSimAgent : public NormController
         void AttachMgen(Mgen* mgenInstance) {mgen = mgenInstance;}
                
     protected:
-        NormSimAgent(ProtocolTimerInstallFunc* timerInstaller, 
-                     const void*               timerInstallData,
-                     UdpSocketInstallFunc*     socketInstaller,
-                     void*                     socketInstallData);
+        NormSimAgent(ProtoTimerMgr&         timerMgr,
+                     ProtoSocket::Notifier& socketNotifier);
         enum CmdType {CMD_INVALID, CMD_NOARG, CMD_ARG};
         CmdType CommandType(const char* cmd);
         virtual unsigned long GetAgentId() = 0;
@@ -42,8 +39,8 @@ class NormSimAgent : public NormController
                             class NormServerNode* server,
                             class NormObject*     object);
         
-        void InstallTimer(ProtocolTimer& theTimer)
-            {session_mgr.InstallTimer(&theTimer);}
+        void ActivateTimer(ProtoTimer& theTimer)
+            {session_mgr.ActivateTimer(theTimer);}
         
         bool OnIntervalTimeout();
     
@@ -88,7 +85,7 @@ class NormSimAgent : public NormController
         unsigned int        mgen_bytes;
         unsigned int        mgen_pending_bytes;
         
-        ProtocolTimer       interval_timer;  
+        ProtoTimer          interval_timer;  
         
         // protocol debug parameters
         bool                tracing;

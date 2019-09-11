@@ -33,7 +33,7 @@
 #ifndef _NS_NORM_AGENT
 #define _NS_NORM_AGENT
 
-#include "nsProtoAgent.h" // from ProtoLib
+#include "nsProtoSimAgent.h" // from Protolib
 #include "normSimAgent.h"
 
 #include "nsMgenAgent.h"
@@ -44,20 +44,23 @@
 
 // IMPORTANT NOTE! NsProtoAgent must be listed _first_ here
 // (because we can't dynamic_cast install_data void* pointers)
-class NsNormAgent : public NsProtoAgent, public NormSimAgent, public MgenSink
+class NsNormAgent : public NsProtoSimAgent, public NormSimAgent, public MgenSink
 {
     public:
         NsNormAgent();
         ~NsNormAgent();
                 
-        // NsProtoAgent base class override
-        int command(int argc, const char*const* argv);      
+        // NsProtoSimAgent base class overrides
+        virtual bool OnStartup(int argc, const char*const* argv);
+        virtual bool ProcessCommands(int argc, const char*const* argv);
+        virtual void OnShutdown();
+           
         // NormSimAgent override   
         unsigned long GetAgentId() {return (unsigned long)addr();} 
         // MgenSink override
-        bool SendMgenMessage(const NetworkAddress* dstAddr,
-                             const char*           txBuffer,
-                             unsigned int          len);     
+        bool SendMgenMessage(const char*           txBuffer,
+                             unsigned int          len,
+                             const ProtoAddress&   dstAddr);     
 };  // end class NsNormAgent
 
 

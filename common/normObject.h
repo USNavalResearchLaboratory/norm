@@ -28,9 +28,9 @@ class NormObject
             THRU_OBJECT 
         };
             
-        void Verify() const;
-        
         virtual ~NormObject();
+        
+        // Object information
         NormObject::Type GetType() const {return type;}
         const NormObjectId& Id() const {return id;}  
         const NormObjectSize& Size() const {return object_size;}
@@ -60,10 +60,12 @@ class NormObject
                                  char*          buffer) = 0;
         
         // These are only valid after object is open
-        NormBlockId LastBlockId() const {return last_block_id;}
-        NormSegmentId LastBlockSize() const {return last_block_size;}
-        NormSegmentId BlockSize(NormBlockId blockId)
-            {return ((blockId == last_block_id) ? last_block_size : ndata);}
+        NormBlockId GetFinalBlockId() const {return final_block_id;}
+        UINT32 GetBlockSize(NormBlockId blockId)
+        {
+            return (((UINT32)blockId < large_block_count) ? large_block_size : 
+                                                            small_block_size);
+        }
         
         bool IsPending(bool flush = true) const;
         bool IsRepairPending() const;
@@ -84,12 +86,12 @@ class NormObject
         {
             NormBlockId blockId = theBlock->Id();
             bool result = theBlock->TxUpdate(firstSegmentId, lastSegmentId, 
-                                             BlockSize(blockId), nparity, 
+                                             GetBlockSize(blockId), nparity, 
                                              numErasures);
             ASSERT(result ? pending_mask.Set(blockId) : true);
             result = result ? pending_mask.Set(blockId) : false;
             return result; 
-        }  // end NormObject::TxUpdateBlock()
+        }  
         bool HandleInfoRequest();
         bool HandleBlockRequest(NormBlockId nextId, NormBlockId lastId);
         bool SetPending(NormBlockId blockId) {return pending_mask.Set(blockId);}
@@ -98,7 +100,7 @@ class NormObject
         bool IsRepairSet(NormBlockId blockId) {return repair_mask.Test(blockId);}
         bool AppendRepairAdv(NormCmdRepairAdvMsg& cmd);
                
-        // Used by session server for resource management scheme
+        // Used by sender for resource management scheme
         NormBlock* StealNonPendingBlock(bool excludeBlock, NormBlockId excludeId = 0);
         
         
@@ -110,7 +112,7 @@ class NormObject
                                  NormSegmentId        segmentId);
         
         
-        // Used by remote server node for resource management scheme
+        // Used by receiver for resource management scheme
         NormBlock* StealNewestBlock(bool excludeBlock, NormBlockId excludeId = 0);
         NormBlock* StealOldestBlock(bool excludeBlock, NormBlockId excludeId = 0);
         
@@ -129,7 +131,7 @@ class NormObject
         }
         
     protected:
-        NormObject(NormObject::Type         theType, 
+        NormObject(Type                     theType, 
                    class NormSession*       theSession, 
                    class NormServerNode*    theServer,
                    const NormObjectId&      objectId); 
@@ -154,17 +156,18 @@ class NormObject
         NormSegmentId         next_segment_id;     // for suppression       
         NormBlockId           max_pending_block;   // for NACK construction 
         NormSegmentId         max_pending_segment; // for NACK construction
-        NormBlockId           last_block_id;
-        NormSegmentId         last_block_size;
-        UINT16                last_segment_size;
+        UINT32                large_block_count;
+        UINT32                large_block_size;
+        UINT32                small_block_count;
+        UINT32                small_block_size;
+        NormBlockId           final_block_id;
+        UINT16                final_segment_size;
         
         char*                 info;
         UINT16                info_len;
         
         bool                  accepted;
         
-        
-                   
         NormObject*           next; 
 };  // end class NormObject
 
@@ -201,7 +204,8 @@ class NormFileObject : public NormObject
     private:
         char            path[PATH_MAX];
         NormFile        file;
-        NormObjectSize  block_size;
+        NormObjectSize  large_block_length;
+        NormObjectSize  small_block_length;
 };  // end class NormFileObject
 
 
@@ -345,14 +349,14 @@ class NormObjectTable
     private:
         NormObject* Next(NormObject* o) const {return o->next;}    
         
-        NormObject**     table;
-        unsigned long    hash_mask;       
-        unsigned long    range_max;  // max range of objects that can be kept
-        unsigned long    range;      // zero if "object table" is empty
-        NormObjectId     range_lo;
-        NormObjectId     range_hi;
-        unsigned long    count;
-        NormObjectSize   size;
+        NormObject**    table;
+        UINT16          hash_mask;       
+        UINT16          range_max;  // max range of objects that can be kept
+        UINT16          range;      // zero if "object table" is empty
+        NormObjectId    range_lo;
+        NormObjectId    range_hi;
+        UINT16          count;
+        NormObjectSize  size;
 };  // end class NormObjectTable
 
 #endif // _NORM_OBJECT

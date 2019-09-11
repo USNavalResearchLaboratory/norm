@@ -6,11 +6,9 @@
 // of a message stream from the MGEN simulation agent with restrictions.  The
 // current restriction is the MGEN simulation agent
 
-NormSimAgent::NormSimAgent(ProtocolTimerInstallFunc* timerInstaller, 
-                           const void*               timerInstallData,
-                           UdpSocketInstallFunc*     socketInstaller,
-                           void*                     socketInstallData)
- : session(NULL),
+NormSimAgent::NormSimAgent(ProtoTimerMgr&         timerMgr,
+                           ProtoSocket::Notifier& socketNotifier)
+ : session_mgr(timerMgr, socketNotifier), session(NULL),
    address(NULL), port(0), ttl(3), 
    tx_rate(NormSession::DEFAULT_TRANSMIT_RATE), 
    cc_enable(false), unicast_nacks(false), silent_client(false),
@@ -25,12 +23,12 @@ NormSimAgent::NormSimAgent(ProtocolTimerInstallFunc* timerInstaller,
    tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
     // Bind NormSessionMgr to this agent and simulation environment
-    session_mgr.Init(timerInstaller,  timerInstallData,
-                     socketInstaller, socketInstallData,
-                     static_cast<NormController*>(this));
+    session_mgr.SetController(static_cast<NormController*>(this));
     
-    interval_timer.Init(0.0, 0, (ProtocolTimerOwner*)this, 
-                        (ProtocolTimeoutFunc)&NormSimAgent::OnIntervalTimeout);
+    interval_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormSimAgent::OnIntervalTimeout);
+    interval_timer.SetInterval(0.0);
+    interval_timer.SetRepeat(0);
+    
     memset(mgen_buffer, 0, 64);
 }
 
@@ -589,9 +587,9 @@ void NormSimAgent::Notify(NormController::Event event,
             else
             {            
                 // Schedule or queue next "sim file" transmission
-                if (interval_timer.Interval() > 0.0)
+                if (interval_timer.GetInterval() > 0.0)
                 {
-                    InstallTimer(interval_timer);            
+                    ActivateTimer(interval_timer);            
                 }
                 else
                 {
@@ -735,7 +733,9 @@ void NormSimAgent::Notify(NormController::Event event,
                                 }
                                 if (msg_sync && (0 == mgen_pending_bytes))
                                 {
-                                    const NetworkAddress& srcAddr = server->GetAddress();
+                                    ProtoAddress srcAddr;
+                                    srcAddr.ResolveFromString(server->GetAddress().GetHostString());
+                                    srcAddr.SetPort(server->GetAddress().GetPort());
                                     mgen->HandleMgenMessage(mgen_buffer, mgen_bytes, srcAddr);
                                     mgen_bytes = 0;   
                                 }

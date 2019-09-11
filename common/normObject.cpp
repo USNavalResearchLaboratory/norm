@@ -49,8 +49,8 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     if (server)
     {
         segmentSize = server->SegmentSize();
-        numData = server->BlockSize();
-        numParity = server->NumParity();
+        numData = server->BlockSize();   // max source symbols per FEC block
+        numParity = server->NumParity(); // max parity symbols per FEC block
         if (infoLen > 0) 
         {
             pending_info = true;
@@ -65,8 +65,8 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     else
     {
         segmentSize = session->ServerSegmentSize();
-        numData = session->ServerBlockSize();
-        numParity = session->ServerNumParity();
+        numData = session->ServerBlockSize();   // max source symbols per FEC block
+        numParity = session->ServerNumParity(); // max parity symbols per FEC block
         if (infoPtr)
         {
             if (info) delete []info;
@@ -88,10 +88,15 @@ bool NormObject::Open(const NormObjectSize& objectSize,
         }
     }
     
-    // Make sure object size and block/segment sizes are compatible
-    NormObjectSize blockSize((UINT32)segmentSize * (UINT32)numData);
-    NormObjectSize numBlocks = objectSize / blockSize;
+    // Compute number of segments and coding blocks for the object
+    // (Note NormObjectSize divide operator always rounds _up_)
+    NormObjectSize numSegments = objectSize / NormObjectSize(segmentSize);
+    NormObjectSize numBlocks = numSegments / NormObjectSize(numData);
     ASSERT(0 == numBlocks.MSB());
+    
+    
+    
+    
     
     if (!block_buffer.Init(numBlocks.LSB()))
     {
@@ -119,28 +124,44 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     }
     repair_mask.Clear();
     
+        
     if (STREAM == type)
     {
-        last_block_id = 0;  // not applicable for STREAM
-        last_block_size = numData;  // assumed for STREAM
+        small_block_size = large_block_size = numData;
+        small_block_count = large_block_count = numBlocks.LSB();
+        final_segment_size = segmentSize;
         NormStreamObject* stream = static_cast<NormStreamObject*>(this);
         stream->StreamResync(numBlocks.LSB());
     }
     else
     {
-        last_block_id = numBlocks.LSB() - 1;  
-        NormObjectSize lastBlockBytes =  NormObjectSize(last_block_id) * blockSize;
-        lastBlockBytes = objectSize - lastBlockBytes;
-        NormObjectSize lastBlockSize = lastBlockBytes / NormObjectSize(segmentSize);
-        ASSERT(!lastBlockSize.MSB());
-        ASSERT(lastBlockSize.LSB() <= numData);
-        last_block_size = lastBlockSize.LSB();
-        NormObjectSize lastSegmentSize = 
-            NormObjectSize(0,last_block_size-1) * NormObjectSize(segmentSize);
-        lastSegmentSize = lastBlockBytes - lastSegmentSize;
-        ASSERT(!lastSegmentSize.MSB());
-        ASSERT(lastSegmentSize.LSB() <= segmentSize);
-        last_segment_size = lastSegmentSize.LSB();
+        // Compute FEC block structure per NORM Protocol Spec Section 5.1.1
+        // (Note NormObjectSize divide operator always rounds _up_)
+        NormObjectSize largeBlockSize = numSegments / numBlocks;
+        ASSERT(0 == largeBlockSize.MSB());
+        large_block_size = largeBlockSize.LSB();
+        if (numSegments == (numBlocks*largeBlockSize))
+        {
+            small_block_size = large_block_size;
+            small_block_count = numBlocks.LSB();
+            large_block_count = 0;
+        }
+        else
+        {
+            small_block_size = large_block_size - 1;
+            NormObjectSize largeBlockCount = numSegments - numBlocks*small_block_size;
+            ASSERT(0 == largeBlockCount.MSB());
+            large_block_count = largeBlockCount.LSB();
+            NormObjectSize smallBlockCount = numBlocks - largeBlockCount;
+            ASSERT(0 == smallBlockCount.MSB());
+            small_block_count = smallBlockCount.LSB();
+        }
+        
+        final_block_id = large_block_count + small_block_count - 1;  // not used for STREAM objects
+        NormObjectSize finalSegmentSize = 
+            objectSize - (numSegments - NormObjectSize((UINT32)1))*segmentSize;
+        ASSERT(0 == finalSegmentSize.MSB());
+        final_segment_size = finalSegmentSize.LSB();
     }
     
     object_size = objectSize;
@@ -233,7 +254,7 @@ bool NormObject::TxReset(NormBlockId firstBlock)
         NormBlockId blockId = block->Id();
         if (blockId >= firstBlock)
         {
-            increasedRepair |= block->TxReset(BlockSize(blockId), 
+            increasedRepair |= block->TxReset(GetBlockSize(blockId), 
                                               nparity, 
                                               session->ServerAutoParity(), 
                                               segment_size);
@@ -255,7 +276,7 @@ bool NormObject::TxResetBlocks(NormBlockId nextId, NormBlockId lastId)
         }
         NormBlock* block = block_buffer.Find(nextId);
         if (block) 
-            increasedRepair |= block->TxReset(BlockSize(block->Id()), nparity, autoParity, segment_size);
+            increasedRepair |= block->TxReset(GetBlockSize(block->Id()), nparity, autoParity, segment_size);
         nextId++;
     }
     return increasedRepair;
@@ -286,7 +307,7 @@ bool NormObject::ActivateRepairs()
         while (nextId <= lastId)
         {
             NormBlock* block = block_buffer.Find(nextId);
-            if (block) block->TxReset(BlockSize(nextId), nparity, autoParity, segment_size);
+            if (block) block->TxReset(GetBlockSize(nextId), nparity, autoParity, segment_size);
             // (TBD) This check can be eventually eliminated if everything else is done right
             if (!pending_mask.Set(nextId)) 
                 DMSG(0, "NormObject::ActivateRepairs() pending_mask.Set(%lu) error!\n",
@@ -526,12 +547,15 @@ bool NormObject::ClientRepairCheck(CheckLevel    level,
             if (blockId > max_pending_block)
             {
                 max_pending_block = blockId;
-                max_pending_segment = BlockSize(blockId);
+                max_pending_segment = GetBlockSize(blockId);
             }
             break;
         case THRU_OBJECT:
-            if (!IsStream()) max_pending_block = last_block_id;
-            max_pending_segment = BlockSize(max_pending_block);
+            if (!IsStream()) 
+                max_pending_block = final_block_id;
+            else if (blockId > max_pending_block)
+                max_pending_block = blockId;
+            max_pending_segment = GetBlockSize(max_pending_block);
         default:
             break;
     }  // end switch (level)
@@ -568,7 +592,7 @@ bool NormObject::ClientRepairCheck(CheckLevel    level,
                 if (blockId < current_block_id)
                 {
                     current_block_id = blockId;
-                    next_segment_id = BlockSize(blockId);
+                    next_segment_id = GetBlockSize(blockId);
                 }  
                 break;
             default:
@@ -633,14 +657,14 @@ bool NormObject::ClientRepairCheck(CheckLevel    level,
             break;
         case THRU_BLOCK:
             current_block_id = blockId;  
-            next_segment_id = BlockSize(blockId);
+            next_segment_id = GetBlockSize(blockId);
             break;
         case THRU_OBJECT:
             if (IsStream())
                 current_block_id = max_pending_block;
             else
-                current_block_id = last_block_id;
-            next_segment_id = BlockSize(current_block_id);
+                current_block_id = final_block_id;
+            next_segment_id = GetBlockSize(current_block_id);
         default:
             break; 
     }
@@ -665,7 +689,7 @@ bool NormObject::IsRepairPending(bool flush)
             if (block)
             {
                 bool isPending;
-                UINT16 numData = BlockSize(nextId);
+                UINT16 numData = GetBlockSize(nextId);
                 if (flush || (nextId < lastId))
                 {
                     isPending = block->IsRepairPending(numData, nparity);
@@ -788,7 +812,7 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
             }  // end if/else (!blockPending && reqCount && (reqCount == (nextId - prevId)))
             if (blockPending)
             {
-                UINT16 numData = BlockSize(nextId);
+                UINT16 numData = GetBlockSize(nextId);
                 if (NormRepairRequest::INVALID != prevForm)
                     nack.PackRepairRequest(req);  // (TBD) error check
                 reqCount = 0;
@@ -846,7 +870,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             {
                 info_len = segment_size;
                 DMSG(0, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
-                    "Warning! info too long.\n", LocalNodeId(), server->Id(), (UINT16)id);   
+                    "Warning! info too long.\n", LocalNodeId(), server->GetId(), (UINT16)id);   
             }
             memcpy(info, infoMsg.GetInfo(), info_len);
             pending_info = false;
@@ -857,7 +881,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             // (TBD) Verify info hasn't changed?   
             DMSG(6, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                     "received duplicate info ...\n", LocalNodeId(),
-                     server->Id(), (UINT16)id);
+                     server->GetId(), (UINT16)id);
         }
     }
     else  // NORM_MSG_DATA
@@ -870,7 +894,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             if (!stream->StreamUpdateStatus(blockId))
             {
                 DMSG(4, "NormObject::HandleObjectMessage() node:%lu server:%lu obj>%hu blk>%lu "
-                        "broken stream ...\n", LocalNodeId(), server->Id(), (UINT16)id, (UINT32)blockId);
+                        "broken stream ...\n", LocalNodeId(), server->GetId(), (UINT16)id, (UINT32)blockId);
                 
                 //ASSERT(0);
                 // ??? Ignore this new packet and try to fix stream ???
@@ -898,7 +922,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 }
             }
         }
-        UINT16 numData = BlockSize(blockId);
+        UINT16 numData = GetBlockSize(blockId);
         if (pending_mask.Test(blockId))
         {
             NormBlock* block = block_buffer.Find(blockId);
@@ -907,7 +931,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 if (!(block = server->GetFreeBlock(id, blockId)))
                 {
                     DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
-                            "Warning! no free blocks ...\n", LocalNodeId(), server->Id(), 
+                            "Warning! no free blocks ...\n", LocalNodeId(), server->GetId(), 
                             (UINT16)id);  
                     return;
                 }
@@ -921,7 +945,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 if (!segment)
                 {
                     DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
-                            "Warning! no free segments ...\n", LocalNodeId(), server->Id(), 
+                            "Warning! no free segments ...\n", LocalNodeId(), server->GetId(), 
                             (UINT16)id);  
                     return;
                 }
@@ -929,7 +953,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 if (segmentLen > segment_size)
                 {
                     DMSG(0, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
-                            "Error! segment too large ...\n", LocalNodeId(), server->Id(), 
+                            "Error! segment too large ...\n", LocalNodeId(), server->GetId(), 
                             (UINT16)id);  
                     server->PutFreeSegment(segment);
                     return;  
@@ -975,7 +999,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                     // Decode (if pending_mask.FirstSet() < numData)
                     // and write any decoded data segments to object
                     DMSG(8, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu blk>%lu "
-                            "completed block ...\n", LocalNodeId(), server->Id(), 
+                            "completed block ...\n", LocalNodeId(), server->GetId(), 
                             (UINT16)id, (UINT32)block->Id()); 
                     UINT16 nextErasure = block->FirstPending();
                     UINT16 erasureCount = 0;
@@ -990,7 +1014,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                                 if (!(segment = server->GetFreeSegment(id, blockId)))
                                 {
                                     DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
-                                            "Warning! no free segments ...\n", LocalNodeId(), server->Id(), 
+                                            "Warning! no free segments ...\n", LocalNodeId(), server->GetId(), 
                                             (UINT16)id);  
                                     // (TBD) Dump the block ...???
                                     return;
@@ -1040,14 +1064,14 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             {
                 DMSG(6, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                     "received duplicate segment ...\n", LocalNodeId(),
-                     server->Id(), (UINT16)id);
+                     server->GetId(), (UINT16)id);
             }
         }
         else
         {
             DMSG(6, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                     "received duplicate block message ...\n", LocalNodeId(),
-                     server->Id(), (UINT16)id);
+                     server->GetId(), (UINT16)id);
         }  // end if/else pending_mask.Test(blockId)
     }  // end if/else (NORM_MSG_INFO)
 }  // end NormObject::HandleObjectMessage()
@@ -1183,7 +1207,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
     NormDataMsg* data = (NormDataMsg*)msg;
     
     NormBlockId blockId = pending_mask.FirstSet();
-    UINT16 numData = BlockSize(blockId);
+    UINT16 numData = GetBlockSize(blockId);
     NormBlock* block = block_buffer.Find(blockId);
     if (!block)
     {
@@ -1345,7 +1369,7 @@ void NormStreamObject::StreamAdvance()
 bool NormObject::CalculateBlockParity(NormBlock* block)
 {
     char buffer[NormMsg::MAX_SIZE];
-    UINT16 numData = BlockSize(block->Id());
+    UINT16 numData = GetBlockSize(block->Id());
     for (UINT16 i = 0; i < numData; i++)
     {
         if (ReadSegment(block->Id(), i, buffer))
@@ -1369,7 +1393,7 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
     NormBlock* block = session->ServerGetFreeBlock(id, blockId);
     if (block)
     {
-        UINT16 numData = BlockSize(blockId);  
+        UINT16 numData = GetBlockSize(blockId);  
         // Init block parameters
         block->TxRecover(blockId, numData, nparity);
         // Fill block with zero initialized parity segments
@@ -1427,7 +1451,8 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
 NormFileObject::NormFileObject(class NormSession*       theSession, 
                                class NormServerNode*    theServer,
                                const NormObjectId&      objectId)
- : NormObject(FILE, theSession, theServer, objectId), block_size(0,0)
+ : NormObject(FILE, theSession, theServer, objectId), 
+   large_block_length(0,0), small_block_length(0,0)
 {
     path[0] = '\0';
 }
@@ -1462,15 +1487,15 @@ bool NormFileObject::Open(const char* thePath,
                 return false;
             }
         }  
-        block_size = NormObjectSize(server->BlockSize()) * 
-                     NormObjectSize(server->SegmentSize());
+        //block_size = NormObjectSize(server->BlockSize()) * 
+        //             NormObjectSize(server->SegmentSize());
     }
     else
     {
         // We're sending this file
         if (file.Open(thePath, O_RDONLY))
         {
-            unsigned long size = file.GetSize(); 
+            UINT32 size = file.GetSize(); 
             if (size)
             {
                 if (!NormObject::Open(size, infoPtr, infoLen))
@@ -1486,8 +1511,8 @@ bool NormFileObject::Open(const char* thePath,
                 file.Close();
                 return false;
             }  
-            block_size = NormObjectSize(session->ServerBlockSize()) * 
-                         NormObjectSize(session->ServerSegmentSize());
+            large_block_length = NormObjectSize(large_block_size) * segment_size;
+            small_block_length = NormObjectSize(small_block_size) * segment_size;
         } 
         else
         {
@@ -1526,13 +1551,20 @@ bool NormFileObject::WriteSegment(NormBlockId   blockId,
                                   const char*   buffer)
 {
     UINT16 len;  
-    if ((blockId == last_block_id) &&
-        (segmentId == (last_block_size-1)))
-        len = last_segment_size;
+    if (blockId == final_block_id)
+    { 
+        if (segmentId == (GetBlockSize(blockId)-1))
+            len = final_segment_size;
+        else
+            len = segment_size;
+    }
     else
+    {
         len = segment_size;
+    }
     NormObjectSize segmentOffset = NormDataMsg::ReadPayloadOffset(buffer);
-    off_t offset = segmentOffset.LSB() + (segmentOffset.MSB() * 0x100000000LL);
+    off_t offsetScaleMSB = 0xffffffff + 1;
+    off_t offset = (off_t)segmentOffset.LSB() + ((off_t)segmentOffset.MSB() * offsetScaleMSB);
     if (offset != file.GetOffset())
     {
         if (!file.Seek(offset)) return false; 
@@ -1548,20 +1580,39 @@ bool NormFileObject::ReadSegment(NormBlockId      blockId,
 {
     // Determine segment length
     UINT16 len;
-    if ((blockId == last_block_id) &&
-        (segmentId == (last_block_size - 1)))
-        len = last_segment_size;
+    if (blockId == final_block_id)
+    {
+        if (segmentId == (GetBlockSize(blockId)-1))
+            len = final_segment_size;
+        else
+            len = segment_size;
+    }
     else
+    {
         len = segment_size;
+    }
     // Determine segment offset from blockId::segmentId
-    NormObjectSize segmentOffset = NormObjectSize(blockId) * block_size;
-    segmentOffset = segmentOffset + (NormObjectSize(segmentId) * NormObjectSize(segment_size));    
+    NormObjectSize segmentOffset;
+    NormObjectSize segmentSize = NormObjectSize(segment_size);
+    if ((UINT32)blockId < large_block_count)
+    {
+        segmentOffset = large_block_length*(UINT32)blockId + segmentSize*segmentId;
+    }
+    else
+    {
+        segmentOffset = large_block_length*large_block_count;  
+        UINT32 smallBlockIndex = (UINT32)blockId - large_block_count;
+        segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
+                                        segmentSize *segmentId;
+    }
     NormDataMsg::WritePayloadLength(buffer, len);
     NormDataMsg::WritePayloadOffset(buffer, segmentOffset);
-    off_t offset = segmentOffset.LSB() + (segmentOffset.MSB() * 0x100000000LL);
+    off_t offsetScaleMSB = 0xffffffff + 1;
+    off_t offset = (off_t)segmentOffset.LSB() + ((off_t)segmentOffset.MSB() * offsetScaleMSB);
     if (offset != file.GetOffset())
     {
-        if (!file.Seek(offset)) return false;
+        if (!file.Seek(offset)) 
+            return false;
     }
     UINT16 nbytes = file.Read(buffer+NormDataMsg::PayloadHeaderLength(), len);
     return (len == nbytes);
@@ -1609,7 +1660,7 @@ bool NormStreamObject::Open(unsigned long   bufferSize,
     }
     
     NormObjectSize blockSize((UINT32)segmentSize * (UINT32)numData);
-    NormObjectSize numBlocks = NormObjectSize(bufferSize) / blockSize;
+    NormObjectSize numBlocks = NormObjectSize((UINT32)bufferSize) / blockSize;
     ASSERT(0 == numBlocks.MSB());
     // Buffering requires at least 2 blocks
     numBlocks = MAX(2, numBlocks.LSB());
@@ -1642,7 +1693,7 @@ bool NormStreamObject::Open(unsigned long   bufferSize,
     write_offset = read_offset = NormObjectSize((UINT32)0);    
     if (!server)
     {
-        if (!NormObject::Open(NormObjectSize(bufferSize), infoPtr, infoLen))
+        if (!NormObject::Open(NormObjectSize((UINT32)bufferSize), infoPtr, infoLen))
         {
             DMSG(0, "NormStreamObject::Open() object open error\n");
             Close();
@@ -1970,8 +2021,8 @@ void NormStreamObject::Prune(NormBlockId blockId)
 // Sequential (in order) read/write routines (TBD) Add a "Seek()" method
 bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStart)
 {
-    unsigned long bytesRead = 0;
-    unsigned long bytesToRead = *buflen;
+    unsigned int bytesRead = 0;
+    unsigned int bytesToRead = *buflen;
     while (bytesToRead > 0)
     {
         NormBlock* block = stream_buffer.Find(read_index.block);
@@ -2178,7 +2229,7 @@ unsigned long NormStreamObject::Write(const char* buffer, unsigned long len, boo
 #endif // if/else SIMULATE                
         }
         
-        UINT16 count = len - nBytes;
+        UINT16 count = (UINT16)(len - nBytes);
         UINT16 space = segment_size - index;
         count = MIN(count, space);
 #ifdef SIMULATE

@@ -150,7 +150,7 @@ bool NormRepairRequest::AppendRepairItem(const NormObjectId& objectId,
     if (buffer_len >= (length+ITEM_LIST_OFFSET+RepairItemLength()))
     {
         char* ptr = buffer + length + ITEM_LIST_OFFSET;
-        ptr[FEC_ID_OFFSET] = 129;
+        ptr[FEC_ID_OFFSET] = (char)129;
         ptr[RESERVED_OFFSET] = 0;
         *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)objectId);
         *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)blockId);
@@ -181,7 +181,7 @@ bool NormRepairRequest::AppendRepairRange(const NormObjectId&   startObjectId,
     {
         // range start
         char* ptr = buffer + length + ITEM_LIST_OFFSET;
-        ptr[FEC_ID_OFFSET] = 129;
+        ptr[FEC_ID_OFFSET] = (char)129;
         ptr[RESERVED_OFFSET] = 0;
         *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)startObjectId);
         *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)startBlockId);
@@ -189,7 +189,7 @@ bool NormRepairRequest::AppendRepairRange(const NormObjectId&   startObjectId,
         *((UINT16*)(ptr+SYMBOL_ID_OFFSET)) = htons((UINT16)startSymbolId);
         ptr += RepairItemLength();
         // range end
-        ptr[FEC_ID_OFFSET] = 129;
+        ptr[FEC_ID_OFFSET] = (char)129;
         ptr[RESERVED_OFFSET] = 0;
         *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)endObjectId);
         *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)endBlockId);
@@ -212,7 +212,7 @@ bool NormRepairRequest::AppendErasureCount(const NormObjectId& objectId,
     if (buffer_len >= (ITEM_LIST_OFFSET+length+ErasureItemLength()))
     {
         char* ptr = buffer + length + ITEM_LIST_OFFSET;
-        ptr[FEC_ID_OFFSET] = 129;
+        ptr[FEC_ID_OFFSET] = (char)129;
         ptr[RESERVED_OFFSET] = 0;
         *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)objectId);
         *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)blockId);
@@ -424,8 +424,6 @@ unsigned char NormQuantizeRtt(double rtt)
     else
         return ((unsigned char)(ceil(255.0 - (13.0*log(NORM_RTT_MAX/rtt)))));
 }  // end NormQuantizeRtt()
-
-
 
 bool NormObjectSize::operator<(const NormObjectSize& size) const
 {

@@ -1,31 +1,32 @@
 
-// norm.cpp - Command-line NORM application
+// normApp.cpp - Command-line NORM application
 
-#include "protoLib.h"
+#include "protokit.h"
 #include "normSession.h"
 #include "normPostProcess.h"
 
 #include <stdio.h>   // for stdout/stderr printouts
 #include <signal.h>  // for SIGTERM/SIGINT handling
 #include <errno.h>
+#include <stdlib.h>
 
 // Command-line application using Protolib EventDispatcher
-class NormApp : public NormController
+class NormApp : public NormController, public ProtoApp
 {
     public:
         NormApp();
         virtual ~NormApp();
-		bool OnStartup();
-        int MainLoop() {return dispatcher.Run();}
-        void Stop(int exitCode) {dispatcher.Stop(exitCode);}
+        
+        // Overrides from ProtoApp or NsProtoSimAgent base
+        bool OnStartup(int argc, const char*const* argv);
+        bool ProcessCommands(int argc, const char*const* argv);
         void OnShutdown();
         
         bool ProcessCommand(const char* cmd, const char* val);
-		bool ParseCommandLine(int argc, char* argv[]);
         
-        static void DoInputReady(EventDispatcher::Descriptor descriptor, 
-                                 EventDispatcher::EventType  theEvent, 
-                                 const void* userData);
+        static void DoInputReady(ProtoDispatcher::Descriptor descriptor, 
+                                 ProtoDispatcher::Event      theEvent, 
+                                 const void*                 userData);
         
     private:
         void OnInputReady();
@@ -39,17 +40,14 @@ class NormApp : public NormController
                         class NormServerNode* server,
                         class NormObject*     object);
         
-        void InstallTimer(ProtocolTimer* timer) 
-            {dispatcher.InstallTimer(timer);}
-        bool OnIntervalTimeout();
+        bool OnIntervalTimeout(ProtoTimer& theTimer);
     
         static const char* const cmd_list[];
-
+        
+#ifdef UNIX
         static void SignalHandler(int sigNum);
-        bool IsPostProcessing() {return post_processor.IsActive();}
-        void HandleSIGCHLD() {post_processor.HandleSIGCHLD();}
-    
-        EventDispatcher     dispatcher;        
+#endif // UNIX
+            
         NormSessionMgr      session_mgr;
         NormSession*        session;
         NormStreamObject*   tx_stream;
@@ -91,13 +89,13 @@ class NormApp : public NormController
         double              tx_object_interval;
         int                 tx_repeat_count;
         double              tx_repeat_interval;
-        ProtocolTimer       interval_timer;
+        ProtoTimer          interval_timer;
         
         // NormSession client-only parameters
         unsigned long       rx_buffer_size; // bytes
         NormFileList        rx_file_cache;
         char*               rx_cache_path;
-        NormPostProcessor   post_processor;
+        NormPostProcessor*  post_processor;
         bool                unicast_nacks;
         bool                silent_client;
         
@@ -109,7 +107,8 @@ class NormApp : public NormController
 }; // end class NormApp
 
 NormApp::NormApp()
- : session(NULL), tx_stream(NULL), rx_stream(NULL), input(NULL), output(NULL), 
+ : session_mgr(GetTimerMgr(), GetSocketNotifier()),
+   session(NULL), tx_stream(NULL), rx_stream(NULL), input(NULL), output(NULL), 
    input_index(0), input_length(0), input_active(false),
    push_stream(false), input_messaging(false), input_msg_length(0), input_msg_index(0),
    output_index(0), output_messaging(false), output_msg_length(0), output_msg_sync(false),
@@ -122,14 +121,14 @@ NormApp::NormApp()
    tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
     // Init tx_timer for 1.0 second interval, infinite repeats
-    session_mgr.Init(EventDispatcher::TimerInstaller, &dispatcher,
-                     EventDispatcher::SocketInstaller, &dispatcher,
-                     this);    
-    interval_timer.Init(0.0, 0, (ProtocolTimerOwner*)this, 
-                        (ProtocolTimeoutFunc)&NormApp::OnIntervalTimeout);
+     session_mgr.SetController(this);
+    
+    interval_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormApp::OnIntervalTimeout);
+    interval_timer.SetInterval(0.0);
+    interval_timer.SetRepeat(0);
     
     struct timeval currentTime;
-    GetSystemTime(&currentTime);
+    ProtoSystemTime(currentTime);
     srand(currentTime.tv_usec);
 }
 
@@ -137,6 +136,7 @@ NormApp::~NormApp()
 {
     if (address) delete address;
     if (rx_cache_path) delete rx_cache_path;
+    if (post_processor) delete post_processor;
 }
 
 
@@ -299,9 +299,9 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
     else if (!strncmp("input", cmd, len))
     {
         if (!strcmp(val, "STDIN"))
-	{
+	    {
             input = stdin;
-	}
+	    }
         else if (!(input = fopen(val, "rb")))
         {
             DMSG(0, "NormApp::ProcessCommand(input) fopen() error: %s\n",
@@ -310,16 +310,18 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         }
         input_index = input_length = 0;
         input_messaging = false;
+#ifdef UNIX
         // Set input non-blocking
         if(-1 == fcntl(fileno(input), F_SETFL, fcntl(fileno(input), F_GETFL, 0) | O_NONBLOCK))
             perror("NormApp::ProcessCommand(input) fcntl(F_SETFL(O_NONBLOCK)) error");
+#endif // UNIX
     }
     else if (!strncmp("output", cmd, len))
     {
         if (!strcmp(val, "STDOUT"))
-	{
+	    {
             output = stdout;
-	}
+	    }
         else if (!(output = fopen(val, "wb")))
         {
             DMSG(0, "NormApp::ProcessCommand(output) fopen() error: %s\n",
@@ -333,9 +335,9 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
     else if (!strncmp("minput", cmd, len))
     {
         if (!strcmp(val, "STDIN"))
-	{
+	    {
             input = stdin;
-	}
+	    }
         else if (!(input = fopen(val, "rb")))
         {
             DMSG(0, "NormApp::ProcessCommand(input) fopen() error: %s\n",
@@ -344,16 +346,18 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         }
         input_index = input_length = 0;
         input_messaging = true;
+#ifdef UNIX
         // Set input non-blocking
         if(-1 == fcntl(fileno(input), F_SETFL, fcntl(fileno(input), F_GETFL, 0) | O_NONBLOCK))
             perror("NormApp::ProcessCommand(input) fcntl(F_SETFL(O_NONBLOCK)) error");
+#endif // UNIX
     }
     else if (!strncmp("moutput", cmd, len))
     {
         if (!strcmp(val, "STDOUT"))
-	{
+	    {
             output = stdout;
-	}
+	    }
         else if (!(output = fopen(val, "wb")))
         {
             DMSG(0, "NormApp::ProcessCommand(output) fopen() error: %s\n",
@@ -404,8 +408,8 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
     else if (!strncmp("rxcachedir", cmd, len))
     {
         unsigned int length = strlen(val);   
-        // Make sure there is a trailing DIR_DELIMITER
-        if (DIR_DELIMITER != val[length-1]) 
+        // Make sure there is a trailing PROTO_PATH_DELIMITER
+        if (PROTO_PATH_DELIMITER != val[length-1]) 
             length += 2;
         else
             length += 1;
@@ -416,7 +420,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
             return false;  
         }
         strcpy(rx_cache_path, val);
-        rx_cache_path[length-2] = DIR_DELIMITER;
+        rx_cache_path[length-2] = PROTO_PATH_DELIMITER;
         rx_cache_path[length-1] = '\0';
     }
     else if (!strncmp("segment", cmd, len))
@@ -514,7 +518,7 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
     }
     else if (!strncmp("processor", cmd, len))
     {
-        if (!post_processor.SetCommand(val))
+        if (!post_processor->SetCommand(val))
         {
             DMSG(0, "NormApp::ProcessCommand(processor) error!\n");   
             return false;
@@ -555,7 +559,7 @@ NormApp::CmdType NormApp::CommandType(const char* cmd)
 }  // end NormApp::CommandType()
 
 
-bool NormApp::ParseCommandLine(int argc, char* argv[])
+bool NormApp::ProcessCommands(int argc, const char*const* argv)
 {
     int i = 1;
     while ( i < argc)
@@ -564,13 +568,13 @@ bool NormApp::ParseCommandLine(int argc, char* argv[])
         switch (cmdType)
         {
             case CMD_INVALID:
-                DMSG(0, "NormApp::ParseCommandLine() Invalid command:%s\n", 
+                DMSG(0, "NormApp::ProcessCommands() Invalid command:%s\n", 
                         argv[i]);
                 return false;
             case CMD_NOARG:
                 if (!ProcessCommand(argv[i], NULL))
                 {
-                    DMSG(0, "NormApp::ParseCommandLine() ProcessCommand(%s) error\n", 
+                    DMSG(0, "NormApp::ProcessCommands() ProcessCommand(%s) error\n", 
                             argv[i]);
                     return false;
                 }
@@ -579,7 +583,7 @@ bool NormApp::ParseCommandLine(int argc, char* argv[])
             case CMD_ARG:
                 if (!ProcessCommand(argv[i], argv[i+1]))
                 {
-                    DMSG(0, "NormApp::ParseCommandLine() ProcessCommand(%s, %s) error\n", 
+                    DMSG(0, "NormApp::ProcessCommands() ProcessCommand(%s, %s) error\n", 
                             argv[i], argv[i+1]);
                     return false;
                 }
@@ -588,10 +592,10 @@ bool NormApp::ParseCommandLine(int argc, char* argv[])
         }
     }
     return true;
-}  // end NormApp::ParseCommandLine()
+}  // end NormApp::ProcessCommands()
 
-void NormApp::DoInputReady(EventDispatcher::Descriptor /*descriptor*/, 
-                           EventDispatcher::EventType  /*theEvent*/, 
+void NormApp::DoInputReady(ProtoDispatcher::Descriptor /*descriptor*/, 
+                           ProtoDispatcher::Event      /*theEvent*/, 
                            const void*                 userData)
 {
     ((NormApp*)userData)->OnInputReady();
@@ -607,6 +611,8 @@ void NormApp::OnInputReady()
     // the stream has buffer space for input
     while (input)
     {
+        bool inputStarved = false;
+            
         if (0 == input_length)
         {
             // We need input ...
@@ -667,7 +673,11 @@ void NormApp::OnInputReady()
                     DMSG(0, "norm: input end-of-file.\n");
                     if (input_active) 
                     {
+#ifdef WIN32
+                        ASSERT(0);  // no Win32 support for stream i/o yet
+#else
                         dispatcher.RemoveGenericInput(fileno(input));
+#endif // if/else WIN32/UNIX
                         input_active = false;
                     }
                     if (stdin != input) fclose(input);
@@ -679,8 +689,10 @@ void NormApp::OnInputReady()
                     switch (errno)
                     {
                         case EINTR:
+                            continue;
                         case EAGAIN:
                             // Input not ready, will get notification when ready
+                            inputStarved = true;
                             break;
                         default:
                             DMSG(0, "norm: input error:%s\n", strerror(errno));
@@ -716,30 +728,37 @@ void NormApp::OnInputReady()
             {
                 // Stream buffer full, temporarily deactive "input" and 
                 // wait for next TX_QUEUE_EMPTY notification
-                //TRACE("stream buffer full ...\n");
                 if (input_active)
                 {
-                    dispatcher.RemoveGenericInput(fileno(input)); 
+#ifdef WIN32
+                        ASSERT(0);  // no Win32 support for stream i/o yet
+#else
+                        dispatcher.RemoveGenericInput(fileno(input));
+#endif // if/else WIN32/UNIX
                     input_active = false;   
                 }
                 break;  
             }
         }
-        else
+        else if (inputStarved)
         {
             // Input not ready, wait for "input" to be ready
             // (Activate/reactivate "input" as necessary
-            //TRACE("input starved ...\n");
             if (!input_active)
             {
-                if (dispatcher.AddGenericInput(fileno(input), NormApp::DoInputReady, this))
+#ifdef WIN32
+                ASSERT(0);  // no Win32 support for stream i/o yet
+                if (false)
+#else
+                if (dispatcher.InstallGenericInput(fileno(input), NormApp::DoInputReady, this))
+#endif // if/else WIN32/UNIX
                     input_active = true;
                 else
                     DMSG(0, "NormApp::Notify(TX_QUEUE_EMPTY) error adding input notification!\n");
             } 
             break; 
         }
-    }  // end while (1)
+    }  // end while (input)
 }  // NormApp::OnInputReady()
 
 
@@ -762,14 +781,10 @@ void NormApp::Notify(NormController::Event event,
             {
                 // Can queue a new object for transmission  
                 if (interval_timer.IsActive()) interval_timer.Deactivate();
-                if (interval_timer.Interval() > 0.0)
-                {
-                    InstallTimer(&interval_timer);            
-                }
+                if (interval_timer.GetInterval() > 0.0)
+                    ActivateTimer(interval_timer); 
                 else
-                {
-                    OnIntervalTimeout();
-                } 
+                    OnIntervalTimeout(interval_timer);
             }
             break;
            
@@ -789,7 +804,7 @@ void NormApp::Notify(NormController::Event event,
                     // object Size() has recommended buffering size
                     NormObjectSize size;
                     if (silent_client)
-                        size = NormObjectSize(rx_buffer_size);
+                        size = NormObjectSize((UINT32)rx_buffer_size);
                     else
                         size = object->Size();
                     
@@ -863,7 +878,7 @@ void NormApp::Notify(NormController::Event event,
                     for (UINT16 i = pathLen; i < (pathLen+len); i++)
                     {
                         if ('/' == fileName[i]) 
-                            fileName[i] = DIR_DELIMITER;
+                            fileName[i] = PROTO_PATH_DELIMITER;
                     }
                     pathLen += len;
                     if (pathLen < PATH_MAX) fileName[pathLen] = '\0';
@@ -947,7 +962,8 @@ void NormApp::Notify(NormController::Event event,
                         }
                         else
                         {
-                            output_msg_sync = true;   
+                            if (readLength > 0)
+                                output_msg_sync = true;   
                         }
                         
                         if (readLength)
@@ -1015,15 +1031,16 @@ void NormApp::Notify(NormController::Event event,
             
         case RX_OBJECT_COMPLETE:
         {
+            //TRACE("NormApp::Notify(RX_OBJECT_COMPLETE) ...\n");
             switch(object->GetType())
             {
                 case NormObject::FILE:
                 {
                     const char* filePath = ((NormFileObject*)object)->Path();
                     //DMSG(0, "norm: Completed rx file: %s\n", filePath);
-                    if (post_processor.IsEnabled())
+                    if (post_processor->IsEnabled())
                     {
-                        if (!post_processor.ProcessFile(filePath))
+                        if (!post_processor->ProcessFile(filePath))
                         {
                             DMSG(0, "norm: post processing error\n");
                         }  
@@ -1044,7 +1061,7 @@ void NormApp::Notify(NormController::Event event,
 }  // end NormApp::Notify()
 
 
-bool NormApp::OnIntervalTimeout()
+bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
 {
     char fileName[PATH_MAX];
     if (tx_file_list.GetNextFile(fileName))
@@ -1063,7 +1080,7 @@ bool NormApp::OnIntervalTimeout()
         // Normalize directory delimiters in file name info
         for (unsigned int i = 0; i < len; i++)
         {
-            if (DIR_DELIMITER == fileNameInfo[i]) 
+            if (PROTO_PATH_DELIMITER == fileNameInfo[i]) 
                 fileNameInfo[i] = '/';
         }
         char temp[PATH_MAX];
@@ -1076,7 +1093,7 @@ bool NormApp::OnIntervalTimeout()
             // Wait a second, then try the next file in the list
             if (interval_timer.IsActive()) interval_timer.Deactivate();
             interval_timer.SetInterval(1.0);
-            InstallTimer(&interval_timer);
+            ActivateTimer(interval_timer);
             return false;
         }
         //DMSG(0, "norm: File \"%s\" queued for transmission.\n", fileName);
@@ -1091,12 +1108,12 @@ bool NormApp::OnIntervalTimeout()
         {
             if (interval_timer.IsActive()) interval_timer.Deactivate();
             interval_timer.SetInterval(tx_repeat_interval = tx_object_interval);
-            InstallTimer(&interval_timer);
+            ActivateTimer(interval_timer);
             return false;       
         }
         else
         {
-            return OnIntervalTimeout();
+            return OnIntervalTimeout(interval_timer);
         }
     }
     else
@@ -1106,20 +1123,25 @@ bool NormApp::OnIntervalTimeout()
     return true;
 }  // end NormApp::OnIntervalTimeout()
 
-bool NormApp::OnStartup()
+bool NormApp::OnStartup(int argc, const char*const* argv)
 {
-#ifdef WIN32
-	if (!dispatcher.Win32Init())
-	{
-		fprintf(stderr, "norm:: Win32Init() error!\n");
-		return false;
-	}
-#endif // WIN32
-
-    signal(SIGTERM, SignalHandler);
-    signal(SIGINT, SignalHandler);
-    signal(SIGCHLD, SignalHandler);
     
+    if (!(post_processor = NormPostProcessor::Create()))
+    {
+        DMSG(0, "NormApp::OnStartup() error creating post processor\n");
+        return false;   
+    }
+    
+    if (!ProcessCommands(argc, argv))
+    {
+        DMSG(0, "NormApp::OnStartup() error processing command-line commands\n");
+        return false; 
+    }
+
+#ifdef UNIX    
+    signal(SIGCHLD, SignalHandler);
+#endif // UNIX
+        
     // Validate our application settings
     if (!address)
     {
@@ -1200,7 +1222,11 @@ void NormApp::OnShutdown()
     {
         if (input_active) 
         {
+#ifdef WIN32
+            ASSERT(0);   // no Win32 support for stream i/o yet
+#else
             dispatcher.RemoveGenericInput(fileno(input));
+#endif // if/else WIN32/UNIX
             input_active = false;
         }
         if (stdin != input) fclose(input);
@@ -1211,97 +1237,32 @@ void NormApp::OnShutdown()
         if (stdout != output) fclose(output);
         output = NULL;
     }
+    if (post_processor)
+    {
+        delete post_processor;
+        post_processor = NULL;   
+    }
 }  // end NormApp::OnShutdown()
 
+// Out application instance 
+PROTO_INSTANTIATE_APP(NormApp);
 
-// Out application instance (global for SignalHandler)
-NormApp theApp; 
-
-// Use "main()" for UNIX and WIN32 console apps, 
-// "WinMain()" for non-console WIN32
-// (VC++ uses the "_CONSOLE_" macro to indicate build type)
-
-#if defined(WIN32) && !defined(_CONSOLE_)
-int PASCAL WinMain(HINSTANCE instance, HINSTANCE prevInst, LPSTR cmdline, int cmdshow)
-{
-    // (TBD) transform WinMain "cmdLine" to (argc, argv[]) values
-    int argc = 0;
-    char* argv[] = NULL;
-#else
-int main(int argc, char* argv[])
-{
-#endif
-#ifdef WIN32
-	// Hack to determine if Win32 console application was launched
-    // independently or from a pre-existing console window
-	bool pauseForUser = false;
-	HANDLE hConsoleOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (INVALID_HANDLE_VALUE != hConsoleOutput)
-	{
-		CONSOLE_SCREEN_BUFFER_INFO csbi;
-		GetConsoleScreenBufferInfo(hConsoleOutput, &csbi);
-		pauseForUser = ((csbi.dwCursorPosition.X==0) && (csbi.dwCursorPosition.Y==0));
-		if ((csbi.dwSize.X<=0) || (csbi.dwSize.Y <= 0)) pauseForUser = false;
-	}
-	else
-	{
-		// We're not a "console" application, so create one
-		// This could be commented out or made a command-line option
-		OpenDebugWindow();
-		pauseForUser = true;
-	}
-#endif // WIN32
-    
-	int exitCode = 0;
-    if (theApp.ParseCommandLine(argc, argv))
-    {
-        if (theApp.OnStartup())
-        {
-            exitCode = theApp.MainLoop();
-            theApp.OnShutdown();
-            fprintf(stderr, "norm: Done.\n");
-        }
-        else
-        {
-             fprintf(stderr, "norm: Error initializing application!\n");
-             exitCode = -1;  
-        }   
-    }
-    else
-    {
-        fprintf(stderr, "norm: Error parsing command line!\n");
-        exitCode = -1;
-    }
-    
-#ifdef WIN32
-		// If Win32 console is going to disappear, pause for user before exiting
-		if (pauseForUser)
-		{
-			printf ("Program Finished - Hit <Enter> to exit");
-			getchar();
-		}
-#endif // WIN32   
-	return exitCode;  // exitCode contains "signum" causing exit
-}  // end main();
-
-
-
+#ifdef UNIX
 void NormApp::SignalHandler(int sigNum)
 {
     switch(sigNum)
     {
-        case SIGTERM:
-        case SIGINT:
-            theApp.Stop(sigNum);  // causes theApp's main loop to exit
-            break;
-            
         case SIGCHLD:
-            if (theApp.IsPostProcessing()) theApp.HandleSIGCHLD();
+        {
+            NormApp* app = static_cast<NormApp*>(ProtoApp::GetApp());
+            if (app->post_processor) app->post_processor->OnDeath();
             signal(SIGCHLD, SignalHandler);
             break;
+        }
             
         default:
             fprintf(stderr, "norm: Unexpected signal: %d\n", sigNum);
             break; 
     }  
 }  // end NormApp::SignalHandler()
+#endif // UNIX

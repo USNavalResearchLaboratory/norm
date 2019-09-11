@@ -6,9 +6,7 @@
 #include "normNode.h"
 #include "normEncoder.h"
 
-#include "protocolTimer.h"
-#include "udpSocket.h"
-
+#include "protokit.h"
 
 class NormController
 {
@@ -34,19 +32,11 @@ class NormSessionMgr
 {
     friend class NormSession;
     public:
-        NormSessionMgr();
+        NormSessionMgr(ProtoTimerMgr&            timerMgr,
+                       ProtoSocket::Notifier&    socketNotifier);
         ~NormSessionMgr();
-        void Init(ProtocolTimerInstallFunc* timerInstaller, 
-                  const void*               timerInstallData,
-                  UdpSocketInstallFunc*     socketInstaller,
-                  void*                     socketInstallData,
-                  NormController*           theController)
-        {
-            timer_mgr.SetInstaller(timerInstaller, timerInstallData);
-            socket_installer = socketInstaller;
-            socket_install_data = socketInstallData;   
-            controller = theController;
-        }
+        void SetController(NormController* theController)
+            {controller = theController;}
         void Destroy();
         
         class NormSession* NewSession(const char*   sessionAddress,
@@ -54,10 +44,6 @@ class NormSessionMgr
                                       NormNodeId    localNodeId = 
                                                     NORM_NODE_ANY);
         void DeleteSession(class NormSession* theSession);
-        
-        
-        UdpSocketInstallFunc* SocketInstaller() {return socket_installer;}
-        const void* SocketInstallData() {return socket_install_data;}
         
         void Notify(NormController::Event event,
                     class NormSession*    session,
@@ -68,12 +54,13 @@ class NormSessionMgr
                 controller->Notify(event, this, session, server, object);   
         }
                
-        void InstallTimer(ProtocolTimer* timer) {timer_mgr.InstallTimer(timer);}
+        void ActivateTimer(ProtoTimer& timer) {timer_mgr.ActivateTimer(timer);}
+        ProtoTimerMgr& GetTimerMgr() {return timer_mgr;}        
+        ProtoSocket::Notifier& GetSocketNotifier() {return socket_notifier;}
     
         private:   
-        ProtocolTimerMgr        timer_mgr;  
-        UdpSocketInstallFunc*   socket_installer;
-        const void*             socket_install_data;
+        ProtoTimerMgr&          timer_mgr;  
+        ProtoSocket::Notifier&  socket_notifier;
         NormController*         controller;
         
         class NormSession*      top_session;  // top of NormSession list
@@ -104,8 +91,8 @@ class NormSession
         bool Open();
         void Close();
         bool IsOpen() {return (rx_socket.IsOpen() || tx_socket.IsOpen());}
-        const NetworkAddress& Address() {return address;}
-        void SetAddress(const NetworkAddress& addr) {address = addr;}
+        const ProtoAddress& Address() {return address;}
+        void SetAddress(const ProtoAddress& addr) {address = addr;}
         static double CalculateRate(double size, double rtt, double loss);
         
         
@@ -135,9 +122,8 @@ class NormSession
         NormMsg* GetMessageFromPool() {return message_pool.RemoveHead();}
         void ReturnMessageToPool(NormMsg* msg) {message_pool.Append(msg);}
         void QueueMessage(NormMsg* msg);
-        void SendMessage(NormMsg& msg);
-        void InstallTimer(ProtocolTimer* timer) 
-            {session_mgr.InstallTimer(timer);}
+        bool SendMessage(NormMsg& msg);
+        void ActivateTimer(ProtoTimer& timer) {session_mgr.ActivateTimer(timer);}
         
         // Server methods
         void ServerSetBaseObjectId(NormObjectId baseId)
@@ -195,7 +181,7 @@ class NormSession
             if (!tx_timer.IsActive())
             {
                 tx_timer.SetInterval(0.0);
-                InstallTimer(&tx_timer);    
+                ActivateTimer(tx_timer);    
             }
         }
         
@@ -227,7 +213,7 @@ class NormSession
         // Simulation specific methods
         NormSimObject* QueueTxSim(unsigned long objectSize);
         bool SimSocketRecvHandler(char* buffer, unsigned short buflen,
-                                  const NetworkAddress& src, bool unicast);
+                                  const ProtoAddress& src, bool unicast);
 #endif // SIMULATE
                     
     private:
@@ -239,15 +225,15 @@ class NormSession
         bool QueueTxObject(NormObject* obj, bool touchServer = true);
         void DeleteTxObject(NormObject* obj);
         
-        bool OnTxTimeout();
-        bool OnRepairTimeout();
-        bool OnFlushTimeout();
-        bool OnWatermarkTimeout();
-        bool OnProbeTimeout();
-        bool OnReportTimeout();
+        bool OnTxTimeout(ProtoTimer& theTimer);
+        bool OnRepairTimeout(ProtoTimer& theTimer);
+        bool OnFlushTimeout(ProtoTimer& theTimer);
+        bool OnWatermarkTimeout(ProtoTimer& theTimer);
+        bool OnProbeTimeout(ProtoTimer& theTimer);
+        bool OnReportTimeout(ProtoTimer& theTimer);
         
-        bool TxSocketRecvHandler(UdpSocket* theSocket);
-        bool RxSocketRecvHandler(UdpSocket* theSocket);        
+        void TxSocketRecvHandler(ProtoSocket& theSocket, ProtoSocket::Event theEvent);
+        void RxSocketRecvHandler(ProtoSocket& theSocket, ProtoSocket::Event theEve);        
         void HandleReceiveMessage(NormMsg& msg, bool wasUnicast);
         
         // Server message handling routines
@@ -264,7 +250,7 @@ class NormSession
                                     double     ccRtt,
                                     double     ccLoss,
                                     double     ccRate,
-                                    UINT8      ccSequence);
+                                    UINT16      ccSequence);
         void AdjustRate(bool onResponse);
         bool ServerQueueSquelch(NormObjectId objectId);
         void ServerQueueFlush();
@@ -283,17 +269,17 @@ class NormSession
         
         NormSessionMgr&     session_mgr;
         bool                notify_pending;
-        ProtocolTimer       tx_timer;
-        UdpSocket           tx_socket;
-        UdpSocket           rx_socket;
+        ProtoTimer          tx_timer;
+        ProtoSocket         tx_socket;
+        ProtoSocket         rx_socket;
         NormMessageQueue    message_queue;
         NormMessageQueue    message_pool;
-        ProtocolTimer       report_timer;
+        ProtoTimer          report_timer;
         UINT16              tx_sequence;
         
         // General session parameters
         NormNodeId          local_node_id;
-        NetworkAddress      address;  // session destination address
+        ProtoAddress        address;  // session destination address
         UINT8               ttl;      // session multicast ttl       
         double              tx_rate;  // bytes per second
         double              backoff_factor;
@@ -310,7 +296,7 @@ class NormSession
         NormObjectTable     tx_table;
         NormSlidingMask     tx_pending_mask;
         NormSlidingMask     tx_repair_mask;
-        ProtocolTimer       repair_timer;
+        ProtoTimer          repair_timer;
         NormBlockPool       block_pool;
         NormSegmentPool     segment_pool;
         NormEncoder         encoder;
@@ -319,10 +305,10 @@ class NormSession
         unsigned int        tx_cache_count_min;
         unsigned int        tx_cache_count_max;
         NormObjectSize      tx_cache_size_max;
-        ProtocolTimer       flush_timer;
+        ProtoTimer          flush_timer;
         int                 flush_count;
         bool                posted_tx_queue_empty;
-        ProtocolTimer       watermark_timer;
+        ProtoTimer          watermark_timer;
         int                 watermark_count;
         // (TBD) watermark_object_id, watermark_block_id, watermark_symbol_id
         
@@ -332,7 +318,7 @@ class NormSession
         double              suppress_rate;
         double              suppress_rtt;
         
-        ProtocolTimer       probe_timer;  // GRTT/congestion control probes
+        ProtoTimer          probe_timer;  // GRTT/congestion control probes
         bool                probe_proactive;
         
         double              grtt_interval;     // current GRTT update interval

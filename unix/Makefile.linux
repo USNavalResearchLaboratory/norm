@@ -28,7 +28,7 @@ TK_LIB = -ltk #/usr/local/lib/libtk8.0.a
 # 5) System specific additional libraries, include paths, etc
 #    (Where to find X11 libraries, etc)
 #
-SYSTEM_INCLUDES = -I/usr/X11R6/include 
+SYSTEM_INCLUDES = -Wall -I/usr/X11R6/include 
 SYSTEM_LDFLAGS = -L/usr/X11R6/lib 
 SYSTEM_LIBS = -ldl 
 
@@ -62,10 +62,14 @@ SYSTEM_LIBS = -ldl
 # (We export these for other Makefiles as needed)
 #
 
-export SYSTEM_HAVES = -DLINUX -DHAVE_IPV6 -DHAVE_GETLOGIN -DHAVE_LOCKF \
+SYSTEM_HAVES = -DLINUX -DHAVE_IPV6 -DHAVE_GETLOGIN -DHAVE_LOCKF \
 -DHAVE_OLD_SIGNALHANDLER -DHAVE_DIRFD -DHAVE_ASSERT $(NETSEC)
 
-export CC = gcc
+SYSTEM_SRC = 
+
+SYSTEM = linux
+
+export CC = g++
 export RANLIB = ranlib
 export AR = ar
 

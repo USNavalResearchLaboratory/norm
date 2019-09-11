@@ -3,7 +3,7 @@
 
 #include <string.h>  // for strerror()
 #include <errno.h>   // for errno
-
+#include <stdio.h>   // for rename()
 #ifdef WIN32
 #include <direct.h>
 #include <share.h>
@@ -34,14 +34,14 @@ bool NormFile::Open(const char* thePath, int theFlags)
         // Create sub-directories as needed.
         char tempPath[PATH_MAX];
         strncpy(tempPath, thePath, PATH_MAX);
-        char* ptr = strrchr(tempPath, DIR_DELIMITER);
+        char* ptr = strrchr(tempPath, PROTO_PATH_DELIMITER);
         if (ptr) *ptr = '\0';
         ptr = NULL;
         while (!NormFile::Exists(tempPath))
         {
             char* ptr2 = ptr;
-            ptr = strrchr(tempPath, DIR_DELIMITER);
-            if (ptr2) *ptr2 = DIR_DELIMITER;
+            ptr = strrchr(tempPath, PROTO_PATH_DELIMITER);
+            if (ptr2) *ptr2 = PROTO_PATH_DELIMITER;
             if (ptr)
             {
                 *ptr = '\0';
@@ -52,18 +52,22 @@ bool NormFile::Open(const char* thePath, int theFlags)
                 break;
             }
         }
-        if (ptr && ('\0' == *ptr)) *ptr++ = DIR_DELIMITER;
+        if (ptr && ('\0' == *ptr)) *ptr++ = PROTO_PATH_DELIMITER;
         while (ptr)
         {
-            ptr = strchr(ptr, DIR_DELIMITER);
+            ptr = strchr(ptr, PROTO_PATH_DELIMITER);
             if (ptr) *ptr = '\0';
+#ifdef WIN32
+            if (mkdir(tempPath))
+#else
             if (mkdir(tempPath, 0755))
+#endif // if/else WIN32/UNIX
             {
                 DMSG(0, "NormFile::Rename() mkdir(%s) error: %s\n",
                         tempPath, strerror(errno));
                 return false;  
             }
-            if (ptr) *ptr++ = DIR_DELIMITER;
+            if (ptr) *ptr++ = PROTO_PATH_DELIMITER;
         }
     }    	
 #ifdef WIN32
@@ -82,8 +86,7 @@ bool NormFile::Open(const char* thePath, int theFlags)
     }
     else
     {       
-        DMSG(0, "Error opening file \"%s\": %s\n", path,
-                strerror(errno));
+        DMSG(0, "Error opening file \"%s\": %s\n", thePath, strerror(errno));
 		flags = 0;
         return false;
     }
@@ -159,7 +162,7 @@ bool NormFile::Rename(const char* oldName, const char* newName)
     if (NormFile::IsLocked(newName)) return false;    
 #ifdef WIN32
     // In Win32, the new file can't already exist
-	if (NormFile::Exists(newName) _unlink(newName);
+	if (NormFile::Exists(newName)) _unlink(newName);
     // In Win32, the old file can't be open
 	int oldFlags = 0;
 	if (IsOpen())
@@ -172,14 +175,14 @@ bool NormFile::Rename(const char* oldName, const char* newName)
     // Create sub-directories as needed.
     char tempPath[PATH_MAX];
     strncpy(tempPath, newName, PATH_MAX);
-    char* ptr = strrchr(tempPath, DIR_DELIMITER);
+    char* ptr = strrchr(tempPath, PROTO_PATH_DELIMITER);
     if (ptr) *ptr = '\0';
     ptr = NULL;
     while (!NormFile::Exists(tempPath))
     {
         char* ptr2 = ptr;
-        ptr = strrchr(tempPath, DIR_DELIMITER);
-        if (ptr2) *ptr2 = DIR_DELIMITER;
+        ptr = strrchr(tempPath, PROTO_PATH_DELIMITER);
+        if (ptr2) *ptr2 = PROTO_PATH_DELIMITER;
         if (ptr)
         {
             *ptr = '\0';
@@ -190,10 +193,10 @@ bool NormFile::Rename(const char* oldName, const char* newName)
             break;
         }
     }
-    if (ptr && ('\0' == *ptr)) *ptr++ = DIR_DELIMITER;
+    if (ptr && ('\0' == *ptr)) *ptr++ = PROTO_PATH_DELIMITER;
     while (ptr)
     {
-        ptr = strchr(ptr, DIR_DELIMITER);
+        ptr = strchr(ptr, PROTO_PATH_DELIMITER);
         if (ptr) *ptr = '\0';
         if (mkdir(tempPath, 0755))
         {
@@ -201,7 +204,7 @@ bool NormFile::Rename(const char* oldName, const char* newName)
                     tempPath, strerror(errno));
             return false;  
         }
-        if (ptr) *ptr++ = DIR_DELIMITER;
+        if (ptr) *ptr++ = PROTO_PATH_DELIMITER;
     }   
 #endif // if/else WIN32 
     if (rename(oldName, newName))
@@ -367,7 +370,7 @@ bool NormDirectoryIterator::GetNextFile(char* fileName)
 	bool success = true;
 	while(success)
 	{
-		WIN32_findData findData;
+		WIN32_FIND_DATA findData;
 		if (current->hSearch == (HANDLE)-1)
 		{
 			// Construct search string
@@ -387,7 +390,7 @@ bool NormDirectoryIterator::GetNextFile(char* fileName)
 		// Do we have a candidate file?
 		if (success)
 		{
-			char* ptr = strrchr(findData.cFileName, DIR_DELIMITER);
+			char* ptr = strrchr(findData.cFileName, PROTO_PATH_DELIMITER);
 			if (ptr)
 				ptr += 1;
 			else
@@ -535,9 +538,9 @@ NormDirectoryIterator::NormDirectory::NormDirectory(const char*    thePath,
 {
     strncpy(path, thePath, PATH_MAX);
     int len  = MIN(PATH_MAX, strlen(path));
-    if ((len < PATH_MAX) && (DIR_DELIMITER != path[len-1]))
+    if ((len < PATH_MAX) && (PROTO_PATH_DELIMITER != path[len-1]))
     {
-        path[len++] = DIR_DELIMITER;
+        path[len++] = PROTO_PATH_DELIMITER;
         if (len < PATH_MAX) path[len] = '\0';
     }
 }
@@ -551,10 +554,10 @@ bool NormDirectoryIterator::NormDirectory::Open()
 {
     Close();  // in case it's already open   
     char fullName[PATH_MAX];
-    GetFullName(fullName);   
-    // Get rid of trailing DIR_DELIMITER
+    GetFullName(fullName);  
+    // Get rid of trailing PROTO_PATH_DELIMITER
     int len = MIN(PATH_MAX, strlen(fullName));
-    if (DIR_DELIMITER == fullName[len-1]) fullName[len-1] = '\0';
+    if (PROTO_PATH_DELIMITER == fullName[len-1]) fullName[len-1] = '\0';
 #ifdef WIN32
     DWORD attr = GetFileAttributes(fullName);
 	if (0xFFFFFFFF == attr)
@@ -581,8 +584,11 @@ void NormDirectoryIterator::NormDirectory::Close()
 		hSearch = (HANDLE)-1;
 	}
 #else
-    closedir(dptr);
-    dptr = NULL;
+    if (dptr)
+    {
+        closedir(dptr);
+        dptr = NULL;
+    }
 #endif  // if/else WIN32
 }  // end NormDirectoryIterator::NormDirectory::Close()
 
@@ -856,15 +862,15 @@ void NormFileList::GetCurrentBasePath(char* pathBuffer)
             strncpy(pathBuffer, next->Path(), PATH_MAX);
             unsigned int len = strlen(pathBuffer);
             len = MIN(len, PATH_MAX);
-            if (DIR_DELIMITER != pathBuffer[len-1])
+            if (PROTO_PATH_DELIMITER != pathBuffer[len-1])
             {
-                if (len < PATH_MAX) pathBuffer[len++] = DIR_DELIMITER;
+                if (len < PATH_MAX) pathBuffer[len++] = PROTO_PATH_DELIMITER;
                 if (len < PATH_MAX) pathBuffer[len] = '\0';
             }   
         }
         else  // NormFile::NORMAL
         {
-            const char* ptr = strrchr(next->Path(), DIR_DELIMITER);
+            const char* ptr = strrchr(next->Path(), PROTO_PATH_DELIMITER);
             if (ptr++)
             {
                 unsigned int len = ptr - next->Path();
@@ -925,6 +931,7 @@ bool NormFileList::FileItem::GetNextFile(char*   thePath,
 NormFileList::DirectoryItem::DirectoryItem(const char* thePath)
  : NormFileList::FileItem(thePath)
 {    
+    
 }
 
 NormFileList::DirectoryItem::~DirectoryItem()
@@ -963,9 +970,9 @@ bool NormFileList::DirectoryItem::GetNextFile(char*   thePath,
      strncpy(thePath, path, PATH_MAX);
      unsigned int len = strlen(thePath);
      len = MIN(len, PATH_MAX);
-     if ((DIR_DELIMITER != thePath[len-1]) && (len < PATH_MAX))
+     if ((PROTO_PATH_DELIMITER != thePath[len-1]) && (len < PATH_MAX))
      {
-         thePath[len++] = DIR_DELIMITER;
+         thePath[len++] = PROTO_PATH_DELIMITER;
          if (len < PATH_MAX) thePath[len] = '\0';
      }  
      char tempPath[PATH_MAX];

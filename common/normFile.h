@@ -18,8 +18,7 @@
 #include <sys/stat.h>
 
 // From PROTOLIB
-#include "sysdefs.h"  // for bool definition, DIR_DELIMITER, PATH_MAX, etc
-#include "debug.h"    // for DEBUG stuff
+#include "protokit.h"    // for Protolib stuff
         
 class NormFile
 {
@@ -61,11 +60,11 @@ class NormFile
 #ifdef WIN32
             DWORD attr = GetFileAttributes(path);
 	        return ((0xFFFFFFFF == attr) ? 
-                    false : (0 == (attr & FILE_ATTRIBUTE_READONLY)));
+                        false : (0 == (attr & FILE_ATTRIBUTE_READONLY)));
 #else
             return (0 == access(path, W_OK));
-        }
 #endif // if/else WIN32
+        }
        
     
     // Members
@@ -73,7 +72,9 @@ class NormFile
         int     fd;
         int     flags;
         off_t   offset;
-};
+};  // end class NormFile
+
+
         
 /******************************************
 * The NormDirectory and NormDirectoryIterator classes
@@ -98,11 +99,11 @@ class NormDirectoryIterator
             private:           
                 char            path[PATH_MAX];
                 NormDirectory*  parent;
-        #ifdef WIN32
+#ifdef WIN32
                 HANDLE          hSearch;
-        #else
+#else
                 DIR*            dptr;
-        #endif  // if/else WIN32    
+#endif  // if/else WIN32    
                 NormDirectory(const char *thePath, NormDirectory* theParent = NULL);
                 ~NormDirectory();
                 void GetFullName(char* namePtr);

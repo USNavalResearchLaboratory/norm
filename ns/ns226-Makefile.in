@@ -1,0 +1,576 @@
+#  Copyright (c) 1994, 1995, 1996
+# 	The Regents of the University of California.  All rights reserved.
+#
+#  Redistribution and use in source and binary forms, with or without
+#  modification, are permitted provided that: (1) source code distributions
+#  retain the above copyright notice and this paragraph in its entirety, (2)
+#  distributions including binary code include the above copyright notice and
+#  this paragraph in its entirety in the documentation or other materials
+#  provided with the distribution, and (3) all advertising materials mentioning
+#  features or use of this software display the following acknowledgement:
+#  ``This product includes software developed by the University of California,
+#  Lawrence Berkeley Laboratory and its contributors.'' Neither the name of
+#  the University nor the names of its contributors may be used to endorse
+#  or promote products derived from this software without specific prior
+#  written permission.
+#  THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR IMPLIED
+#  WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+#  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+#
+# @(#) $Header: 2002/10/09 15:34:11
+
+#
+# Various configurable paths (remember to edit Makefile.in, not Makefile)
+#
+
+# Top level hierarchy
+prefix	= @prefix@
+# Pathname of directory to install the binary
+BINDEST	= @prefix@/bin
+# Pathname of directory to install the man page
+MANDEST	= @prefix@/man
+
+BLANK	= # make a blank space.  DO NOT add anything to this line
+
+# The following will be redefined under Windows (see WIN32 lable below)
+CC	= @CC@
+CPP	= @CXX@
+LINK	= $(CPP)
+MKDEP	= ./conf/mkdep
+TCLSH	= @V_TCLSH@
+TCL2C	= @V_TCL2CPP@
+AR	= ar rc $(BLANK)
+
+RANLIB	= @V_RANLIB@
+INSTALL	= @INSTALL@
+LN	= ln
+TEST	= test
+RM	= rm -f
+MV      = mv
+PERL	= @PERL@
+
+# for diffusion
+#DIFF_INCLUDES = "./diffusion3/main ./diffusion3/lib ./diffusion3/nr ./diffusion3/ns"
+
+CCOPT	= @V_CCOPT@
+STATIC	= @V_STATIC@
+LDFLAGS	= $(STATIC)
+LDOUT	= -o $(BLANK)
+
+DEFINE	= -DTCP_DELAY_BIND_ALL -DNO_TK @V_DEFINE@ @V_DEFINES@ @DEFS@ -DNS_DIFFUSION -DSMAC_NO_SYNC -DSTL_NAMESPACE=@STL_NAMESPACE@ -DUSE_SINGLE_ADDRESS_SPACE
+
+# NRL additions for Protolib, MDP, and NORM extensions
+PROTOLIB_INCLUDES = -Iprotolib/common -Iprotolib/ns
+MDP_INCLUDES = -Imdp/common -Imdp/ns -Imdp/unix
+NORM_INCLUDES = -Inorm/common -Inorm/ns
+MGEN_INCLUDES = -Imgen/common -Imgen/ns
+NRL_INCLUDES = $(PROTOLIB_INCLUDES) $(MDP_INCLUDES) $(NORM_INCLUDES) $(MGEN_INCLUDES)
+
+INCLUDES = \
+	-I. @V_INCLUDE_X11@ \
+	@V_INCLUDES@ \
+	-I./tcp -I./common -I./link -I./queue \
+	-I./adc -I./apps -I./mac -I./mobile -I./trace \
+	-I./routing -I./tools -I./classifier -I./mcast \
+	-I./diffusion3/lib/main -I./diffusion3/lib \
+	-I./diffusion3/lib/nr -I./diffusion3/ns \
+	-I./diffusion3/diffusion -I./asim/ -I./qs \
+    $(NRL_INCLUDES)
+
+
+LIB	= \
+	@V_LIBS@ \
+	@V_LIB_X11@ \
+	@V_LIB@ \
+	-lm @LIBS@
+#	-L@libdir@ \
+
+# Additional flags for NRL Protolib/MDP/NORM extensions
+# These flags have been tested on Linux
+NRL_CFLAGS = -g -DNS2 -DSIMULATE -DUNIX -DPROTO_DEBUG -DHAVE_ASSERT -DHAVE_DIRFD
+
+
+CFLAGS	= $(CCOPT) $(DEFINE) $(NRL_CFLAGS)
+
+# Explicitly define compilation rules since SunOS 4's make doesn't like gcc.
+# Also, gcc does not remove the .o before forking 'as', which can be a
+# problem if you don't own the file but can write to the directory.
+# NRL Protolib/MDP/NORM code uses .cpp files so we added a suffix and rule
+.SUFFIXES: .cc .cpp # $(.SUFFIXES)
+
+.cc.o:
+	@rm -f $@
+	$(CPP) -c $(CFLAGS) $(INCLUDES) -o $@ $*.cc
+
+.c.o:
+	@rm -f $@
+	$(CC) -c $(CFLAGS) $(INCLUDES) -o $@ $*.c
+
+.cpp.o:
+	@rm -f $@
+	$(CPP) -c $(CFLAGS) $(INCLUDES) -o $@ $*.cpp
+
+
+
+GEN_DIR	= gen/
+LIB_DIR	= lib/
+NS	= ns
+NSX	= nsx
+NSE	= nse
+
+# To allow conf/makefile.win overwrite this macro
+# We will set these two macros to empty in conf/makefile.win since VC6.0
+# does not seem to support the STL in gcc 2.8 and up. 
+OBJ_STL = diffusion3/lib/nr/nr.o diffusion3/lib/dr.o \
+	diffusion3/ns/diffagent.o diffusion3/ns/diffrtg.o \
+	diffusion3/ns/difftimer.o \
+	diffusion3/diffusion/diffusion.o \
+	diffusion3/lib/main/attrs.o \
+	diffusion3/lib/main/iodev.o \
+	diffusion3/lib/main/timers.o \
+	diffusion3/lib/main/events.o \
+	diffusion3/lib/main/message.o \
+	diffusion3/lib/main/stats.o \
+	diffusion3/lib/main/tools.o \
+	diffusion3/lib/drivers/rpc_stats.o \
+	diffusion3/apps/sysfilters/gradient.o \
+	diffusion3/apps/sysfilters/log.o \
+	diffusion3/apps/sysfilters/tag.o \
+	diffusion3/apps/sysfilters/srcrt.o \
+	diffusion3/lib/diffapp.o \
+	diffusion3/apps/pingapp/ping_sender.o \
+	diffusion3/apps/pingapp/ping_receiver.o \
+	diffusion3/apps/pingapp/ping_common.o \
+	diffusion3/apps/pingapp/push_receiver.o \
+	diffusion3/apps/pingapp/push_sender.o \
+	diffusion3/apps/gear/geo-attr.o \
+	diffusion3/apps/gear/geo-routing.o \
+	diffusion3/apps/gear/geo-tools.o \
+	nix/hdr_nv.o nix/classifier-nix.o \
+	nix/nixnode.o nix/nixvec.o \
+	nix/nixroute.o
+
+NS_TCL_LIB_STL = tcl/lib/ns-diffusion.tcl 
+
+
+
+# WIN32: uncomment the following line to include specific make for VC++
+# !include <conf/makefile.win>
+
+OBJ_CC = \
+	tools/random.o tools/rng.o tools/ranvar.o common/misc.o common/timer-handler.o \
+	common/scheduler.o common/object.o common/packet.o \
+	common/ip.o routing/route.o common/connector.o common/ttl.o \
+	trace/trace.o trace/trace-ip.o \
+	classifier/classifier.o classifier/classifier-addr.o \
+	classifier/classifier-hash.o \
+	classifier/classifier-virtual.o \
+	classifier/classifier-mcast.o \
+	classifier/classifier-bst.o \
+	classifier/classifier-mpath.o mcast/replicator.o \
+	classifier/classifier-mac.o \
+	classifier/classifier-qs.o \
+	classifier/classifier-port.o src_rtg/classifier-sr.o \
+        src_rtg/sragent.o src_rtg/hdr_src.o adc/ump.o \
+	qs/qsagent.o qs/hdr_qs.o \
+	apps/app.o apps/telnet.o tcp/tcplib-telnet.o \
+	tools/trafgen.o trace/traffictrace.o tools/pareto.o \
+	tools/expoo.o tools/cbr_traffic.o \
+	adc/tbf.o adc/resv.o adc/sa.o tcp/saack.o \
+	tools/measuremod.o adc/estimator.o adc/adc.o adc/ms-adc.o \
+	adc/timewindow-est.o adc/acto-adc.o \
+        adc/pointsample-est.o adc/salink.o adc/actp-adc.o \
+	adc/hb-adc.o adc/expavg-est.o\
+	adc/param-adc.o adc/null-estimator.o \
+	adc/adaptive-receiver.o apps/vatrcvr.o adc/consrcvr.o \
+	common/agent.o common/message.o apps/udp.o \
+	common/session-rtp.o apps/rtp.o tcp/rtcp.o \
+	common/ivs.o \
+	tcp/tcp.o tcp/tcp-sink.o tcp/tcp-reno.o \
+	tcp/tcp-newreno.o \
+	tcp/tcp-vegas.o tcp/tcp-rbp.o tcp/tcp-full.o tcp/rq.o \
+	baytcp/tcp-full-bay.o baytcp/ftpc.o baytcp/ftps.o \
+	tcp/scoreboard.o tcp/scoreboard-rq.o tcp/tcp-sack1.o tcp/tcp-fack.o \
+	tcp/tcp-asym.o tcp/tcp-asym-sink.o tcp/tcp-fs.o \
+	tcp/tcp-asym-fs.o tcp/tcp-qs.o \
+	tcp/tcp-int.o tcp/chost.o tcp/tcp-session.o \
+	tcp/nilist.o \
+	tools/integrator.o tools/queue-monitor.o \
+	tools/flowmon.o tools/loss-monitor.o \
+	queue/queue.o queue/drop-tail.o \
+	adc/simple-intserv-sched.o queue/red.o \
+	queue/semantic-packetqueue.o queue/semantic-red.o \
+	tcp/ack-recons.o \
+	queue/sfq.o queue/fq.o queue/drr.o queue/srr.o queue/cbq.o \
+	queue/jobs.o queue/marker.o queue/demarker.o \
+	link/hackloss.o queue/errmodel.o queue/fec.o\
+	link/delay.o tcp/snoop.o \
+	gaf/gaf.o \
+	link/dynalink.o routing/rtProtoDV.o common/net-interface.o \
+	mcast/ctrMcast.o mcast/mcast_ctrl.o mcast/srm.o \
+	common/sessionhelper.o queue/delaymodel.o \
+	mcast/srm-ssm.o mcast/srm-topo.o \
+	apps/mftp.o apps/mftp_snd.o apps/mftp_rcv.o \
+	apps/codeword.o \
+	routing/alloc-address.o routing/address.o \
+	$(LIB_DIR)int.Vec.o $(LIB_DIR)int.RVec.o \
+	$(LIB_DIR)dmalloc_support.o \
+	webcache/http.o webcache/tcp-simple.o webcache/pagepool.o \
+	webcache/inval-agent.o webcache/tcpapp.o webcache/http-aux.o \
+	webcache/mcache.o webcache/webtraf.o \
+	webcache/webserver.o \
+	webcache/logweb.o \
+	empweb/empweb.o \
+	empweb/empftp.o \
+	realaudio/realaudio.o \
+	mac/lanRouter.o classifier/filter.o \
+	common/pkt-counter.o \
+	common/Decapsulator.o common/Encapsulator.o \
+	common/encap.o \
+	mac/channel.o mac/mac.o mac/ll.o mac/mac-802_11.o \
+	mac/mac-802_3.o mac/mac-tdma.o mac/smac.o \
+	mobile/mip.o mobile/mip-reg.o mobile/gridkeeper.o \
+	mobile/propagation.o mobile/tworayground.o \
+	mobile/antenna.o mobile/omni-antenna.o \
+	mobile/shadowing.o mobile/shadowing-vis.o mobile/dumb-agent.o \
+	common/bi-connector.o common/node.o \
+	common/mobilenode.o \
+	mac/arp.o mobile/god.o mobile/dem.o \
+	mobile/topography.o mobile/modulation.o \
+	queue/priqueue.o queue/dsr-priqueue.o \
+	mac/phy.o mac/wired-phy.o mac/wireless-phy.o \
+	mac/mac-timers.o trace/cmu-trace.o mac/varp.o \
+	dsdv/dsdv.o dsdv/rtable.o queue/rtqueue.o \
+	routing/rttable.o \
+	imep/imep.o imep/dest_queue.o imep/imep_api.o \
+	imep/imep_rt.o imep/rxmit_queue.o imep/imep_timers.o \
+	imep/imep_util.o imep/imep_io.o \
+	tora/tora.o tora/tora_api.o tora/tora_dest.o \
+	tora/tora_io.o tora/tora_logs.o tora/tora_neighbor.o \
+	dsr/dsragent.o dsr/hdr_sr.o dsr/mobicache.o dsr/path.o \
+	dsr/requesttable.o dsr/routecache.o dsr/add_sr.o \
+	dsr/dsr_proto.o dsr/flowstruct.o dsr/linkcache.o \
+	dsr/simplecache.o dsr/sr_forwarder.o \
+	aodv/aodv_logs.o aodv/aodv.o \
+	aodv/aodv_rtable.o aodv/aodv_rqueue.o \
+	common/ns-process.o \
+	satellite/satgeometry.o satellite/sathandoff.o \
+	satellite/satlink.o satellite/satnode.o \
+	satellite/satposition.o satellite/satroute.o \
+	satellite/sattrace.o \
+	rap/raplist.o rap/rap.o rap/media-app.o rap/utilities.o \
+	common/fsm.o tcp/tcp-abs.o \
+	diffusion/diffusion.o diffusion/diff_rate.o diffusion/diff_prob.o \
+	diffusion/diff_sink.o diffusion/flooding.o diffusion/omni_mcast.o \
+	diffusion/hash_table.o diffusion/routing_table.o diffusion/iflist.o \
+	tcp/tfrc.o tcp/tfrc-sink.o mobile/energy-model.o apps/ping.o tcp/tcp-rfc793edu.o \
+	queue/rio.o queue/semantic-rio.o tcp/tcp-sack-rh.o tcp/scoreboard-rh.o \
+	plm/loss-monitor-plm.o plm/cbr-traffic-PP.o \
+	linkstate/hdr-ls.o \
+	mpls/classifier-addr-mpls.o mpls/ldp.o mpls/mpls-module.o \
+	routing/rtmodule.o classifier/classifier-hier.o \
+	routing/addr-params.o \
+	routealgo/rnode.o \
+	routealgo/bfs.o \
+	routealgo/rbitmap.o \
+	routealgo/rlookup.o \
+	routealgo/routealgo.o \
+	diffserv/dsred.o diffserv/dsredq.o \
+	diffserv/dsEdge.o diffserv/dsCore.o \
+	diffserv/dsPolicy.o diffserv/ew.o\
+	queue/red-pd.o queue/pi.o queue/vq.o queue/rem.o \
+	queue/gk.o \
+	pushback/rate-limit.o pushback/rate-limit-strategy.o \
+	pushback/ident-tree.o pushback/agg-spec.o \
+	pushback/logging-data-struct.o \
+	pushback/rate-estimator.o \
+	pushback/pushback-queue.o pushback/pushback.o \
+	common/parentnode.o trace/basetrace.o \
+	common/simulator.o asim/asim.o \
+	common/scheduler-map.o common/splay-scheduler.o \
+	linkstate/ls.o linkstate/rtProtoLS.o \
+	pgm/classifier-pgm.o pgm/pgm-agent.o pgm/pgm-sender.o \
+	pgm/pgm-receiver.o mcast/rcvbuf.o \
+	mcast/classifier-lms.o mcast/lms-agent.o mcast/lms-receiver.o \
+	mcast/lms-sender.o \
+	@V_STLOBJ@
+
+
+# don't allow comments to follow continuation lines
+
+#  mac-csma.o mac-multihop.o\
+#	sensor-nets/landmark.o mac-simple-wireless.o \
+#	sensor-nets/tags.o sensor-nets/sensor-query.o \
+#	sensor-nets/flood-agent.o \
+
+# what was here before is now in emulate/
+OBJ_C =
+
+OBJ_COMPAT = $(OBJ_GETOPT) common/win32.o
+#XXX compat/win32x.o compat/tkConsole.o
+
+OBJ_EMULATE_CC = \
+	emulate/net-ip.o \
+	emulate/net.o \
+	emulate/tap.o \
+	emulate/ether.o \
+	emulate/internet.o \
+	emulate/ping_responder.o \
+	emulate/arp.o \
+	emulate/icmp.o \
+	emulate/net-pcap.o \
+	emulate/nat.o  \
+	emulate/iptap.o \
+	emulate/tcptap.o
+
+OBJ_EMULATE_C = \
+	emulate/inet.o
+
+OBJ_GEN = $(GEN_DIR)version.o $(GEN_DIR)ns_tcl.o $(GEN_DIR)ptypes.o
+
+#NRL additions
+OBJ_PROTOLIB_CPP = \
+        protolib/ns/nsProtoSimAgent.o protolib/common/protoSimAgent.o \
+        protolib/common/protoSimSocket.o protolib/common/protoAddress.o \
+        protolib/common/protoTimer.o protolib/common/protoExample.o \
+        protolib/common/protoDebug.o
+        
+OBJ_MDP_CPP = \
+        mdp/ns/nsMdpAgent.o mdp/common/mdpSimAgent.o \
+        mdp/common/mdpBitMask.o mdp/common/mdpMessage.o \
+        mdp/common/mdpEncoder.o mdp/common/galois.o \
+        mdp/common/mdpSession.o mdp/common/mdpMsgHandler.o \
+        mdp/common/mdpNode.o mdp/common/mdpObject.o \
+        mdp/unix/mdpFile.o
+        
+OBJ_NORM_CPP = \
+        norm/ns/nsNormAgent.o norm/common/normSimAgent.o \
+        norm/common/normMessage.o norm/common/normSession.o \
+        norm/common/normNode.o norm/common/normObject.o \
+        norm/common/normSegment.o norm/common/normBitmask.o \
+        norm/common/normEncoder.o norm/common/galois.o \
+        norm/common/normFile.o
+
+OBJ_MGEN_CPP = \
+        mgen/ns/nsMgenAgent.o \
+        mgen/common/mgen.o mgen/common/mgenEvent.o \
+        mgen/common/mgenFlow.o mgen/common/mgenMsg.o \
+        mgen/common/mgenSocketList.o mgen/common/mgenPattern.o
+            
+OBJ_CPP = $(OBJ_PROTOLIB_CPP) $(OBJ_MDP_CPP) $(OBJ_NORM_CPP) $(OBJ_MGEN_CPP)
+
+SRC =	$(OBJ_C:.o=.c) $(OBJ_CC:.o=.cc) \
+	$(OBJ_EMULATE_C:.o=.c) $(OBJ_EMULATE_CC:.o=.cc) \
+	common/tclAppInit.cc common/tkAppInit.cc 
+
+OBJ =	$(OBJ_C) $(OBJ_CC) $(OBJ_GEN) $(OBJ_COMPAT) $(OBJ_CPP)
+
+CLEANFILES = ns nse nsx ns.dyn $(OBJ) $(OBJ_EMULATE_CC) \
+	$(OBJ_EMULATE_C) common/tclAppInit.o \
+	$(GEN_DIR)* $(NS).core core core.$(NS) core.$(NSX) core.$(NSE) \
+	common/ptypes2tcl common/ptypes2tcl.o 
+
+SUBDIRS=\
+	indep-utils/cmu-scen-gen/setdest \
+	indep-utils/webtrace-conv/dec \
+	indep-utils/webtrace-conv/epa \
+	indep-utils/webtrace-conv/nlanr \
+	indep-utils/webtrace-conv/ucb
+
+BUILD_NSE = @build_nse@
+
+all: $(NS) $(BUILD_NSE) all-recursive
+
+
+all-recursive:
+	for i in $(SUBDIRS); do ( cd $$i; $(MAKE) all; ) done
+
+$(NS): $(OBJ) common/tclAppInit.o Makefile
+	$(LINK) $(LDFLAGS) $(LDOUT)$@ \
+		common/tclAppInit.o $(OBJ) $(LIB)
+
+Makefile: Makefile.in
+	@echo "Makefile.in is newer than Makefile."
+	@echo "You need to re-run configure."
+	false
+
+$(NSE): $(OBJ) common/tclAppInit.o $(OBJ_EMULATE_CC) $(OBJ_EMULATE_C)
+	$(LINK) $(LDFLAGS) $(LDOUT)$@ \
+		common/tclAppInit.o $(OBJ) \
+		$(OBJ_EMULATE_CC) $(OBJ_EMULATE_C)  $(LIB) 
+
+ns.dyn: $(OBJ) common/tclAppInit.o
+	$(LINK) $(LDFLAGS) -o $@ \
+		common/tclAppInit.o $(OBJ) $(LIB)
+
+PURIFY	= purify -cache-dir=/tmp
+ns-pure: $(OBJ) common/tclAppInit.o
+	$(PURIFY) $(LINK) $(LDFLAGS) -o $@ \
+		common/tclAppInit.o $(OBJ) $(LIB)
+
+NS_TCL_LIB = \
+	tcl/lib/ns-compat.tcl \
+	tcl/lib/ns-default.tcl \
+	tcl/lib/ns-errmodel.tcl \
+	tcl/lib/ns-lib.tcl \
+	tcl/lib/ns-link.tcl \
+	tcl/lib/ns-mobilenode.tcl \
+	tcl/lib/ns-sat.tcl \
+	tcl/lib/ns-cmutrace.tcl \
+	tcl/lib/ns-node.tcl \
+	tcl/lib/ns-rtmodule.tcl \
+	tcl/lib/ns-hiernode.tcl \
+	tcl/lib/ns-packet.tcl \
+	tcl/lib/ns-queue.tcl \
+	tcl/lib/ns-source.tcl \
+	tcl/lib/ns-nam.tcl \
+	tcl/lib/ns-trace.tcl \
+	tcl/lib/ns-agent.tcl \
+	tcl/lib/ns-random.tcl \
+	tcl/lib/ns-namsupp.tcl \
+	tcl/lib/ns-address.tcl \
+	tcl/lib/ns-intserv.tcl \
+	tcl/lib/ns-autoconf.tcl \
+	tcl/rtp/session-rtp.tcl \
+	tcl/lib/ns-mip.tcl \
+	tcl/rtglib/dynamics.tcl \
+	tcl/rtglib/route-proto.tcl \
+	tcl/rtglib/algo-route-proto.tcl \
+	tcl/rtglib/ns-rtProtoLS.tcl \
+        tcl/interface/ns-iface.tcl \
+	tcl/mcast/BST.tcl \
+        tcl/mcast/ns-mcast.tcl \
+        tcl/mcast/McastProto.tcl \
+        tcl/mcast/DM.tcl \
+	tcl/mcast/srm.tcl \
+	tcl/mcast/srm-adaptive.tcl \
+	tcl/mcast/srm-ssm.tcl \
+	tcl/mcast/timer.tcl \
+	tcl/mcast/McastMonitor.tcl \
+	tcl/mcast/mftp_snd.tcl \
+	tcl/mcast/mftp_rcv.tcl \
+	tcl/mcast/mftp_rcv_stat.tcl \
+	tcl/mobility/dsdv.tcl \
+	tcl/mobility/dsr.tcl \
+        tcl/ctr-mcast/CtrMcast.tcl \
+        tcl/ctr-mcast/CtrMcastComp.tcl \
+        tcl/ctr-mcast/CtrRPComp.tcl \
+	tcl/rlm/rlm.tcl \
+	tcl/rlm/rlm-ns.tcl \
+	tcl/session/session.tcl \
+	tcl/lib/ns-route.tcl \
+	tcl/emulate/ns-emulate.tcl \
+	tcl/lan/vlan.tcl \
+	tcl/lan/abslan.tcl \
+	tcl/lan/ns-ll.tcl \
+	tcl/lan/ns-mac.tcl \
+	tcl/webcache/http-agent.tcl \
+	tcl/webcache/http-server.tcl \
+	tcl/webcache/http-cache.tcl \
+	tcl/webcache/http-mcache.tcl \
+	tcl/webcache/webtraf.tcl \
+	tcl/webcache/empweb.tcl \
+	tcl/webcache/empftp.tcl \
+	tcl/plm/plm.tcl \
+	tcl/plm/plm-ns.tcl \
+	tcl/plm/plm-topo.tcl \
+	tcl/mpls/ns-mpls-classifier.tcl \
+	tcl/mpls/ns-mpls-ldpagent.tcl \
+	tcl/mpls/ns-mpls-node.tcl \
+	tcl/mpls/ns-mpls-simulator.tcl \
+	tcl/lib/ns-pushback.tcl \
+	tcl/lib/ns-srcrt.tcl \
+	tcl/mcast/ns-lms.tcl \
+	tcl/lib/ns-qsnode.tcl \
+	@V_NS_TCL_LIB_STL@
+
+$(GEN_DIR)ns_tcl.cc: $(NS_TCL_LIB)
+	$(TCLSH) bin/tcl-expand.tcl tcl/lib/ns-lib.tcl @V_NS_TCL_LIB_STL@ | $(TCL2C) et_ns_lib > $@
+
+$(GEN_DIR)version.c: VERSION
+	$(RM) $@
+	$(TCLSH) bin/string2c.tcl version_string < VERSION > $@
+
+$(GEN_DIR)ptypes.cc: common/ptypes2tcl common/packet.h
+	./common/ptypes2tcl > $@
+
+common/ptypes2tcl: common/ptypes2tcl.o
+	$(LINK) $(LDFLAGS) $(LDOUT)$@ common/ptypes2tcl.o
+
+common/ptypes2tcl.o: common/ptypes2tcl.cc common/packet.h
+
+install: force install-ns install-man install-recursive
+
+install-ns: force
+	$(INSTALL) -m 555 -o bin -g bin ns $(DESTDIR)$(BINDEST)
+
+install-man: force
+	$(INSTALL) -m 444 -o bin -g bin ns.1 $(DESTDIR)$(MANDEST)/man1
+
+install-recursive: force
+	for i in $(SUBDIRS); do ( cd $$i; $(MAKE) install; ) done
+
+clean:
+	$(RM) $(CLEANFILES)
+    
+nrlclean:
+	$(RM) $(OBJ_CPP)
+    
+
+AUTOCONF_GEN = tcl/lib/ns-autoconf.tcl
+distclean: distclean-recursive
+	$(RM) $(CLEANFILES) Makefile config.cache config.log config.status \
+	    autoconf.h gnuc.h os-proto.h $(AUTOCONF_GEN); \
+	$(MV) .configure .configure- ;\
+	echo "Moved .configure to .configure-"
+
+distclean-recursive:
+	for i in $(SUBDIRS); do ( cd $$i; $(MAKE) clean; $(RM) Makefile; ) done
+
+tags:	force
+	ctags -wtd *.cc *.h webcache/*.cc webcache/*.h dsdv/*.cc dsdv/*.h \
+	dsr/*.cc dsr/*.h webcache/*.cc webcache/*.h lib/*.cc lib/*.h \
+	../Tcl/*.cc ../Tcl/*.h 
+
+TAGS:	force
+	etags *.cc *.h webcache/*.cc webcache/*.h dsdv/*.cc dsdv/*.h \
+	dsr/*.cc dsr/*.h webcache/*.cc webcache/*.h lib/*.cc lib/*.h \
+	../Tcl/*.cc ../Tcl/*.h
+
+tcl/lib/TAGS:	force
+	( \
+		cd tcl/lib; \
+		$(TCLSH) ../../bin/tcl-expand.tcl ns-lib.tcl | grep '^### tcl-expand.tcl: begin' | awk '{print $$5}' >.tcl_files; \
+		etags --lang=none -r '/^[ \t]*proc[ \t]+\([^ \t]+\)/\1/' `cat .tcl_files`; \
+		etags --append --lang=none -r '/^\([A-Z][^ \t]+\)[ \t]+\(instproc\|proc\)[ \t]+\([^ \t]+\)[ \t]+/\1::\3/' `cat .tcl_files`; \
+	)
+
+depend: $(SRC)
+	$(MKDEP) $(CFLAGS) $(INCLUDES) $(SRC)
+
+srctar:
+	@cwd=`pwd` ; dir=`basename $$cwd` ; \
+	    name=ns-`cat VERSION | tr A-Z a-z` ; \
+	    tar=ns-src-`cat VERSION`.tar.gz ; \
+	    list="" ; \
+	    for i in `cat FILES` ; do list="$$list $$name/$$i" ; done; \
+	    echo \
+	    "(rm -f $$tar; cd .. ; ln -s $$dir $$name)" ; \
+	     (rm -f $$tar; cd .. ; ln -s $$dir $$name) ; \
+	    echo \
+	    "(cd .. ; tar cfh $$tar [lots of files])" ; \
+	     (cd .. ; tar cfh - $$list) | gzip -c > $$tar ; \
+	    echo \
+	    "rm ../$$name; chmod 444 $$tar" ;  \
+	     rm ../$$name; chmod 444 $$tar
+
+force:
+
+test:	force
+	./validate
+
+# Create makefile.vc for Win32 development by replacing:
+# "# !include ..." 	-> 	"!include ..."
+makefile.vc:	Makefile.in
+	$(PERL) bin/gen-vcmake.pl < Makefile.in > makefile.vc
+#	$(PERL) -pe 's/^# (\!include)/\!include/o' < Makefile.in > makefile.vc

@@ -18,7 +18,7 @@ CFLAGS = -g -DPROTO_DEBUG -DUNIX -O -fPIC $(SYSTEM_HAVES) $(INCLUDES)
 LDFLAGS = $(SYSTEM_LDFLAGS)
 
 # Note: Even command line app needs X11 for Netscape post-processing
-LIBS = $(SYSTEM_LIBS) -lm
+LIBS = $(SYSTEM_LIBS) -lm -lpthread
 XLIBS = -lXmu -lXt -lX11
 
 #NOTE: TK_LIB must come before TCL_LIB for some reason
@@ -47,9 +47,9 @@ TARGETS = mdp tkMdp
 	$(CC) -c $(CFLAGS) -o $*.o $*.cpp
     
 # MDP depends upon the NRL Protean Group's development library
-LIBPROTO = $(PROTOLIB)/unix/libProto.a
-$(PROTOLIB)/unix/libProto.a: 
-	cd $(PROTOLIB)/unix; $(MAKE) -f Makefile.$(SYSTEM) libProto.a
+LIBPROTO = $(PROTOLIB)/unix/libProtokit.a
+$(PROTOLIB)/unix/libProtokit.a: 
+	cd $(PROTOLIB)/unix; $(MAKE) -f Makefile.$(SYSTEM) libProtokit.a
 
 NORM_SRC = $(COMMON)/normMessage.cpp $(COMMON)/normSession.cpp \
            $(COMMON)/normNode.cpp $(COMMON)/normObject.cpp \
@@ -77,7 +77,8 @@ libnormSim.a:   $(SIM_OBJ)
 	ranlib $@
     
 # (mdp) command-line file broadcaster/receiver
-APP_SRC = $(COMMON)/normApp.cpp $(COMMON)/normPostProcess.cpp
+APP_SRC = $(COMMON)/normApp.cpp $(COMMON)/normPostProcess.cpp \
+          $(UNIX)/unixPostProcess.cpp
 APP_OBJ = $(APP_SRC:.cpp=.o)
 
 norm:    $(APP_OBJ) libnorm.a $(LIBPROTO) 
