@@ -23,9 +23,8 @@
       a remote <emphasis>norp</emphasis> peer is unavailable. This software
       was developed by the <ulink url="http://www.nrl.navy.mil/">Naval
       Research Laboratory</ulink> (NRL) PROTocol Engineering Advanced
-      Networking Research Group.
-      The NRL reference implementation of NORM used here is available from
-      <ulink
+      Networking Research Group. The NRL reference implementation of NORM used
+      here is available from <ulink
       url="http://www.nrl.navy.mil/itd/ncs/products/norm">http://www.nrl.navy.mil/itd/ncs/products/norm</ulink>.</para>
     </abstract>
   </articleinfo>
@@ -127,9 +126,9 @@
     <para><informalexample>
         <programlisting><?dbfo keep-together="always"?>norp [interface &lt;ifaceName&gt;][address &lt;publicAddr&gt;][sport &lt;socksPort&gt;][port &lt;norpPort&gt;]
      [norm {on|off}][id &lt;normId&gt;][nport &lt;normPort&gt;][cce | ccl | rate &lt;bits/sec&gt;]
-     [limit &lt;bits/sec&gt;][persist &lt;seconds&gt;][correspondent &lt;remoteNorpAddr&gt;]
-     [forward &lt;tcpPort&gt;,&lt;destAddr&gt;/&lt;destPort&gt;[,&lt;remoteNorpAddr&gt;]][version][debug &lt;level&gt;]
-     [trace][dlog &lt;debugLog&gt;][lport &lt;localNorpPort&gt;][rport &lt;remoteNorpPort&gt;]</programlisting>
+     [limit &lt;bits/sec&gt;][persist &lt;seconds&gt;][segment &lt;segmentSize&gt;]
+     [correspondent &lt;remoteNorpAddr&gt;][forward &lt;tcpPort&gt;,&lt;destAddr&gt;/&lt;destPort&gt;[,&lt;remoteNorpAddr&gt;]]
+     [version][debug &lt;level&gt;][trace][dlog &lt;debugLog&gt;][lport &lt;localNorpPort&gt;][rport &lt;remoteNorpPort&gt;]</programlisting>
 
         <para>The <emphasis>norp</emphasis> program command-line options
         include ...</para>
@@ -288,6 +287,26 @@
             enforcement that would eliminate this concern in less controlled
             network deployments. A limit value of "-1.0" (default) disables
             the limit enforcement.</entry>
+          </row>
+
+          <row>
+            <entry><literal>segment &lt;segmentSize&gt;</literal></entry>
+
+            <entry>This option sets the NORM protocol maximum packet payload
+            size where is <parameter>&lt;segmentSize&gt;</parameter> is in
+            units of bytes. . For <emphasis>norp</emphasis> that uses the
+            NORM_OBJECT_STREAM, the maximum NORM UDP payload size is 40 bytes
+            of NORM header plus the configured segment size. The resultant
+            total maximum IPv4 UDP packet size (including IP and UDP headers)
+            is then 28 + 40 + <parameter>&lt;segmentSize&gt;</parameter>
+            bytes. For IPv6, the resultant maximum packet size is 48 + 40 +
+            <parameter>&lt;segmentSize&gt;</parameter> bytes. The default NORM
+            segment size, if this option is not invoked, is 1400 bytes,
+            resulting in NORM UDP packets with 1440 byte payloads. Thus, for
+            IPv4 that has 28 bytes of IP + UDP header, this results in a
+            maximum <emphasis>norp</emphasis> packet size of 1468 bytes while,
+            for IPv6, the maximum <emphasis>norp</emphasis> packet size would
+            be 1488 bytes.</entry>
           </row>
 
           <row>
@@ -504,7 +523,7 @@
         <term>ACK_REP</term>
 
         <listitem>
-          <para>The message is used to acknoledge receipt of a SOCKS_REP
+          <para>The message is used to acknowledge receipt of a SOCKS_REP
           message. There is no "content".</para>
         </listitem>
       </varlistentry>

@@ -47,9 +47,10 @@ NorpApp::~NorpApp()
 void NorpApp::Usage()
 {
     fprintf(stderr, "Usage: norp [interface <ifaceName>][address <publicAddr>][sport <socksPort>][port <norpPort>]\n"
-                    "            [norm {on|off}][id <normId>][nport <normPort>][cce | ccl | rate <bits/sec>][persist <seconds>][limit <bits/sec>]\n"
-                    "            [correspondent <remoteNorpAddr>][forward <tcpPort>,<destAddr>/<destPort>[,<remoteNorpAddr>]][version]\n"
-                    "            [debug <level>][trace][dlog <debugLog>][lport <localNorpPort>][rport <remoteNorpPort>]\n");
+                    "            [norm {on|off}][id <normId>][nport <normPort>][cce | ccl | rate <bits/sec>]\n"
+                    "            [limit <bits/sec>][persist <seconds>][segment <segmentSize>]\n"
+                    "            [correspondent <remoteNorpAddr>][forward <tcpPort>,<destAddr>/<destPort>[,<remoteNorpAddr>]]\n"
+                    "            [version][debug <level>][trace][dlog <debugLog>][lport <localNorpPort>][rport <remoteNorpPort>]\n");
 }
 
 const char* const NorpApp::CMD_LIST[] =
@@ -64,7 +65,8 @@ const char* const NorpApp::CMD_LIST[] =
     "-cce",             // Use NORM-CCE instead of NORM-CC
     "-ccl",             // Use NORM-CCL instead of NORM-CC
     "+rate",            // set fixed transmit rate (no congestion control)
-    "+limit",            // set  _cumulaltive_ NORP transmit rate limit
+    "+limit",           // set  _cumulative_ NORP transmit rate limit
+    "+segment",         // Set NORM packet segment size (impacts MTU of NORM packets, UDP packets w/ (40 + <segmentSize>) bytes of payload)
     "+persist",         // <seconds> how long to persist NORM data delivery to receiver after TCP socket closure
     "+debug",           // set debug level
     "-trace",           // enables NORM protocol packet send/recv trace in debug output
@@ -276,6 +278,16 @@ bool NorpApp::OnCommand(const char* cmd, const char* val)
             return false;
         }
         norp.SetNormTxLimit(txLimit);
+    }
+    else if (!strncmp("segment", cmd, len))
+    {
+        UINT16 segmentSize;
+        if (1 != sscanf(val, "%hu", &segmentSize))
+        {
+            PLOG(PL_ERROR, "NorpApp::OnCommand(segment) error: invalid segment size \"%s\" bps\n", val);
+            return false;
+        }
+        norp.SetNormSegmentSize(segmentSize);
     }
     else if (!strncmp("lport", cmd, len))
     {
