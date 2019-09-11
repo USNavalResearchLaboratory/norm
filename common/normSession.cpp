@@ -564,7 +564,7 @@ void NormSession::Serve()
     /*
     if (command_pending && !command_timer.IsActive())
     {
-        SenderQueueAppCommand() xxx   
+        SenderQueueAppCommand()    
     }
     
     */
@@ -738,7 +738,7 @@ void NormSession::Serve()
                             }
                         }
                     }
-                    //ASSERT(stream->IsPending() || stream->IsRepairPending() || stream->IsClosing());
+                    ASSERT(stream->IsPending() || stream->IsRepairPending() || stream->IsClosing());
                     if (!posted_tx_queue_empty &&  !stream->IsClosing() && stream->IsPending())
                         // post if pending || !repair_timer.IsActive() || (repair_timer.GetRepeatCount() == 0) ???
                     {
@@ -1253,34 +1253,41 @@ bool NormSession::QueueTxObject(NormObject* obj)
 {
     if (!IsServer())
     {
-        DMSG(0, "NormSession::QueueTxObject() non-server session error!\n");
+        DMSG(0, "NormSession::QueueTxObject() non-sender session error!?\n");
         return false;
     }
     
     // Manage tx_table min/max count and max size bounds
-    if (tx_table.Count() >= tx_cache_count_min)
+    // Depending on tx cache bounds _and_ what has been
+    // enqueued/dequeued, we may need to prune the
+    // "tx_table" a little
+    // The cases when pruning is needed include:
+    //
+    // 1) When the cache bounds dictate:
+    //      i.e., ((count >= count_min) && ((count > count_max) || (size > size_max))), or
+    // 2) When the "tx_table" state (from insert/remove history) doesn't allow
+    //      i.e., !tx_table.CanInsert(obj)
+    unsigned long newCount = tx_table.GetCount() + 1;
+    while (!tx_table.CanInsert(obj->GetId()) ||
+           ((newCount >= tx_cache_count_min) &&
+            ((newCount >= tx_cache_count_max) ||
+             ((tx_table.GetSize() + obj->GetSize()) > tx_cache_size_max))))
     {
-        unsigned long count = tx_table.Count();
-        while ((count >= tx_cache_count_min) &&
-               ((count >= tx_cache_count_max) ||
-                ((tx_table.GetSize() + obj->GetSize()) > tx_cache_size_max)))
+        // Remove oldest non-pending 
+        NormObject* oldest = tx_table.Find(tx_table.RangeLo());
+        if (oldest->IsRepairPending() || oldest->IsPending())
         {
-            // Remove oldest non-pending 
-            NormObject* oldest = tx_table.Find(tx_table.RangeLo());
-            if (oldest->IsRepairPending() || oldest->IsPending())
-            {
-                DMSG(0, "NormSession::QueueTxObject() all held objects repair pending\n");
-                posted_tx_queue_empty = false;
-                return false;
-            }
-            else
-            {
-                Notify(NormController::TX_OBJECT_PURGED, (NormServerNode*)NULL, oldest);
-                DeleteTxObject(oldest);
-            }   
-            count = tx_table.Count();           
-        } 
-    }
+            DMSG(0, "NormSession::QueueTxObject() all held objects repair pending\n");
+            posted_tx_queue_empty = false;
+            return false;
+        }
+        else
+        {
+            Notify(NormController::TX_OBJECT_PURGED, (NormServerNode*)NULL, oldest);
+            DeleteTxObject(oldest);
+        }   
+        newCount = tx_table.GetCount() + 1;             
+    } 
     // Attempt to queue the object (note it gets "retained" by the tx_table)
     if (!tx_table.Insert(obj))
     {
@@ -1345,14 +1352,16 @@ bool NormSession::SetTxCacheBounds(NormObjectSize  sizeMax,
     bool result = true;
     tx_cache_size_max = sizeMax;
     tx_cache_count_min = (countMin < countMax) ? countMin : countMax;
+    if (tx_cache_count_min < 1) tx_cache_count_min = 1;
     tx_cache_count_max = (countMax > countMin) ? countMax : countMin;
+    if (tx_cache_count_max < 1) tx_cache_count_max = 1;
     
     if (IsServer())
     {
         // Trim/resize the tx_table and tx masks as needed
-        unsigned long count = tx_table.Count();
+        unsigned long count = tx_table.GetCount();
         while ((count >= tx_cache_count_min) &&
-               ((count >= tx_cache_count_max) ||
+               ((count > tx_cache_count_max) ||
                 (tx_table.GetSize() > tx_cache_size_max)))
         {
             // Remove oldest (hopefully non-pending ) object
@@ -1360,7 +1369,7 @@ bool NormSession::SetTxCacheBounds(NormObjectSize  sizeMax,
             ASSERT(oldest);
             Notify(NormController::TX_OBJECT_PURGED, (NormServerNode*)NULL, oldest);
             DeleteTxObject(oldest);
-            count = tx_table.Count();
+            count = tx_table.GetCount();
         }
         if (tx_cache_count_max < DEFAULT_TX_CACHE_MAX)
             countMax = DEFAULT_TX_CACHE_MAX;

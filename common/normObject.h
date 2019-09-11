@@ -565,7 +565,7 @@ class NormObjectTable
         NormObjectId RangeLo() const {return range_lo;}
         NormObjectId RangeHi() const {return range_hi;}
         bool IsEmpty() const {return (0 == range);}
-        UINT32 Count() const {return count;}
+        UINT32 GetCount() const {return count;}
         const NormObjectSize& GetSize() const {return size;}
         
         class Iterator

@@ -50,51 +50,41 @@ const double NORM_GRTT_MAX = 15.0;   // 15 sec
 const double NORM_RTT_MIN = 1.0e-06;
 const double NORM_RTT_MAX = 1000.0;   
 extern const double NORM_RTT[];     
-inline double NormUnquantizeRtt(unsigned char qrtt)
+inline double NormUnquantizeRtt(UINT8 qrtt)
 {
 	return NORM_RTT[qrtt];
 }
-unsigned char NormQuantizeRtt(double rtt);
+UINT8 NormQuantizeRtt(double rtt);
 
 
 extern const double NORM_GSIZE[];
-inline double NormUnquantizeGroupSize(unsigned char gsize)
+inline double NormUnquantizeGroupSize(UINT8 gsize)
 {
     return NORM_GSIZE[gsize];
 }
 
-inline unsigned char NormQuantizeGroupSize(double gsize)
-{
-    unsigned char ebits = (unsigned char)log10(gsize);
-    int mantissa = (int)((gsize/pow(10.0, (double)ebits)) + 0.5);
-    // round up quantized group size
-    unsigned char mbit = (mantissa > 1) ? ((mantissa > 5) ? 0x00 : 0x08) : 0x00;
-    ebits = (mantissa > 5) ? ebits : ebits-1;
-    mbit = (ebits > 0x07) ? 0x08 : mbit;
-    ebits = (ebits > 0x07) ? 0x07 : ebits;
-    return (mbit | ebits);
-}
+UINT8 NormQuantizeGroupSize(double gsize);
 
-inline unsigned short NormQuantizeLoss(double lossFraction)
+inline UINT16 NormQuantizeLoss(double lossFraction)
 {
     lossFraction = MAX(lossFraction, 0.0);
     lossFraction = lossFraction*65535.0 + 0.5;
     lossFraction = MIN(lossFraction, 65535.0);
-    return (unsigned short)lossFraction;
+    return (UINT16)lossFraction;
 }  // end NormQuantizeLossFraction()
-inline double NormUnquantizeLoss(unsigned short lossQuantized)
+inline double NormUnquantizeLoss(UINT16 lossQuantized)
 {
     return (((double)lossQuantized) / 65535.0);
 }  // end NormUnquantizeLossFraction()
 
-inline unsigned short NormQuantizeRate(double rate)
+inline UINT16 NormQuantizeRate(double rate)
 {
     if (rate <= 0.0) return 0x01;  // rate = 0.0
-    unsigned short exponent = (unsigned short)log10(rate);
-    unsigned short mantissa = (unsigned short)((4096.0/10.0) * (rate / pow(10.0, (double)exponent)) + 0.5);
+    UINT16 exponent = (UINT16)log10(rate);
+    UINT16 mantissa = (UINT16)((4096.0/10.0) * (rate / pow(10.0, (double)exponent)) + 0.5);
     return ((mantissa << 4) | exponent);
 }
-inline double NormUnquantizeRate(unsigned short rate)
+inline double NormUnquantizeRate(UINT16 rate)
 {
     double mantissa = ((double)(rate >> 4)) * (10.0/4096.0);
     double exponent = (double)(rate & 0x000f);
@@ -164,7 +154,7 @@ class NormObjectSize
 };  // end class NormObjectSize
 
 #ifndef _NORM_API
-typedef unsigned long NormNodeId;
+typedef UINT32 NormNodeId;
 const NormNodeId NORM_NODE_NONE = 0x00000000;
 const NormNodeId NORM_NODE_ANY  = 0xffffffff;
 #endif // !_NORM_API

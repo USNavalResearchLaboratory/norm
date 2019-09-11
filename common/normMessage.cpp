@@ -419,16 +419,16 @@ NormMsg* NormMessageQueue::RemoveTail()
  */
 
 // valid for rtt = 1.0e-06 to 1.0e+03
-unsigned char NormQuantizeRtt(double rtt)
+UINT8 NormQuantizeRtt(double rtt)
 {
     if (rtt > NORM_RTT_MAX)
         rtt = NORM_RTT_MAX;
     else if (rtt < NORM_RTT_MIN)
         rtt = NORM_RTT_MIN;
     if (rtt < 3.3e-05) 
-        return ((unsigned char)((rtt/NORM_RTT_MIN)) - 1);
+        return ((UINT8)((rtt/NORM_RTT_MIN)) - 1);
     else
-        return ((unsigned char)(ceil(255.0 - (13.0*log(NORM_RTT_MAX/rtt)))));
+        return ((UINT8)(ceil(255.0 - (13.0*log(NORM_RTT_MAX/rtt)))));
 }  // end NormQuantizeRtt()
 
 
@@ -443,7 +443,7 @@ unsigned char NormQuantizeRtt(double rtt)
 // following routine was used to generate
 // this table:
 //
-//  inline double NormUnquantizeRtt(unsigned char qrtt)
+//  inline double NormUnquantizeRtt(UINT8 qrtt)
 //  {
 //      return ((qrtt < 31) ? 
 //              (((double)(qrtt+1))*(double)NORM_RTT_MIN) :
@@ -528,7 +528,7 @@ const double NORM_RTT[256] =
 // The following routine was used to generate
 // this table
 //
-//  inline double NormUnquantizeGroupSize(unsigned char gsize)
+//  inline double NormUnquantizeGroupSize(UINT8 gsize)
 //  {
 //      double exponent = (double)((gsize & 0x07) + 1);
 //      double mantissa = (0 != (gsize & 0x08)) ? 5.0 : 1.0;
@@ -543,6 +543,39 @@ const double NORM_GSIZE[16] =
     5.000e+01, 5.000e+02, 5.000e+03, 5.000e+04, 
     5.000e+05, 5.000e+06, 5.000e+07, 5.000e+08
 };
+    
+// This function rounds up the "gsize" to be conservative
+UINT8 NormQuantizeGroupSize(double gsize)
+{
+    UINT8 exponent = (int)log10(gsize);
+    if (exponent > 8)
+    {
+        return 0x0f;                    // = 0x08 + 0x07
+    }
+    else if (exponent >= 1)
+    {
+        UINT8 mantissa = (int)ceil(gsize / pow(10.0, exponent));
+        if (mantissa > 5)
+        {
+            if (exponent > 7)
+                return 0x0f;            // = 0x08 + 0x07
+            else
+                return exponent;        // = 0x00 + exponent;
+        }
+        else if (mantissa > 1)
+        {
+            return (exponent + 0x07);   // = 0x08 + exponent - 1
+        }
+        else
+        {
+            return (exponent - 1);      // = 0x00 + exponent - 1;
+        }
+    }
+    else
+    {
+        return 0x00;  // "gsize" < 10      = 0x00 + 0x00
+    }
+}  // end NormQuantizeGroupSize()
 
 
 

@@ -1,5 +1,30 @@
 			           NORM Version History
 
+Version 1.4b3
+=============
+    - Fixed many (hopefully all) cases where NORM_DATA message FLAG_REPAIR
+      was not always being set when it should resulting in receivers
+      sometimes "syncing" (or "re-syncing") to sender repair transmissions
+      when they shouldn't ... sometimes resulting in duplicative stream
+      data being delivered to the receiver app.
+    - Fixed case when repair request for old NORM_OBJECT_STREAM segment could
+      lockup advancement of stream when stream "push" is enabled.
+      (Thanks to Greg Lauer, Clifton Lin, BAE Systems CBMANET team)
+    - Added command-line options to "norm" demo app for "txrobustfactor"
+      and "rxrobustfactor"
+    - Added "NormNodeFreeBuffers()" API call and changed NORM behavior
+      to require app to free buffers allocate for remote sender unless
+      indefinite persistence is desired.
+    - Added "rxpersist" command-line option to "norm" demo app to make
+      "norm" demo app receivers keep full state on remote senders' 
+      indefinitely.
+    - Fixed issue with NormSession::QueueTxObject() where ASSERT() failure
+      occurred depending upon previous tx object enqueue/dequeue history
+      (Thanks to Jeff Bush for finding this one)
+    - Changed repeated scheduling of receiver remote sender inactivity
+      timer to ensure that busy CPU doesn't result in premature 
+      inactivity indication.
+      
 Version 1.4b2
 =============
     - Fixed bug where NormObjectCancel() usage could result in extra
@@ -17,6 +42,7 @@ Version 1.4b2
       (Thanks to Peter Lu)
     - Fixed case when repair request for old NORM_OBJECT_STREAM segment could
       lockup advancement of stream.
+      (Also thanks to Peter Lu)
 
 Version 1.4b1
 =============

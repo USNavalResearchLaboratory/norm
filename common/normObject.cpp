@@ -325,7 +325,11 @@ bool NormObject::TxReset(NormBlockId firstBlock, bool requeue)
             if (requeue) block->ClearFlag(NormBlock::IN_REPAIR);  // since we're requeuing
         }
     }
-    if (requeue) first_pass = true;
+    if (requeue) 
+    {
+        first_pass = true;
+        max_pending_block = 0;
+    }
     return increasedRepair;
 }  // end NormObject::TxReset()
 
@@ -376,8 +380,10 @@ bool NormObject::ActivateRepairs()
             // (TBD) This check can be eventually eliminated if everything else is done right
             if (!pending_mask.Set(nextId))
             { 
-                if (block) block->ClearPending();
                 DMSG(0, "NormObject::ActivateRepairs() pending_mask.Set(%lu) error 1!\n", (UINT32)nextId);
+                if (block) block->ClearPending();
+                if (IsStream())
+                    static_cast<NormStreamObject*>(this)->UnlockBlock(nextId);
             }
             else
             {
@@ -397,11 +403,12 @@ bool NormObject::ActivateRepairs()
         {
             DMSG(6, "NormObject::ActivateRepairs() node>%lu obj>%hu activated blk>%lu segment repairs ...\n",
                 LocalNodeId(), (UINT16)transport_id, (UINT32)block->GetId());
-            // (TBD) This check can be eventually eliminated if everything else is done right
             if (!pending_mask.Set(block->GetId()))
             {
-                block->ClearPending();
                 DMSG(0, "NormObject::ActivateRepairs() pending_mask.Set(%lu) error 2!\n", (UINT32)block->GetId());
+                block->ClearPending();
+                if (IsStream())
+                    static_cast<NormStreamObject*>(this)->UnlockBlock(block->GetId());
             }
             else
             {
@@ -618,6 +625,7 @@ bool NormObject::IsPending(bool flush) const
     }
     else
     {
+        ASSERT(NULL != server);
         NormBlockId firstId;
         if (GetFirstPending(firstId))
         {
@@ -1590,6 +1598,9 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
        }      
        
        block->TxInit(blockId, numData, session.ServerAutoParity());  
+       
+       if (blockId < max_pending_block)
+           block->SetFlag(NormBlock::IN_REPAIR);
        while (!block_buffer.Insert(block))
        {
            ASSERT(STREAM == type);
@@ -1610,6 +1621,8 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
                {
                     // Prune old non-pending block (or even pending if "push" enabled stream)
                     block_buffer.Remove(b);
+                    repair_mask.Unset(blockId);  // just in case
+                    pending_mask.Unset(blockId);
                     if (IsStream())
                         static_cast<NormStreamObject*>(this)->UnlockBlock(b->GetId());
                     session.ServerPutFreeBlock(b);
@@ -1725,6 +1738,10 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         // for EMCON sending, mark NORM_INFO for re-transmission, if applicable
         if (session.SndrEmcon() && HaveInfo())
             pending_info = true;
+        // Advance sender use of "max_pending_block" so we always
+        // know when a block should be flagged as IN_REPAIR
+        if (blockId == max_pending_block)
+            max_pending_block++;
     }
  
     if (!pending_mask.IsSet())

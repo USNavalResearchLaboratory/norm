@@ -16,7 +16,51 @@
 
 int main(int argc, char* argv[])
 {
-    printf("normTest starting (sizeof(NormSize) = %d)...\n", (int)sizeof(NormSize));
+    bool send = false;
+    bool recv = false;
+    bool cc = false;
+    bool trace = false;
+    int debugLevel = 2;
+    double loss = 0.0;
+    
+    // 1) Parse command-line options
+    for (int i = 1; i < argc; i++)
+    {
+        if (!strcmp(argv[i], "send"))
+        {
+            send = true; 
+        }
+        else if (!strcmp(argv[i], "recv"))
+        {
+            recv = true;   
+        } 
+        else if (!strcmp(argv[i], "cc"))
+        {
+            cc = true;
+        }
+        else if (!strcmp(argv[i], "trace"))
+        {
+            trace = true;
+        }
+        else if (!strcmp(argv[i], "debug"))
+        {
+            debugLevel = atoi(argv[++i]);
+        }
+        
+        else if (!strcmp(argv[i], "loss"))
+        {
+            loss = (double)atoi(argv[++i]);
+        }
+    }
+    
+    if (!send && !recv)
+    {
+        TRACE("normTest: neither 'send' or 'recv' operation was specified?!\n");
+        TRACE("Usage: normTest {send, recv} [cc]\n");
+        return -1;   
+    }
+    
+    bool loopback = (send && recv);
     
     NormInstanceHandle instance = NormCreateInstance();
 
@@ -71,11 +115,12 @@ int main(int argc, char* argv[])
     // (IMPORTANT NOTE: On Win32 builds with Norm.dll, this "SetDebugLevel()" has no
     //                  effect on the Protolib instance in the NORM DLL !!!
     //                  (TBD - provide a "NormSetDebugLevel()" function for this purpose!)
-    SetDebugLevel(2);
-    // Uncomment to turn on debug NORM message tracing
-    //NormSetMessageTrace(session, true);
+    SetDebugLevel(debugLevel);
+    // Option to turn on debug NORM message tracing
+    NormSetMessageTrace(session, trace);
+    
     // Uncomment to turn on some random packet loss
-    //NormSetTxLoss(session, 10.0);  // 10% packet loss
+    NormSetTxLoss(session, loss);    
     //NormSetRxLoss(session, 20.0);
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
@@ -85,14 +130,13 @@ int main(int argc, char* argv[])
     
     NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 1.0e+07);  // in bits/second
+    NormSetTransmitRate(session, 1.0e+04);  // in bits/second
     
-    // Uncomment to enable TCP-friendly congestion control (overrides NormSetTransmitRate())
-    //NormSetCongestionControl(session, true);
+    // Option to enable TCP-friendly congestion control (overrides NormSetTransmitRate())
+    if (cc) NormSetCongestionControl(session, true);
+    NormSetTransmitRateBounds(session, 5.0e+06, 10.0e+06);
     
-    //NormSetTransmitRateBounds(session, 1000.0, -1.0);
-    
-    NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK); 
+    //NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK); 
     
     // Uncomment to use a _specific_ transmit port number
     // (Can be the same as session port (rx port), but this
@@ -106,25 +150,25 @@ int main(int argc, char* argv[])
     // (This allows multiple "normTest" instances on the same machine
     //  for the same NormSession - note those instances must use
     //  unique local NormNodeIds (see NormCreateSession() above).
-    NormSetRxPortReuse(session, true);
+    //NormSetRxPortReuse(session, true);
     
     // Uncomment to receive your own traffic
-    NormSetLoopback(session, true);     
+    if (loopback)
+        NormSetLoopback(session, true);     
     
     //NormSetSilentReceiver(session, true);
     
     // Uncomment this line to participate as a receiver
-    //NormStartReceiver(session, 1024*1024);
-    
-    // Uncomment to set large rx socket buffer size
-    // (might be needed for high rate sessions)
-    NormSetRxSocketBuffer(session, 512000);
+    if (recv) NormStartReceiver(session, 1024*1024);
     
     // We use a random "sessionId"
     NormSessionId sessionId = (NormSessionId)rand();
     
-    // Uncomment the following line to start sender
-    NormStartSender(session, sessionId, 1024*1024, 1400, 64, 8);
+    if (send) NormStartSender(session, sessionId, 1024*1024, 1400, 64, 8);
+    
+    // Uncomment to set large rx socket buffer size
+    // (might be needed for high rate sessions)
+    //NormSetRxSocketBuffer(session, 512000);
     
     //NormSetAutoParity(session, 6);
 
@@ -166,25 +210,43 @@ int main(int argc, char* argv[])
     int msgCount = 0;
     int recvCount = -1;  // used to monitor reliable stream reception
     int sendCount = 0;
-    int sendMax = -1;//300;//-1;    // -1 means unlimited
+    int sendMax = 3000;//-1;    // -1 means unlimited
     
     int fileMax = 1;
     NormObjectHandle txFile = NORM_OBJECT_INVALID;
     
     NormEvent theEvent;
     
+    bool rxActive = false;
+    
     while (NormGetNextEvent(instance, &theEvent))
     {
         switch (theEvent.type)
         {
+            case NORM_CC_ACTIVE:
+                DMSG(2, "normTest: NORM_CC_ACTIVE event ...\n");
+                if (rxActive)
+                {
+                    break;
+                }
+                else
+                {
+                    rxActive = true;
+                    // assume there is vacancy
+                }
+            
             case NORM_TX_QUEUE_VACANCY:
             case NORM_TX_QUEUE_EMPTY:
-                /*if (NORM_TX_QUEUE_VACANCY == theEvent.type)
+                if (!rxActive) break;
+                if (NORM_TX_QUEUE_VACANCY == theEvent.type)
                     TRACE("NORM_TX_QUEUE_VACANCY ...\n");
+                else if (NORM_TX_QUEUE_EMPTY == theEvent.type)
+                    TRACE("NORM_TX_QUEUE_EMPTY ...\n");
                 else
-                    TRACE("NORM_TX_QUEUE_EMPTY ...\n");*/
+                    TRACE("writing to stream after CC_ACTIVE\n");
                 if ((sendMax > 0) && (sendCount >= sendMax)) break;
-                if (NORM_OBJECT_INVALID != theEvent.object)
+                //if (NORM_OBJECT_INVALID != theEvent.object)
+                if (true)
                 {
                     // We loop here to keep stream buffer full ....
                     bool keepWriting = true;
@@ -212,6 +274,8 @@ int main(int argc, char* argv[])
                             NormStreamMarkEom(stream);
                             txLen = txIndex = 0;
                             sendCount++;
+                            if (0 == (sendCount % 1000))
+                                TRACE("normTest: sender sent %d messages ...\n", sendCount);
                             if (sendCount == 15)
                             {
                                 //NormSetWatermark(session, stream);   
@@ -220,13 +284,14 @@ int main(int argc, char* argv[])
                             {
                                 // Uncomment to gracefully shut down the stream
                                 // after "sendMax" messages
+                                TRACE("normTest: sender closing stream ...\n");
                                 NormStreamClose(stream, true);  
                                 keepWriting = false; 
                             }                            
                         }
                     }  // end while(keepWriting)
                 }
-                else if (NORM_OBJECT_INVALID == stream)  // we weren't sending a stream that finished
+                else if (NORM_OBJECT_INVALID == stream)  // we aren't sending a stream 
                 {
                     if ((fileMax < 0) || (sendCount < fileMax))
                     {
@@ -270,9 +335,24 @@ int main(int argc, char* argv[])
             case NORM_TX_OBJECT_PURGED:
                 DMSG(2, "normTest: NORM_TX_OBJECT_PURGED event ...\n");
                 break;  
+                
+            case NORM_CC_INACTIVE:
+                DMSG(2, "normTest: NORM_CC_INACTIVE event ...\n");
+                rxActive = false;
+                // (TBD) add APIs to delete remote sender's state entirely
+                // (TBD) add APIs to automate buffer freeing, remote sender managment somewhat
+                break;
+                
+            case NORM_REMOTE_SENDER_ACTIVE:
+                break;  
+                
+            case NORM_REMOTE_SENDER_INACTIVE:
+                NormNodeFreeBuffers(theEvent.sender);  // frees up some memory allocated for this remote sender's state
+                break;    
+            
 
             case NORM_RX_OBJECT_NEW:
-                DMSG(3, "normTest: NORM_RX_OBJECT_NEW event ...\n");
+                DMSG(2, "normTest: NORM_RX_OBJECT_NEW event ...\n");
                 break;
 
             case NORM_RX_OBJECT_INFO:
@@ -347,9 +427,8 @@ int main(int argc, char* argv[])
                                                 recvCount = value+1;   
                                                 if (0 == msgCount % 1000)
                                                 {
-                                                    TRACE("normTest: status> msgCount:%d of total:%d (%lf)\n",
+                                                    TRACE("normTest: recv status> msgCount:%d of total:%d (%lf)\n",
                                                           msgCount, recvCount, 100.0*((double)msgCount)/((double)recvCount));
-                           
                                                 }
                                             }
                                             else
@@ -363,7 +442,6 @@ int main(int argc, char* argv[])
                                             TRACE("couldn't find \"hello\"!? len:%d in %s\n", len, rxBuffer);
                                             ASSERT(0);
                                         }
-                                        
                                     }
                                     else
                                     {
@@ -396,8 +474,8 @@ int main(int argc, char* argv[])
                     else
                     {
                         TRACE("normTest: error reading stream\n"); 
-                        TRACE("status: msgCount:%d of total:%d (%lf)\n",
-                                msgCount, recvCount, 100.0*((double)msgCount)/((double)recvCount));
+                        TRACE("normTest: recv status> msgCount:%d of total:%d (%lf)\n",
+                              msgCount, recvCount, 100.0*((double)msgCount)/((double)recvCount));
                         msgSync = false;
                         rxIndex = 0;
                         break; 
@@ -408,6 +486,8 @@ int main(int argc, char* argv[])
 
             case NORM_RX_OBJECT_COMPLETED:
                 TRACE("normTest: NORM_RX_OBJECT_COMPLETED event ...\n");
+                TRACE("normTest: recv status> msgCount:%d of total:%d (%lf)\n",
+                      msgCount, recvCount, 100.0*((double)msgCount)/((double)recvCount));
                 //NormStopReceiver(session);
                 break;
 
@@ -424,9 +504,10 @@ int main(int argc, char* argv[])
         }  // end switch(theEvent.type)
         
         // Uncomment to exit program after sending "sendMax" messages or files
-        if ((sendMax > 0) && (sendCount >= sendMax)) break;
+        //if ((sendMax > 0) && (sendCount >= sendMax)) break;
         
     }  // end while (NormGetNextEvent())
+   
     
 #ifdef WIN32
     Sleep(30000);

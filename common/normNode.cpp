@@ -1864,7 +1864,7 @@ bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
         // Serve completely inactive?
         DMSG(0, "NormServerNode::OnActivityTimeout() node>%lu server>%lu gone inactive?\n",
                 LocalNodeId(), GetId());
-        FreeBuffers();
+        //FreeBuffers();  This now needs to be done by the app as of norm version 1.4b3
         session.Notify(NormController::REMOTE_SENDER_INACTIVE, this, NULL);
     }
     else
@@ -1915,6 +1915,16 @@ bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
                 //            max_pending_object, 0, 0);
             }
         }
+        // We manually managed the "repeat_count" here to avoid the
+        // case where "bursty" receiver scheduling may lead to false
+        // inactivity indication
+        int repeatCount = activity_timer.GetRepeatCount();
+        if (repeatCount > 0) repeatCount--;
+        activity_timer.Deactivate();
+        session.ActivateTimer(activity_timer);
+        activity_timer.SetRepeatCount(repeatCount);
+        server_active = false;
+        return false; // since we manually deactivated/reactivated the timer
     }
     server_active = false;
     return true;     

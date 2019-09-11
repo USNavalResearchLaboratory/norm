@@ -97,7 +97,7 @@ class NormApp : public NormController, public ProtoApp
         double              tx_rate_max;
         bool                cc_enable;
         
-        // NormSession server-only parameters
+        // NormSession sender-only parameters
         UINT16              segment_size;
         UINT8               ndata;
         UINT8               nparity;
@@ -111,6 +111,7 @@ class NormApp : public NormController, public ProtoApp
         bool                tx_one_shot;
         bool                tx_ack_shot;
         bool                tx_file_queued;
+        int                 tx_robust_factor;
         
         // save last obj/block/seg id for later in case needed
         NormObjectId        tx_last_object_id;
@@ -124,7 +125,7 @@ class NormApp : public NormController, public ProtoApp
         char*               acking_node_list; // comma-delimited string
         bool                watermark_pending;
         
-        // NormSession client-only parameters
+        // NormSession receiver-only parameters
         unsigned long       rx_buffer_size; // bytes
         unsigned int        rx_sock_buffer_size;
         NormFileList        rx_file_cache;
@@ -133,6 +134,8 @@ class NormApp : public NormController, public ProtoApp
         bool                unicast_nacks;
         bool                silent_client;
         bool                low_delay;
+        int                 rx_robust_factor;
+        bool                rx_persistent;
         bool                process_aborted_files;
         
         // Debug parameters
@@ -153,15 +156,14 @@ NormApp::NormApp()
    address(NULL), port(0), ttl(32), loopback(false), interface_name(NULL),
    tx_rate(64000.0), tx_rate_min(-1.0), tx_rate_max(-1.0), cc_enable(false),
    segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
-   backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
-   grtt_estimate(NormSession::DEFAULT_GRTT_ESTIMATE),
+   backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR), grtt_estimate(NormSession::DEFAULT_GRTT_ESTIMATE), 
    group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
    tx_buffer_size(1024*1024), tx_one_shot(false), tx_ack_shot(false), tx_file_queued(false),
-   tx_object_interval(0.0), tx_repeat_count(0), tx_repeat_interval(2.0), tx_repeat_clear(true),
-   acking_node_list(NULL), watermark_pending(false),
+   tx_robust_factor(NormSession::DEFAULT_ROBUST_FACTOR), tx_object_interval(0.0), tx_repeat_count(0), 
+   tx_repeat_interval(2.0), tx_repeat_clear(true), acking_node_list(NULL), watermark_pending(false),
    rx_buffer_size(1024*1024), rx_sock_buffer_size(0),
    rx_cache_path(NULL), post_processor(NULL), unicast_nacks(false), silent_client(false), 
-    low_delay(false), process_aborted_files(false),
+   low_delay(false), rx_robust_factor(NormSession::DEFAULT_ROBUST_FACTOR), process_aborted_files(false),
    tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
     
@@ -834,6 +836,11 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
             return false;
         }
     }
+    else if (!strncmp("txrobustfactor", cmd, len))
+    {
+        tx_robust_factor = atoi(val);
+        if (session) session->SetTxRobustFactor(tx_robust_factor);
+    }
     else if (!strncmp("rxbuffer", cmd, len))
     {
         if (1 != sscanf(val, "%lu", &rx_buffer_size))
@@ -870,6 +877,15 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     {
         low_delay = true;
         if (session) session->RcvrSetMaxDelay(1);
+    }
+    else if (!strncmp("rxrobustfactor", cmd, len))
+    {
+        rx_robust_factor = atoi(val);
+        if (session) session->SetRxRobustFactor(rx_robust_factor);
+    }
+    else if (!strncmp("rxpersist", cmd, len))
+    {
+        rx_persistent = true;
     }
     else if (!strncmp("saveAborts", cmd, len))
     {
@@ -1290,6 +1306,16 @@ void NormApp::Notify(NormController::Event event,
             }
             break;
         }
+        
+        case REMOTE_SENDER_ACTIVE:
+            DMSG(4, "NormApp::Notify(REMOTE_SENDER_ACTIVE) ...\n");
+            break;
+        
+        case REMOTE_SENDER_INACTIVE:
+            DMSG(4, "NormApp::Notify(REMOTE_SENDER_INACTIVE) ...\n");
+            if (!rx_persistent) server->FreeBuffers();
+            break;
+           
            
         case RX_OBJECT_NEW:
         {
@@ -1777,8 +1803,12 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
     return true;
 }  // end NormApp::OnIntervalTimeout()
 
+#include "normSimAgent.h"
+
 bool NormApp::OnStartup(int argc, const char*const* argv)
 {
+    TRACE("sizeof(NormSimAgent) = %d\n", sizeof(NormSimAgent)); 
+    
     if (argc < 3) 
     {
         ShowHelp();
@@ -1796,6 +1826,8 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
         DMSG(0, "NormApp::OnStartup() error processing command-line commands\n");
         return false; 
     }
+    
+    
 
     if (control_remote) return false;
 
@@ -1838,6 +1870,7 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
             session->SetBackoffFactor(backoff_factor);
             session->ServerSetGrtt(grtt_estimate);
             session->ServerSetGroupSize(group_size);
+            session->SetTxRobustFactor(tx_robust_factor);
             if (!AddAckingNodes(acking_node_list))
             {
                 DMSG(0, "NormApp::OnStartup() error: bad acking node list\n");
@@ -1879,7 +1912,8 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
             if (low_delay)
                 session->RcvrSetMaxDelay(1);
             else
-                session->RcvrSetMaxDelay(-1);
+                session->RcvrSetMaxDelay(-1);            
+            session->SetRxRobustFactor(rx_robust_factor);
             if (!session->StartClient(rx_buffer_size, interface_name))
             {
                 DMSG(0, "NormApp::OnStartup() start client error!\n");

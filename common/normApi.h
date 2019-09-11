@@ -10,6 +10,7 @@
 #ifdef WIN32
 #include <winsock2.h>
 #include <windows.h>
+#include <basetsd.h>  // for UINT32/INT32, etc types
 #ifdef NORM_USE_DLL
 #ifdef _NORM_API_BUILD
 #define NORM_API_LINKAGE __declspec(dllexport)  // to support building of "Norm.dll"
@@ -21,6 +22,17 @@
 #endif // if/else NORM_USE_DLL
 #else
 #include <sys/types.h>  // for "off_t"
+#include <stdint.h>     // for proper uint32_t, etc definitions
+typedef int8_t INT8;
+typedef int16_t INT16;
+#ifdef _USING_X11
+typedef long int INT32;
+#else
+typedef int32_t INT32;
+#endif // if/else _USING_X11
+typedef uint8_t UINT8;
+typedef uint16_t UINT16;
+typedef uint32_t UINT32;
 #define NORM_API_LINKAGE 
 #endif // if/else WIN32/UNIX
 
@@ -43,12 +55,12 @@ const NormInstanceHandle NORM_INSTANCE_INVALID;
 typedef const void* NormSessionHandle;
 extern NORM_API_LINKAGE
 const NormSessionHandle NORM_SESSION_INVALID;
-typedef unsigned short NormSessionId;
+typedef UINT16 NormSessionId;
 
 typedef const void* NormNodeHandle;
 extern NORM_API_LINKAGE 
 const NormNodeHandle NORM_NODE_INVALID;
-typedef unsigned long NormNodeId;
+typedef UINT32 NormNodeId;
 extern NORM_API_LINKAGE
 const NormNodeId NORM_NODE_NONE;
 extern NORM_API_LINKAGE
@@ -57,7 +69,7 @@ const NormNodeId NORM_NODE_ANY;
 typedef const void* NormObjectHandle;
 extern NORM_API_LINKAGE
 const NormObjectHandle NORM_OBJECT_INVALID;
-typedef unsigned short NormObjectTransportId;
+typedef UINT16 NormObjectTransportId;
 
 #ifdef WIN32
 typedef __int64 NormSize;
@@ -161,6 +173,14 @@ void NormStopInstance(NormInstanceHandle instanceHandle);
 NORM_API_LINKAGE 
 bool NormRestartInstance(NormInstanceHandle instanceHandle);
 
+NORM_API_LINKAGE 
+bool NormSuspendInstance(NormInstanceHandle instanceHandle);
+
+NORM_API_LINKAGE 
+void NormResumeInstance(NormInstanceHandle instanceHandle);
+
+
+
 // This MUST be set to enable NORM_OBJECT_FILE reception!
 // (otherwise received files are ignored)
 NORM_API_LINKAGE
@@ -195,7 +215,7 @@ NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle);
 NORM_API_LINKAGE 
 NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
                                     const char*        sessionAddress,
-                                    unsigned short     sessionPort,
+                                    UINT16     sessionPort,
                                     NormNodeId         localNodeId);
 
 NORM_API_LINKAGE 
@@ -212,7 +232,7 @@ NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle);
 
 NORM_API_LINKAGE 
 void NormSetTxPort(NormSessionHandle sessionHandle,
-                   unsigned short    txPortNumber);
+                   UINT16    txPortNumber);
 
 NORM_API_LINKAGE 
 void NormSetRxPortReuse(NormSessionHandle sessionHandle,
@@ -248,8 +268,8 @@ void NormSetRxLoss(NormSessionHandle sessionHandle, double percent);
 NORM_API_LINKAGE 
 bool NormStartSender(NormSessionHandle  sessionHandle,
                      NormSessionId      sessionId,
-                     unsigned long      bufferSpace,
-                     unsigned short     segmentSize,
+                     UINT32      bufferSpace,
+                     UINT16     segmentSize,
                      unsigned char      numData,
                      unsigned char      numParity);
 
@@ -278,9 +298,9 @@ void NormSetTransmitRateBounds(NormSessionHandle sessionHandle,
 
 NORM_API_LINKAGE 
 void NormSetTransmitCacheBounds(NormSessionHandle sessionHandle,
-                                NormSize        sizeMax,
-                                unsigned long   countMin,
-                                unsigned long   countMax);
+                                NormSize          sizeMax,
+                                UINT32            countMin,
+                                UINT32            countMax);
 
 NORM_API_LINKAGE 
 void NormSetAutoParity(NormSessionHandle sessionHandle,
@@ -327,7 +347,7 @@ NormObjectHandle NormFileEnqueue(NormSessionHandle sessionHandle,
 NORM_API_LINKAGE 
 NormObjectHandle NormDataEnqueue(NormSessionHandle sessionHandle,
                                  const char*       dataPtr,
-                                 unsigned long     dataLen,
+                                 UINT32     dataLen,
                                  const char*       infoPtr = (const char*)0, 
                                  unsigned int      infoLen = 0);
 
@@ -336,7 +356,7 @@ bool NormRequeueObject(NormSessionHandle sessionHandle, NormObjectHandle objectH
                                      
 NORM_API_LINKAGE 
 NormObjectHandle NormStreamOpen(NormSessionHandle sessionHandle,
-                                unsigned long     bufferSize);
+                                UINT32     bufferSize);
 
 NORM_API_LINKAGE 
 void NormStreamClose(NormObjectHandle streamHandle, bool graceful = false);
@@ -388,7 +408,7 @@ NormAckingStatus NormGetAckingStatus(NormSessionHandle  sessionHandle,
 
 NORM_API_LINKAGE 
 bool NormStartReceiver(NormSessionHandle  sessionHandle,
-                       unsigned long      bufferSpace);
+                       UINT32      bufferSpace);
 
 NORM_API_LINKAGE 
 void NormStopReceiver(NormSessionHandle sessionHandle);
@@ -447,7 +467,7 @@ NORM_API_LINKAGE
 bool NormStreamSeekMsgStart(NormObjectHandle streamHandle);
 
 NORM_API_LINKAGE 
-unsigned long NormStreamGetReadOffset(NormObjectHandle streamHandle);
+UINT32 NormStreamGetReadOffset(NormObjectHandle streamHandle);
 
 
 /** NORM Object Functions */
@@ -459,12 +479,12 @@ NORM_API_LINKAGE
 bool NormObjectHasInfo(NormObjectHandle objectHandle);
 
 NORM_API_LINKAGE 
-unsigned short NormObjectGetInfoLength(NormObjectHandle objectHandle);
+UINT16 NormObjectGetInfoLength(NormObjectHandle objectHandle);
 
 NORM_API_LINKAGE 
-unsigned short NormObjectGetInfo(NormObjectHandle objectHandle,
+UINT16 NormObjectGetInfo(NormObjectHandle objectHandle,
                                   char*           buffer,
-                                  unsigned short  bufferLen);
+                                  UINT16  bufferLen);
 
 NORM_API_LINKAGE 
 NormSize NormObjectGetSize(NormObjectHandle objectHandle);
@@ -499,9 +519,6 @@ char* NormDataDetachData(NormObjectHandle objectHandle);
 NORM_API_LINKAGE 
 NormNodeHandle NormObjectGetSender(NormObjectHandle objectHandle);
 
-NORM_API_LINKAGE 
-char* NormGetData(NormObjectHandle dataHandle);
-
 /** NORM Node Functions */
 
 NORM_API_LINKAGE 
@@ -511,11 +528,13 @@ NORM_API_LINKAGE
 bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
                         char*           addrBuffer, 
                         unsigned int*   bufferLen,
-                        unsigned short* port = (unsigned short*)0);
+                        UINT16*         port = (UINT16*)0);
 
 NORM_API_LINKAGE
 double NormNodeGetGrtt(NormNodeHandle nodeHandle);
 
+NORM_API_LINKAGE
+void NormNodeFreeBuffers(NormNodeHandle nodeHandle);
 
 // The next 4 functions have not yet been implemented
 // (work in progress)
@@ -542,6 +561,6 @@ void NormNodeRelease(NormNodeHandle nodeHandle);
 /** Some experimental functions */
 
 NORM_API_LINKAGE 
-unsigned long NormCountCompletedObjects(NormSessionHandle sessionHandle);
+UINT32 NormCountCompletedObjects(NormSessionHandle sessionHandle);
 
 #endif // _NORM_API

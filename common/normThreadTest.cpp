@@ -302,6 +302,10 @@ void NormThreadApp::OnNormEvent()
             case NORM_REMOTE_SENDER_NEW:
             case NORM_REMOTE_SENDER_ACTIVE:
                 break;
+                
+            case NORM_REMOTE_SENDER_INACTIVE:
+                NormNodeFreeBuffers(theEvent.sender);
+                break;
             
             case NORM_RX_OBJECT_NEW:
                 TRACE("NORM_RX_OBJECT_NEW ...\n");

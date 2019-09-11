@@ -364,7 +364,7 @@ class NormServerNode : public NormNode
         unsigned long NackCount() const {return nack_count;}
         unsigned long SuppressCount() const {return suppress_count;}
         unsigned long CompletionCount() const {return completion_count;}
-        unsigned long PendingCount() const {return rx_table.Count();}
+        unsigned long PendingCount() const {return rx_table.GetCount();}
         unsigned long FailureCount() const {return failure_count;}
         
         

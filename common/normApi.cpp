@@ -46,12 +46,12 @@ class NormInstance : public NormController
         bool Startup(bool priorityBoost = false);
         void Shutdown();
         
-        void Pause()  // pause NORM protocol engine
+        void Stop()  // pause NORM protocol engine
         {
             dispatcher.Stop();
             Notify(NormController::EVENT_INVALID, &session_mgr, NULL, NULL, NULL);
         }
-        bool Resume()
+        bool Start()
         {
             if (dispatcher.StartThread(priority_boost))
             {
@@ -73,7 +73,7 @@ class NormInstance : public NormController
         
         void PurgeObjectNotifications(NormObjectHandle objectHandle);
         
-        unsigned long CountCompletedObjects(NormSession* theSession);
+        UINT32 CountCompletedObjects(NormSession* theSession);
         
         ProtoDispatcher::Descriptor GetDescriptor() const
         {
@@ -641,9 +641,9 @@ void NormInstance::Shutdown()
     notify_pool.Destroy();
 }  // end NormInstance::Shutdown()
 
-unsigned long NormInstance::CountCompletedObjects(NormSession* session)
+UINT32 NormInstance::CountCompletedObjects(NormSession* session)
 {
-	unsigned long result = 0UL;
+	UINT32 result = 0UL;
 	Notification* n = notify_queue.GetHead();
 	while (NULL != n) 
     {
@@ -684,25 +684,42 @@ void NormDestroyInstance(NormInstanceHandle instanceHandle)
 }  // end NormDestroyInstance()
 
 NORM_API_LINKAGE
+void NormStopInstance(NormInstanceHandle instanceHandle)
+{
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    if (instance) instance->Stop();  // stops NORM protocol thread
+}  // end NormStopInstance()
+
+NORM_API_LINKAGE
 bool NormRestartInstance(NormInstanceHandle instanceHandle)
 {
     NormInstance* instance = (NormInstance*)instanceHandle;
     if (instance)
     {
         if (instance->dispatcher.IsThreaded())
-            instance->Pause();
-        return instance->Resume();
+            instance->Stop();
+        return instance->Start();
     }
     return false;  // invalid instanceHandle
 }  // end NormStartInstance()
 
 
 NORM_API_LINKAGE
-void NormStopInstance(NormInstanceHandle instanceHandle)
+bool NormSuspendInstance(NormInstanceHandle instanceHandle)
 {
     NormInstance* instance = (NormInstance*)instanceHandle;
-    if (instance) instance->Pause();  // stops NORM protocol thread
-}  // end NormStopInstance()
+    if (instance) 
+        return instance->dispatcher.SuspendThread();  // stops NORM protocol thread
+    else
+        return false;
+}  // end NormSuspendInstance()
+
+NORM_API_LINKAGE
+void NormResumeInstance(NormInstanceHandle instanceHandle)
+{
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    if (instance) instance->dispatcher.ResumeThread();  
+}  // end NormResumeInstance()
 
 
 NORM_API_LINKAGE
@@ -756,7 +773,7 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent)
 NORM_API_LINKAGE
 NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
                                     const char*        sessionAddr,
-                                    unsigned short     sessionPort,
+                                    UINT16     sessionPort,
                                     NormNodeId         localNodeId)
 {
     // (TBD) wrap this with SuspendThread/ResumeThread ???
@@ -834,7 +851,7 @@ NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle)
 
 NORM_API_LINKAGE
 void NormSetTxPort(NormSessionHandle sessionHandle,
-                   unsigned short    txPort)
+                   UINT16    txPort)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
     if (NULL != instance)
@@ -961,8 +978,8 @@ void NormSetRxLoss(NormSessionHandle sessionHandle, double percent)
 NORM_API_LINKAGE
 bool NormStartSender(NormSessionHandle  sessionHandle,
                      NormSessionId      sessionId,
-                     unsigned long      bufferSpace,
-                     unsigned short     segmentSize,
+                     UINT32      bufferSpace,
+                     UINT16     segmentSize,
                      unsigned char      numData,
                      unsigned char      numParity)
 {
@@ -1060,8 +1077,8 @@ void NormSetTransmitRateBounds(NormSessionHandle sessionHandle,
 NORM_API_LINKAGE
 void NormSetTransmitCacheBounds(NormSessionHandle sessionHandle,
                                 NormSize          sizeMax,
-                                unsigned long     countMin,
-                                unsigned long     countMax)
+                                UINT32     countMin,
+                                UINT32     countMax)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
     if (instance && instance->dispatcher.SuspendThread())
@@ -1220,7 +1237,7 @@ NormObjectHandle NormFileEnqueue(NormSessionHandle  sessionHandle,
 NORM_API_LINKAGE
 NormObjectHandle NormDataEnqueue(NormSessionHandle  sessionHandle,
                                  const char*        dataPtr,
-                                 unsigned long      dataLen,
+                                 UINT32      dataLen,
                                  const char*        infoPtr, 
                                  unsigned int       infoLen)
 {
@@ -1261,7 +1278,7 @@ bool NormRequeueObject(NormSessionHandle sessionHandle, NormObjectHandle objectH
 
 NORM_API_LINKAGE
 NormObjectHandle NormStreamOpen(NormSessionHandle  sessionHandle,
-                                unsigned long      bufferSize)
+                                UINT32      bufferSize)
 {
     NormObjectHandle objectHandle = NORM_OBJECT_INVALID;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -1483,7 +1500,7 @@ NormAckingStatus NormGetAckingStatus(NormSessionHandle  sessionHandle,
 
 NORM_API_LINKAGE
 bool NormStartReceiver(NormSessionHandle  sessionHandle,
-                       unsigned long      bufferSpace)
+                       UINT32      bufferSpace)
 {
     bool result = false;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -1662,7 +1679,7 @@ bool NormStreamSeekMsgStart(NormObjectHandle streamHandle)
 
 
 NORM_API_LINKAGE
-unsigned long NormStreamGetReadOffset(NormObjectHandle streamHandle)
+UINT32 NormStreamGetReadOffset(NormObjectHandle streamHandle)
 {
     NormStreamObject* stream = static_cast<NormStreamObject*>((NormObject*)streamHandle);
     if (stream)
@@ -1690,17 +1707,17 @@ bool NormObjectHasInfo(NormObjectHandle objectHandle)
 }  // end NormObjectHasInfo()
 
 NORM_API_LINKAGE
-unsigned short NormObjectGetInfoLength(NormObjectHandle objectHandle)
+UINT16 NormObjectGetInfoLength(NormObjectHandle objectHandle)
 {
     return ((NormObject*)objectHandle)->GetInfoLength();
 }  // end NormObjectGetInfoLength()
 
 NORM_API_LINKAGE
-unsigned short NormObjectGetInfo(NormObjectHandle objectHandle,
+UINT16 NormObjectGetInfo(NormObjectHandle objectHandle,
                                  char*            buffer,
-                                 unsigned short   bufferLen)
+                                 UINT16   bufferLen)
 {
-    unsigned short result = 0;
+    UINT16 result = 0;
     if (NORM_OBJECT_INVALID != objectHandle)
     {
         NormObject* object =  (NormObject*)objectHandle;
@@ -1863,7 +1880,7 @@ NORM_API_LINKAGE
 bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
                         char*           addrBuffer, 
                         unsigned int*   bufferLen,
-                        unsigned short* port)
+                        UINT16* port)
 {
     bool result = false;
     if (NORM_NODE_INVALID != nodeHandle)
@@ -1900,6 +1917,21 @@ double NormNodeGetGrtt(NormNodeHandle nodeHandle)
     else
         return -1.0;
 }  // end NormNodeGetGrtt()
+
+NORM_API_LINKAGE
+void NormNodeFreeBuffers(NormNodeHandle nodeHandle)
+{
+    if (NORM_NODE_INVALID != nodeHandle)
+    {
+        NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
+        if (instance && instance->dispatcher.SuspendThread())
+        {
+            NormServerNode* node = (NormServerNode*)nodeHandle;
+            node->FreeBuffers();
+            instance->dispatcher.ResumeThread(); 
+        }
+    }
+}  // end NormNodeFreeBuffers()
 
 NORM_API_LINKAGE
 void NormNodeRetain(NormNodeHandle nodeHandle)
@@ -1947,9 +1979,9 @@ void NormNodeRelease(NormNodeHandle nodeHandle)
 //
 
 NORM_API_LINKAGE
-unsigned long NormCountCompletedObjects(NormSessionHandle sessionHandle)
+UINT32 NormCountCompletedObjects(NormSessionHandle sessionHandle)
 {
-    unsigned long result = 0;
+    UINT32 result = 0;
     NormSession* session = (NormSession*)sessionHandle;
 	NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
     if (instance && instance->dispatcher.SuspendThread())
@@ -1958,4 +1990,4 @@ unsigned long NormCountCompletedObjects(NormSessionHandle sessionHandle)
         instance->dispatcher.ResumeThread();
     }
 	return result;
-}  // end long NormCountCompletedObjects()
+}  // end NormCountCompletedObjects()
