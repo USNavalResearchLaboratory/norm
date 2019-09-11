@@ -385,8 +385,8 @@ class NormServerNode : public NormNode
         UINT16                  nparity;
         
         NormObjectTable         rx_table;
-        NormSlidingMask         rx_pending_mask;
-        NormSlidingMask         rx_repair_mask;
+        ProtoSlidingMask        rx_pending_mask;
+        ProtoSlidingMask        rx_repair_mask;
         RepairBoundary          repair_boundary;
         NormObject::NackingMode default_nacking_mode;
         bool                    unicast_nacks;

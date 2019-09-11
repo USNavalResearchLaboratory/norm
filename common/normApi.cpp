@@ -2,6 +2,12 @@
 #include "normApi.h"
 #include "normSession.h"
 
+#ifdef WIN32
+#ifndef _WIN32_WCE
+#include <io.h>  // for _mktemp()
+#endif // !_WIN32_WCE
+#endif // WIN32
+
 // const defs
 const NormInstanceHandle NORM_INSTANCE_INVALID = ((NormInstanceHandle)0);
 const NormSessionHandle NORM_SESSION_INVALID = ((NormSessionHandle)0);
@@ -9,6 +15,8 @@ const NormNodeHandle NORM_NODE_INVALID = ((NormNodeHandle)0);
 const NormNodeId NORM_NODE_NONE = ((NormNodeId)0x00000000);
 const NormNodeId NORM_NODE_ANY = ((NormNodeId)0xffffffff);
 const NormObjectHandle NORM_OBJECT_INVALID = ((NormObjectHandle)0);
+
+const NormDescriptor NORM_DESCRIPTOR_INVALID = ProtoDispatcher::INVALID_DESCRIPTOR;
 
 /** The "NormInstance" class is a C++ helper class that keeps
  *  state for an instance of the NORM API.  It acts as a
@@ -27,7 +35,7 @@ class NormInstance : public NormController
                     class NormServerNode*   server,
                     class NormObject*       object);
         
-        bool Startup();
+        bool Startup(bool priorityBoost = false);
         void Shutdown();
         
         bool WaitForEvent();
@@ -250,9 +258,38 @@ void NormInstance::Notify(NormController::Event   event,
                     {
                         char fileName[PATH_MAX];
                         strncpy(fileName, rx_cache_path, PATH_MAX);
-                        strcat(fileName, "normTempXXXXXX");
+                        size_t catMax = strlen(fileName);
+                        if (catMax > PATH_MAX) 
+                            catMax = 0;
+                        else
+                            catMax = PATH_MAX - catMax;
+                        strncat(fileName, "normTempXXXXXX", catMax);
+                        
 #ifdef WIN32
+#ifdef _WIN32_WCE
+                        bool tempFileOK = false;
+                        for (int i = 0; i < 255; i++)
+                        {
+                            strncpy(fileName, rx_cache_path, PATH_MAX);
+                            catMax = strlen(fileName);
+                            if (catMax > PATH_MAX) 
+                                catMax = 0;
+                            else
+                                catMax = PATH_MAX - catMax;
+                            strncat(fileName, "normTempXXXXXX", catMax);
+                            char tempName[16];
+                            sprintf(tempName, "normTemp%06u", i);
+                            strcat(fileName, tempName);
+                            if(!NormFile::IsLocked(fileName))
+                            {
+                                tempFileOK = true;
+                                break;
+                            }
+                        }
+                        if (!tempFileOK)
+#else
                         if (!_mktemp(fileName))
+#endif // if/else _WIN32_WCE
 #else
                         int fd = mkstemp(fileName); 
                         if (fd >= 0)
@@ -263,7 +300,7 @@ void NormInstance::Notify(NormController::Event   event,
 #endif // if/else WIN32         
                         {
                             DMSG(0, "NormInstance::Notify(RX_OBJECT_NEW) Warning: mkstemp() error: %s\n",
-                                    strerror(errno));  
+                                    GetErrorString());  
                         } 
                         if (!static_cast<NormFileObject*>(object)->Accept(fileName))
                         {
@@ -401,6 +438,11 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
                 // reset update event notification
                 ((NormObject*)n->event.object)->SetNotifyOnUpdate(true);
                 break;
+            case NORM_TX_QUEUE_VACANCY:
+                if (NULL != n->event.object)
+                    static_cast<NormStreamObject*>((NormObject*)n->event.object)->ResetPostedTxQueueVacancy();
+                // (TBD) support session-level queue vacancy notify
+                break;
             default:
                 break;   
         }
@@ -441,7 +483,7 @@ bool NormInstance::WaitForEvent()
 }  // end NormInstance::WaitForEvent()
 
 
-bool NormInstance::Startup()
+bool NormInstance::Startup(bool priorityBoost)
 {
     // 1) Create descriptor to use for event notification
 #ifdef WIN32
@@ -469,7 +511,7 @@ bool NormInstance::Startup()
     }
 #endif // if/else WIN32/UNIX
     // 2) Start thread
-    return dispatcher.StartThread();
+    return dispatcher.StartThread(priorityBoost);
 }  // end NormInstance::Startup()
 
 void NormInstance::Shutdown()
@@ -554,12 +596,12 @@ void NormInstance::Shutdown()
 
 /** NORM API Initialization */
 
-NormInstanceHandle NormCreateInstance()
+NormInstanceHandle NormCreateInstance(bool priorityBoost)
 {
     NormInstance* normInstance = new NormInstance;
     if (normInstance)
     {
-        if (normInstance->Startup())
+        if (normInstance->Startup(priorityBoost))
             return ((NormInstanceHandle)normInstance); 
         else
             delete normInstance;
@@ -581,6 +623,15 @@ bool NormSetCacheDirectory(NormInstanceHandle instanceHandle,
     else
         return false;
 } // end NormSetCacheDirectory()
+
+NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle)
+{
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    if (instance)
+        return (instance->GetDescriptor());
+    else
+        return NORM_DESCRIPTOR_INVALID;
+}  // end NormGetDescriptor()
 
 bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent)
 {
@@ -636,6 +687,37 @@ void NormDestroySession(NormSessionHandle sessionHandle)
     }
 }  // end NormDestroySession()
 
+void NormSetUserData(NormSessionHandle sessionHandle, const void* userData)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {    
+            NormSession* session = (NormSession*)sessionHandle;
+            if (session) session->SetUserData(userData);
+            instance->dispatcher.ResumeThread();
+        }
+    }
+}  // end NormSetUserData()
+
+const void* NormGetUserData(NormSessionHandle sessionHandle)
+{
+    const void* userData = NULL;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {    
+            NormSession* session = (NormSession*)sessionHandle;
+            if (session) 
+                userData = session->GetUserData();
+            instance->dispatcher.ResumeThread();
+        }
+    }
+    return userData;
+}  // end NormGetUserData()
+
 NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle)
 {
     NormSession* session = (NormSession*)sessionHandle;
@@ -644,6 +726,21 @@ NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle)
     else
         return NORM_NODE_NONE;      
 }  // end NormGetLocalNodeId()
+
+void NormSetTxPort(NormSessionHandle sessionHandle,
+                   unsigned short    txPort)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {    
+            NormSession* session = (NormSession*)sessionHandle;
+            if (session) session->SetTxPort(txPort);
+            instance->dispatcher.ResumeThread();
+        }
+    } 
+}  // end NormSetTxPort()
 
 bool NormSetMulticastInterface(NormSessionHandle sessionHandle,
                                const char*       interfaceName)
@@ -773,6 +870,21 @@ void NormSetTransmitRate(NormSessionHandle sessionHandle,
         instance->dispatcher.ResumeThread();
     }
 }  // end NormSetTransmitRate()
+
+bool NormSetTxSocketBuffer(NormSessionHandle sessionHandle, 
+                           unsigned int      bufferSize)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) 
+            result = session->SetTxSocketBuffer(bufferSize);
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+}  // end NormSetTxSocketBuffer()
 
 void NormSetCongestionControl(NormSessionHandle sessionHandle, bool enable)
 {
@@ -936,7 +1048,13 @@ void NormStreamFlush(NormObjectHandle streamHandle,
     {
         NormStreamObject* stream = 
             static_cast<NormStreamObject*>((NormObject*)streamHandle);
-        if (stream) stream->Flush(eom);
+        if (stream) 
+        {
+            NormStreamObject::FlushMode saveFlushMode = stream->GetFlushMode();
+            stream->SetFlushMode((NormStreamObject::FlushMode)flushMode);
+            stream->Flush(eom);
+            stream->SetFlushMode(saveFlushMode);
+        }
         instance->dispatcher.ResumeThread();
     }
 }  // end NormStreamFlush()
@@ -1035,6 +1153,21 @@ void NormStopReceiver(NormSessionHandle sessionHandle)
         instance->dispatcher.ResumeThread();
     }
 }  // end NormStopReceiver()
+
+bool NormSetRxSocketBuffer(NormSessionHandle sessionHandle, 
+                           unsigned int      bufferSize)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) 
+            result = session->SetRxSocketBuffer(bufferSize);
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+}  // end NormSetRxSocketBuffer()
 
 void NormSetSilentReceiver(NormSessionHandle sessionHandle,
                            bool              silent)
@@ -1291,6 +1424,37 @@ NormNodeId NormNodeGetId(NormNodeHandle nodeHandle)
         return node->GetId();
     else
         return NORM_NODE_NONE;
+}  // end NormNodeGetId()
+
+bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
+                        char*           addrBuffer, 
+                        unsigned int*   bufferLen,
+                        unsigned short* port)
+{
+    bool result = false;
+    if (NORM_NODE_INVALID != nodeHandle)
+    {
+        NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
+        if (instance && instance->dispatcher.SuspendThread())
+        {
+            NormNode* node = (NormNode*)nodeHandle;
+            const ProtoAddress& nodeAddr = node->GetAddress();
+            unsigned int addrLen = nodeAddr.GetLength();
+            if (addrBuffer && bufferLen && (addrLen <= *bufferLen))
+            {
+                memcpy(addrBuffer, nodeAddr.GetRawHostAddress(), addrLen);
+                result = true;
+            } 
+            else if (NULL == addrBuffer)
+            {
+                result = true; // just a query for addrLen and/or port
+            }      
+            if (bufferLen) *bufferLen = addrLen;
+            if (port) *port = nodeAddr.GetPort();
+            instance->dispatcher.ResumeThread();  
+        }
+    }
+    return result;
 }  // end NormNodeGetId()
 
 void NormNodeRetain(NormNodeHandle nodeHandle)

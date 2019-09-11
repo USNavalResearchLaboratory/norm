@@ -1,7 +1,5 @@
 #include "normSegment.h"
 
-#include <errno.h>  // for strerror()
-
 NormSegmentPool::NormSegmentPool()
  : seg_size(0), seg_count(0), seg_total(0), seg_list(NULL),
    peak_usage(0), overruns(0), overrun_flag(false)
@@ -40,7 +38,7 @@ bool NormSegmentPool::Init(unsigned int count, unsigned int size)
         else
         {
             DMSG(0, "NormSegmentPool::Init() memory allocation error: %s\n",
-                    strerror(errno));
+                    GetErrorString());
             seg_total = seg_count;
             Destroy();
             return false;
@@ -111,19 +109,19 @@ bool NormBlock::Init(UINT16 totalSize)
     if (segment_table) Destroy();
     if (!(segment_table = new char*[totalSize]))
     {
-        DMSG(0, "NormBlock::Init() segment_table allocation error: %s\n", strerror(errno));
+        DMSG(0, "NormBlock::Init() segment_table allocation error: %s\n", GetErrorString());
         return false;   
     }
     memset(segment_table, 0, totalSize*sizeof(char*));
     if (!pending_mask.Init(totalSize))
     {
-        DMSG(0, "NormBlock::Init() pending_mask allocation error: %s\n", strerror(errno));
+        DMSG(0, "NormBlock::Init() pending_mask allocation error: %s\n", GetErrorString());
         Destroy();
         return false;   
     }
     if (!repair_mask.Init(totalSize))
     {
-        DMSG(0, "NormBlock::Init() repair_mask allocation error: %s\n", strerror(errno));
+        DMSG(0, "NormBlock::Init() repair_mask allocation error: %s\n", GetErrorString());
         Destroy();
         return false;   
     }
@@ -652,7 +650,7 @@ bool NormBlockBuffer::Init(unsigned long rangeMax, unsigned long tableSize)
     if (0 != (tableSize & 0x07)) tableSize = (tableSize >> 3) + 1;
     if (!(table = new NormBlock*[tableSize]))
     {
-        DMSG(0, "NormBlockBuffer::Init() buffer allocation error: %s\n", strerror(errno));
+        DMSG(0, "NormBlockBuffer::Init() buffer allocation error: %s\n", GetErrorString());
         return false;         
     }
     memset(table, 0, tableSize*sizeof(char*));

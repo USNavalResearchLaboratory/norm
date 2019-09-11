@@ -81,9 +81,16 @@ bool NormMsg::InitFromBuffer(UINT16 msgLength)
             DMSG(0, "NormMsg::InitFromBuffer() invalid message type!\n");
             return false;
     }
-    ASSERT(msgLength >= header_length);
-    length = msgLength;
-    return true;
+    if (msgLength < header_length)
+    {
+        DMSG(0, "NormMsg::InitFromBuffer() invalid message or header length\n");
+        return false;
+    }
+    else
+    {
+        length = msgLength;
+        return true;
+    }
 }  // end NormMsg::InitFromBuffer()
 
 bool NormCmdCCMsg::GetCCNode(NormNodeId     nodeId, 

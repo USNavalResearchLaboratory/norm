@@ -2,7 +2,7 @@
 #define _NORM_SEGMENT
 
 #include "normMessage.h"
-#include "normBitmask.h"
+#include "protoBitmask.h"
 
 // Norm uses preallocated (or dynamically allocated) pools of 
 // segments (vectors) for different buffering purposes
@@ -231,19 +231,19 @@ class NormBlock
         void EmptyToPool(NormSegmentPool& segmentPool);
             
     private:
-        NormBlockId id;
-        UINT16      size;
-        char**      segment_table;
+        NormBlockId  id;
+        UINT16       size;
+        char**       segment_table;
         
-        int         flags;
-        UINT16      erasure_count;
-        UINT16      parity_count;
-        UINT16      parity_offset;
+        int          flags;
+        UINT16       erasure_count;
+        UINT16       parity_count;
+        UINT16       parity_offset;
         
-        NormBitmask pending_mask;
-        NormBitmask repair_mask;
+        ProtoBitmask pending_mask;
+        ProtoBitmask repair_mask;
         
-        NormBlock*  next;
+        NormBlock*   next;
 };  // end class NormBlock
 
 class NormBlockPool

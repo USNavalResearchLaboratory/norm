@@ -6,8 +6,13 @@
 #include <windows.h>
 #endif // WIN32
 
+#ifdef _WIN32_WCE
+#include <stdio.h>
+//typedef fpos_t off_t;
+typedef long off_t;
+#else
 #include <sys/types.h>  // for "off_t" type
-
+#endif // if/else _WIN32_WCE
 ////////////////////////////////////////////////////////////
 // IMPORTANT NOTICE
 //  The NORM API is _very_ much in a developmental phase
@@ -100,7 +105,7 @@ typedef struct
 
 /** NORM API General Initialization and Operation Functions */
 
-NormInstanceHandle NormCreateInstance();
+NormInstanceHandle NormCreateInstance(bool priorityBoost = false);
 
 void NormDestroyInstance(NormInstanceHandle instanceHandle);
 
@@ -125,6 +130,7 @@ typedef HANDLE NormDescriptor;
 #else
 typedef int NormDescriptor;
 #endif // if/else WIN32/UNIX
+extern const NormDescriptor NORM_DESCRIPTOR_INVALID;
 NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle);
 
 /** NORM Session Creation and Control Functions */
@@ -136,7 +142,14 @@ NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
 
 void NormDestroySession(NormSessionHandle sessionHandle);
 
+void NormSetUserData(NormSessionHandle sessionHandle, const void* userData);
+
+const void* NormGetUserData(NormSessionHandle sessionHandle);
+
 NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle);
+
+void NormSetTxPort(NormSessionHandle sessionHandle,
+                   unsigned short    txPortNumber);
 
 bool NormSetMulticastInterface(NormSessionHandle sessionHandle,
                                const char*       interfaceName);
@@ -168,6 +181,9 @@ void NormStopSender(NormSessionHandle sessionHandle);
 
 void NormSetTransmitRate(NormSessionHandle sessionHandle,
                          double            bitsPerSecond);
+
+bool NormSetTxSocketBuffer(NormSessionHandle sessionHandle,
+                           unsigned int      bufferSize);
 
 void NormSetCongestionControl(NormSessionHandle sessionHandle,
                               bool              state);
@@ -230,6 +246,9 @@ bool NormStartReceiver(NormSessionHandle  sessionHandle,
                        unsigned long      bufferSpace);
 
 void NormStopReceiver(NormSessionHandle sessionHandle);
+
+bool NormSetRxSocketBuffer(NormSessionHandle sessionHandle,
+                           unsigned int      bufferSize);
 
 void NormSetSilentReceiver(NormSessionHandle sessionHandle,
                            bool              silent);
@@ -301,6 +320,11 @@ NormNodeHandle NormObjectGetSender(NormObjectHandle objectHandle);
 /** NORM Node Functions */
 
 NormNodeId NormNodeGetId(NormNodeHandle nodeHandle);
+
+bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
+                        char*           addrBuffer, 
+                        unsigned int*   bufferLen,
+                        unsigned short* port = (unsigned short*)0);
 
 void NormNodeRetain(NormNodeHandle nodeHandle);
 

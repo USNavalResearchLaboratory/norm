@@ -35,7 +35,7 @@ $(PROTOLIB)/unix/libProtokit.a:
 
 NORM_SRC = $(COMMON)/normMessage.cpp $(COMMON)/normSession.cpp \
            $(COMMON)/normNode.cpp $(COMMON)/normObject.cpp \
-           $(COMMON)/normSegment.cpp $(COMMON)/normBitmask.cpp \
+           $(COMMON)/normSegment.cpp  \
            $(COMMON)/normEncoder.cpp $(COMMON)/galois.cpp \
            $(COMMON)/normFile.cpp $(COMMON)/normApi.cpp
           

@@ -104,21 +104,6 @@ SOURCE=..\common\normApi.cpp
 # End Source File
 # Begin Source File
 
-SOURCE=..\common\normBitmask.cpp
-
-!IF  "$(CFG)" == "NormLib - Win32 Release"
-
-# ADD CPP /MD /vmg /I "..\win32"
-
-!ELSEIF  "$(CFG)" == "NormLib - Win32 Debug"
-
-# ADD CPP /MDd /vmg /I "..\win32"
-
-!ENDIF 
-
-# End Source File
-# Begin Source File
-
 SOURCE=..\common\normEncoder.cpp
 
 !IF  "$(CFG)" == "NormLib - Win32 Release"

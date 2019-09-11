@@ -8,7 +8,13 @@
 #include <string.h>  // for memcpy(), etc
 #include <math.h>
 #include <stdlib.h>  // for rand(), etc
+
+#ifdef _WIN32_WCE
+#include <stdio.h>
+typedef fpos_t off_t;
+#else
 #include <sys/types.h>  // for off_t
+#endif // if/else _WIN32_WCE
 
 #ifdef SIMULATE
 #define SIM_PAYLOAD_MAX (36+8)   // MGEN message size + StreamPayloadHeaderLen()
@@ -108,10 +114,10 @@ class NormObjectSize
         NormObjectSize(const NormObjectSize& size) : msb(size.msb), lsb(size.lsb) {}
         NormObjectSize(off_t size) 
         {
-            lsb = size & 0x00000000ffffffff;
+            lsb = (unsigned long)(size & 0x00000000ffffffff);
             size >>= 32;
             ASSERT(0 == (size & 0xffff0000));   
-            msb = size & 0x0000ffff;
+            msb = (unsigned short)(size & 0x0000ffff);
             msb = 0;
         }
         

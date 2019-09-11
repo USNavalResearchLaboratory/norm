@@ -33,7 +33,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
         
 #include "normEncoder.h"
 #include "galois.h"  // for Galois math routines
@@ -78,7 +77,7 @@ bool NormEncoder::Init(int numParity, int vecSizeMax)
     if(!(scratch = new unsigned char[vecSizeMax]))
     {
 	    DMSG(0, "NormEncoder: Error allocating memory for encoder scratch space: %s\n",
-                    strerror(errno));
+                    GetErrorString());
 	    Destroy();
 	    return false;
     }
@@ -110,14 +109,14 @@ bool NormEncoder::CreateGeneratorPolynomial()
     if(!(genPoly = new unsigned char[npar+1]))
     {
 	    DMSG(0, "NormEncoder: Error allocating memory for generator polynomial: %s\n",
-                 strerror(errno));
+                 GetErrorString());
 	    return false;
     }    
     /* Allocate memory for temporary polynomial arrays */
     if(!(tp = new unsigned char[2*degree]))
     {
 	    DMSG(0, "NormEncoder: Error allocating memory while computing genpoly: %s\n",
-                strerror(errno));
+                GetErrorString());
         delete genPoly;
 	    return false;
     }    
@@ -126,7 +125,7 @@ bool NormEncoder::CreateGeneratorPolynomial()
 	    delete tp;
 	    delete genPoly;
 	    DMSG(0, "NormEncoder: Error allocating memory while computing genpoly: %s\n",
-                strerror(errno));
+                GetErrorString());
 	    return false;
     }    
     if(!(tp2 = new unsigned char[2*degree]))
@@ -135,7 +134,7 @@ bool NormEncoder::CreateGeneratorPolynomial()
 	    delete tp;
 	    delete genPoly;
 	    DMSG(0, "NormEncoder: Error allocating memory while computing genpoly: %s\n",
-                strerror(errno));
+                GetErrorString());
 	    return false;
     }
     // multiply (x + a^n) for n = 1 to npar 
@@ -247,7 +246,7 @@ bool NormDecoder::Init(int numParity, int vecSizeMax)
     if(!(Lambda = new unsigned char[2*npar]))
     {
 	    DMSG(0, "NormDecoder: Error allocating memory for Lambda: %s\n",
-                strerror(errno));
+                GetErrorString());
 	    return(false);
     }
     
@@ -255,7 +254,7 @@ bool NormDecoder::Init(int numParity, int vecSizeMax)
     if(!(sVec = new unsigned char*[npar]))
     {
 	    DMSG(0, "NormDecoder: Error allocating memory for sVec ptr: %s\n",
-                strerror(errno));
+                GetErrorString());
 	    Destroy();
 	    return(false);
     }
@@ -265,7 +264,7 @@ bool NormDecoder::Init(int numParity, int vecSizeMax)
 	    if(!(sVec[i] = new unsigned char[vecSizeMax]))
 	    {
 	        DMSG(0, "NormDecoder: Error allocating memory for new sVec: %s\n",
-                    strerror(errno));
+                    GetErrorString());
 	        Destroy();
 	        return(false);
 	    }
@@ -275,7 +274,7 @@ bool NormDecoder::Init(int numParity, int vecSizeMax)
     if(!(oVec = new unsigned char*[npar]))
     {
 	    DMSG(0, "NormDecoder: Error allocating memory for new oVec ptr: %s\n",
-                strerror(errno));
+                GetErrorString());
 	    Destroy();
 	    return(false);
     }
@@ -285,7 +284,7 @@ bool NormDecoder::Init(int numParity, int vecSizeMax)
 	    if(!(oVec[i] = new unsigned char[vecSizeMax]))
 	    {
 	        DMSG(0, "NormDecoder: Error allocating memory for new oVec: %s",
-                    strerror(errno));
+                    GetErrorString());
 	        Destroy();
 	        return(false);
 	    }
@@ -294,7 +293,7 @@ bool NormDecoder::Init(int numParity, int vecSizeMax)
     if (!(scratch = new unsigned char[vecSizeMax]))
     {
         DMSG(0, "NormDecoder: Error allocating memory for scratch space: %s",
-                 strerror(errno));  
+                 GetErrorString());  
     }
     memset(scratch, 0, vecSizeMax*sizeof(unsigned char));
     return(true);

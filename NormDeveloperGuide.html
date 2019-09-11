@@ -6,7 +6,7 @@
 	<META NAME="GENERATOR" CONTENT="OpenOffice.org 1.1.2  (Linux)">
 	<META NAME="AUTHOR" CONTENT="Robert Adamson">
 	<META NAME="CREATED" CONTENT="20040824;15180000">
-	<META NAME="CHANGED" CONTENT="20050304;10303500">
+	<META NAME="CHANGED" CONTENT="20050420;17075300">
 	<META NAME="DESCRIPTION" CONTENT="NORM Object Functions	42NORM Object FunctionsNORM_OBJECT_STREAMNORM Sender Functions	19NORM Sender Functions">
 	<META NAME="KEYWORDS" CONTENT="norm object value application function ">
 	<STYLE>
@@ -64,7 +64,9 @@ United States Naval Research Laboratory (NRL).  The NORM protocol
 provides general purpose reliable data transport for applications
 wishing to use Internet Protocol (IP) Multicast services for group
 data delivery.  NORM can also support unicast (point-to-point) data
-communication and may be used for such when deemed appropriate.</P>
+communication and may be used for such when deemed appropriate.  The
+current NORM protocol specification is given in the Internet
+Engineering Task Force RFC 3940.</P>
 <P CLASS="western" STYLE="font-style: normal">The NORM protocol is
 designed to provide end-to-end reliable transport of bulk data
 objects or streams over generic IP multicast routing and forwarding
@@ -82,9 +84,10 @@ to allow different types of applications or possibly other higher
 level transport protocols to utilize its service in different ways. 
 The protocol leverages the use of FEC-based repair and other proven
 reliable multicast transport techniques in its design.</P>
-<H1 CLASS="western" ALIGN=CENTER STYLE="page-break-before: always">Table
-of Contents</H1>
+<H1 CLASS="western" ALIGN=CENTER STYLE="page-break-before: always">Contents</H1>
 <DIV ID="Table of Contents1" DIR="LTR">
+	<P STYLE="margin-top: 0.25in; font-style: normal"><BR>
+	</P>
 	<P STYLE="margin-top: 0.25in; font-style: normal"><FONT FACE="Helvetica, sans-serif"><B>Overview</B></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>API
 	Initialization</B></FONT></P>
@@ -112,7 +115,7 @@ of Contents</H1>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormEventType">NormEventType</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormEvent">NormEvent</A></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>API
-	Initialization</B></FONT></P>
+	Initialization and Operation</B></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormCreateInstance()">NormCreateInstance()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDestroyInstance()">NormDestroyInstance()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetCacheDirectory()">NormSetCacheDirectory()</A></FONT></P>
@@ -122,7 +125,10 @@ of Contents</H1>
 	Creation and Control</B></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormCreateSession()">NormCreateSession()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDestroySession()">NormDestroySession()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetUserData()">NormSetUserData()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetUserData()">NormGetUserData()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetLocalNodeId()">NormGetLocalNodeId()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTxPort()">NormSetTxPort()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetMulticastInterface()">NormSetMulticastInterface()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTTL()">NormSetTTL()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTOS()">NormSetTOS()</A></FONT></P>
@@ -132,6 +138,7 @@ of Contents</H1>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStartSender()">NormStartSender()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStopSender()">NormStopSender()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitRate()">NormSetTransmitRate()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTxSocketBuffer()">NormSetTxSocketBuffer()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetCongestionControl()">NormSetCongestionControl()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitRateBounds()">NormSetTransmitRateBounds()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetAutoParity()">NormSetAutoParity()</A></FONT></P>
@@ -152,6 +159,7 @@ of Contents</H1>
 	Receiver Functions</B></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStopReceiver()">NormStopReceiver()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetRxSocketBuffer()">NormSetRxSocketBuffer()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetSilentReceiver()">NormSetSilentReceiver()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetDefaultUnicastNack()">NormSetDefaultUnicastNack()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeSetUnicastNack()">NormNodeSetUnicastNack()</A></FONT></P>
@@ -476,7 +484,7 @@ which the event applies.  NORM protocol events are made available to
 the application via the <FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT>
 function call.  
 </P>
-<H2 CLASS="western">API Initialization</H2>
+<H2 CLASS="western">API Initialization and Operation</H2>
 <P CLASS="western" STYLE="font-style: normal">The first step in using
 the NORM API is to create an &quot;instance&quot; of the NORM
 protocol engine.  Note that multiple instances may be created by the
@@ -488,7 +496,7 @@ single NORM API instance.</P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
 &lt;normApi.h&gt;</FONT></FONT></P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2><A HREF="#NormInstanceHandle">NormInstanceHandle</A>
-<A HREF="#NormCreateInstance()">NormCreateInstance()</A>;</FONT></FONT></P>
+NormCreateInstance(bool priorityBoost = false);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function creates
 an instance of a NORM protocol engine and is the necessary first step
@@ -496,8 +504,18 @@ before any other API functions may be used.  With the instantiation
 of the NORM protocol engine, an operating system thread is created
 for protocol execution.  The returned <FONT FACE="Courier"><A HREF="#NormInstanceHandle">NormInstanceHandle</A>
 </FONT>value may be used in subsequent API calls as needed, such
-<FONT FACE="Courier">NormCreateSesssion()</FONT>, etc.  
-</P>
+<FONT FACE="Courier">NormCreateSesssion()</FONT>, etc.  The optional
+<FONT FACE="Courier"><U>priorityBoost</U></FONT> parameter, when set
+to a value of <FONT FACE="Courier"><I>true</I></FONT>, specifies that
+the NORM protocol engine thread be run with higher priority
+scheduling.  On Win32 platforms, this corresponds to
+<FONT FACE="Courier"><I>THREAD_PRIORITY_TIME_CRITICAL</I></FONT> and
+on Unix systems with the <FONT FACE="Courier">sched_setscheduler()</FONT>
+API, an attempt to get the maximum allowed <FONT FACE="Courier"><I>SCHED_FIFO</I></FONT>
+priority is made.  The use of this option should be carefully
+evaluated since, depending upon the application's scheduling priority
+and NORM API usage, this may have adverse effects instead of a
+guaranteed performance increase!</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">A value of
 <FONT FACE="Courier">NORM_INSTANCE_INVALID</FONT> is returned upon
@@ -587,34 +605,34 @@ enumerates the possible <FONT FACE="Courier"><A HREF="#NormEvent">NormEvent</A> 
 and describes how these notifications should be interpreted as they
 are retrieved by the application via the <FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT>
 function call.</P>
-<TABLE WIDTH=100% BORDER=0 CELLPADDING=7 CELLSPACING=0>
-	<COL WIDTH=123*>
-	<COL WIDTH=133*>
+<TABLE WIDTH=590 BORDER=0 CELLPADDING=7 CELLSPACING=0>
+	<COL WIDTH=269>
+	<COL WIDTH=293>
 	<TR>
-		<TD COLSPAN=2 WIDTH=100% VALIGN=TOP>
+		<TD COLSPAN=2 WIDTH=576 VALIGN=TOP>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<B>Sender Notification Event Types:</B></P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_TX_QUEUE_VACANCY</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event indicates that there is room for additional transmit
 			objects to be enqueued, or, if the handle of <FONT FACE="Courier"><I>NORM_OBJECT_STREAM</I></FONT>
 			is given in the event &quot;object&quot; field, the application
-			may successfully write to the indicated stream.</P>
+			may successfully write to the indicated stream object.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_TX_QUEUE_EMPTY</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event indicates the NORM protocol engine has no new data
 			pending transmission and the application may enqueue additional
@@ -622,11 +640,11 @@ function call.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_TX_OBJECT_SENT</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event indicates that the transport object referenced by the
 			event's &quot;object&quot; field has completed at least one pass
@@ -638,11 +656,11 @@ function call.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_TX_OBJECT_PURGED</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event indicates that the NORM protocol engine will no longer
 			refer to the transport object identified by the event's &quot;object'
@@ -657,11 +675,11 @@ function call.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_LOCAL_SERVER_CLOSED</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event is posted when the NORM protocol engine completes the
 			&quot;graceful shutdown&quot; of its participation as a sender in
@@ -669,17 +687,17 @@ function call.</P>
 		</TD>
 	</TR>
 	<TR>
-		<TD COLSPAN=2 WIDTH=100% VALIGN=TOP>
+		<TD COLSPAN=2 WIDTH=576 VALIGN=TOP>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<B>Receiver Notification Event Types:</B></P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_REMOTE_SERVER_NEW</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This notification is posted when a receiver first receives
 			messages from a specific remote NORM server.  This marks the
@@ -688,11 +706,11 @@ function call.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_REMOTE_SERVER_ACTIVE</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event is posted when a previously inactive (or new) remote
 			server is detected operating as an active sender within the
@@ -700,11 +718,11 @@ function call.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_REMOTE_SERVER_INACTIVE</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event is posted after a significant period of inactivity (no
 			sender messages received) of a specific NORM sender within the
@@ -713,22 +731,22 @@ function call.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_REMOTE_SERVER_PURGED</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event is posted when the NORM protocol engine frees resources
 			for, and thus invalidates the indicated &quot;node&quot; handle.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_RX_OBJECT_NEW</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event is posted when reception of a new transport object
 			begins and marks the beginning of the interval during which the
@@ -737,33 +755,33 @@ function call.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_RX_OBJECT_INFO</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This notification is posted when the NORM_INFO content for the
 			indicated &quot;object&quot; is received.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_RX_OBJECT_UPDATED</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event indicates that the identified receive &quot;object&quot;
 			has newly received data content.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_RX_OBJECT_COMPLETED</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event is posted when a receive object is completely received,
 			including available NORM_INFO content.  Unless the application
@@ -773,11 +791,11 @@ function call.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_RX_OBJECT_ABORTED</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This notification is posted when a pending receive object's
 			transmission is aborted by the remote sender.  Unless the
@@ -787,17 +805,17 @@ function call.</P>
 		</TD>
 	</TR>
 	<TR>
-		<TD COLSPAN=2 WIDTH=100% VALIGN=TOP>
+		<TD COLSPAN=2 WIDTH=576 VALIGN=TOP>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<B>Miscellaneous Notification Event Types</B></P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=48%>
+		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_EVENT_INVALID</I></FONT></P>
 		</TD>
-		<TD WIDTH=52%>
+		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This <A HREF="#NormEventType">NormEventType</A> indicates an invalid or &quot;null&quot;
 			notification which should be ignored.</P>
@@ -818,7 +836,7 @@ even when no event is pending.  In these cases, the return value is
 <P CLASS="western">WIN32 Note:  A future version of this API will
 provide an option to have a user-defined Window message posted when a
 NORM API event is pending.  (Also some event filtering calls may be
-provided (e.g. avoid the potentially numerous <FONT FACE="Courier"><I>RX_OBJECT_UPDATED</I></FONT>
+provided (e.g. avoid the potentially numerous <FONT FACE="Courier"><I>NORM_RX_OBJECT_UPDATED</I></FONT>
 events if undesired)).</P>
 <H3 CLASS="functionheading-western"><A NAME="NormGetDescriptor()">NormGetDescriptor()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
@@ -845,8 +863,8 @@ usage, the NORM descriptor should be treated as a &quot;read&quot;
 descriptor.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">A descriptor is
-returned which is valid until a call to <A HREF="#NormDestroyInstance()">NormDestroyInstance()</A> is
-made.  Upon error, a value of <I><FONT FACE="Courier">NORM_DESCRIPTOR_INVALID</FONT></I>
+returned which is valid until a call to <FONT FACE="Courier"><A HREF="#NormDestroyInstance()">NormDestroyInstance()</A></FONT>
+is made.  Upon error, a value of <I><FONT FACE="Courier">NORM_DESCRIPTOR_INVALID</FONT></I>
 is returned.</P>
 <H2 CLASS="western">Session Creation and Control</H2>
 <H3 CLASS="functionheading-western"><A NAME="NormCreateSession()">NormCreateSession()</A></H3>
@@ -866,26 +884,26 @@ is made to <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</
 <FONT FACE="Courier"><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT> to join the specified
 multicast group (if applicable) and start protocol operation.  The
 following parameters are required in this function call:</P>
-<TABLE WIDTH=100% BORDER=0 CELLPADDING=7 CELLSPACING=0>
-	<COL WIDTH=50*>
-	<COL WIDTH=206*>
+<TABLE WIDTH=590 BORDER=0 CELLPADDING=7 CELLSPACING=0>
+	<COL WIDTH=101>
+	<COL WIDTH=461>
 	<TR VALIGN=TOP>
-		<TD WIDTH=20%>
+		<TD WIDTH=101>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier">instance</FONT></P>
 		</TD>
-		<TD WIDTH=80%>
+		<TD WIDTH=461>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This must be a valid <FONT FACE="Courier"><A HREF="#NormInstanceHandle">NormInstanceHandle</A></FONT>
 			previously obtained with a call to <FONT FACE="Courier"><A HREF="#NormCreateInstance()">NormCreateInstance()</A></FONT>.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=20%>
+		<TD WIDTH=101>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier">address</FONT></P>
 		</TD>
-		<TD WIDTH=80%>
+		<TD WIDTH=461>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This points to a string containing an IP address (e.g. dotted
 			decimal IPv4 address (or IPv6 address) or name resolvable to a
@@ -903,11 +921,11 @@ following parameters are required in this function call:</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=20%>
+		<TD WIDTH=101>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier">port</FONT></P>
 		</TD>
-		<TD WIDTH=80%>
+		<TD WIDTH=461>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This must be a valid, unused port number corresponding to the
 			desired NORM session address.  See the <U><FONT FACE="Courier">address</FONT></U>
@@ -915,11 +933,11 @@ following parameters are required in this function call:</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=20%>
+		<TD WIDTH=101>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier">localId</FONT></P>
 		</TD>
-		<TD WIDTH=80%>
+		<TD WIDTH=461>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			The <FONT FACE="Courier">localId</FONT> parameter specifies the
 			<FONT FACE="Courier"><A HREF="#NormNodeId">NormNodeId</A></FONT> that should be used to
@@ -965,6 +983,40 @@ explicitly retained <FONT FACE="Courier">NormObjectHandles</FONT>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function has no
 returned values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetUserData()">NormSetUserData()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
+NormSetUserData(<A HREF="#NormSessionHandle">NormSessionHandle</A> session, const void* userData);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function allows
+the application to attach a value to the previously-created
+<I>NormSession</I> instance specified by the <FONT FACE="Courier"><U>session</U></FONT>
+parameter.  This value is not used or interpreted by NORM, but is
+available to the application for use at the programmer's discretion. 
+The set <FONT FACE="Courier"><U>userData</U></FONT> value can be
+later retrieved using the <FONT FACE="Courier"><A HREF="#NormGetUserData()">NormGetUserData()</A></FONT>
+function call.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function has no
+returned values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormGetUserData()">NormGetUserData()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>const
+void* NormGetUserData(<A HREF="#NormSessionHandle">NormSessionHandle</A> session);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function retrieves
+the &quot;user data&quot; value set for the specified session with a
+prior call to <FONT FACE="Courier"><A HREF="#NormSetUserData()">NormSetUserData()</A></FONT>.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function returns
+the user data value set for the specified session.  If no user data
+value has been previously set a <FONT FACE="Courier"><I>NULL</I></FONT>
+(i.e., <FONT FACE="Courier"><I>(const void*)0</I></FONT>) value is
+returned.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormGetLocalNodeId()">NormGetLocalNodeId()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -984,6 +1036,34 @@ network address.</P>
 indicates the <I>NormNode</I> identifier used by the NORM protocol
 engine for the local application's participation in the specified
 <I>NormSession</I>.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetTxPort()">NormSetTxPort()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
+NormSetTxPort(<A HREF="#NormSessionHandle">NormSessionHandle</A> session,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
+short    txPort);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function is used
+to force NORM to use a specific port number for UDP packets sent for
+the specified <FONT FACE="Courier"><U>session</U></FONT>.  By
+default, NORM uses separate port numbers for packet transmission and
+session packet reception (the receive port is specified as part of
+the <FONT FACE="Courier"><A HREF="#NormCreateSession()">NormCreateSession()</A></FONT> call), allowing
+the operating system to pick a freely available port for
+transmission.  This call allows the application to pick a specific
+port number for transmission, and furthermore allows the application
+to even specify the same port number for transmission as is used for
+reception.  However, the use of separate transmit/receive ports
+allows NORM to discriminate when unicast feedback is occurring and
+thus it is not generally recommended that the transmit port be set to
+the same value as the <FONT FACE="Courier"><U>session</U></FONT>
+receive port.  This call <I>must</I> be made <I>before</I> any calls
+to <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT> or
+<FONT FACE="Courier"><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT> to succeed.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function has no
+return values.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormSetMulticastInterface()">NormSetMulticastInterface()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -1118,26 +1198,26 @@ such as congestion control and/or group round-trip timing (GRTT)
 feedback collection and application API activity such as posting of
 sender-related <I>NormEvents</I>.  The parameters required for this
 function call include:</P>
-<TABLE WIDTH=100% BORDER=0 CELLPADDING=7 CELLSPACING=0>
-	<COL WIDTH=56*>
-	<COL WIDTH=200*>
+<TABLE WIDTH=590 BORDER=0 CELLPADDING=7 CELLSPACING=0>
+	<COL WIDTH=106>
+	<COL WIDTH=456>
 	<TR VALIGN=TOP>
-		<TD WIDTH=22%>
+		<TD WIDTH=106>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><U>session</U></FONT></P>
 		</TD>
-		<TD WIDTH=78%>
+		<TD WIDTH=456>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This must be a valid <FONT FACE="Courier"><A HREF="#NormSessionHandle">NormSessionHandle</A></FONT>
 			previously obtained with a call to <FONT FACE="Courier"><A HREF="#NormCreateSession()">NormCreateSession()</A></FONT>.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=22%>
+		<TD WIDTH=106>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><U>bufferSpace</U></FONT></P>
 		</TD>
-		<TD WIDTH=78%>
+		<TD WIDTH=456>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This specifies the maximum memory space the NORM protocol engine
 			is allowed to use to buffer any sender calculated FEC segments and
@@ -1155,11 +1235,11 @@ function call include:</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=22%>
+		<TD WIDTH=106>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><U>segmentSize</U></FONT></P>
 		</TD>
-		<TD WIDTH=78%>
+		<TD WIDTH=456>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This parameter sets the maximum <I>payload</I> size (in bytes) of
 			NORM sender messages (<I>not</I> including any NORM message header
@@ -1181,21 +1261,21 @@ function call include:</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=22%>
+		<TD WIDTH=106>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><U>blockSize</U></FONT></P>
 		</TD>
-		<TD WIDTH=78%>
+		<TD WIDTH=456>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This parameter sets the number of source symbol segments (packets)
 			per coding block, for the systematic Reed-Solomon FEC code used in
 			the current NORM implementation.  For traditional systematic block
 			code &quot;<I>(n,k)</I>&quot; nomenclature, the <FONT FACE="Courier"><U>blockSize</U></FONT>
-			value corresponds to <I>(n-k).</I>  NORM logically segments
-			transport object data content into coding blocks and the <FONT FACE="Courier"><U>blockSize</U></FONT>
-			parameter determines the number of source symbol segments
-			(packets) comprising a single coding block where each source
-			symbol segment is up to <FONT FACE="Courier"><U>segmentSize</U></FONT>
+			value corresponds to <I>&quot;k&quot;.</I>  NORM logically
+			segments transport object data content into coding blocks and the
+			<FONT FACE="Courier"><U>blockSize</U></FONT> parameter determines
+			the number of source symbol segments (packets) comprising a single
+			coding block where each source symbol segment is up to <FONT FACE="Courier"><U>segmentSize</U></FONT>
 			bytes in length..  A given block's parity symbol segments are
 			calculated using the corresponding set of source symbol segments. 
 			The maximum <FONT FACE="Courier"><U>blockSize</U></FONT> allowed
@@ -1205,11 +1285,11 @@ function call include:</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=22%>
+		<TD WIDTH=106>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><U>numParity</U></FONT></P>
 		</TD>
-		<TD WIDTH=78%>
+		<TD WIDTH=456>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This parameter sets the maximum number of parity symbol segments
 			(packets) the sender is willing to <I>calculate</I> per FEC coding
@@ -1217,7 +1297,7 @@ function call include:</P>
 			the corresponding <FONT FACE="Courier"><U>blockSize</U></FONT>
 			source symbol segments.  In the &quot;<I>(n,k)&quot;</I>
 			nomenclature mention above, the <FONT FACE="Courier"><U>numParity</U></FONT>
-			value corresponds to &quot;<I>k</I>&quot;.  A property of the
+			value corresponds to &quot;<I>n-k</I>&quot;.  A property of the
 			Reed-Solomon FEC codes used in the current NORM implementation is
 			that one parity segment can fill any one erasure (missing segment
 			(packet)) for a coding block.  For a given <FONT FACE="Courier"><U>blockSize</U></FONT>,
@@ -1312,6 +1392,36 @@ readjust the rate unless disabled.
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function has no
 return values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetTxSocketBuffer()">NormSetTxSocketBuffer()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>bool
+NormSetTxSocketBuffer(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;session,
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
+int&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bufferSize);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function can be
+used to set a non-default socket buffer size for the UDP socket used
+by the specified NORM <FONT FACE="Courier"><U>session</U></FONT> for
+data transmission.  The <FONT FACE="Courier"><U>bufferSize</U></FONT>
+parameter specifies the desired socket buffer size in bytes.  Large
+transmit socket buffer sizes may be necessary to achieve high
+throughput rates when NORM, as a user-space process, is unable to
+precisely time its packet transmissions.  Similarly, NORM receivers
+may need to set large receive socket buffer sizes to achieve
+sustained high data rate reception (see <FONT FACE="Courier"><A HREF="#NormSetRxSocketBuffer()">NormSetRxSocketBuffer()</A></FONT>).
+ 
+</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function returns
+<FONT FACE="Courier"><I>true</I></FONT> upon success and <FONT FACE="Courier"><I>false</I></FONT>
+upon failure.  Possible failure modes include an invalid session
+parameter, a call to <FONT FACE="Courier"><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT>
+or <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT> has not yet been
+made for the session, or an invalid <FONT FACE="Courier"><U>bufferSize</U></FONT>
+was given.  Note some operating systems may require additional
+configuration to use non-standard socket buffer sizes.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormSetCongestionControl()">NormSetCongestionControl()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -1424,7 +1534,7 @@ NormSetGrttEstimate(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;sess
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function sets the
 sender's estimate of group round-trip timing (GRTT).  This function
-is expected to most typically used to initialize ther sender's GRTT
+is expected to most typically used to initialize the sender's GRTT
 estimate prior to the call to <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT>
 when the application has <I>a priori</I> confidence that the default
 initial GRTT value of 0.5 second is inappropriate.  The sender GRTT
@@ -1433,9 +1543,9 @@ after sender startup or if this call is made while sender operation
 is active.  For experimental purposes (or very special application
 needs), this API provides a mechanism to control or disable the
 sender GRTT update process (see <FONT FACE="Courier">NormSetGrttProbing()</FONT>).
- The grtt value will be limited to the maximum GRTT as set (see
-<FONT FACE="Courier">NormSetGrttMax()) </FONT>or the default maximum
-of 10 seconds.  
+ The <FONT FACE="Courier"><U>grtt</U></FONT> value will be limited to
+the maximum GRTT as set (see <FONT FACE="Courier">NormSetGrttMax())
+</FONT>or the default maximum of 10 seconds.  
 </P>
 <P CLASS="western" STYLE="font-style: normal">The sender GRTT is
 advertised to the receiver group and is used to scale various NORM
@@ -2064,6 +2174,39 @@ related resources are then freed.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function has no
 return values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetRxSocketBuffer()">NormSetRxSocketBuffer()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>bool
+NormSetRxSocketBuffer(<A HREF="#NormSessionHandle">NormSessionHandle</A> session,
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
+int&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bufferSize);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function allows
+the application to set an alternative, non-default buffer size for
+the UDP socket used by the specified NORM <FONT FACE="Courier"><U>session</U></FONT>
+for packet reception.  This may be necessary for high speed NORM
+sessions where the UDP receive socket buffer becomes a bottleneck
+when the NORM protocol engine (which is running as a user-space
+process) doesn't get to service the receive socket quickly enough
+resulting in packet loss when the socket buffer overflows.  The
+<FONT FACE="Courier"><U>bufferSize</U></FONT> parameter specifies the
+socket buffer size in bytes.  Different operating systems and
+sometimes system configurations allow different ranges of socket
+buffer sizes to be set.  Note that a call to <FONT FACE="Courier"><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT>
+(or <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT>) must have been
+previously made for this call to succeed (i.e., the socket must be
+already open).</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function returns
+<FONT FACE="Courier"><I>true</I></FONT> upon success and <FONT FACE="Courier"><I>false</I></FONT>
+upon failure.  Possible reasons for failure include, 1) the specified
+<FONT FACE="Courier"><U>session</U></FONT> is not valid, 2) that NORM
+&quot;receiver&quot; (or &quot;sender&quot;) operation has not yet
+been started for the given <FONT FACE="Courier"><U>session</U></FONT>,
+or 3) an invalid <FONT FACE="Courier"><U>bufferSize</U></FONT>
+specification was given.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormSetSilentReceiver()">NormSetSilentReceiver()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -2154,32 +2297,32 @@ participation in the repair process.  By limiting receivers to only
 request repair of objects in which they are really interested in
 receiving, some overall savings in unnecessary network loading might
 be realized. Available nacking modes include:</P>
-<TABLE WIDTH=100% BORDER=0 CELLPADDING=7 CELLSPACING=0 STYLE="page-break-inside: avoid">
-	<COL WIDTH=131*>
-	<COL WIDTH=125*>
+<TABLE WIDTH=590 BORDER=0 CELLPADDING=7 CELLSPACING=0>
+	<COL WIDTH=231>
+	<COL WIDTH=332>
 	<TR VALIGN=TOP>
-		<TD WIDTH=51%>
+		<TD WIDTH=231>
 			<P CLASS="western" STYLE="margin-left: 0.5in; font-style: normal"><FONT FACE="Courier"><I>NORM_NACK_NONE</I></FONT></P>
 		</TD>
-		<TD WIDTH=49%>
+		<TD WIDTH=332>
 			<P CLASS="western" STYLE="margin-left: 0.02in; font-style: normal">
 			Do not transmit any repair requests for the newly received object.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=51%>
+		<TD WIDTH=231>
 			<P CLASS="western" STYLE="margin-left: 0.5in; font-style: normal"><FONT FACE="Courier"><I>NORM_NACK_INFO_ONLY</I></FONT></P>
 		</TD>
-		<TD WIDTH=49%>
+		<TD WIDTH=332>
 			<P CLASS="western" STYLE="margin-left: 0.02in; font-style: normal">
 			Transmit repair requests for NORM_INFO content only as needed.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=51%>
+		<TD WIDTH=231>
 			<P CLASS="western" STYLE="margin-left: 0.5in; font-style: normal"><FONT FACE="Courier"><I>NORM_NACK_NORMAL</I></FONT></P>
 		</TD>
-		<TD WIDTH=49%>
+		<TD WIDTH=332>
 			<P CLASS="western" STYLE="margin-left: 0.02in; font-style: normal">
 			Transmit repair requests for entire object as needed.</P>
 		</TD>

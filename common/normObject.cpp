@@ -1,7 +1,11 @@
 #include "normObject.h"
 #include "normSession.h"
 
-#include <errno.h>
+#ifndef _WIN32_WCE
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#endif // !_WIN32_WCE
 
 NormObject::NormObject(NormObject::Type      theType, 
                        class NormSession&    theSession, 
@@ -1177,8 +1181,6 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                     block->IncrementParityCount();   
                 }
                 
-                
-                
                 // 3) Decode block if ready and return to pool
                 if (block->ErasureCount() <= block->ParityCount())
                 {
@@ -2273,7 +2275,7 @@ bool NormStreamObject::Open(UINT32      bufferSize,
             Close();
             return false;
         }
-        stream_next_id = pending_mask.Size();
+        stream_next_id = pending_mask.GetSize();
     }
     
     stream_sync = false;
@@ -2382,7 +2384,7 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
                         stream_next_id = blockId + 1;
                         // Handle potential sync block id wrap
                         NormBlockId delta = stream_next_id - stream_sync_id;
-                        if (delta > NormBlockId(2*pending_mask.Size()))
+                        if (delta > NormBlockId(2*pending_mask.GetSize()))
                             GetFirstPending(stream_sync_id);
                         return true;
                     }
@@ -2396,7 +2398,7 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
                 else
                 {
                     NormBlockId delta = blockId - stream_next_id + 1;
-                    if (delta > NormBlockId(pending_mask.Size()))
+                    if (delta > NormBlockId(pending_mask.GetSize()))
                     {
                         // Stream broken
                         //DMSG(0, "NormObject::StreamUpdateStatus() broken 2 ...\n");
@@ -2404,11 +2406,11 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
                     }
                     else
                     {
-                        pending_mask.SetBits(blockId, pending_mask.Size()); 
-                        stream_next_id = blockId + NormBlockId(pending_mask.Size());
+                        pending_mask.SetBits(blockId, pending_mask.GetSize()); 
+                        stream_next_id = blockId + NormBlockId(pending_mask.GetSize());
                         // Handle potential sync block id wrap
                         delta = stream_next_id - stream_sync_id;
-                        if (delta > NormBlockId(2*pending_mask.Size()))
+                        if (delta > NormBlockId(2*pending_mask.GetSize()))
                             stream_sync_id = blockId;
                         return true;
                     }  
@@ -2420,10 +2422,10 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
     {
         // For now, let stream begin anytime
         pending_mask.Clear();
-        pending_mask.SetBits(blockId, pending_mask.Size());
+        pending_mask.SetBits(blockId, pending_mask.GetSize());
         stream_sync = true;
         stream_sync_id = blockId;
-        stream_next_id = blockId + pending_mask.Size(); 
+        stream_next_id = blockId + pending_mask.GetSize(); 
         read_init = true;
         return true;  
     }
@@ -2868,7 +2870,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
         {
             write_vacancy = false;
             DMSG(8, "NormStreamObject::Write() stream buffer full (1)\n", len, eom);
-            break;  // (TBD) skip break if push_mode is enabled???
+            if (!push_mode) break;  
         }
         NormBlock* block = stream_buffer.Find(write_index.block);
         if (!block)
@@ -3023,8 +3025,8 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
         if (0 != nBytes) 
             session.TouchServer();  
     }
-    if ((0 != nBytes) && posted_tx_queue_vacancy)
-        posted_tx_queue_vacancy = false;
+    //if ((0 != nBytes) && posted_tx_queue_vacancy)
+    //    posted_tx_queue_vacancy = false;
     return nBytes;
 }  // end NormStreamObject::Write()
 
@@ -3114,7 +3116,7 @@ bool NormObjectTable::Init(UINT16 rangeMax, UINT16 tableSize)
     if (0 != (tableSize & 0x07)) tableSize = (tableSize >> 3) + 1;
     if (!(table = new NormObject*[tableSize]))
     {
-        DMSG(0, "NormObjectTable::Init() table allocation error: %s\n", strerror(errno));
+        DMSG(0, "NormObjectTable::Init() table allocation error: %s\n", GetErrorString());
         return false;         
     }
     memset(table, 0, tableSize*sizeof(char*));

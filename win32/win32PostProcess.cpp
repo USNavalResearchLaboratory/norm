@@ -3,7 +3,9 @@
 #include "normPostProcess.h"
 #include "protoDebug.h"
 
+#ifndef _WIN32_WCE
 #include <ddeml.h>
+#endif // !_WIN32_WCE
 #include <shellapi.h>
 #include <stdio.h>
 
@@ -17,23 +19,26 @@ class Win32PostProcessor : public NormPostProcessor
         bool IsActive() {return (NULL != post_processor_handle);}
 
     private:
-        static HDDEDATA CALLBACK DDEClientCallback(UINT uiType, UINT uiFmt, HCONV hConv, 
-			                                       HSZ sz1, HSZ sz2, HDDEDATA hData,
-			                                       DWORD lData1, DWORD lData2);
         friend class NormPostProcessor;
         Win32PostProcessor();
         bool Init();
 
+#ifndef _WIN32_WCE
+        static HDDEDATA CALLBACK DDEClientCallback(UINT uiType, UINT uiFmt, HCONV hConv, 
+			                                       HSZ sz1, HSZ sz2, HDDEDATA hData,
+			                                       DWORD lData1, DWORD lData2);
         // Post Processor DDE state
 	    DWORD 		        lIdInst;   // DDE instance id
 	    HCONV		        hConv;     // dde converstation handle
 	    DWORD		        transaction_id;
 	    DWORD		        window_id; // dde browser window id
 	    PFNCALLBACK	        lpDDECallback;
+#endif // !_WIN32_WCE
 		HANDLE		        post_processor_handle;
 };  // end class Win32PostProcessor
 
 
+#ifndef _WIN32_WCE
 HDDEDATA CALLBACK Win32PostProcessor::DDEClientCallback(UINT uiType, UINT uiFmt, HCONV hConv, 
 			                                            HSZ sz1, HSZ sz2, HDDEDATA hData,
 			                                            DWORD lData1, DWORD lData2)
@@ -95,9 +100,14 @@ HDDEDATA CALLBACK Win32PostProcessor::DDEClientCallback(UINT uiType, UINT uiFmt,
 	}
 	return NULL;  // callback does nothing for now
 }
+#endif // !_WIN32_WCE
 
 Win32PostProcessor::Win32PostProcessor()
- : lIdInst(0), hConv(NULL), window_id(-1),
+
+ : 
+#ifndef _WIN32_WCE
+    lIdInst(0), hConv(NULL), window_id(-1),
+#endif // !_WIN32_WCE
    post_processor_handle(NULL)
 {
     
@@ -106,11 +116,13 @@ Win32PostProcessor::Win32PostProcessor()
 Win32PostProcessor::~Win32PostProcessor()
 {
     Kill();
+#ifndef _WIN32_WCE
     if (lIdInst)
     {
 	    ::DdeUninitialize(lIdInst);
         lIdInst = 0;
     }
+#endif // !_WIN32_WCE
 }
 
 NormPostProcessor* NormPostProcessor::Create()
@@ -128,7 +140,8 @@ NormPostProcessor* NormPostProcessor::Create()
 
 bool Win32PostProcessor::Init()
 {
-// Init DDE
+#ifndef _WIN32_WCE
+    // Init DDE
     if (0 != lIdInst)
     {
         // already exists
@@ -142,21 +155,21 @@ bool Win32PostProcessor::Init()
         {
 	        return false;
         }
-        else
-        {
-            return true;
-        }
     }
+#endif // !_WIN32_WCE
+    return true;
 }  // end Win32PostProcessor::Init()
 
 
 void Win32PostProcessor::Kill()
 {
+#ifndef _WIN32_WCE
     if (hConv) 
     {
         DdeDisconnect(hConv);
         hConv = NULL;
     }
+#endif // !_WIN32_WCE
     if (post_processor_handle)
     {
         TerminateProcess(post_processor_handle, 0);
@@ -168,7 +181,7 @@ void Win32PostProcessor::Kill()
 
 bool Win32PostProcessor::ProcessFile(const char *path)
 {
-
+#ifndef _WIN32_WCE
     // DDE seems to be broken for the moment
     // (It does work if the serving applications is _already_ running
     //  so these two lines of code disable it for the moment)
@@ -217,6 +230,7 @@ bool Win32PostProcessor::ProcessFile(const char *path)
 	// For now we assume the DDE server name & command name are the 
 	// same and that the post processor command executable is in
 	// the PATH
+#endif // !_WIN32_WCE
 
 	// Kill old PostProcessor first
     Kill();
@@ -230,6 +244,19 @@ bool Win32PostProcessor::ProcessFile(const char *path)
     }
     strcat(args, path);	
 
+#ifdef _UNICODE
+    wchar_t cmdBuffer[PATH_MAX];
+    mbstowcs(cmdBuffer, process_argv[0], PATH_MAX);
+    wchar_t* cmdPtr = cmdBuffer;
+    wchar_t argsBuffer[PATH_MAX+512];
+    mbstowcs(argsBuffer, args, PATH_MAX+512);
+    wchar_t* argPtr = argsBuffer;
+    
+#else
+    char* cmdPtr = process_argv[0];
+    char* argPtr = args;
+#endif // if/else _UNICODE
+
     DMSG(4, "Win32PostProcessor::ProcessFile() execing \"%s %s\"\n", process_argv[0], args);
 	
 	SHELLEXECUTEINFO exeInfo;
@@ -237,8 +264,8 @@ bool Win32PostProcessor::ProcessFile(const char *path)
 	exeInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
     exeInfo.hwnd = NULL; 
     exeInfo.lpVerb = NULL; 
-    exeInfo.lpFile = process_argv[0]; 
-    exeInfo.lpParameters = args; 
+    exeInfo.lpFile = cmdPtr; 
+    exeInfo.lpParameters = argPtr; 
     exeInfo.lpDirectory = NULL;
     exeInfo.nShow = SW_SHOW;
 	if (!ShellExecuteEx(&exeInfo))

@@ -100,26 +100,29 @@ class NormSession
         const NormNodeId& LocalNodeId() const {return local_node_id;}
         bool Open(const char* interfaceName = NULL);
         void Close();
-        bool IsOpen() {return (rx_socket.IsOpen() || tx_socket.IsOpen());}
+        bool IsOpen() {return (rx_socket.IsOpen() || tx_socket->IsOpen());}
         const ProtoAddress& Address() {return address;}
         void SetAddress(const ProtoAddress& addr) {address = addr;}
         bool SetMulticastInterface(const char* interfaceName);
         bool SetTTL(UINT8 theTTL) 
         {
-            bool result = tx_socket.IsOpen() ? tx_socket.SetTTL(theTTL) : true;
+            bool result = tx_socket->IsOpen() ? tx_socket->SetTTL(theTTL) : true;
             ttl = result ? theTTL : ttl;
             return result; 
         }
         bool SetLoopback(bool state) 
         {
-            bool result = tx_socket.IsOpen() ? tx_socket.SetLoopback(state) : true;
+            bool result = tx_socket->IsOpen() ? tx_socket->SetLoopback(state) : true;
             loopback = result ? state : loopback;
             return result; 
         }
+        void SetTxPort(UINT16 txPort) {tx_port = txPort;}
         static double CalculateRate(double size, double rtt, double loss);
         
         NormSessionMgr& GetSessionMgr() {return session_mgr;}
         
+        bool SetTxSocketBuffer(unsigned int bufferSize)
+            {return tx_socket->SetTxBufferSize(bufferSize);}
         bool SetRxSocketBuffer(unsigned int bufferSize)
             {return rx_socket.SetRxBufferSize(bufferSize);}
         
@@ -147,6 +150,9 @@ class NormSession
         void QueueMessage(NormMsg* msg);
         bool SendMessage(NormMsg& msg);
         void ActivateTimer(ProtoTimer& timer) {session_mgr.ActivateTimer(timer);}
+        
+        void SetUserData(const void* userData) {user_data = userData;}
+        const void* GetUserData() {return user_data;}
         
         // Server methods
         void ServerSetBaseObjectId(NormObjectId baseId)
@@ -210,8 +216,11 @@ class NormSession
         double ServerGrtt() {return grtt_advertised;}
         void ServerSetGrtt(double grttValue)
         {
-            double grttMin = 2.0 * ((double)(44+segment_size))/tx_rate;
-            grttValue = (grttValue < grttMin) ? grttMin : grttValue;
+            if (IsServer())
+            {
+                double grttMin = 2.0 * ((double)(44+segment_size))/tx_rate;
+                grttValue = (grttValue < grttMin) ? grttMin : grttValue;
+            }
             grtt_quantized = NormQuantizeRtt(grttValue);
             grtt_measured = grtt_advertised = NormUnquantizeRtt(grtt_quantized);      
         }
@@ -332,7 +341,9 @@ class NormSession
         NormSessionMgr&                 session_mgr;
         bool                            notify_pending;
         ProtoTimer                      tx_timer;
-        ProtoSocket                     tx_socket;
+        UINT16                          tx_port;
+        ProtoSocket*                    tx_socket;
+        ProtoSocket                     tx_socket_actual;
         ProtoSocket                     rx_socket;
         NormMessageQueue                message_queue;
         NormMessageQueue                message_pool;
@@ -360,8 +371,8 @@ class NormSession
         UINT16                          extra_parity;
         
         NormObjectTable                 tx_table;
-        NormSlidingMask                 tx_pending_mask;
-        NormSlidingMask                 tx_repair_mask;
+        ProtoSlidingMask                tx_pending_mask;
+        ProtoSlidingMask                tx_repair_mask;
         ProtoTimer                      repair_timer;
         NormBlockPool                   block_pool;
         NormSegmentPool                 segment_pool;
@@ -435,6 +446,8 @@ class NormSession
         double                          tx_loss_rate;  // for correlated loss
         double                          rx_loss_rate;  // for uncorrelated loss
 
+        const void*                     user_data;
+        
         // Linkers
         NormSession*                    next;
 };  // end class NormSession

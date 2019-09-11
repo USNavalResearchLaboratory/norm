@@ -2,8 +2,6 @@
 #include "normNode.h"
 #include "normSession.h"
 
-#include <errno.h>
-
 NormNode::NormNode(class NormSession& theSession, NormNodeId nodeId)
  : session(theSession), id(nodeId), reference_count(0),
    parent(NULL), right(NULL), left(NULL)
@@ -982,7 +980,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                 if (!(obj = new NormStreamObject(session, this, objectId)))
                 {
                     DMSG(0, "NormServerNode::HandleObjectMessage() new NORM_OBJECT_STREAM error: %s\n",
-                            strerror(errno));
+                            GetErrorString());
                 }
             }
             else if (msg.FlagIsSet(NormObjectMsg::FLAG_FILE))
@@ -994,7 +992,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
 #endif
                 {
                     DMSG(0, "NormServerNode::HandleObjectMessage() new NORM_OBJECT_FILE error: %s\n",
-                            strerror(errno));
+                            GetErrorString());
                 }
             }
             else
@@ -1002,7 +1000,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                 if (!(obj = new NormDataObject(session, this, objectId)))
                 {
                     DMSG(0, "NormServerNode::HandleObjectMessage() new NORM_OBJECT_DATA error: %s\n",
-                            strerror(errno));
+                            GetErrorString());
                 }
             }
             
@@ -1272,7 +1270,7 @@ NormServerNode::ObjectStatus NormServerNode::GetObjectStatus(const NormObjectId&
                 else
                 {
                     NormObjectId delta = objectId - next_id + 1;
-                    if (delta > NormObjectId((UINT16)rx_pending_mask.Size()))
+                    if (delta > NormObjectId((UINT16)rx_pending_mask.GetSize()))
                     {
                         return OBJ_INVALID;
                     }

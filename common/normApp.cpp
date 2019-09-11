@@ -6,8 +6,6 @@
 #include "normPostProcess.h"
 
 #include <stdio.h>   // for stdout/stderr printouts
-#include <signal.h>  // for SIGTERM/SIGINT handling
-#include <errno.h>
 #include <stdlib.h>
 #include <ctype.h>  // for "isspace()"
 
@@ -419,7 +417,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         if (!(address = new char[len+1]))
         {
             DMSG(0, "NormApp::OnCommand(address) allocation error:%s\n",
-                strerror(errno)); 
+                GetErrorString()); 
             return false;
         }
         strcpy(address, val);
@@ -526,7 +524,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         else if (!(input = fopen(val, "rb")))
         {
             DMSG(0, "NormApp::OnCommand(input) fopen() error: %s\n",
-                    strerror(errno));
+                    GetErrorString());
             return false;   
         }
         input_index = input_length = 0;
@@ -546,7 +544,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         else if (!(output = fopen(val, "wb")))
         {
             DMSG(0, "NormApp::OnCommand(output) fopen() error: %s\n",
-                    strerror(errno));
+                    GetErrorString());
             return false;   
         }
         output_messaging = false;
@@ -562,7 +560,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         else if (!(input = fopen(val, "rb")))
         {
             DMSG(0, "NormApp::OnCommand(input) fopen() error: %s\n",
-                    strerror(errno));
+                    GetErrorString());
             return false;   
         }
         input_index = input_length = 0;
@@ -582,7 +580,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         else if (!(output = fopen(val, "wb")))
         {
             DMSG(0, "NormApp::OnCommand(output) fopen() error: %s\n",
-                    strerror(errno));
+                    GetErrorString());
             return false;   
         }
         output_messaging = true;
@@ -641,7 +639,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         if (!(rx_cache_path = new char[length]))
         {
              DMSG(0, "NormApp::OnCommand(rxcachedir) alloc error: %s\n",
-                    strerror(errno));
+                    GetErrorString());
             return false;  
         }
         strcpy(rx_cache_path, val);
@@ -979,6 +977,7 @@ void NormApp::OnInputReady()
                 }
                 else if (ferror(input))
                 {
+#ifndef WIN32  // no Win32 stream support yet
                     switch (errno)
                     {
                         case EINTR:
@@ -988,9 +987,10 @@ void NormApp::OnInputReady()
                             inputStarved = true;
                             break;
                         default:
-                            DMSG(0, "norm: input error:%s\n", strerror(errno));
+                            DMSG(0, "norm: input error:%s\n", GetErrorString());
                             break;   
                     }
+#endif // !WIN32
                     clearerr(input);
                 }
             } 
@@ -1123,9 +1123,37 @@ void NormApp::Notify(NormController::Event event,
                         // (TBD) Manage recv file name collisions, etc ...
                         char fileName[PATH_MAX];
                         strcpy(fileName, rx_cache_path);
+                        size_t catMax = strlen(fileName);
+                        if (catMax > PATH_MAX)
+                            catMax = 0;
+                        else
+                            catMax = PATH_MAX - catMax;
                         strcat(fileName, "normTempXXXXXX");
 #ifdef WIN32
+#ifdef _WIN32_WCE
+                        bool tempFileOK = false;
+                        for (int i = 0; i < 255; i++)
+                        {
+                            strncpy(fileName, rx_cache_path, PATH_MAX);
+                            catMax = strlen(fileName);
+                            if (catMax > PATH_MAX) 
+                                catMax = 0;
+                            else
+                                catMax = PATH_MAX - catMax;
+                            strncat(fileName, "normTempXXXXXX", catMax);
+                            char tempName[16];
+                            sprintf(tempName, "normTemp%06u", i);
+                            strcat(fileName, tempName);
+                            if(!NormFile::IsLocked(fileName))
+                            {
+                                tempFileOK = true;
+                                break;
+                            }
+                        }
+                        if (!tempFileOK)
+#else
                         if (!_mktemp(fileName))
+#endif // if/else _WIN32_WCE
 #else
                         int fd = mkstemp(fileName); 
                         if (fd >= 0)
@@ -1136,7 +1164,7 @@ void NormApp::Notify(NormController::Event event,
 #endif // if/else WIN32         
                         {
                             DMSG(0, "NormApp::Notify(RX_OBJECT_NEW) Warning: mkstemp() error: %s\n",
-                                    strerror(errno));  
+                                    GetErrorString());  
                         } 
                         if (!static_cast<NormFileObject*>(object)->Accept(fileName))
                         {
@@ -1305,14 +1333,16 @@ void NormApp::Notify(NormController::Event event,
                             {
                                 if (ferror(output))
                                 {
+#ifndef WIN32  // no stream support in this app for Win32
                                     if (EINTR == errno) 
                                     {
                                         clearerr(output);
                                         continue;
                                     }
                                     else
+#endif // !WIN32
                                     {
-                                        DMSG(0, "norm: output error:%s\n", strerror(errno));
+                                        DMSG(0, "norm: output error:%s\n", GetErrorString());
                                         clearerr(output);
                                         break;
                                     }   

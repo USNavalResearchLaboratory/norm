@@ -1,5 +1,18 @@
 			           NORM Version History
 
+Version 1.3b1
+=============
+    - Prevented pile-up of TX_QUEUE_VACANCY notifications
+    - Fix/optimization to ProtoDispatcher threaded operation
+      to prevent possible (although minor) race condition
+      during threaded operation.
+    - Added NORM API calls: NormSetTxSocketBuffer(), 
+      NormSetRxSocketBuffer(), NormSetUserData(), 
+      NormGetUserData(), and implemented overlooked
+      NormGetDescriptor()
+    - Thanks again to Charlie Davis for finding some
+      performance deficiencies.
+
 Version 1.2b9
 =============
     - Fixed bugs with NormServerNode::retrieval_pool mgmnt

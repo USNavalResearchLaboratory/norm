@@ -1,11 +1,13 @@
 #include "normFile.h"
 
 #include <string.h>  // for strerror()
-#include <errno.h>   // for errno
 #include <stdio.h>   // for rename()
 #ifdef WIN32
+#ifndef _WIN32_WCE
 #include <direct.h>
 #include <share.h>
+#include <io.h>
+#endif // !_WIN32_WCE
 #else
 #include <unistd.h>
 // Most don't have the dirfd() function
@@ -14,8 +16,18 @@ static inline int dirfd(DIR *dir) {return (dir->dd_fd);}
 #endif // HAVE_DIRFD    
 #endif // if/else WIN32
 
+#ifndef _WIN32_WCE
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#endif // !_WIN32_WCE
+
 NormFile::NormFile()
+#ifdef _WIN32_WCE
+    : file_ptr(NULL)
+#else
     : fd(-1)
+#endif // if/else _WIN32_WCE
 {    
 }
 
@@ -23,6 +35,7 @@ NormFile::~NormFile()
 {
     if (IsOpen()) Close();
 }  // end NormFile::~NormFile()
+
 
 // This should be called with a full path only!
 bool NormFile::Open(const char* thePath, int theFlags)
@@ -57,13 +70,25 @@ bool NormFile::Open(const char* thePath, int theFlags)
             ptr = strchr(ptr, PROTO_PATH_DELIMITER);
             if (ptr) *ptr = '\0';
 #ifdef WIN32
+#ifdef _WIN32_WCE
+#ifdef _UNICODE
+            wchar_t wideBuffer[MAX_PATH];
+            size_t pathLen = strlen(tempPath) + 1;
+            if (pathLen > MAX_PATH) pathLen = MAX_PATH;
+            mbstowcs(wideBuffer, tempPath, pathLen);
+            if (!CreateDirectory(wideBuffer, NULL))
+#else
+            if (!CreateDirectory(tempPath, NULL))
+#endif  // if/else _UNICODE
+#else
             if (mkdir(tempPath))
+#endif // if/else _WIN32_WCE
 #else
             if (mkdir(tempPath, 0755))
 #endif // if/else WIN32/UNIX
             {
                 DMSG(0, "NormFile::Open() mkdir(%s) error: %s\n",
-                        tempPath, strerror(errno));
+                        tempPath, GetErrorString());
                 return false;  
             }
             if (ptr) *ptr++ = PROTO_PATH_DELIMITER;
@@ -71,13 +96,21 @@ bool NormFile::Open(const char* thePath, int theFlags)
     }    	
 #ifdef WIN32
     // Make sure we're in binary mode (important for WIN32)
-	theFlags |= _O_BINARY;
+	theFlags |= O_BINARY;
+#ifdef _WIN32_WCE
+    if (theFlags & O_RDONLY)
+        file_ptr = fopen(thePath, "r");
+    else
+        file_ptr = fopen(thePath, "w+");
+    if (NULL != file_ptr)
+#else
     // Allow sharing of read-only files but not of files being written
-	if (theFlags & _O_RDONLY)
+	if (theFlags & O_RDONLY)
 		fd = _sopen(thePath, theFlags, _SH_DENYNO);
     else
 		fd = _open(thePath, theFlags, 0640);
     if(fd >= 0)
+#endif // if/else _WIN32_WCE
     {
         offset = 0;
 		flags = theFlags;
@@ -85,7 +118,7 @@ bool NormFile::Open(const char* thePath, int theFlags)
     }
     else
     {       
-        DMSG(0, "Error opening file \"%s\": %s\n", thePath, strerror(errno));
+        DMSG(0, "Error opening file \"%s\": %s\n", thePath, GetErrorString());
 		flags = 0;
         return false;
     }
@@ -98,7 +131,7 @@ bool NormFile::Open(const char* thePath, int theFlags)
     else
     {    
         DMSG(0, "norm: Error opening file \"%s\": %s\n", 
-                             thePath, strerror(errno));
+                             thePath, GetErrorString());
         return false;
     }
 #endif // if/else WIN32
@@ -109,11 +142,18 @@ void NormFile::Close()
     if (IsOpen())
     {
 #ifdef WIN32
+#ifdef _WIN32_WCE
+        fclose(file_ptr);
+        file_ptr = NULL;
+#else
         _close(fd);
+        fd = -1;
+#endif // if/else _WIN32_WCE
 #else
         close(fd);
-#endif // if/else WIN32
         fd = -1;
+#endif // if/else WIN32
+        
     }
 }  // end NormFile::Close()
 
@@ -167,11 +207,27 @@ bool NormFile::Rename(const char* oldName, const char* newName)
     // In Win32, the new file can't already exist
 	if (NormFile::Exists(newName)) 
     {
+#ifdef _WIN32_WCE
+#ifdef _UNICODE
+        wchar_t wideBuffer[MAX_PATH];
+        size_t pathLen = strlen(newName) + 1;
+        if (pathLen > MAX_PATH) pathLen = MAX_PATH;
+        mbstowcs(wideBuffer, newName, pathLen);
+        if (0 == DeleteFile(wideBuffer))
+#else
+        if (0 == DeleteFile(newName))
+#endif // if/else _UNICODE
+        {
+            DMSG(0, "NormFile::Rename() DeleteFile() error: %s\n", GetErrorString());
+            return false;
+        }
+#else
         if (0 != _unlink(newName))
         {
             DMSG(0, "NormFile::Rename() _unlink() error: %s\n", GetErrorString());
             return false;
         }
+#endif // if/else _WIN32_WCE
     }
     // In Win32, the old file can't be open
 	int oldFlags = 0;
@@ -209,7 +265,19 @@ bool NormFile::Rename(const char* oldName, const char* newName)
         ptr = strchr(ptr, PROTO_PATH_DELIMITER);
         if (ptr) *ptr = '\0';
 #ifdef WIN32
-        if (0 != _mkdir(tempPath))
+#ifdef _WIN32_WCE
+#ifdef _UNICODE
+            wchar_t wideBuffer[MAX_PATH];
+            size_t pathLen = strlen(tempPath) + 1;
+            if (pathLen > MAX_PATH) pathLen = MAX_PATH;
+            mbstowcs(wideBuffer, tempPath, pathLen);
+            if (!CreateDirectory(wideBuffer, NULL))
+#else
+            if (!CreateDirectory(tempPath, NULL))
+#endif  // if/else _UNICODE
+#else
+            if (0 != mkdir(tempPath))
+#endif // if/else _WIN32_WCE
 #else
         if (mkdir(tempPath, 0755))
 #endif // if/else WIN32/UNIX
@@ -220,10 +288,23 @@ bool NormFile::Rename(const char* oldName, const char* newName)
         }
         if (ptr) *ptr++ = PROTO_PATH_DELIMITER;
     }  
-    
+#ifdef _WIN32_WCE
+#ifdef _UNICODE
+    wchar_t wideOldName[MAX_PATH];
+    wchar_t wideNewName[MAX_PATH];
+    mbstowcs(wideOldName, oldName, MAX_PATH);
+    mbstowcs(wideNewName, newName, MAX_PATH);
+    if (!MoveFile(wideOldName, wideNewName))
+#else
+    if (!MoveFile(oldName, newName))
+#endif // if/else _UNICODE
+    {
+        DMSG(0, "NormFile::Rename() MoveFile() error: %s\n", GetErrorString());
+#else
     if (rename(oldName, newName))
     {
-        DMSG(0, "NormFile::Rename() rename() error: %s\n", strerror(errno));		
+        DMSG(0, "NormFile::Rename() rename() error: %s\n", GetErrorString());	
+#endif // if/else _WIN32_WCE
 #ifdef WIN32
         if (oldFlags) 
         {
@@ -255,7 +336,11 @@ int NormFile::Read(char* buffer, int len)
 {
     ASSERT(IsOpen());
 #ifdef WIN32
+#ifdef _WIN32_WCE
+    size_t result = fread(buffer, 1, len, file_ptr);
+#else
     int result = _read(fd, buffer, len);
+#endif // if/else _WIN32_WCE
 #else
     int result = read(fd, buffer, len);
 #endif // if/else WIN32
@@ -267,7 +352,11 @@ int NormFile::Write(const char* buffer, int len)
 {
     ASSERT(IsOpen());
 #ifdef WIN32
+#ifdef _WIN32_WCE
+    size_t result = fwrite(buffer, 1, len, file_ptr);
+#else
     int result = _write(fd, buffer, len);
+#endif // if/else _WIN32_WCE
 #else
     int result = write(fd, buffer, len);
 #endif // if/else WIN32
@@ -279,13 +368,18 @@ bool NormFile::Seek(off_t theOffset)
 {
     ASSERT(IsOpen());
 #ifdef WIN32
+#ifdef _WIN32_WCE
+    // (TBD) properly support big files on WinCE
+    off_t result = fseek(file_ptr, (long)theOffset, SEEK_SET);
+#else
     off_t result = _lseek(fd, theOffset, SEEK_SET);
+#endif // if/else _WIN32_WCE
 #else
     off_t result = lseek(fd, theOffset, SEEK_SET);
 #endif // if/else WIN32
     if (result == (off_t)-1)
     {
-        DMSG(0, "NormFile::Seek() lseek() error: %s", strerror(errno));
+        DMSG(0, "NormFile::Seek() lseek() error: %s", GetErrorString());
         return false;
     }
     else
@@ -298,6 +392,10 @@ bool NormFile::Seek(off_t theOffset)
 off_t NormFile::GetSize() const
 {
     ASSERT(IsOpen());
+#ifdef _WIN32_WCE
+    DWORD fileSize = GetFileSize(_fileno(file_ptr), NULL);
+    return ((off_t)fileSize);
+#else
 #ifdef WIN32
     struct _stat info;
     int result = _fstat(fd, &info);
@@ -307,13 +405,14 @@ off_t NormFile::GetSize() const
 #endif // if/else WIN32
     if (result)
     {
-        DMSG(0, "Error getting file size: %s\n", strerror(errno));
+        DMSG(0, "Error getting file size: %s\n", GetErrorString());
         return 0;   
     }
     else
     {
         return info.st_size;
     }
+#endif // if/else _WIN32_WCE
 }  // end NormFile::GetSize()
 
 
@@ -337,7 +436,11 @@ bool NormDirectoryIterator::Open(const char *thePath)
 {
     if (current) Close();
 #ifdef WIN32
+#ifdef _WIN32_WCE
+    if (thePath && !NormFile::Exists(thePath))
+#else
     if (thePath && _access(thePath, 0))
+#endif // if/else _WIN32_WCE
 #else
     if (thePath && access(thePath, X_OK))
 #endif // if/else WIN32
@@ -401,8 +504,15 @@ bool NormDirectoryIterator::GetNextFile(char* fileName)
 			// Construct search string
 			current->GetFullName(fileName);
 			strcat(fileName, "\\*");
+#ifdef _UNICODE
+            wchar_t wideBuffer[MAX_PATH];
+            mbstowcs(wideBuffer, fileName, MAX_PATH);
+            if ((HANDLE)-1 == 
+			    (current->hSearch = FindFirstFile(wideBuffer, &findData)))
+#else
 			if ((HANDLE)-1 == 
-			    (current->hSearch = FindFirstFile(fileName, &findData)) )
+			    (current->hSearch = FindFirstFile(fileName, &findData)))
+#endif // if/else _UNICODE
 			    success = false;
 			else
 				success = true;
@@ -415,11 +525,21 @@ bool NormDirectoryIterator::GetNextFile(char* fileName)
 		// Do we have a candidate file?
 		if (success)
 		{
+#ifdef _UNICODE
+            char cFileName[MAX_PATH];
+            wcstombs(cFileName, findData.cFileName, MAX_PATH);
+            char* ptr = strrchr(cFileName, PROTO_PATH_DELIMITER);
+#else
 			char* ptr = strrchr(findData.cFileName, PROTO_PATH_DELIMITER);
+#endif // if/else _UNICODE
 			if (ptr)
 				ptr += 1;
 			else
+#ifdef _UNICODE
+                ptr = cFileName;
+#else
 				ptr = findData.cFileName;
+#endif // if/else _UNICODE
 
 			// Skip "." and ".." directories
 			if (ptr[0] == '.')
@@ -584,7 +704,13 @@ bool NormDirectoryIterator::NormDirectory::Open()
     int len = MIN(PATH_MAX, strlen(fullName));
     if (PROTO_PATH_DELIMITER == fullName[len-1]) fullName[len-1] = '\0';
 #ifdef WIN32
+#ifdef _UNICODE
+    wchar_t wideBuffer[MAX_PATH];
+    mbstowcs(wideBuffer, fullName, MAX_PATH);
+    DWORD attr = GetFileAttributes(wideBuffer);
+#else
     DWORD attr = GetFileAttributes(fullName);
+#endif // if/else _UNICODE
 	if (0xFFFFFFFF == attr)
 		return false;
 	else if (attr & FILE_ATTRIBUTE_DIRECTORY)
@@ -637,7 +763,13 @@ void NormDirectoryIterator::NormDirectory::RecursiveCatName(char* ptr)
 NormFile::Type NormFile::GetType(const char* path)
 {
 #ifdef WIN32
+#ifdef _UNICODE
+    wchar_t wideBuffer[MAX_PATH];
+    mbstowcs(wideBuffer, path, MAX_PATH);
+    DWORD attr = GetFileAttributes(wideBuffer);
+#else
     DWORD attr = GetFileAttributes(path);
+#endif // if/else _UNICODE
 	if (0xFFFFFFFF == attr)
 		return INVALID;  // error
 	else if (attr & FILE_ATTRIBUTE_DIRECTORY)
@@ -657,6 +789,24 @@ NormFile::Type NormFile::GetType(const char* path)
 
 off_t NormFile::GetSize(const char* path)
 {
+#ifdef _WIN32_WCE
+    WIN32_FIND_DATA findData;
+#ifdef _UNICODE
+    wchar_t wideBuffer[MAX_PATH];
+    mbstowcs(wideBuffer, path, MAX_PATH);
+    if (INVALID_HANDLE_VALUE != FindFirstFile(wideBuffer, &findData))
+#else
+    if (INVALID_HANDLE_VALUE != FindFirstFile(path, &findData))
+#endif // if/else _UNICODE
+    {
+        return ((off_t)findData.nFileSizeLow);  // (TBD) support big files
+    }
+    else
+    {
+        DMSG(0, "Error getting file size: %s\n", GetErrorString());
+        return 0;
+    }
+#else
 #ifdef WIN32
     struct _stat info;
     int result = _stat(path, &info);
@@ -666,17 +816,49 @@ off_t NormFile::GetSize(const char* path)
 #endif // if/else WIN32    
     if (result)
     {
-        //DMSG(0, "Error getting file size: %s\n", strerror(errno));
+        //DMSG(0, "Error getting file size: %s\n", GetErrorString());
         return 0;   
     }
     else
     {
         return info.st_size;
     }
+#endif // if/else _WIN32_WCE
 }  // end NormFile::GetSize()
+
 
 time_t NormFile::GetUpdateTime(const char* path)
 {
+#ifdef _WIN32_WCE
+    WIN32_FIND_DATA findData;
+#ifdef _UNICODE
+    wchar_t wideBuffer[MAX_PATH];
+    mbstowcs(wideBuffer, path, MAX_PATH);
+    if (INVALID_HANDLE_VALUE != FindFirstFile(wideBuffer, &findData))
+#else
+    if (INVALID_HANDLE_VALUE != FindFirstFile(path, &findData))
+#endif // if/else _UNICODE
+    {
+        ULARGE_INTEGER ctime = {findData.ftCreationTime.dwLowDateTime,
+                                findData.ftCreationTime.dwHighDateTime};
+        ULARGE_INTEGER atime = {findData.ftLastAccessTime.dwLowDateTime,
+                                findData.ftLastAccessTime.dwHighDateTime};
+        ULARGE_INTEGER mtime = {findData.ftLastWriteTime.dwLowDateTime,
+                                findData.ftLastWriteTime.dwHighDateTime};
+        if (ctime.QuadPart < atime.QuadPart) ctime = atime;
+        if (ctime.QuadPart < mtime.QuadPart) ctime = mtime;
+        const ULARGE_INTEGER epochTime = {0xD53E8000, 0x019DB1DE};
+        ctime.QuadPart -= epochTime.QuadPart;
+        // Convert sytem time to seconds
+        ctime.QuadPart /= 10000000;
+        return ctime.LowPart;
+    }
+    else
+    {
+        DMSG(0, "Error getting file size: %s\n", GetErrorString());
+        return 0;
+    }
+#else
 #ifdef WIN32
     struct _stat info;
     int result = _stat(path, &info);
@@ -699,6 +881,7 @@ time_t NormFile::GetUpdateTime(const char* path)
         return info.st_ctime; 
 #endif // if/else WIN32
     } 
+#endif // if/else _WIN32_WCE
 }  // end NormFile::GetUpdateTime()
 
 bool NormFile::IsLocked(const char* path)
@@ -707,7 +890,7 @@ bool NormFile::IsLocked(const char* path)
     if (!Exists(path)) return false;      
     NormFile testFile;
 #ifdef WIN32
-    if(!testFile.Open(path, _O_WRONLY | _O_CREAT))
+    if(!testFile.Open(path, O_WRONLY | O_CREAT))
 #else
     if(!testFile.Open(path, O_WRONLY | O_CREAT))    
 #endif // if/else WIN32
@@ -735,19 +918,35 @@ bool NormFile::Unlink(const char* path)
     {
         return false;
     }
-#ifdef WIN32
-    else if (_unlink(path))
+
+#ifdef _WIN32_WCE
+#ifdef _UNICODE
+    wchar_t wideBuffer[MAX_PATH];
+    mbstowcs(wideBuffer, path, MAX_PATH);
+    if (0 == DeleteFile(wideBuffer))
 #else
-    else if (unlink(path))
-#endif // if/else WIN32
+    if (0 == DeleteFile(path))
+#endif // if/else _UNICODE
     {
-        //DMSG(0, "NormFile::Unlink() unlink error: %s\n", strerror(errno));
+        DMSG(0, "NormFile::Unlink() DeletFile() error: %s\n", GetErrorString());
         return false;
     }
+#else
+#ifdef WIN32
+    if (_unlink(path))
+#else
+    if (unlink(path))
+#endif // if/else WIN32
+    {
+        DMSG(0, "NormFile::Unlink() unlink error: %s\n", GetErrorString());
+        return false;
+    }
+#endif // if/else _WIN32_WCE
     else
     {
         return true;
     }
+
 }  // end NormFile::Unlink()
 
 NormFileList::NormFileList()
@@ -810,7 +1009,7 @@ bool NormFileList::Append(const char* path)
     else
     {
         DMSG(0, "NormFileList::Append() Error creating file/directory item: %s\n",
-                strerror(errno));
+                GetErrorString());
         return false;
     }
 }  // end NormFileList::Append()

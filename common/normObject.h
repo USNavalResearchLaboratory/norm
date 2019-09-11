@@ -246,9 +246,9 @@ class NormObject
         UINT16                nparity;
         NormBlockBuffer       block_buffer;
         bool                  pending_info;  // set when we need to send or recv info
-        NormSlidingMask       pending_mask;
+        ProtoSlidingMask      pending_mask;
         bool                  repair_info;   // client: set when
-        NormSlidingMask       repair_mask;
+        ProtoSlidingMask      repair_mask;
         NormBlockId           current_block_id;    // for suppression       
         NormSegmentId         next_segment_id;     // for suppression       
         NormBlockId           max_pending_block;   // for NACK construction 
@@ -386,6 +386,7 @@ class NormStreamObject : public NormObject
         };
             
         void SetFlushMode(FlushMode flushMode) {flush_mode = flushMode;}
+        FlushMode GetFlushMode() {return flush_mode;}
         void Flush(bool eom = false)
         {
             FlushMode oldFlushMode = flush_mode;
@@ -448,6 +449,8 @@ class NormStreamObject : public NormObject
         UINT32 GetBlockPoolCount() {return block_pool.GetCount();}
         void SetBlockPoolThreshold(UINT32 value) 
             {block_pool_threshold = value;}
+
+        void ResetPostedTxQueueVacancy() {posted_tx_queue_vacancy = false;}
          
     private:
         

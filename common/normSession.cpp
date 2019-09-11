@@ -1,5 +1,4 @@
 #include "normSession.h"
-#include <errno.h>
 #include <time.h>  // for gmtime() in NormTrace()
 
 
@@ -16,9 +15,9 @@ const UINT16 NormSession::DEFAULT_NDATA = 64;
 const UINT16 NormSession::DEFAULT_NPARITY = 32;  
 
 NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId) 
- : session_mgr(sessionMgr), notify_pending(false), 
-   tx_socket(ProtoSocket::UDP), rx_socket(ProtoSocket::UDP),     
-   local_node_id(localNodeId), 
+ : session_mgr(sessionMgr), notify_pending(false), tx_port(0), 
+   tx_socket(&tx_socket_actual), tx_socket_actual(ProtoSocket::UDP), 
+   rx_socket(ProtoSocket::UDP), local_node_id(localNodeId), 
    ttl(DEFAULT_TTL), loopback(false),
    tx_rate(DEFAULT_TRANSMIT_RATE/8.0), tx_rate_min(-1.0), tx_rate_max(-1.0),
    backoff_factor(DEFAULT_BACKOFF_FACTOR), is_server(false), session_id(0),
@@ -41,11 +40,11 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    default_repair_boundary(NormServerNode::BLOCK_BOUNDARY),
    default_nacking_mode(NormObject::NACK_NORMAL),
    trace(false), tx_loss_rate(0.0), rx_loss_rate(0.0),
-   next(NULL)
+   user_data(NULL), next(NULL)
 {
     interface_name[0] = '\0';
-    tx_socket.SetNotifier(&sessionMgr.GetSocketNotifier());
-    tx_socket.SetListener(this, &NormSession::TxSocketRecvHandler);
+    tx_socket->SetNotifier(&sessionMgr.GetSocketNotifier());
+    tx_socket->SetListener(this, &NormSession::TxSocketRecvHandler);
     
     rx_socket.SetNotifier(&sessionMgr.GetSocketNotifier());
     rx_socket.SetListener(this, &NormSession::RxSocketRecvHandler);
@@ -91,13 +90,19 @@ NormSession::~NormSession()
 bool NormSession::Open(const char* interfaceName)
 {
     ASSERT(address.IsValid());
-    // (TBD) support single socket option
-    if (!tx_socket.IsOpen())
+    if (!tx_socket->IsOpen())
     {   
-        if (!tx_socket.Open())
+        if (address.GetPort() != tx_port)
         {
-            DMSG(0, "NormSession::Open() tx_socket open error\n");
-            return false;   
+            if (!tx_socket->Open(tx_port))
+            {
+                DMSG(0, "NormSession::Open() tx_socket open error\n");
+                return false;   
+            }
+        }
+        else
+        {
+            tx_socket = &rx_socket;   
         }
     }
     if (!rx_socket.IsOpen())
@@ -112,13 +117,13 @@ bool NormSession::Open(const char* interfaceName)
     
     if (address.IsMulticast())
     {
-        if (!tx_socket.SetTTL(ttl))
+        if (!tx_socket->SetTTL(ttl))
         {
             DMSG(0, "NormSession::Open() tx_socket set ttl error\n");
             Close();
             return false;
         }
-        if (!tx_socket.SetLoopback(loopback))
+        if (!tx_socket->SetLoopback(loopback))
         {
             DMSG(0, "NormSession::Open() tx_socket set loopback error\n");
             Close();
@@ -132,7 +137,7 @@ bool NormSession::Open(const char* interfaceName)
         if ('\0' != interface_name[0])
         {
             bool result = rx_socket.SetMulticastInterface(interface_name);
-            result &= tx_socket.SetMulticastInterface(interface_name);
+            result &= tx_socket->SetMulticastInterface(interface_name);
             if (!result)
             {
                 DMSG(0, "NormSession::Open() error setting multicast interface\n");
@@ -157,7 +162,7 @@ bool NormSession::Open(const char* interfaceName)
         }
         else
         {
-            DMSG(0, "NormSession::Open() new message error: %s\n", strerror(errno));
+            DMSG(0, "NormSession::Open() new message error: %s\n", GetErrorString());
             Close();
             return false;
         }   
@@ -175,7 +180,7 @@ void NormSession::Close()
     if (tx_timer.IsActive()) tx_timer.Deactivate();    
     message_queue.Destroy();
     message_pool.Destroy();
-    if (tx_socket.IsOpen()) tx_socket.Close();
+    if (tx_socket->IsOpen()) tx_socket->Close();
     if (rx_socket.IsOpen()) 
     {
         if (address.IsMulticast()) 
@@ -196,8 +201,8 @@ bool NormSession::SetMulticastInterface(const char* interfaceName)
         bool result = true;
         if (rx_socket.IsOpen())
             result &= rx_socket.SetMulticastInterface(interfaceName);
-        if (tx_socket.IsOpen())
-            result &= tx_socket.SetMulticastInterface(interfaceName);
+        if (tx_socket->IsOpen())
+            result &= tx_socket->SetMulticastInterface(interfaceName);
         return result;
     }
     else
@@ -837,7 +842,7 @@ NormFileObject* NormSession::QueueTxFile(const char* path,
     if (!file)
     {
         DMSG(0, "NormSession::QueueTxFile() new file object error: %s\n",
-                strerror(errno));
+                GetErrorString());
         return NULL; 
     }
     if (!file->Open(path, infoPtr, infoLen))
@@ -872,7 +877,7 @@ NormDataObject* NormSession::QueueTxData(const char* dataPtr,
     if (!obj)
     {
         DMSG(0, "NormSession::QueueTxData() new data object error: %s\n",
-                strerror(errno));
+                GetErrorString());
         return NULL; 
     }
     if (!obj->Open((char*)dataPtr, dataLen, false, infoPtr, infoLen))
@@ -908,7 +913,7 @@ NormStreamObject* NormSession::QueueTxStream(UINT32         bufferSize,
     if (!stream)
     {
         DMSG(0, "NormSession::QueueTxStream() new stream object error: %s\n",
-                strerror(errno));
+                GetErrorString());
         return NULL; 
     }
     if (!stream->Open(bufferSize, doubleBuffer, infoPtr, infoLen))
@@ -943,7 +948,7 @@ NormSimObject* NormSession::QueueTxSim(unsigned long objectSize)
     if (!simObject)
     {
         DMSG(0, "NormSession::QueueTxSim() new sim object error: %s\n",
-                strerror(errno));
+                GetErrorString());
         return NULL; 
     }  
     
@@ -1095,7 +1100,7 @@ void NormSession::TxSocketRecvHandler(ProtoSocket&       /*theSocket*/,
 {
     NormMsg msg;
     unsigned int msgLength = NormMsg::MAX_SIZE;
-    while (tx_socket.RecvFrom(msg.AccessBuffer(),
+    while (tx_socket->RecvFrom(msg.AccessBuffer(),
                               msgLength, 
                               msg.AccessAddress()))
     {
@@ -1164,7 +1169,18 @@ void NormTrace(const struct timeval&    currentTime,
     const ProtoAddress& addr = sent ? msg.GetDestination() : msg.GetSource();
     
     UINT16 seq = msg.GetSequence();
+
+#ifdef _WIN32_WCE
+    struct tm timeStruct;
+    timeStruct.tm_hour = currentTime.tv_sec / 3600;
+    unsigned long hourSecs = 3600 * timeStruct.tm_hour;
+    timeStruct.tm_min = (currentTime.tv_sec - (hourSecs)) / 60;
+    timeStruct.tm_sec = currentTime.tv_sec - (hourSecs) - (60*timeStruct.tm_min);
+    timeStruct.tm_hour = timeStruct.tm_hour % 24;
+    struct tm* ct = &timeStruct;
+#else            
     struct tm* ct = gmtime((time_t*)&currentTime.tv_sec);
+#endif // if/else _WIN32_WCE
     DMSG(0, "trace>%02d:%02d:%02d.%06lu node>%lu %s>%s seq>%hu ",
             ct->tm_hour, ct->tm_min, ct->tm_sec, currentTime.tv_usec,
             (UINT32)localId, status, addr.GetHostString(), seq);
@@ -1188,7 +1204,6 @@ void NormTrace(const struct timeval&    currentTime,
                     (UINT16)data.GetObjectId(),
                     (UINT32)data.GetFecBlockId(),
                     (UINT16)data.GetFecSymbolId());
-            
             if (data.IsData())
             {
                 UINT16 x;
@@ -1375,7 +1390,7 @@ void NormSession::ClientHandleObjectMessage(const struct timeval&   currentTime,
         else
         {
             DMSG(0, "NormSession::ClientHandleObjectMessage() new NormServerNode error: %s\n",
-                    strerror(errno));
+                    GetErrorString());
             // (TBD) notify application of error
             return;   
         }   
@@ -1432,7 +1447,7 @@ void NormSession::ClientHandleCommand(const struct timeval& currentTime,
         else
         {
             DMSG(0, "NormSession::ClientHandleCommand() new NormServerNode error: %s\n",
-                    strerror(errno));
+                    GetErrorString());
             // (TBD) notify application of error
             return;   
         }   
@@ -1608,7 +1623,7 @@ void NormSession::ServerHandleCCFeedback(NormNodeId nodeId,
             else
             {
                  DMSG(0, "NormSession::ServerHandleCCFeedback() memory allocation error: %s\n",
-                            strerror(errno));  
+                            GetErrorString());  
                  return;
             } 
         }  
@@ -1635,7 +1650,7 @@ void NormSession::ServerHandleCCFeedback(NormNodeId nodeId,
         else
         {
             DMSG(0, "NormSession::ServerHandleCCFeedback() memory allocation error: %s\n",
-                            strerror(errno)); 
+                            GetErrorString()); 
         }
     }
     else
@@ -2667,13 +2682,16 @@ bool NormSession::SendMessage(NormMsg& msg)
     }    
     else
     {
-        if (tx_socket.SendTo(msg.GetBuffer(), msgSize,
+        if (tx_socket->SendTo(msg.GetBuffer(), msgSize,
                               msg.GetDestination()))
         {
             // Separate send/recv tracing
             if (trace) NormTrace(currentTime, LocalNodeId(), msg, true);  
             
-            // Keep track of _actual_ sent rate (TBD) we can do away with this now
+            // Keep track of _actual_ sent rate 
+            // (TBD) move "sent_rate" tracking to ""OnReportTimeout()
+            // since it is no longer critical to protocol operation
+            // but just kept for information purposes ...
             if (prev_update_time.tv_sec || prev_update_time.tv_usec)
             {
                 double interval = (double)(currentTime.tv_sec - prev_update_time.tv_sec);
@@ -2681,9 +2699,7 @@ bool NormSession::SendMessage(NormMsg& msg)
                     interval += 1.0e-06*(double)(currentTime.tv_usec - prev_update_time.tv_usec);
                 else
                     interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);                
-                /*sent_rate += 0.125 * (((double)msgSize)/interval - sent_rate);
-                prev_update_time = currentTime; */
-                if (interval < grtt_advertised)
+                if (interval < 1.0) //grtt_advertised)
                 {
                     sent_accumulator += msgSize;
                 }
@@ -2955,7 +2971,17 @@ bool NormSession::OnReportTimeout(ProtoTimer& /*theTimer*/)
     // Client reporting (just print out for now)
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
+#ifdef _WIN32_WCE
+    struct tm timeStruct;
+    timeStruct.tm_hour = currentTime.tv_sec / 3600;
+    unsigned long hourSecs = 3600 * timeStruct.tm_hour;
+    timeStruct.tm_min = (currentTime.tv_sec - (hourSecs)) / 60;
+    timeStruct.tm_sec = currentTime.tv_sec - (hourSecs) - (60*timeStruct.tm_min);
+    timeStruct.tm_hour = timeStruct.tm_hour % 24;
+    struct tm* ct = &timeStruct;
+#else            
     struct tm* ct = gmtime((time_t*)&currentTime.tv_sec);
+#endif // if/else _WIN32_WCE
     DMSG(2, "REPORT time>%02d:%02d:%02d.%06lu node>%lu ***************************************\n", 
             ct->tm_hour, ct->tm_min, ct->tm_sec, currentTime.tv_usec, LocalNodeId());
     if (IsServer())
@@ -3047,7 +3073,7 @@ NormSession* NormSessionMgr::NewSession(const char* sessionAddress,
     if (!theSession)
     {
         DMSG(0, "NormSessionMgr::NewSession() new session error: %s\n", 
-                strerror(errno)); 
+                GetErrorString()); 
         return ((NormSession*)NULL);  
     }     
     theSession->SetAddress(theAddress);    

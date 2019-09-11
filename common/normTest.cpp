@@ -32,28 +32,42 @@ int main(int argc, char* argv[])
                                                   "224.1.2.3", 
                                                    6003,
                                                    NORM_NODE_ANY);
-    
+    // Uncomment to turn on debug NORM message tracing
     //NormSetMessageTrace(session, true);
     
     //NormSetTxLoss(session, 1.0);  // 10% packet loss
     
     NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 90.0e+06);  // in bits/second
+    NormSetTransmitRate(session, 80.0e+06);  // in bits/second
     
-    NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK);  
+    NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK); 
+    
+    // Uncomment to use a _specific_ transmit port number
+    // (Can be the same as session port (rx port), but this
+    // is _not_ recommended when unicast feedback may be
+    // possible!
+    //NormSetTxPort(session, 6001); 
     
     // Uncomment to receive your own traffic
-    //NormSetLoopback(session, true);     
+    NormSetLoopback(session, true);     
     
     // Uncomment this line to participate as a receiver
     //NormStartReceiver(session, 1024*1024);
+    
+    // Uncomment to set large rx socket buffer size
+    // (might be needed for high rate sessions)
+    // NormSetRxSocketBuffer(session, 512000);
     
     // Uncomment to enable TCP-friendly congestion control
     //NormSetCongestionControl(session, true);
     
     // Uncomment the following line to start sender
     NormStartSender(session, 4096*1024, 1400, 64, 0);
+
+    // Uncomment to set large tx socket buffer size
+    // (might be needed for high rate sessions)
+    NormSetTxSocketBuffer(session, 512000);
     
     NormAddAckingNode(session, NormGetLocalNodeId(session));
     
@@ -67,8 +81,7 @@ int main(int argc, char* argv[])
     
     // NORM_FLUSH_PASSIVE automatically flushes full writes to
     // the stream.
-    NormStreamSetAutoFlush(stream, NORM_FLUSH_PASSIVE);
-    
+    NormStreamSetAutoFlush(stream, NORM_FLUSH_PASSIVE);   
     
     // Some variable for stream input/output
     char txBuffer[8192], rxBuffer[8192];
@@ -88,10 +101,10 @@ int main(int argc, char* argv[])
     {
         switch (theEvent.type)
         {
+            case NORM_TX_QUEUE_VACANCY:
+            //    TRACE("NORM_TX_QUEUE_VACANCY ...\n");
             case NORM_TX_QUEUE_EMPTY:
                 //TRACE("NORM_TX_QUEUE_EMPTY ...\n");
-            case NORM_TX_QUEUE_VACANCY:
-                //TRACE("NORM_TX_QUEUE_VACANCY ...\n");
             
                 if (NORM_OBJECT_INVALID != stream)
                 {
@@ -115,7 +128,7 @@ int main(int argc, char* argv[])
                             // Instead of "NormStreamSetFlushMode(stream, NORM_FLUSH_PASSIVE)" above
                             // and "NormStreamMarkEom()" here, I could have used 
                             // "NormStreamFlush(stream, true)" here to perform explicit flushing 
-                            // and EOM marking in one fell swoop.  That would be a better approach 
+                            // and EOM marking in one fell swoop.  That would be a simpler approach 
                             // for apps where big stream messages need to be written with 
                             // multiple calls to "NormStreamWrite()"
                             NormStreamMarkEom(stream);

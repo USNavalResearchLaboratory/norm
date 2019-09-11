@@ -7,18 +7,39 @@
 // class is provided to manage a list of files.
 
 #ifdef WIN32
-#include <io.h>
+//#include <io.h>
 #else
 #include <unistd.h>
 #include <dirent.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #endif // if/else WIN32
 
-#include <fcntl.h>
+#ifdef _WIN32_WCE
+#include <stdio.h>
+typedef fpos_t off_t;
+#else
 #include <sys/types.h>
-#include <sys/stat.h>
+#endif // if/else _WIN32_WCE
 
 // From PROTOLIB
 #include "protokit.h"    // for Protolib stuff
+
+// (TBD) Rewrite this implementation to use 
+// native WIN32 APIs on that platform !!!
+
+#ifdef _WIN32_WCE
+// Here we enumerate some stuff to 
+// make the NormFile work on WinCE
+enum
+{
+    O_CREAT  = 0x01,
+    O_TRUNC  = 0x02,    
+    O_RDONLY = 0x04,
+    O_WRONLY = 0x08,
+    O_RDWR   = 0x10
+};
+#endif // _WIN32_WCE
         
 class NormFile
 {
@@ -33,7 +54,14 @@ class NormFile
         bool Rename(const char* oldName, const char* newName);
         bool Unlink(const char *path);
         void Close();
-        bool IsOpen() const {return (fd >= 0);}
+        bool IsOpen() const 
+        {
+#ifdef _WIN32_WCE
+            return (NULL != file_ptr);
+#else
+            return (fd >= 0);
+#endif // _WIN32_WCE
+        }
         int Read(char* buffer, int len);
         int Write(const char* buffer, int len);
         bool Seek(off_t theOffset);
@@ -49,7 +77,13 @@ class NormFile
         static bool Exists(const char* path)
         {
 #ifdef WIN32
+#ifdef _UNICODE
+            wchar_t wideBuffer[MAX_PATH];
+            size_t count = mbstowcs(wideBuffer, path, strlen(path)+1);
+            return (0xFFFFFFFF != GetFileAttributes(wideBuffer));
+#else
             return (0xFFFFFFFF != GetFileAttributes(path));
+#endif // if/else _UNICODE
 #else
             return (0 == access(path, F_OK));
 #endif  // if/else WIN32
@@ -58,7 +92,13 @@ class NormFile
         static bool IsWritable(const char* path)
         {
 #ifdef WIN32
+#ifdef _UNICODE
+            wchar_t wideBuffer[MAX_PATH];
+            size_t count = mbstowcs(wideBuffer, path, strlen(path)+1);
+            DWORD attr = GetFileAttributes(wideBuffer);
+#else
             DWORD attr = GetFileAttributes(path);
+#endif // if/else _UNICODE
 	        return ((0xFFFFFFFF == attr) ? 
                         false : (0 == (attr & FILE_ATTRIBUTE_READONLY)));
 #else
@@ -69,7 +109,11 @@ class NormFile
     
     // Members
     private:
+#ifdef _WIN32_WCE
+        FILE*   file_ptr;
+#else
         int     fd;
+#endif // if/else _WIN32_WCE
         int     flags;
         off_t   offset;
 };  // end class NormFile

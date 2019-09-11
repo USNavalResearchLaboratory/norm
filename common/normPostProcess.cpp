@@ -3,7 +3,6 @@
 
 #include <ctype.h>
 #include <string.h>
-#include <errno.h>
 
 NormPostProcessor::NormPostProcessor()
  : process_argv(NULL), process_argc(0)
@@ -89,7 +88,7 @@ bool NormPostProcessor::SetCommand(const char* cmd)
     if (!(process_argv = new char*[argCount+2]))
     {
         DMSG(0, "NormPostProcessor::SetCommand new(process_argv) error: %s\n",
-                strerror(errno)); 
+                GetErrorString()); 
         return false;  
     }
     memset((void*)process_argv, 0, (argCount+2)*sizeof(char**));
@@ -109,7 +108,7 @@ bool NormPostProcessor::SetCommand(const char* cmd)
         {
             SetCommand(NULL);
             DMSG(0, "NormPostProcessor::SetCommand new(process_arg) error: %s\n",
-                    strerror(errno)); 
+                    GetErrorString()); 
             return false;   
         }
         strncpy(arg, argStart, argLength);
