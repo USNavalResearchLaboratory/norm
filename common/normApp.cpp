@@ -79,6 +79,7 @@ class NormApp : public NormController, public ProtoApp
         char*               address;        // session address
         UINT16              port;           // session port number
         UINT8               ttl;
+        char*               interface_name; // for multi-home hosts
         double              tx_rate;        // bits/sec
         bool                cc_enable;
         
@@ -120,7 +121,8 @@ NormApp::NormApp()
    push_stream(false), msg_flush_mode(NormStreamObject::FLUSH_PASSIVE),
    input_messaging(false), input_msg_length(0), input_msg_index(0),
    output_index(0), output_messaging(false), output_msg_length(0), output_msg_sync(false),
-   address(NULL), port(0), ttl(3), tx_rate(64000.0), cc_enable(false),
+   address(NULL), port(0), ttl(3), interface_name(NULL),
+   tx_rate(64000.0), cc_enable(false),
    segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
    backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
    tx_buffer_size(1024*1024), 
@@ -161,6 +163,7 @@ const char* const NormApp::cmd_list[] =
     "+rxloss",       // rx packet loss percent (for testing)
     "+address",      // session destination address
     "+ttl",          // multicast hop count scope
+    "+interface",    // multicast interface name to use
     "+cc",           // congestion control on/off
     "+rate",         // tx date rate (bps)
     "-push",         // push stream writes for real-time messaging
@@ -349,6 +352,17 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
             return false;
         }
         ttl = ttlTemp;
+    }
+    else if (!strncmp("interface", cmd, len))
+    {
+        if (interface_name) delete[] interface_name;
+        if (!(interface_name = new char[strlen(val)+1]))
+        {
+            DMSG(0, "NormApp::OnCommand(interface) error allocating string: %s\n",
+                GetErrorString());
+            return false;
+        }
+        strcpy(interface_name, val);
     }
     else if (!strncmp("rate", cmd, len))
     {
@@ -1273,11 +1287,11 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
         return false; 
     }
 
+    if (control_remote) return false;
+
 #ifdef UNIX    
     signal(SIGCHLD, SignalHandler);
 #endif // UNIX
-    
-    if (control_remote) return false;
         
     // Validate our application settings
     if (!address)
@@ -1309,7 +1323,7 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
             session->ServerSetBaseObjectId(baseId);
             
             session->SetCongestionControl(cc_enable);
-            if (!session->StartServer(tx_buffer_size, segment_size, ndata, nparity))
+            if (!session->StartServer(tx_buffer_size, segment_size, ndata, nparity, interface_name))
             {
                 DMSG(0, "NormApp::OnStartup() start server error!\n");
                 session_mgr.Destroy();
@@ -1335,7 +1349,7 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
             // StartClient(bufferMax (per-sender))
             session->SetUnicastNacks(unicast_nacks);
             session->ClientSetSilent(silent_client);
-            if (!session->StartClient(rx_buffer_size))
+            if (!session->StartClient(rx_buffer_size, interface_name))
             {
                 DMSG(0, "NormApp::OnStartup() start client error!\n");
                 session_mgr.Destroy();

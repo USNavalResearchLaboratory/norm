@@ -83,7 +83,7 @@ NormSession::~NormSession()
 }
 
 
-bool NormSession::Open()
+bool NormSession::Open(const char* interfaceName)
 {
     ASSERT(address.IsValid());
     if (!tx_socket.IsOpen())
@@ -106,7 +106,7 @@ bool NormSession::Open()
     
     if (address.IsMulticast())
     {
-        if (!rx_socket.JoinGroup(address)) 
+        if (!rx_socket.JoinGroup(address, interfaceName)) 
         {
             DMSG(0, "NormSession::Open() rx_socket join group error\n");
             Close();
@@ -117,6 +117,11 @@ bool NormSession::Open()
             DMSG(0, "NormSession::Open() tx_socket set ttl error\n");
             Close();
             return false;
+        }
+        if (interfaceName)
+        {
+            rx_socket.SetMulticastInterface(interfaceName);
+            tx_socket.SetMulticastInterface(interfaceName);
         }
     }
     for (unsigned int i = 0; i < DEFAULT_MESSAGE_POOL_DEPTH; i++)
@@ -158,11 +163,12 @@ void NormSession::Close()
 bool NormSession::StartServer(unsigned long bufferSpace,
                               UINT16        segmentSize,
                               UINT16        numData, 
-                              UINT16        numParity)
+                              UINT16        numParity,
+                              const char*   interfaceName)
 {
     if (!IsOpen())
     {
-        if (!Open()) return false;
+        if (!Open(interfaceName)) return false;
     }
     // (TBD) parameterize the object history depth
     if (!tx_table.Init(256))
@@ -255,11 +261,11 @@ void NormSession::StopServer()
     if (!IsClient()) Close();
 }   // end NormSession::StopServer()
 
-bool NormSession::StartClient(unsigned long bufferSize)
+bool NormSession::StartClient(unsigned long bufferSize, const char* interfaceName)
 {
     if (!IsOpen())
     {
-        if (!Open()) return false;
+        if (!Open(interfaceName)) return false;
     }
     is_client = true;
     remote_server_buffer_size = bufferSize;
@@ -921,10 +927,6 @@ void NormSession::HandleReceiveMessage(NormMsg& msg, bool wasUnicast)
                 }
             }
             if (IsClient()) ClientHandleNackMessage((NormNackMsg&)msg);
-            if ((3 == LocalNodeId()) && (currentTime.tv_sec > 26))
-            {
-                int x = 5;   
-            }
             break;
         case NormMsg::ACK:
             if (IsServer() && (((NormAckMsg&)msg).GetServerId() == LocalNodeId())) 

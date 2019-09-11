@@ -41,8 +41,7 @@ class NormSessionMgr
         
         class NormSession* NewSession(const char*   sessionAddress,
                                       UINT16        sessionPort,
-                                      NormNodeId    localNodeId = 
-                                                    NORM_NODE_ANY);
+                                      NormNodeId    localNodeId = NORM_NODE_ANY);
         void DeleteSession(class NormSession* theSession);
         
         void Notify(NormController::Event event,
@@ -88,7 +87,7 @@ class NormSession
                
         // General methods
         const NormNodeId& LocalNodeId() {return local_node_id;}
-        bool Open();
+        bool Open(const char* interfaceName = NULL);
         void Close();
         bool IsOpen() {return (rx_socket.IsOpen() || tx_socket.IsOpen());}
         const ProtoAddress& Address() {return address;}
@@ -134,7 +133,8 @@ class NormSession
         bool StartServer(unsigned long bufferSpace,
                          UINT16        segmentSize,
                          UINT16        numData,
-                         UINT16        numParity);
+                         UINT16        numParity,
+                         const char*   interfaceName = NULL);
         void StopServer();
         NormStreamObject* QueueTxStream(UINT32      bufferSize, 
                                         const char* infoPtr = NULL, 
@@ -210,7 +210,8 @@ class NormSession
         }
         
         // Client methods
-        bool StartClient(unsigned long bufferSpace);
+        bool StartClient(unsigned long bufferSpace, 
+                         const char*   interfaceName = NULL);
         void StopClient();
         bool IsClient() {return is_client;}
         unsigned long RemoteServerBufferSize() 
@@ -293,7 +294,7 @@ class NormSession
         
         // General session parameters
         NormNodeId          local_node_id;
-        ProtoAddress        address;  // session destination address
+        ProtoAddress        address;  // session destination address & port
         UINT8               ttl;      // session multicast ttl       
         double              tx_rate;  // bytes per second
         double              backoff_factor;

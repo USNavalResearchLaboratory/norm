@@ -72,28 +72,28 @@ class NormObject
         bool IsPendingInfo() {return pending_info;}
         bool GetFirstPending(NormBlockId& blockId) const 
         {
-            unsigned long index = 0;
+            UINT32 index = 0;
             bool result = pending_mask.GetFirstSet(index);
             blockId = NormBlockId(index);
             return result;
         }
         bool GetNextPending(NormBlockId& blockId) const
         {
-            unsigned long index = (UINT32)blockId;
+            UINT32 index = (UINT32)blockId;
             bool result = pending_mask.GetNextSet(index);
             blockId = NormBlockId(index);
             return result;
         }
         bool GetLastPending(NormBlockId& blockId) const
         {
-            unsigned long index = 0;
+            UINT32 index = 0;
             bool result = pending_mask.GetLastSet(index);
             blockId = NormBlockId(index);
             return result;
         }
         bool GetFirstRepair(NormBlockId& blockId) const 
         {
-            unsigned long index = 0;
+            UINT32 index = 0;
             bool result = repair_mask.GetFirstSet(index);
             blockId = NormBlockId(index);
             return result;
@@ -101,14 +101,14 @@ class NormObject
         
         bool GetNextRepair(NormBlockId& blockId) const
         {
-            unsigned long index = (UINT32)blockId;
+            UINT32 index = (UINT32)blockId;
             bool result = repair_mask.GetNextSet(index);
             blockId = NormBlockId(index);
             return result;
         }
         bool GetLastRepair(NormBlockId& blockId) const
         {
-            unsigned long index = 0;
+            UINT32 index = 0;
             bool result = repair_mask.GetLastSet(index);
             blockId = NormBlockId(index);
             return result;
@@ -263,11 +263,11 @@ class NormStreamObject : public NormObject
                          const NormObjectId&      objectId);
         ~NormStreamObject(); 
 
-        bool Open(unsigned long bufferSize, 
+        bool Open(UINT32 bufferSize, 
                   const char*   infoPtr = NULL, 
                   UINT16        infoLen = 0);
         void Close();
-        bool Accept(unsigned long bufferSize);
+        bool Accept(UINT32 bufferSize);
         
         enum FlushType
         {
@@ -276,7 +276,7 @@ class NormStreamObject : public NormObject
             FLUSH_ACTIVE   // pending queued data is transmitted, _and_ active CMD(FLUSH)
         };
         bool Read(char* buffer, unsigned int* buflen, bool findMsgStart = false);
-        unsigned long Write(const char* buffer, unsigned long len, FlushType flushType, bool eom, bool push);
+        UINT32 Write(const char* buffer, UINT32 len, FlushType flushType, bool eom, bool push);
         
         
         bool StreamUpdateStatus(NormBlockId blockId);
@@ -343,7 +343,7 @@ class NormSimObject : public NormObject
                       const NormObjectId&      objectId);
         ~NormSimObject();
         
-        bool Open(unsigned long objectSize,
+        bool Open(UINT32 objectSize,
                   const char*   infoPtr = NULL,
                   UINT16        infoLen = 0)
         {
@@ -382,7 +382,7 @@ class NormObjectTable
         NormObjectId RangeLo() const {return range_lo;}
         NormObjectId RangeHi() const {return range_hi;}
         bool IsEmpty() const {return (0 == range);}
-        unsigned long Count() const {return count;}
+        UINT32 Count() const {return count;}
         const NormObjectSize& Size() const {return size;}
         
         class Iterator

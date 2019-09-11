@@ -1601,7 +1601,7 @@ bool NormFileObject::WriteSegment(NormBlockId   blockId,
         segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
                                         segmentSize*segmentId;
     }
-    off_t offsetScaleMSB = 0xffffffff + 1;
+    off_t offsetScaleMSB = 0xffffffff + 1;  // yuk! can't we do better?
     off_t offset = (off_t)segmentOffset.LSB() + ((off_t)segmentOffset.MSB() * offsetScaleMSB);
     if (offset != file.GetOffset())
     {
@@ -1644,7 +1644,7 @@ UINT16 NormFileObject::ReadSegment(NormBlockId      blockId,
         segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
                                         segmentSize*segmentId;
     }
-    off_t offsetScaleMSB = 0xffffffff + 1;
+    off_t offsetScaleMSB = 0xffffffff + 1;  // yuk! can't we do better
     off_t offset = (off_t)segmentOffset.LSB() + ((off_t)segmentOffset.MSB() * offsetScaleMSB);
     if (offset != file.GetOffset())
     {
@@ -1674,7 +1674,7 @@ NormStreamObject::~NormStreamObject()
     Close();
 }  
 
-bool NormStreamObject::Open(unsigned long   bufferSize, 
+bool NormStreamObject::Open(UINT32   bufferSize, 
                             const char*     infoPtr, 
                             UINT16          infoLen)
 {
@@ -1701,7 +1701,7 @@ bool NormStreamObject::Open(unsigned long   bufferSize,
     ASSERT(0 == numBlocks.MSB());
     // Buffering requires at least 2 blocks
     numBlocks = MAX(2, numBlocks.LSB());
-    unsigned long numSegments = numBlocks.LSB() * numData;
+    UINT32 numSegments = numBlocks.LSB() * numData;
         
     if (!block_pool.Init(numBlocks.LSB(), numData))
     {
@@ -1742,7 +1742,7 @@ bool NormStreamObject::Open(unsigned long   bufferSize,
     return true;
 }  // end NormStreamObject::Open()
 
-bool NormStreamObject::Accept(unsigned long bufferSize)
+bool NormStreamObject::Accept(UINT32 bufferSize)
 {
     if (Open(bufferSize))
     {
@@ -2168,10 +2168,10 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
     return true;
 }  // end NormStreamObject::Read()
 
-unsigned long NormStreamObject::Write(const char* buffer, unsigned long len, 
+UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, 
                                       FlushType flushType, bool eom, bool push)
 {
-    unsigned long nBytes = 0;
+    UINT32 nBytes = 0;
     do
     {
         NormBlock* block = stream_buffer.Find(write_index.block);

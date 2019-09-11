@@ -21,9 +21,9 @@ class NormBitmask
         NormBitmask();
         ~NormBitmask();
         
-        bool Init(unsigned long numBits);
+        bool Init(UINT32 numBits);
         void Destroy();
-        unsigned long Size() {return num_bits;}
+        UINT32 Size() {return num_bits;}
         void Clear()  // set to all zero's
         {
             memset(mask, 0, mask_len);
@@ -37,27 +37,27 @@ class NormBitmask
         }
         
         bool IsSet() const {return (first_set < num_bits);}
-        bool GetFirstSet(unsigned long& index) const 
+        bool GetFirstSet(UINT32& index) const 
         {
             index = first_set;
             return IsSet();
         }
             
-        bool GetLastSet(unsigned long& index) const
+        bool GetLastSet(UINT32& index) const
         {
             index = num_bits - 1;
             return GetPrevSet(index);
         }
-        bool Test(unsigned long index) const
+        bool Test(UINT32 index) const
         {
             return ((index < num_bits) ?
 			        (0 !=  (mask[(index >> 3)] & (0x80 >> (index & 0x07)))) :
                     false);
         }
-        bool CanSet(unsigned long index) const
+        bool CanSet(UINT32 index) const
             {return (index < num_bits);}
         
-        bool Set(unsigned long index)
+        bool Set(UINT32 index)
         {
             if (index < num_bits)
             {
@@ -70,7 +70,7 @@ class NormBitmask
                 return false;
             }
         }
-        bool Unset(unsigned long index)
+        bool Unset(UINT32 index)
         {
             if (index < num_bits)
             {
@@ -79,15 +79,15 @@ class NormBitmask
             }
             return true;
         }
-        bool Invert(unsigned long index)
+        bool Invert(UINT32 index)
             {return (Test(index) ? Unset(index) : Set(index));}
         
-        bool SetBits(unsigned long baseIndex, unsigned long count);
-        bool UnsetBits(unsigned long baseIndex, unsigned long count);
+        bool SetBits(UINT32 baseIndex, UINT32 count);
+        bool UnsetBits(UINT32 baseIndex, UINT32 count);
         
-        bool GetNextSet(unsigned long& index) const;
-        bool GetPrevSet(unsigned long& index) const;
-        bool GetNextUnset(unsigned long& index) const;
+        bool GetNextSet(UINT32& index) const;
+        bool GetPrevSet(UINT32& index) const;
+        bool GetNextUnset(UINT32& index) const;
         
         bool Copy(const NormBitmask &b);        // this = b
         bool Add(const NormBitmask & b);        // this = this | b
@@ -101,9 +101,9 @@ class NormBitmask
     // Members
     private:
         unsigned char*  mask;
-        unsigned long   mask_len;
-        unsigned long   num_bits;
-        unsigned long   first_set;  // index of lowest _set_ bit
+        UINT32   mask_len;
+        UINT32   num_bits;
+        UINT32   first_set;  // index of lowest _set_ bit
 };  // end class NormBitmask
 
 
@@ -125,16 +125,16 @@ class NormSlidingMask
         
         const char* GetMask() const {return (const char*)mask;}
         
-        bool Init(long numBits, UINT32 rangeMax);
+        bool Init(INT32 numBits, UINT32 rangeMax);
         void Destroy();
-        long Size() const {return num_bits;}
+        INT32 Size() const {return num_bits;}
         void Clear()
         {
             memset(mask, 0, mask_len); 
             start = end = num_bits; 
             offset = 0; 
         }
-        void Reset(unsigned long index = 0)
+        void Reset(UINT32 index = 0)
         {
             ASSERT(num_bits);
             memset(mask, 0xff, mask_len);
@@ -144,38 +144,34 @@ class NormSlidingMask
             offset = index;
         }
         bool IsSet() const {return (start < num_bits);}        
-        bool GetFirstSet(unsigned long& index) const 
+        bool GetFirstSet(UINT32& index) const 
         {
             index = offset;
             return IsSet();
         }
-        bool GetLastSet(unsigned long& index) const
+        bool GetLastSet(UINT32& index) const
         {
-            long n = end - start;
+            INT32 n = end - start;
             n = (n < 0) ? (n + num_bits) : n;
             index = offset + n; 
             return IsSet();
         }
-        bool Test(unsigned long index) const;
-        bool CanSet(unsigned long index) const;
+        bool Test(UINT32 index) const;
+        bool CanSet(UINT32 index) const;
         
-        bool Set(unsigned long index);
-        bool Unset(unsigned long index);
-        bool Invert(unsigned long index)
+        bool Set(UINT32 index);
+        bool Unset(UINT32 index);
+        bool Invert(UINT32 index)
             {return (Test(index) ? Unset(index): Set(index));}   
         
-        bool SetBits(unsigned long index, long count);
-        bool UnsetBits(unsigned long index, long count);
+        bool SetBits(UINT32 index, INT32 count);
+        bool UnsetBits(UINT32 index, INT32 count);
                 
         
         
         // These return "false" when finding nothing
-        bool GetNextSet(unsigned long& index) const;
-        bool GetPrevSet(unsigned long& index) const;
-        
-        //static unsigned long RawNextSet(const char* mask, long index, long start);
-        //static unsigned long RawPrevSet(const char* mask, long index, long end);
-        
+        bool GetNextSet(UINT32& index) const;
+        bool GetPrevSet(UINT32& index) const;
         
         bool Copy(const NormSlidingMask& b);        // this = b
         bool Add(const NormSlidingMask & b);        // this = this | b
@@ -185,13 +181,13 @@ class NormSlidingMask
         bool Xor(const NormSlidingMask & b);        // this = this ^ b
         
         void Display(FILE* stream);
-        void Debug(long theCount);
+        void Debug(INT32 theCount);
         
     private:
         // Calculate "circular" delta between two indices
-        long Delta(unsigned long a, unsigned long b) const
+        INT32 Delta(UINT32 a, UINT32 b) const
         {
-            long result = a - b;
+            INT32 result = a - b;
             return ((0 == (result & range_sign)) ? 
                         (result & range_mask) :
                         (((result != range_sign) || (a < b)) ? 
@@ -200,13 +196,13 @@ class NormSlidingMask
             
             
         unsigned char*  mask;
-        unsigned long   mask_len;
-        unsigned long   range_mask;
-        long            range_sign;
-        long            num_bits;
-        long            start;
-        long            end;
-        unsigned long   offset;
+        UINT32   mask_len;
+        UINT32   range_mask;
+        INT32    range_sign;
+        INT32    num_bits;
+        INT32    start;
+        INT32    end;
+        UINT32   offset;
 };  // end class NormSlidingMask
 
 #endif // _NORM_BITMASK_
