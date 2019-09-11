@@ -26,7 +26,8 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    flush_count(NORM_ROBUST_FACTOR+1),
    posted_tx_queue_empty(false), advertise_repairs(false),
    suppress_nonconfirmed(false), suppress_rate(-1.0), suppress_rtt(-1.0),
-   probe_proactive(true), grtt_interval(0.5), 
+   probe_proactive(true), probe_pending(false), probe_reset(false),
+   grtt_interval(0.5), 
    grtt_interval_min(DEFAULT_GRTT_INTERVAL_MIN),
    grtt_interval_max(DEFAULT_GRTT_INTERVAL_MAX),
    grtt_max(DEFAULT_GRTT_MAX), 
@@ -38,24 +39,24 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    next(NULL)
 {
     tx_socket.SetNotifier(&sessionMgr.GetSocketNotifier());
-    tx_socket.SetListener(this, (ProtoSocket::EventHandler)&NormSession::TxSocketRecvHandler);
+    tx_socket.SetListener(this, &NormSession::TxSocketRecvHandler);
     
     rx_socket.SetNotifier(&sessionMgr.GetSocketNotifier());
-    rx_socket.SetListener(this, (ProtoSocket::EventHandler)&NormSession::RxSocketRecvHandler);
+    rx_socket.SetListener(this, &NormSession::RxSocketRecvHandler);
     
-    tx_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormSession::OnTxTimeout);
+    tx_timer.SetListener(this, &NormSession::OnTxTimeout);
     tx_timer.SetInterval(0.0);
     tx_timer.SetRepeat(-1);
     
-    repair_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormSession::OnRepairTimeout);
+    repair_timer.SetListener(this, &NormSession::OnRepairTimeout);
     repair_timer.SetInterval(0.0);
     repair_timer.SetRepeat(1);
     
-    flush_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormSession::OnFlushTimeout);
+    flush_timer.SetListener(this, &NormSession::OnFlushTimeout);
     flush_timer.SetInterval(0.0);
     flush_timer.SetRepeat(0);
     
-    probe_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormSession::OnProbeTimeout);
+    probe_timer.SetListener(this, &NormSession::OnProbeTimeout);
     probe_timer.SetInterval(0.0);
     probe_timer.SetRepeat(-1);
     
@@ -70,7 +71,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
     // This timer is for printing out occasional status reports
     // (It may be used to trigger transmission of report messages
     //  in the future for debugging, etc
-    report_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormSession::OnReportTimeout);
+    report_timer.SetListener(this, &NormSession::OnReportTimeout);
     report_timer.SetInterval(10.0);
     report_timer.SetRepeat(-1);
 }
@@ -189,7 +190,7 @@ bool NormSession::StartServer(unsigned long bufferSpace,
     unsigned long blockSpace = sizeof(NormBlock) + 
                                blockSize * sizeof(char*) + 
                                2*maskSize  +
-                               numParity * (segmentSize + NormDataMsg::PayloadHeaderLength());
+                               numParity * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());
     
     unsigned long numBlocks = bufferSpace / blockSpace;
     if (bufferSpace > (numBlocks*blockSpace)) numBlocks++;
@@ -204,7 +205,7 @@ bool NormSession::StartServer(unsigned long bufferSpace,
         return false;
     }
     
-    if (!segment_pool.Init(numSegments, segmentSize + NormDataMsg::PayloadHeaderLength()))
+    if (!segment_pool.Init(numSegments, segmentSize + NormDataMsg::GetStreamPayloadHeaderLength() + 1))
     {
         DMSG(0, "NormSession::StartServer() segment_pool init error\n");
         StopServer();
@@ -213,7 +214,7 @@ bool NormSession::StartServer(unsigned long bufferSpace,
     
     if (numParity)
     {
-        if (!encoder.Init(numParity, segmentSize + NormDataMsg::PayloadHeaderLength()))
+        if (!encoder.Init(numParity, segmentSize + NormDataMsg::GetStreamPayloadHeaderLength()))
         {
             DMSG(0, "NormSession::StartServer() encoder init error\n");
             StopServer();
@@ -231,6 +232,7 @@ bool NormSession::StartServer(unsigned long bufferSpace,
     is_server = true;
     flush_count = NORM_ROBUST_FACTOR+1;  // (TBD) parameterize robust_factor
     //probe_timer.SetInterval(0.0);
+    probe_pending = probe_reset = false;
     OnProbeTimeout(probe_timer);
     ActivateTimer(probe_timer);
     return true;
@@ -268,7 +270,6 @@ void NormSession::StopClient()
     is_client = false;
     if (!is_server) Close();
 }
-
 
 void NormSession::Serve()
 {
@@ -876,7 +877,6 @@ void NormTrace(const struct timeval&    currentTime,
 
 void NormSession::HandleReceiveMessage(NormMsg& msg, bool wasUnicast)
 {   
-    ASSERT(this == session_mgr.top_session);
     // Drop some rx messages for testing
     if (UniformRand(100.0) < rx_loss_rate) 
     {
@@ -1318,6 +1318,8 @@ void NormSession::ServerHandleAckMessage(const struct timeval& currentTime, cons
 
 void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, NormNackMsg& nack)
 {
+    // (TBD) maintain average of "numErasures" for SEGMENT repair requests
+    //       to use as input to a an automatic "auto parity" adjustor
     // Update GRTT estimate
     struct timeval grttResponse;
     nack.GetGrttResponse(grttResponse);
@@ -2090,6 +2092,7 @@ bool NormSession::SendMessage(NormMsg& msg)
     ProtoSystemTime(currentTime); 
     
     bool clientMsg = false;
+    bool isProbe = false;
     
     // Fill in any last minute timestamps
     // (TBD) fill in SessionId fields on all messages as needed
@@ -2104,7 +2107,8 @@ bool NormSession::SendMessage(NormMsg& msg)
             switch (((NormCmdMsg&)msg).GetFlavor())
             {
                 case NormCmdMsg::CC:
-                    ((NormCmdCCMsg&)msg).SetSendTime(currentTime);  
+                    ((NormCmdCCMsg&)msg).SetSendTime(currentTime); 
+                    isProbe = true; 
                     break;
                 default:
                     break;
@@ -2153,8 +2157,7 @@ bool NormSession::SendMessage(NormMsg& msg)
     }    
     else
     {
-        if (tx_socket.SendTo(msg.GetBuffer(), 
-                              msgSize,
+        if (tx_socket.SendTo(msg.GetBuffer(), msgSize,
                               msg.GetDestination()))
         {
             // Separate send/recv tracing
@@ -2195,13 +2198,31 @@ bool NormSession::SendMessage(NormMsg& msg)
             result = false;
         }
     }
+    if (result && isProbe)
+    {
+        probe_pending = false;
+        if (probe_reset) 
+        {
+            probe_reset = false;
+            OnProbeTimeout(probe_timer);
+            ActivateTimer(probe_timer);  
+        }
+    }
     tx_timer.SetInterval(((double)msgSize) / tx_rate);
     return result;
 }  // end NormSession::SendMessage()
 
 bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
 {
-    // 1) Update grtt_estimate _if_ sufficient time elapsed.
+    // 1) Temporarily kill probe_timer if CMD(CC) not yet tx'd
+    if (probe_pending)
+    {
+        probe_reset = true;
+        probe_timer.Deactivate();
+        return false;
+    }  
+    
+    // 2) Update grtt_estimate _if_ sufficient time elapsed.
     grtt_age += probe_timer.GetInterval();
     if (grtt_age >= grtt_interval)
     {
@@ -2247,9 +2268,9 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
     else
         grtt_interval *= 2.0;
     if (grtt_interval > grtt_interval_max)
-        grtt_interval = grtt_interval_max;
+        grtt_interval = grtt_interval_max;    
     
-    // 2) Build probe message and determine next probe interval   
+    // 3) Build a NORM_CMD(CC) message
     NormCmdCCMsg* cmd = (NormCmdCCMsg*)GetMessageFromPool();
     if (!cmd)
     {
@@ -2257,7 +2278,6 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
                 LocalNodeId());   
         return true;
     } 
-    // Build a NORM_CMD(CC) message
     cmd->Init();
     cmd->SetDestination(address);
     cmd->SetGrtt(grtt_quantized);
@@ -2276,7 +2296,7 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
     double probeInterval;
     if (cc_enable)
     {
-        // Iterate over cc_node_list and append
+        // Iterate over cc_node_list and append cc_nodes ...
         NormNodeListIterator iterator(cc_node_list);
         NormCCNode* next;
         while ((next = (NormCCNode*)iterator.GetNextNode()))
@@ -2312,8 +2332,9 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
         // Determine next probe_interval
         probeInterval = grtt_interval;
     }
-    
-    QueueMessage(cmd);
+       
+    QueueMessage(cmd);  
+    probe_pending = true;  
     
     // 3) Set probe_timer interval
     probe_timer.SetInterval(probeInterval);

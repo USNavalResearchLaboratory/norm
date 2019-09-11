@@ -37,15 +37,15 @@ NormServerNode::NormServerNode(class NormSession* theSession, NormNodeId nodeId)
    recv_total(0), recv_goodput(0), resync_count(0),
    nack_count(0), suppress_count(0), completion_count(0), failure_count(0)
 {
-    repair_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormServerNode::OnRepairTimeout);
+    repair_timer.SetListener(this, &NormServerNode::OnRepairTimeout);
     repair_timer.SetInterval(0.0);
     repair_timer.SetRepeat(1);
     
-    activity_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormServerNode::OnActivityTimeout);
+    activity_timer.SetListener(this, &NormServerNode::OnActivityTimeout);
     activity_timer.SetInterval(NormSession::DEFAULT_GRTT_ESTIMATE*NORM_ROBUST_FACTOR);
     activity_timer.SetRepeat(NORM_ROBUST_FACTOR);
     
-    cc_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormServerNode::OnCCTimeout);
+    cc_timer.SetListener(this, &NormServerNode::OnCCTimeout);
     cc_timer.SetInterval(0.0);
     cc_timer.SetRepeat(1);
     
@@ -101,7 +101,7 @@ bool NormServerNode::Open(UINT16 sessionId, UINT16 segmentSize, UINT16 numData, 
     unsigned long blockSpace = sizeof(NormBlock) + 
                                blockSize * sizeof(char*) + 
                                2*maskSize  +
-                               numData * (segmentSize + NormDataMsg::PayloadHeaderLength());  
+                               numData * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());  
     unsigned long bufferSpace = session->RemoteServerBufferSize();
     unsigned long numBlocks = bufferSpace / blockSpace;
     if (bufferSpace > (numBlocks*blockSpace)) numBlocks++;
@@ -118,14 +118,14 @@ bool NormServerNode::Open(UINT16 sessionId, UINT16 segmentSize, UINT16 numData, 
     // The extra byte of segments is used for marking segments 
     // which are "start segments" for messages encapsulated in 
     // a NormStreamObject
-    if (!segment_pool.Init(numSegments, segmentSize+NormDataMsg::PayloadHeaderLength()+1))
+    if (!segment_pool.Init(numSegments, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()+1))
     {
         DMSG(0, "NormServerNode::Open() segment_pool init error\n");
         Close();
         return false;
     }
     
-    if (!decoder.Init(numParity, segmentSize+NormDataMsg::PayloadHeaderLength()))
+    if (!decoder.Init(numParity, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()))
     {
         DMSG(0, "NormServerNode::Open() decoder init error: %s\n",
                  strerror(errno));
@@ -166,6 +166,7 @@ void NormServerNode::Close()
     rx_table.Destroy();
     segment_size = ndata = nparity = 0;    
     is_open = false;
+    synchronized = false;
 }  // end NormServerNode::Close()
 
 
@@ -709,6 +710,8 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
     
     if (!IsOpen())
     {
+        DMSG(4, "NormServerNode::HandleObjectMessage() node>%lu opening server>%lu ...\n",
+                LocalNodeId(), GetId());
         // Currently,, our implementation requires the FEC Object Transmission Information
         // to properly allocate resources
         NormFtiExtension fti;

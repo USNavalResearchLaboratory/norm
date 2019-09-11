@@ -25,7 +25,7 @@ NormSimAgent::NormSimAgent(ProtoTimerMgr&         timerMgr,
     // Bind NormSessionMgr to this agent and simulation environment
     session_mgr.SetController(static_cast<NormController*>(this));
     
-    interval_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormSimAgent::OnIntervalTimeout);
+    interval_timer.SetListener(this, &NormSimAgent::OnIntervalTimeout);
     interval_timer.SetInterval(0.0);
     interval_timer.SetRepeat(0);
     
@@ -593,7 +593,7 @@ void NormSimAgent::Notify(NormController::Event event,
                 }
                 else
                 {
-                    OnIntervalTimeout();
+                    OnIntervalTimeout(interval_timer);
                 }
             } 
             break;
@@ -790,7 +790,7 @@ void NormSimAgent::Notify(NormController::Event event,
 }  // end NormSimAgent::Notify()
 
 
-bool NormSimAgent::OnIntervalTimeout()
+bool NormSimAgent::OnIntervalTimeout(ProtoTimer& theTimer)
 {
     if (tx_repeat_count)
     {

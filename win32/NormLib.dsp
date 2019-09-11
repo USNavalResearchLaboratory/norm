@@ -63,8 +63,8 @@ LIB32=link.exe -lib
 # PROP Output_Dir "Debug"
 # PROP Intermediate_Dir "Debug"
 # PROP Target_Dir ""
-# ADD BASE CPP /nologo /W3 /Gm /GX /ZI /Od /D "WIN32" /D "_DEBUG" /D "_MBCS" /D "_LIB" /YX /FD /GZ  /c
-# ADD CPP /nologo /W3 /Gm /GX /ZI /Od /I "..\common" /I "..\protolib\common" /I "..\protolib\win32" /D "_DEBUG" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT" /D "WIN32" /D "_MBCS" /D "_LIB" /YX /FD /GZ  /c
+# ADD BASE CPP /nologo /W3 /Gm /GX /ZI /Od /D "WIN32" /D "_DEBUG" /D "_MBCS" /D "_LIB" /YX /FD /GZ /c
+# ADD CPP /nologo /W3 /GX /Od /I "..\common" /I "..\protolib\common" /I "..\protolib\win32" /D "_DEBUG" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT" /D "WIN32" /D "_MBCS" /D "_LIB" /YX /FD /GZ /c
 # ADD BASE RSC /l 0x409 /d "_DEBUG"
 # ADD RSC /l 0x409 /d "_DEBUG"
 BSC32=bscmake.exe
@@ -89,11 +89,11 @@ SOURCE=..\common\galois.cpp
 
 !IF  "$(CFG)" == "NormLib - Win32 Release"
 
-# ADD CPP /MD /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MD /vmg /I "..\win32"
 
 !ELSEIF  "$(CFG)" == "NormLib - Win32 Debug"
 
-# ADD CPP /MDd /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MDd /vmg /I "..\win32"
 
 !ENDIF 
 
@@ -104,11 +104,11 @@ SOURCE=..\common\normBitmask.cpp
 
 !IF  "$(CFG)" == "NormLib - Win32 Release"
 
-# ADD CPP /MD /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MD /vmg /I "..\win32"
 
 !ELSEIF  "$(CFG)" == "NormLib - Win32 Debug"
 
-# ADD CPP /MDd /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MDd /vmg /I "..\win32"
 
 !ENDIF 
 
@@ -119,11 +119,11 @@ SOURCE=..\common\normEncoder.cpp
 
 !IF  "$(CFG)" == "NormLib - Win32 Release"
 
-# ADD CPP /MD /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MD /vmg /I "..\win32"
 
 !ELSEIF  "$(CFG)" == "NormLib - Win32 Debug"
 
-# ADD CPP /MDd /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MDd /vmg /I "..\win32"
 
 !ENDIF 
 
@@ -134,11 +134,11 @@ SOURCE=..\common\normFile.cpp
 
 !IF  "$(CFG)" == "NormLib - Win32 Release"
 
-# ADD CPP /MD /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MD /vmg /I "..\win32"
 
 !ELSEIF  "$(CFG)" == "NormLib - Win32 Debug"
 
-# ADD CPP /MDd /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MDd /vmg /I "..\win32"
 
 !ENDIF 
 
@@ -149,11 +149,11 @@ SOURCE=..\common\normMessage.cpp
 
 !IF  "$(CFG)" == "NormLib - Win32 Release"
 
-# ADD CPP /MD /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MD /vmg /I "..\win32"
 
 !ELSEIF  "$(CFG)" == "NormLib - Win32 Debug"
 
-# ADD CPP /MDd /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MDd /vmg /I "..\win32"
 
 !ENDIF 
 
@@ -164,11 +164,11 @@ SOURCE=..\common\normNode.cpp
 
 !IF  "$(CFG)" == "NormLib - Win32 Release"
 
-# ADD CPP /MD /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MD /vmg /I "..\win32"
 
 !ELSEIF  "$(CFG)" == "NormLib - Win32 Debug"
 
-# ADD CPP /MDd /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MDd /vmg /I "..\win32"
 
 !ENDIF 
 
@@ -179,11 +179,11 @@ SOURCE=..\common\normObject.cpp
 
 !IF  "$(CFG)" == "NormLib - Win32 Release"
 
-# ADD CPP /MD /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MD /vmg /I "..\win32"
 
 !ELSEIF  "$(CFG)" == "NormLib - Win32 Debug"
 
-# ADD CPP /MDd /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MDd /vmg /I "..\win32"
 
 !ENDIF 
 
@@ -194,11 +194,11 @@ SOURCE=..\common\normSegment.cpp
 
 !IF  "$(CFG)" == "NormLib - Win32 Release"
 
-# ADD CPP /MD /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MD /vmg /I "..\win32"
 
 !ELSEIF  "$(CFG)" == "NormLib - Win32 Debug"
 
-# ADD CPP /MDd /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MDd /vmg /I "..\win32"
 
 !ENDIF 
 
@@ -209,11 +209,11 @@ SOURCE=..\common\normSession.cpp
 
 !IF  "$(CFG)" == "NormLib - Win32 Release"
 
-# ADD CPP /MD /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MD /vmg /I "..\win32"
 
 !ELSEIF  "$(CFG)" == "NormLib - Win32 Debug"
 
-# ADD CPP /MDd /vmg /I "..\common" /I "..\win32" /I "..\protolib\common" /I "..\protolib\win32" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT"
+# ADD CPP /MDd /vmg /I "..\win32"
 
 !ENDIF 
 

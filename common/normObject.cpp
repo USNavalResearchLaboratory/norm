@@ -94,10 +94,6 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     NormObjectSize numBlocks = numSegments / NormObjectSize(numData);
     ASSERT(0 == numBlocks.MSB());
     
-    
-    
-    
-    
     if (!block_buffer.Init(numBlocks.LSB()))
     {
         DMSG(0, "NormObject::Open() init block_buffer error\n");  
@@ -212,7 +208,8 @@ bool NormObject::HandleBlockRequest(NormBlockId nextId, NormBlockId lastId)
     DMSG(6, "NormObject::HandleBlockRequest() node>%lu blk>%lu -> blk>%lu\n", 
             LocalNodeId(), (UINT32)nextId, (UINT32)lastId);
     bool increasedRepair = false;
-    while (nextId <= lastId)
+    lastId++;
+    while (nextId != lastId)
     {
         if (!repair_mask.Test(nextId))
         {
@@ -267,7 +264,8 @@ bool NormObject::TxResetBlocks(NormBlockId nextId, NormBlockId lastId)
 {
     bool increasedRepair = false;
     UINT16 autoParity = session->ServerAutoParity();
-    while (nextId <= lastId)
+    lastId++;
+    while (nextId != lastId)
     {
         if (!pending_mask.Test(nextId))
         {
@@ -281,8 +279,6 @@ bool NormObject::TxResetBlocks(NormBlockId nextId, NormBlockId lastId)
     }
     return increasedRepair;
 }  // end NormObject::TxResetBlocks()
-
-
 
 bool NormObject::ActivateRepairs()
 {
@@ -949,8 +945,8 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                             (UINT16)id);  
                     return;
                 }
-                UINT16 segmentLen = data.GetPayloadDataLength();
-                if (segmentLen > segment_size)
+                UINT16 segmentLength = data.GetPayloadDataLength();
+                if (segmentLength > segment_size)
                 {
                     DMSG(0, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                             "Error! segment too large ...\n", LocalNodeId(), server->GetId(), 
@@ -958,28 +954,19 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                     server->PutFreeSegment(segment);
                     return;  
                 }
+                UINT16 payloadLength = data.GetPayloadLength();
+                UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
 #ifdef SIMULATE
-                // For simulations, we just need the payload header (size & offset)
-                UINT16 simLen = MIN(segmentLen, SIM_PAYLOAD_MAX);
-                memcpy(segment, data.GetPayload(), simLen+NormDataMsg::PayloadHeaderLength());
-                simLen = MIN(segment_size, SIM_PAYLOAD_MAX);
-                if (segmentLen < simLen)
-                    memset(segment+segmentLen+NormDataMsg::PayloadHeaderLength(), 0, simLen - segmentLen);
+                // For simulations, we may need to cap the payloadLength
+                payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
+#endif // SIMULATE
+                if (payloadLength < payloadMax)
+                    memset(segment+payloadLength, 0, payloadMax-payloadLength);
+                memcpy(segment, data.GetPayload(), payloadLength);
                 if (data.FlagIsSet(NormObjectMsg::FLAG_MSG_START))
-                    segment[simLen+NormDataMsg::PayloadHeaderLength()] = 
-                            NormObjectMsg::FLAG_MSG_START;
+                    segment[payloadMax] = NormObjectMsg::FLAG_MSG_START;
                 else
-                    segment[simLen+NormDataMsg::PayloadHeaderLength()] = 0;
-#else
-                memcpy(segment, data.GetPayload(), segmentLen+NormDataMsg::PayloadHeaderLength());
-                if (segmentLen < segment_size)
-                    memset(segment+segmentLen+NormDataMsg::PayloadHeaderLength(), 0, segment_size - segmentLen);
-                if (data.FlagIsSet(NormObjectMsg::FLAG_MSG_START))
-                    segment[segment_size+NormDataMsg::PayloadHeaderLength()] = 
-                            NormObjectMsg::FLAG_MSG_START;
-                else
-                    segment[segment_size+NormDataMsg::PayloadHeaderLength()] = 0;
-#endif // if/else SIMULATE                
+                    segment[payloadMax] = 0;
                 block->AttachSegment(segmentId, segment);
                 block->UnsetPending(segmentId);
                 // 2) Write segment to object (if it's data)
@@ -987,7 +974,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 {
                     block->DecrementErasureCount();
                     if (WriteSegment(blockId, segmentId, segment))
-                        server->IncrementRecvGoodput(segmentLen);
+                        server->IncrementRecvGoodput(segmentLength);
                 }
                 else
                 {
@@ -1019,12 +1006,11 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                                     // (TBD) Dump the block ...???
                                     return;
                                 }
-#ifdef SIMULATE
-                                UINT16 simLen = MIN(segment_size, SIM_PAYLOAD_MAX);
-                                memset(segment, 0, simLen + NormDataMsg::PayloadHeaderLength()+1);
-#else
-                                memset(segment, 0, segment_size+NormDataMsg::PayloadHeaderLength()+1);
-#endif // !SIMULATE
+                                UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
+#ifdef SIMULATE                               
+                                payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
+#endif // SIMULATE
+                                memset(segment, 0, payloadMax+1);
                                 block->SetSegment(nextErasure, segment);
                             }
                             nextErasure = block->NextPending(nextErasure+1);   
@@ -1041,7 +1027,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                                 if (WriteSegment(blockId, sid, block->Segment(sid)))
                                 {
                                     // For statistics only (TBD) #ifdef NORM_DEBUG
-                                    server->IncrementRecvGoodput(NormDataMsg::ReadPayloadLength(block->Segment(sid)));
+                                    server->IncrementRecvGoodput(segmentLength);
                                 }
                             }
                             else
@@ -1224,12 +1210,11 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
             char* s = session->ServerGetFreeSegment(id, blockId);
             if (s)
             {
+                UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
 #ifdef SIMULATE
-                UINT16 simLen = MIN(segment_size, SIM_PAYLOAD_MAX);
-                memset(s, 0, simLen + NormDataMsg::PayloadHeaderLength()+1);
-#else
-                memset(s, 0, segment_size + NormDataMsg::PayloadHeaderLength()+1);
-#endif // if/else SIMULATE
+                payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
+#endif // SIMULATE
+                memset(s, 0, payloadMax+1);  // extra byte for msg flags
                 block->AttachSegment(i, s); 
             }
             else
@@ -1260,30 +1245,26 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
     // Try to read segment 
     if (segmentId < numData)
     {
-        // Try to read data segment
+        // Try to read data segment (Note "ReadSegment" copies in offset/length info also)
         char* buffer = data->AccessPayload(); 
-        if (!ReadSegment(blockId, segmentId, buffer))
+        UINT16 payloadLength = ReadSegment(blockId, segmentId, buffer);
+        if (0 == payloadLength)
         {
             // (TBD) deal with read error 
             //(for streams, it currently means the stream is non-pending)
-            if (!IsStream()) 
-                DMSG(0, "NormObject::NextServerMsg() ReadSegment() error\n");          
+            if (!IsStream()) DMSG(0, "NormObject::NextServerMsg() ReadSegment() error\n");          
             return false;  
         }
-        UINT16 length = NormDataMsg::ReadPayloadLength(buffer);
-        data->SetDataPayloadLength(length);
+        data->SetPayloadLength(payloadLength);
         
         if (IsStream())
         {
             // Look for FLAG_MSG_START
+            UINT16 payloadMax = segment_size+NormDataMsg::GetStreamPayloadHeaderLength();
 #ifdef SIMULATE
-            UINT16 simLen = MIN(segment_size, SIM_PAYLOAD_MAX);
-            if (buffer[simLen+NormDataMsg::PayloadHeaderLength()])
-                data->SetFlag(NormObjectMsg::FLAG_MSG_START);
-#else
-            if (buffer[segment_size+NormDataMsg::PayloadHeaderLength()]) 
-                data->SetFlag(NormObjectMsg::FLAG_MSG_START);
-#endif // if/else SIMULATE            
+            payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);            
+#endif // SIMULATE   
+            if (buffer[payloadMax]) data->SetFlag(NormObjectMsg::FLAG_MSG_START);         
         }
         
         // Perform incremental FEC encoding as needed
@@ -1292,8 +1273,12 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         {
             // (TBD) for non-stream objects, catch alternate "last block/segment len"
             // ZERO pad any "runt" segments before encoding
-            if (length < segment_size)
-                memset(buffer+NormDataMsg::PayloadHeaderLength()+length, 0, segment_size-length);
+            UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
+#ifdef SIMULATE
+            payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
+#endif // SIMULATE
+            if (payloadLength < payloadMax)
+                memset(buffer+payloadLength, 0, payloadMax-payloadLength);
             // (TBD) the encode routine could update the block's parity readiness
             session->ServerEncode(data->AccessPayload(), block->SegmentList(numData)); 
             block->IncreaseParityReadiness();     
@@ -1309,7 +1294,9 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         ASSERT(block->ParityReady(numData));
         char* segment = block->Segment(segmentId);
         ASSERT(segment);
-        data->SetPayload(segment, segment_size+NormDataMsg::PayloadHeaderLength());    
+        UINT16 payloadLength = segment_size;
+        if (IsStream()) payloadLength += NormDataMsg::GetStreamPayloadHeaderLength();
+        data->SetPayload(segment, payloadLength);    
     }
     block->UnsetPending(segmentId); 
     if (block->InRepair()) 
@@ -1348,6 +1335,7 @@ void NormStreamObject::StreamAdvance()
             ASSERT(block); 
             if (!block->IsTransmitPending())
             {
+                // ??? (TBD) Should this block be returned to the pool right now???
                 if (pending_mask.Set(nextBlockId))
                     stream_next_id++;
                 else
@@ -1372,11 +1360,15 @@ bool NormObject::CalculateBlockParity(NormBlock* block)
     UINT16 numData = GetBlockSize(block->Id());
     for (UINT16 i = 0; i < numData; i++)
     {
-        if (ReadSegment(block->Id(), i, buffer))
+        UINT16 payloadLength = ReadSegment(block->Id(), i, buffer);
+        if (0 != payloadLength)
         {
-            UINT16 length = NormDataMsg::ReadPayloadLength(buffer);
-            if (length < segment_size)
-                memset(buffer+NormDataMsg::PayloadHeaderLength()+length, 0, segment_size-length);
+            UINT16 payloadMax = segment_size+NormDataMsg::GetStreamPayloadHeaderLength();
+#ifdef SIMULATE
+            payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
+#endif // SIMULATE
+            if (payloadLength < payloadMax)
+                memset(buffer+payloadLength, 0, payloadMax-payloadLength);
             session->ServerEncode(buffer, block->SegmentList(numData));
         }
         else
@@ -1403,12 +1395,11 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
             char* s = session->ServerGetFreeSegment(id, blockId);
             if (s)
             {
+                UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();                
 #ifdef SIMULATE
-                UINT16 simLen = MIN(segment_size, SIM_PAYLOAD_MAX);
-                memset(s, 0, simLen + NormDataMsg::PayloadHeaderLength());
-#else
-                memset(s, 0, segment_size + NormDataMsg::PayloadHeaderLength());
-#endif // if/else SIMULATE
+                payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
+#endif // SIMULATE
+                memset(s, 0, payloadMax+1);  // extra byte for msg flags
                 block->AttachSegment(i, s); 
             }
             else
@@ -1511,8 +1502,6 @@ bool NormFileObject::Open(const char* thePath,
                 file.Close();
                 return false;
             }  
-            large_block_length = NormObjectSize(large_block_size) * segment_size;
-            small_block_length = NormObjectSize(small_block_size) * segment_size;
         } 
         else
         {
@@ -1520,6 +1509,8 @@ bool NormFileObject::Open(const char* thePath,
             return false;
         }
     }
+    large_block_length = NormObjectSize(large_block_size) * segment_size;
+    small_block_length = NormObjectSize(small_block_size) * segment_size;
     strncpy(path, thePath, PATH_MAX);
     unsigned int len = strlen(thePath);
     len = MIN(len, PATH_MAX);
@@ -1562,23 +1553,36 @@ bool NormFileObject::WriteSegment(NormBlockId   blockId,
     {
         len = segment_size;
     }
-    NormObjectSize segmentOffset = NormDataMsg::ReadPayloadOffset(buffer);
+    // Determine segment offset from blockId::segmentId
+    NormObjectSize segmentOffset;
+    NormObjectSize segmentSize = NormObjectSize(segment_size);
+    if ((UINT32)blockId < large_block_count)
+    {
+        segmentOffset = large_block_length*(UINT32)blockId + segmentSize*segmentId;
+    }
+    else
+    {
+        segmentOffset = large_block_length*large_block_count;  // (TBD) pre-calc this 
+        UINT32 smallBlockIndex = (UINT32)blockId - large_block_count;
+        segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
+                                        segmentSize*segmentId;
+    }
     off_t offsetScaleMSB = 0xffffffff + 1;
     off_t offset = (off_t)segmentOffset.LSB() + ((off_t)segmentOffset.MSB() * offsetScaleMSB);
     if (offset != file.GetOffset())
     {
         if (!file.Seek(offset)) return false; 
     }
-    UINT16 nbytes = file.Write(buffer+NormDataMsg::PayloadHeaderLength(), len);
+    UINT16 nbytes = file.Write(buffer, len);
     return (nbytes == len);
 }  // end NormFileObject::WriteSegment()
 
 
-bool NormFileObject::ReadSegment(NormBlockId      blockId, 
-                                 NormSegmentId    segmentId,
-                                 char*            buffer)            
+UINT16 NormFileObject::ReadSegment(NormBlockId      blockId, 
+                                   NormSegmentId    segmentId,
+                                   char*            buffer)            
 {
-    // Determine segment length
+    // Determine segment length from blockId::segmentId
     UINT16 len;
     if (blockId == final_block_id)
     {
@@ -1591,6 +1595,8 @@ bool NormFileObject::ReadSegment(NormBlockId      blockId,
     {
         len = segment_size;
     }
+    
+    
     // Determine segment offset from blockId::segmentId
     NormObjectSize segmentOffset;
     NormObjectSize segmentSize = NormObjectSize(segment_size);
@@ -1600,13 +1606,11 @@ bool NormFileObject::ReadSegment(NormBlockId      blockId,
     }
     else
     {
-        segmentOffset = large_block_length*large_block_count;  
+        segmentOffset = large_block_length*large_block_count;  // (TBD) pre-calc this  
         UINT32 smallBlockIndex = (UINT32)blockId - large_block_count;
         segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
-                                        segmentSize *segmentId;
+                                        segmentSize*segmentId;
     }
-    NormDataMsg::WritePayloadLength(buffer, len);
-    NormDataMsg::WritePayloadOffset(buffer, segmentOffset);
     off_t offsetScaleMSB = 0xffffffff + 1;
     off_t offset = (off_t)segmentOffset.LSB() + ((off_t)segmentOffset.MSB() * offsetScaleMSB);
     if (offset != file.GetOffset())
@@ -1614,8 +1618,8 @@ bool NormFileObject::ReadSegment(NormBlockId      blockId,
         if (!file.Seek(offset)) 
             return false;
     }
-    UINT16 nbytes = file.Read(buffer+NormDataMsg::PayloadHeaderLength(), len);
-    return (len == nbytes);
+    UINT16 nbytes = file.Read(buffer, len);
+    return (len == nbytes) ? len : 0;
 }  // end NormFileObject::ReadSegment()
 
 
@@ -1673,7 +1677,7 @@ bool NormStreamObject::Open(unsigned long   bufferSize,
         return false;
     }
     
-    if (!segment_pool.Init(numSegments, segmentSize+NormDataMsg::PayloadHeaderLength()+1))
+    if (!segment_pool.Init(numSegments, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()+1))
     {
         DMSG(0, "NormStreamObject::Open() segment_pool init error\n");
         Close();
@@ -1690,7 +1694,7 @@ bool NormStreamObject::Open(unsigned long   bufferSize,
     // since our objects are exclusively read _or_ write
     write_index.block = write_index.segment = 0;
     read_index.block = read_index.segment = 0; 
-    write_offset = read_offset = NormObjectSize((UINT32)0);    
+    write_offset = read_offset = 0;    
     if (!server)
     {
         if (!NormObject::Open(NormObjectSize((UINT32)bufferSize), infoPtr, infoLen))
@@ -1721,7 +1725,7 @@ bool NormStreamObject::Accept(unsigned long bufferSize)
 void NormStreamObject::Close()
 {
     NormObject::Close();
-    write_offset = read_offset = NormObjectSize((UINT32)0);
+    write_offset = read_offset = 0;
     NormBlock* b;
     while ((b = stream_buffer.Find(stream_buffer.RangeLo())))
     {
@@ -1844,9 +1848,9 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
 }  // end NormStreamObject::StreamUpdateStatus()
 
 
-bool NormStreamObject::ReadSegment(NormBlockId      blockId, 
-                                   NormSegmentId    segmentId,
-                                   char*            buffer)
+UINT16 NormStreamObject::ReadSegment(NormBlockId      blockId, 
+                                     NormSegmentId    segmentId,
+                                     char*            buffer)
 {
     // (TBD) compare blockId with stream_buffer.RangeLo() and stream_buffer.RangeHi()
     NormBlock* block = stream_buffer.Find(blockId);
@@ -1864,19 +1868,19 @@ bool NormStreamObject::ReadSegment(NormBlockId      blockId,
     block->UnsetPending(segmentId);    
     char* segment = block->Segment(segmentId);
     ASSERT(segment != NULL);    
-    UINT16 length = NormDataMsg::ReadPayloadLength(segment);
-    ASSERT(length <= segment_size);
+    UINT16 segmentLength = NormDataMsg::ReadStreamPayloadLength(segment);
+    ASSERT(segmentLength <= segment_size);
 #ifdef SIMULATE
-    length = MIN(length, SIM_PAYLOAD_MAX);
-    UINT16 simLen = MIN(SIM_PAYLOAD_MAX, segment_size);
-    buffer[simLen+NormDataMsg::PayloadHeaderLength()] = 
-        segment[simLen+NormDataMsg::PayloadHeaderLength()];        
+    UINT16 simLen = segmentLength + NormDataMsg::GetStreamPayloadHeaderLength();
+    simLen = MIN(simLen, SIM_PAYLOAD_MAX);
+    buffer[simLen] = segment[simLen];        
 #else    
-    buffer[segment_size+NormDataMsg::PayloadHeaderLength()] =
-        segment[segment_size+NormDataMsg::PayloadHeaderLength()];
+    buffer[segment_size+NormDataMsg::GetStreamPayloadHeaderLength()] =
+        segment[segment_size+NormDataMsg::GetStreamPayloadHeaderLength()];
 #endif // if/else SIMULATE
-    memcpy(buffer, segment, length+NormDataMsg::PayloadHeaderLength());
-    return true;
+    UINT16 payloadLength = segmentLength+NormDataMsg::GetStreamPayloadHeaderLength();
+    memcpy(buffer, segment, payloadLength);
+    return payloadLength;
 }  // end NormStreamObject::ReadSegment()
 
 bool NormStreamObject::WriteSegment(NormBlockId   blockId, 
@@ -1889,13 +1893,15 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
     {
         //DMSG(0, "NormStreamObject::WriteSegment() block/segment < read_index!?\n");
         return false;
-    }*/
+    }*/   
             
-            
-    NormObjectSize segmentOffset = NormDataMsg::ReadPayloadOffset(segment);
-    if (read_offset > segmentOffset)
+    UINT32 segmentOffset = NormDataMsg::ReadStreamPayloadOffset(segment);
+    // if (segmentOffset < read_offset)
+    UINT32 diff = segmentOffset - read_offset;
+    if ((diff > 0x80000000) || ((0x80000000 == diff) && (segmentOffset > read_offset)))
     {
-        //DMSG(0, "NormStreamObject::WriteSegment() segmentOffset < read_offset!?\n");
+        DMSG(0, "NormStreamObject::WriteSegment() diff:%lu segmentOffset:%lu < read_offset:%lu \n",
+                 diff, segmentOffset, read_offset);
         return false;
     }
     
@@ -1916,7 +1922,7 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
                 read_index.block = block->Id();
                 read_index.segment = block->FirstPending();
                 NormBlock* tempBlock = block;
-                NormObjectSize tempOffset = read_offset;
+                UINT32 tempOffset = read_offset;
                 session->Notify(NormController::RX_OBJECT_UPDATE, server, this);
                 block = stream_buffer.Find(stream_buffer.RangeLo());
                 if (tempBlock == block)
@@ -1968,17 +1974,14 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
     {
         char* s = segment_pool.Get();
         ASSERT(s != NULL);  // for now, this should always succeed
-        UINT16 length = NormDataMsg::ReadPayloadLength(segment);
+        UINT16 segmentLength = NormDataMsg::ReadStreamPayloadLength(segment);
+        UINT16 flagsOffset = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
 #ifdef SIMULATE
-        length = MIN(length, SIM_PAYLOAD_MAX);
-        UINT16 simLen = MIN(segment_size, SIM_PAYLOAD_MAX);
-        s[simLen+NormDataMsg::PayloadHeaderLength()] = 
-            segment[simLen+NormDataMsg::PayloadHeaderLength()];   
-#else
-        s[segment_size+NormDataMsg::PayloadHeaderLength()] =
-            segment[segment_size+NormDataMsg::PayloadHeaderLength()];
+        flagsOffset = MIN(SIM_PAYLOAD_MAX, flagsOffset);
+        segmentLength = MIN((SIM_PAYLOAD_MAX-NormDataMsg::GetStreamPayloadHeaderLength()), segmentLength);  
 #endif // SIMULATE
-        memcpy(s, segment, length + NormDataMsg::PayloadHeaderLength());
+        s[flagsOffset] = segment[flagsOffset];
+        memcpy(s, segment, segmentLength + NormDataMsg::GetStreamPayloadHeaderLength());
         block->AttachSegment(segmentId, s);
         block->SetPending(segmentId);
         ASSERT(block->Segment(segmentId) == s);
@@ -2035,26 +2038,25 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
         char* segment = block->Segment(read_index.segment);
         if (!segment)
         {
-            //DMSG(0, "NormStreamObject::Read() stream buffer empty (2)\n");
+            //DMSG(0, "NormStreamObject::Read(%lu:%hu) stream buffer empty (2)\n",
+            //        (UINT32)read_index.block, read_index.segment);
             *buflen = bytesRead;
             return true;   
         }
         
-        NormObjectSize segmentOffset = NormDataMsg::ReadPayloadOffset(segment);
-        if (segmentOffset > read_offset)
+        UINT32 segmentOffset = NormDataMsg::ReadStreamPayloadOffset(segment);
+        // if (read_offset < segmentOffset)
+        UINT32 diff = read_offset - segmentOffset;
+        if ((diff > 0x80000000) || ((0x80000000 == diff) && (read_offset > segmentOffset)))
         {
-            DMSG(4, "NormStreamObject::Read() node>%lu broken stream!\n", LocalNodeId());
+            DMSG(0, "NormStreamObject::Read() node>%lu broken stream!\n", LocalNodeId());
             read_offset = segmentOffset;
             *buflen = bytesRead;
             return false;
         }
         
-        NormObjectSize delta = read_offset - segmentOffset;
-        
-        ASSERT(!delta.MSB());
-        UINT16 index = delta.LSB(); 
-        UINT16 length = NormDataMsg::ReadPayloadLength(segment);
-
+        UINT32 index = read_offset - segmentOffset;
+        UINT16 length = NormDataMsg::ReadStreamPayloadLength(segment);
 	    if (index >= length)
         {
             DMSG(0, "NormStreamObject::Read() node>%lu mangled stream! index:%hu length:%hu\n",
@@ -2077,14 +2079,11 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
             }
             else
             {
+                UINT16 flagsOffset = segment_size+NormDataMsg::GetStreamPayloadHeaderLength();
 #ifdef SIMULATE
-                UINT16 simLen = MIN(segment_size, SIM_PAYLOAD_MAX);
-                msgStart = (NormObjectMsg::FLAG_MSG_START == 
-                            segment[simLen+NormDataMsg::PayloadHeaderLength()]);
-#else
-                msgStart = (NormObjectMsg::FLAG_MSG_START == 
-                            segment[segment_size+NormDataMsg::PayloadHeaderLength()]);
+                flagsOffset = MIN(flagsOffset, SIM_PAYLOAD_MAX);
 #endif // if/else SIMULATE               
+                msgStart = (NormObjectMsg::FLAG_MSG_START == segment[flagsOffset]);
             }
             if (!msgStart)
             {
@@ -2107,9 +2106,9 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
         UINT16 simCount = ((index+count) < SIM_PAYLOAD_MAX) ? 
                             count : ((index < SIM_PAYLOAD_MAX) ?
                                         (SIM_PAYLOAD_MAX - index) : 0);
-        memcpy(buffer+bytesRead, segment+index+NormDataMsg::PayloadHeaderLength(), simCount);
+        memcpy(buffer+bytesRead, segment+index+NormDataMsg::GetStreamPayloadHeaderLength(), simCount);
 #else
-        memcpy(buffer+bytesRead, segment+index+NormDataMsg::PayloadHeaderLength(), count);
+        memcpy(buffer+bytesRead, segment+index+NormDataMsg::GetStreamPayloadHeaderLength(), count);
 #endif // if/else SIMULATE
         index += count;
         bytesRead += count;
@@ -2134,10 +2133,11 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
     return true;
 }  // end NormStreamObject::Read()
 
-unsigned long NormStreamObject::Write(const char* buffer, unsigned long len, bool flush, bool eom, bool push)
+unsigned long NormStreamObject::Write(const char* buffer, unsigned long len, 
+                                      bool flush, bool eom, bool push)
 {
     unsigned long nBytes = 0;
-    while (nBytes < len)
+    do
     {
         NormBlock* block = stream_buffer.Find(write_index.block);
         if (!block)
@@ -2201,33 +2201,32 @@ unsigned long NormStreamObject::Write(const char* buffer, unsigned long len, boo
                 segment = segment_pool.Get();
                 ASSERT(segment);
             }
-            NormDataMsg::WritePayloadOffset(segment, write_offset);  
-            NormDataMsg::WritePayloadLength(segment, 0);
+            NormDataMsg::WriteStreamPayloadOffset(segment, write_offset);  
+            NormDataMsg::WriteStreamPayloadLength(segment, 0);
             block->AttachSegment(write_index.segment, segment);
         }
         
-        UINT16 index = NormDataMsg::ReadPayloadLength(segment);
+        UINT16 index = NormDataMsg::ReadStreamPayloadLength(segment);
         
         if (0 == index)
         {
-            // On first write to segment, mark MSG_START flag as appropriate
-            char msgStartValue;
-            if (msg_start)
+            char msgStartValue = 0;
+            if (msg_start && len)
             {
+                ASSERT(0 == index);
+                msgStartValue = NormObjectMsg::FLAG_MSG_START; 
                 msg_start = false;
-                msgStartValue = NormObjectMsg::FLAG_MSG_START;
             }
-            else
-            {
-                msgStartValue = 0;
-            }
+            UINT16 flagsOffset = segment_size+NormDataMsg::GetStreamPayloadHeaderLength();
 #ifdef SIMULATE
-            UINT16 simLen = MIN(SIM_PAYLOAD_MAX, segment_size);
-            segment[simLen+NormDataMsg::PayloadHeaderLength()] = msgStartValue;
-#else
-            segment[segment_size+NormDataMsg::PayloadHeaderLength()] = msgStartValue;          
-#endif // if/else SIMULATE                
+            flagsOffset = MIN(SIM_PAYLOAD_MAX, flagsOffset);
+#endif // SIMULATE  
+            segment[flagsOffset] = msgStartValue;
         }
+        else
+        {
+            msg_start = false;   
+        }            
         
         UINT16 count = (UINT16)(len - nBytes);
         UINT16 space = segment_size - index;
@@ -2236,17 +2235,16 @@ unsigned long NormStreamObject::Write(const char* buffer, unsigned long len, boo
         UINT16 simCount = ((index+count) < SIM_PAYLOAD_MAX) ? 
                             count : ((index < SIM_PAYLOAD_MAX) ?
                                         (SIM_PAYLOAD_MAX - index) : 0);
-        memcpy(segment+index+NormDataMsg::PayloadHeaderLength(), buffer+nBytes, simCount);
+        memcpy(segment+index+NormDataMsg::GetStreamPayloadHeaderLength(), buffer+nBytes, simCount);
 #else
-        memcpy(segment+index+NormDataMsg::PayloadHeaderLength(), buffer+nBytes, count);
+        memcpy(segment+index+NormDataMsg::GetStreamPayloadHeaderLength(), buffer+nBytes, count);
 #endif // if/else SIMULATE
-        NormDataMsg::WritePayloadLength(segment, index+count);
+        NormDataMsg::WriteStreamPayloadLength(segment, index+count);
         nBytes += count;
         write_offset += count;
-        // Is the segment full? or flushing, or end-of-message
-        if ((count == space) || ((flush || eom) && (index > 0)))
+        // Is the segment full? or flushing
+        if ((count == space) || ((flush || eom) && (index > 0) && (nBytes == len)))
         {   
-            if (eom) ASSERT(0);
             block->SetPending(write_index.segment);
             if (++write_index.segment >= ndata) 
             {
@@ -2254,13 +2252,13 @@ unsigned long NormStreamObject::Write(const char* buffer, unsigned long len, boo
                 write_index.segment = 0;
             }
         }
-    } 
+    } while (nBytes < len);
     
-    // if this was end-of-message next Write() will be considered a new message 
-    
+    // if this was end-of-message next Write() will be considered a new message     
     if (nBytes == len)
     {
-        if (eom) msg_start = true;
+        if (eom) 
+            msg_start = true;
         if (flush) 
             flush_pending = true;
         else
@@ -2293,20 +2291,24 @@ NormSimObject::~NormSimObject()
     
 }
 
-bool NormSimObject::ReadSegment(NormBlockId      blockId, 
-                                NormSegmentId    segmentId,
-                                char*            buffer)            
+UINT16 NormSimObject::ReadSegment(NormBlockId      blockId, 
+                                  NormSegmentId    segmentId,
+                                  char*            buffer)            
 {
     // Determine segment length
     UINT16 len;
-    if ((blockId == last_block_id) &&
-        (segmentId == (last_block_size - 1)))
-        len = last_segment_size;
+    if (blockId == final_block_id)
+    {
+        if (segmentId == (GetBlockSize(blockId)-1))
+            len = final_segment_size;
+        else
+            len = segment_size;
+    }
     else
+    {
         len = segment_size;
-    // the "len" is needed to build the correct size message
-    NormDataMsg::WritePayloadLength(buffer, len);
-    return true;
+    }
+    return len;
 }  // end NormSimObject::ReadSegment()
 
 #endif // SIMULATE      

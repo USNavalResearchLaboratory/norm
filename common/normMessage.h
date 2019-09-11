@@ -10,7 +10,7 @@
 #include <stdlib.h>  // for rand(), etc
 
 #ifdef SIMULATE
-#define SIM_PAYLOAD_MAX 36   // MGEN message size
+#define SIM_PAYLOAD_MAX (36+8)   // MGEN message size + StreamPayloadHeaderLen()
 #endif // SIMULATE
 
 const UINT8 NORM_PROTOCOL_VERSION = 1;
@@ -380,6 +380,7 @@ class NormObjectMsg : public NormMsg
         UINT8 GetGroupSize() const {return (buffer[GSIZE_OFFSET] & 0x0f);} 
         bool FlagIsSet(NormObjectMsg::Flag flag) const
             {return (0 != (flag & buffer[FLAGS_OFFSET]));}
+        bool IsStream() const {return FlagIsSet(FLAG_STREAM);}
         UINT8 GetFecId() const {return buffer[FEC_ID_OFFSET];}
         NormObjectId GetObjectId() const
         {
@@ -546,30 +547,28 @@ class NormDataMsg : public NormObjectMsg
             memcpy(buffer+SYMBOL_ID_OFFSET, &symbolId, 2);
         }
         
-        // Three ways to set payload content:
+        // Two ways to set payload content:
         // 1) Directly access payload to copy segment, then set data message length
-        //    (segment must include "payload_len", "payload_offset", and "payload_data"
+        //    (Note NORM_STREAM_OBJECT segments must already include "payload_len"
+        //    and "payload_offset" with the "payload_data"
         char* AccessPayload() {return (buffer+header_length);}
-        void SetDataPayloadLength(UINT16 dataLength)
+        // For NORM_STREAM_OBJECT segments, "dataLength" must include the PAYLOAD_HEADER_LENGTH
+        void SetPayloadLength(UINT16 payloadLength)
         {
-            length = header_length + PAYLOAD_DATA_OFFSET + dataLength;
+            length = header_length + payloadLength;
         }
-        // 2) Set data segment payload with "offset", "data" ptr, and "len"
-        void SetDataPayload(const NormObjectSize& offset, char* data, UINT16 len)
-        {
-            WritePayloadLength(AccessPayload(), len);
-            WritePayloadOffset(AccessPayload(), offset);
-            memcpy(buffer+header_length+PAYLOAD_DATA_OFFSET, data, len);
-            length = header_length + PAYLOAD_DATA_OFFSET + len;
-        } 
-        // 3) Set "payload" directly (useful for FEC parity segments)
+        // Set "payload" directly (useful for FEC parity segments)
         void SetPayload(char* payload, UINT16 payloadLength)
         {
             memcpy(buffer+header_length, payload, payloadLength);
             length = header_length + payloadLength; 
         }
-        // AccessPayloadData() for ZERO padding
-        char* AccessPayloadData() {return (buffer+header_length+PAYLOAD_DATA_OFFSET);}
+        // AccessPayloadData() (useful for setting ZERO padding)
+        char* AccessPayloadData() 
+        {
+            UINT16 payloadIndex = IsStream() ? header_length+PAYLOAD_DATA_OFFSET : header_length;
+            return (buffer+payloadIndex);
+        }
                
         // Message processing methods
         NormBlockId GetFecBlockId() const
@@ -582,36 +581,46 @@ class NormDataMsg : public NormObjectMsg
         }
         
         UINT16 GetFecSymbolId()  const
-        {
-            return (ntohs(*((UINT16*)(buffer+SYMBOL_ID_OFFSET))));   
-        }
-        bool IsData() const {return (GetFecSymbolId() < GetFecBlockLen());}
-        const char* GetPayloadData() const {return (buffer + header_length + PAYLOAD_DATA_OFFSET);}
-        UINT16 GetPayloadDataLength() const {return (length - (header_length + PAYLOAD_DATA_OFFSET));}
-        
-        // Note: "payload" includes "payload_len", "payload_offset", and "payload_data" fields
+            {return (ntohs(*((UINT16*)(buffer+SYMBOL_ID_OFFSET))));}
+        bool IsData() const 
+            {return (GetFecSymbolId() < GetFecBlockLen());}
+       
+        // Note: For NORM_OBJECT_STREAM, "payload" includes "payload_reserved",  
+        //       "payload_len", "payload_offset", and "payload_data" fields
+        //       For NORM_OBJECT_FILE and NORM_OBJECT_DATA, "payload" includes
+        //       "payload_data" only
         const char* GetPayload() const {return (buffer + header_length);}
         UINT16 GetPayloadLength() const {return (length - header_length);}
         
+        const char* GetPayloadData() const 
+        {
+            UINT16 dataIndex = IsStream() ? header_length+PAYLOAD_DATA_OFFSET : header_length;
+            return (buffer + dataIndex);
+        }
+        UINT16 GetPayloadDataLength() const 
+        {
+            UINT16 dataIndex = IsStream() ? header_length+PAYLOAD_DATA_OFFSET : header_length;
+            return (length - dataIndex);
+        }
+        
+        // These routines are only applicable to messages containing NORM_OBJECT_STREAM content
         // Some static helper routines for reading/writing embedded payload length/offsets
-        static UINT16 PayloadHeaderLength() {return (PAYLOAD_DATA_OFFSET);}
-        static void WritePayloadLength(char* payload, UINT16 len)
+        static UINT16 GetStreamPayloadHeaderLength() {return (PAYLOAD_DATA_OFFSET);}
+        static void WriteStreamPayloadLength(char* payload, UINT16 len)
         {
             *((UINT16*)(payload+PAYLOAD_LENGTH_OFFSET)) = htons(len);
         }
-        static void WritePayloadOffset(char* payload, const NormObjectSize& offset)
+        static void WriteStreamPayloadOffset(char* payload, UINT32 offset)
         {
-            *((UINT16*)(payload+PAYLOAD_OFFSET_OFFSET)) = htons(offset.MSB());
-            *((UINT32*)(payload+PAYLOAD_OFFSET_OFFSET+2)) = htonl(offset.LSB());
+            *((UINT32*)(payload+PAYLOAD_OFFSET_OFFSET)) = htonl(offset);
         }
-        static UINT16 ReadPayloadLength(const char* payload)
+        static UINT16 ReadStreamPayloadLength(const char* payload)
         {
             return (ntohs(*((UINT16*)(payload+PAYLOAD_LENGTH_OFFSET))));
         }
-        static NormObjectSize ReadPayloadOffset(const char* payload)
+        static UINT32 ReadStreamPayloadOffset(const char* payload)
         {
-            return NormObjectSize(ntohs(*((UINT16*)(payload+PAYLOAD_OFFSET_OFFSET))),
-                                  ntohl(*((UINT32*)(payload+PAYLOAD_OFFSET_OFFSET+2))));
+            return ntohl(*((UINT32*)(payload+PAYLOAD_OFFSET_OFFSET)));
         }
           
     private:    
@@ -624,9 +633,10 @@ class NormDataMsg : public NormObjectMsg
         };
         enum
         {
-            PAYLOAD_LENGTH_OFFSET = 0,
+            PAYLOAD_RESERVED_OFFSET = 0,
+            PAYLOAD_LENGTH_OFFSET = PAYLOAD_RESERVED_OFFSET + 2,
             PAYLOAD_OFFSET_OFFSET = PAYLOAD_LENGTH_OFFSET + 2,
-            PAYLOAD_DATA_OFFSET = PAYLOAD_OFFSET_OFFSET + 6   
+            PAYLOAD_DATA_OFFSET = PAYLOAD_OFFSET_OFFSET + 4   
         };
 };  // end class NormDataMsg
 

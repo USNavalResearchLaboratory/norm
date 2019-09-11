@@ -42,7 +42,7 @@ class NormSimAgent : public NormController
         void ActivateTimer(ProtoTimer& theTimer)
             {session_mgr.ActivateTimer(theTimer);}
         
-        bool OnIntervalTimeout();
+        bool OnIntervalTimeout(ProtoTimer& theTimer);
     
         static const char* const cmd_list[];
 

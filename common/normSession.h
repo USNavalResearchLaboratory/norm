@@ -58,7 +58,7 @@ class NormSessionMgr
         ProtoTimerMgr& GetTimerMgr() {return timer_mgr;}        
         ProtoSocket::Notifier& GetSocketNotifier() {return socket_notifier;}
     
-        private:   
+    private:   
         ProtoTimerMgr&          timer_mgr;  
         ProtoSocket::Notifier&  socket_notifier;
         NormController*         controller;
@@ -320,6 +320,8 @@ class NormSession
         
         ProtoTimer          probe_timer;  // GRTT/congestion control probes
         bool                probe_proactive;
+        bool                probe_pending; // true while CMD(CC) enqueued
+        bool                probe_reset;   
         
         double              grtt_interval;     // current GRTT update interval
         double              grtt_interval_min; // minimum GRTT update interval

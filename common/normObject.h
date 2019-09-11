@@ -55,9 +55,9 @@ class NormObject
         virtual bool WriteSegment(NormBlockId   blockId, 
                                   NormSegmentId segmentId, 
                                   const char*   buffer) = 0;
-        virtual bool ReadSegment(NormBlockId    blockId, 
-                                 NormSegmentId  segmentId,
-                                 char*          buffer) = 0;
+        virtual UINT16 ReadSegment(NormBlockId    blockId, 
+                                   NormSegmentId  segmentId,
+                                   char*          buffer) = 0;
         
         // These are only valid after object is open
         NormBlockId GetFinalBlockId() const {return final_block_id;}
@@ -197,9 +197,9 @@ class NormFileObject : public NormObject
                                   NormSegmentId segmentId, 
                                   const char*   buffer);
         
-        virtual bool ReadSegment(NormBlockId    blockId, 
-                                 NormSegmentId  segmentId,
-                                 char*          buffer);
+        virtual UINT16 ReadSegment(NormBlockId    blockId, 
+                                   NormSegmentId  segmentId,
+                                   char*          buffer);
             
     private:
         char            path[PATH_MAX];
@@ -231,9 +231,9 @@ class NormStreamObject : public NormObject
         virtual bool WriteSegment(NormBlockId   blockId, 
                                   NormSegmentId segmentId, 
                                   const char*   buffer);
-        virtual bool ReadSegment(NormBlockId    blockId, 
-                                 NormSegmentId  segmentId,
-                                 char*          buffer);
+        virtual UINT16 ReadSegment(NormBlockId    blockId, 
+                                   NormSegmentId  segmentId,
+                                   char*          buffer);
         
         bool Read(char* buffer, unsigned int* buflen, bool findMsgStart = false);
         unsigned long Write(const char* buffer, unsigned long len, bool flush, bool eom, bool push);
@@ -271,9 +271,9 @@ class NormStreamObject : public NormObject
         NormSegmentPool             segment_pool;
         NormBlockBuffer             stream_buffer;
         Index                       write_index;
-        NormObjectSize              write_offset;
+        UINT32                      write_offset;
         Index                       read_index;
-        NormObjectSize              read_offset;
+        UINT32                      read_offset;
         bool                        flush_pending;
         bool                        msg_start;
 };  // end class NormStreamObject
@@ -302,9 +302,9 @@ class NormSimObject : public NormObject
                                   NormSegmentId segmentId, 
                                   const char*   buffer) {return true;}
         
-        virtual bool ReadSegment(NormBlockId    blockId, 
-                                 NormSegmentId  segmentId,
-                                 char*          buffer);
+        virtual UINT16 ReadSegment(NormBlockId    blockId, 
+                                   NormSegmentId  segmentId,
+                                   char*          buffer);
 };  // end class NormSimObject
 #endif // SIMULATE
 

@@ -1,5 +1,5 @@
 #########################################################################
-# COMMON MDP MAKEFILE STUFF
+# COMMON NORM MAKEFILE STUFF
 #
 
 SHELL=/bin/sh
@@ -40,13 +40,13 @@ TCL_SCRIPTS =   ${TCL_SCRIPT_PATH}/init.tcl \
                 ${TK_SCRIPT_PATH}/text.tcl \
                 ${TK_SCRIPT_PATH}/optMenu.tcl
 
-TARGETS = mdp tkMdp
+TARGETS = norm raft
 
 # Rule for C++ .cpp extension
 .cpp.o:
 	$(CC) -c $(CFLAGS) -o $*.o $*.cpp
     
-# MDP depends upon the NRL Protean Group's development library
+# NORM depends upon the NRL Protean Group's development library
 LIBPROTO = $(PROTOLIB)/unix/libProtokit.a
 $(PROTOLIB)/unix/libProtokit.a: 
 	cd $(PROTOLIB)/unix; $(MAKE) -f Makefile.$(SYSTEM) libProtokit.a
@@ -76,13 +76,20 @@ libnormSim.a:   $(SIM_OBJ)
 	ar rcv $@ $(SIM_OBJ)
 	ranlib $@
     
-# (mdp) command-line file broadcaster/receiver
+# (norm) command-line file broadcaster/receiver
 APP_SRC = $(COMMON)/normApp.cpp $(COMMON)/normPostProcess.cpp \
           $(UNIX)/unixPostProcess.cpp
 APP_OBJ = $(APP_SRC:.cpp=.o)
 
 norm:    $(APP_OBJ) libnorm.a $(LIBPROTO) 
-	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO)  $(LIBS)  
+	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO)  $(LIBS)
+    
+# (raft) command-line reliable tunnel helper
+RAFT_SRC = $(COMMON)/raft.cpp
+RAFT_OBJ = $(RAFT_SRC:.cpp=.o)
+
+raft:    $(RAFT_OBJ) $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(RAFT_OBJ) $(LDFLAGS) $(LIBPROTO)  $(LIBS)  
     	    
 clean:	
 	rm -f $(COMMON)/*.o  $(UNIX)/*.o $(UNIX)/libnorm.a $(UNIX)/norm $(NS)/*.o;

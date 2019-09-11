@@ -123,7 +123,7 @@ NormApp::NormApp()
     // Init tx_timer for 1.0 second interval, infinite repeats
      session_mgr.SetController(this);
     
-    interval_timer.SetListener(this, (ProtoTimer::TimeoutHandler)&NormApp::OnIntervalTimeout);
+    interval_timer.SetListener(this, &NormApp::OnIntervalTimeout);
     interval_timer.SetInterval(0.0);
     interval_timer.SetRepeat(0);
     
@@ -707,7 +707,9 @@ void NormApp::OnInputReady()
             
         if (writeLength || flush)
         {
-            unsigned int wroteLength = tx_stream->Write(input_buffer+input_index, writeLength, flush, false, push_stream);
+            unsigned int wroteLength = tx_stream->Write(input_buffer+input_index, 
+                                                        writeLength, flush, false, 
+                                                        push_stream);
             input_length -= wroteLength;
             if (0 == input_length)
                 input_index = 0;
@@ -946,6 +948,7 @@ void NormApp::Notify(NormController::Event event,
                             readLength = 512; 
                             findMsgSync = false;   
                         } 
+                        
                         
                         if(!((NormStreamObject*)object)->Read(output_buffer+output_index, 
                                                              &readLength, findMsgSync))

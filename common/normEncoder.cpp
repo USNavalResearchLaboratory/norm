@@ -181,7 +181,6 @@ void NormEncoder::Encode(const char *data, char **pVec)
     
 #ifdef SIMULATE    
     UINT16  vecSize = MIN(SIM_PAYLOAD_MAX, vector_size);
-    vecSize = MAX(vecSize, NormDataMsg::PayloadHeaderLength());
 #else
     UINT16 vecSize = vector_size;
 #endif // if/else SIMULATE
@@ -339,7 +338,6 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
     int nvecs = npar + ndata;
 #ifdef SIMULATE
     int vecSize = MIN(SIM_PAYLOAD_MAX, vector_size);
-    vecSize = MAX(NormDataMsg::PayloadHeaderLength(), vecSize);
 #else
     int vecSize = vector_size;
 #endif // if/else SIMUATE
