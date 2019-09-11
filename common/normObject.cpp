@@ -374,10 +374,15 @@ bool NormObject::ActivateRepairs()
             NormBlock* block = block_buffer.Find(nextId);
             if (block) block->TxReset(GetBlockSize(nextId), nparity, autoParity, segment_size);
             // (TBD) This check can be eventually eliminated if everything else is done right
-            if (!pending_mask.Set(nextId)) 
+            if (!pending_mask.Set(nextId))
+            { 
+                if (block) block->ClearPending();
                 DMSG(0, "NormObject::ActivateRepairs() pending_mask.Set(%lu) error 1!\n", (UINT32)nextId);
+            }
             else
+            {
                 repairsActivated = true;
+            }
             nextId++;
         } while (GetNextRepair(nextId));
         repair_mask.Clear();  
@@ -390,14 +395,18 @@ bool NormObject::ActivateRepairs()
     {
         if (block->ActivateRepairs(nparity)) 
         {
-            //repairsActivated = true;
             DMSG(6, "NormObject::ActivateRepairs() node>%lu obj>%hu activated blk>%lu segment repairs ...\n",
                 LocalNodeId(), (UINT16)transport_id, (UINT32)block->GetId());
             // (TBD) This check can be eventually eliminated if everything else is done right
             if (!pending_mask.Set(block->GetId()))
+            {
+                block->ClearPending();
                 DMSG(0, "NormObject::ActivateRepairs() pending_mask.Set(%lu) error 2!\n", (UINT32)block->GetId());
+            }
             else
+            {
                 repairsActivated = true;
+            }
         }
     }
     return repairsActivated;
@@ -1525,7 +1534,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
     NormBlockId blockId;
     if (!GetFirstPending(blockId)) 
     {
-        // Attempt to advance stream (probably was repair-delayed)
+        // Attempt to advance stream (probably had been repair-delayed)
         if (IsStream())
         {
             static_cast<NormStreamObject*>(this)->StreamAdvance();
@@ -1588,7 +1597,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
            {
                NormBlock* b = block_buffer.Find(block_buffer.RangeLo());
                ASSERT(NULL != b);
-               //ASSERT(!b->IsPending()); (TBD) ??? Why might "b" be pending?
+               ASSERT(!b->IsPending());
                bool push = static_cast<NormStreamObject*>(this)->GetPushMode();
                if (!push && (b->IsRepairPending() || IsRepairSet(b->GetId())))
                {
@@ -1609,11 +1618,12 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
            }
            else if (IsStream())
            {
-                DMSG(4, "NormObject::NextServerMsg() node>%lu Warning! can't repair old block\n", LocalNodeId());
+                DMSG(3, "NormObject::NextServerMsg() node>%lu Warning! can't repair old stream block\n", LocalNodeId());
                 session.ServerPutFreeBlock(block);
+                repair_mask.Unset(blockId);  // just in case
                 pending_mask.Unset(blockId);
                 // Unlock (set to non-pending status) the corresponding stream_buffer block
-                static_cast<NormStreamObject*>(this)->UnlockBlock(blockId);
+                static_cast<NormStreamObject*>(this)->UnlockBlock(blockId); 
                 return NextServerMsg(msg);
            }
            else
@@ -1640,10 +1650,32 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         if (0 == payloadLength)
         {
             // (TBD) deal with read error 
-            //(for streams, it currently means the stream is non-pending)
-            if (!IsStream()) 
+            //(for streams, it currently means the stream is pending, but app hasn't yet written data)
+            if (!IsStream())
+            { 
                 DMSG(0, "NormObject::NextServerMsg() ReadSegment() error\n"); 
-            return false;  
+                return false;
+            }
+            else if (static_cast<NormStreamObject*>(this)->IsOldBlock(blockId))
+            {
+                DMSG(3, "NormObject::NextServerMsg() node>%lu Warning! can't repair old stream segment\n", LocalNodeId());
+                block->UnsetPending(segmentId); 
+                if (!block->IsPending())
+                {
+                    // End of old block reached
+                    block->ResetParityCount(nparity);
+                    pending_mask.Unset(blockId); 
+                    // for EMCON sending, mark NORM_INFO for re-transmission, if applicable
+                    if (session.SndrEmcon() && HaveInfo())
+                        pending_info = true;
+                }
+                return NextServerMsg(msg);
+            }
+            else
+            {
+                // App hasn't written data for this block yet
+                return false;
+            }
         }
         data->SetPayloadLength(payloadLength);
         
@@ -1688,7 +1720,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
     if (!block->IsPending()) 
     {
         // End of block reached
-        block->ResetParityCount(nparity);
+        block->ResetParityCount(nparity);  
         pending_mask.Unset(blockId); 
         // for EMCON sending, mark NORM_INFO for re-transmission, if applicable
         if (session.SndrEmcon() && HaveInfo())
@@ -1746,14 +1778,14 @@ void NormStreamObject::StreamAdvance()
             }
             else
             {
-               DMSG(4, "NormStreamObject::StreamAdvance() warning: node>%lu pending segment repairs (blk>%lu) "
+               DMSG(3, "NormStreamObject::StreamAdvance() warning: node>%lu pending segment repairs (blk>%lu) "
                        "delaying stream advance ...\n", LocalNodeId(), (UINT32)block->GetId());
             } 
         }
     }
     else
     {
-        DMSG(4, "NormStreamObject::StreamAdvance() warning: node>%lu pending block repair delaying stream advance ...\n",
+        DMSG(3, "NormStreamObject::StreamAdvance() warning: node>%lu pending block repair delaying stream advance ...\n",
                 LocalNodeId());   
     }
 }  // end NormStreamObject::StreamAdvance()
@@ -2469,7 +2501,8 @@ bool NormStreamObject::LockBlocks(NormBlockId firstId, NormBlockId lastId)
         NormBlock* block = stream_buffer.Find(nextId);
         if (block)
         {
-            block->SetPending(0, ndata);
+            UINT16 numData = GetBlockSize(nextId);
+            block->SetPending(0, numData);
         }
         else
         {
@@ -2618,11 +2651,13 @@ UINT16 NormStreamObject::ReadSegment(NormBlockId      blockId,
     if (!block)
     {
         //DMSG(0, "NormStreamObject::ReadSegment() stream starved (1)\n");
+        if (!stream_buffer.IsEmpty() && (blockId < stream_buffer.RangeLo()))
+            DMSG(0, "NormStreamObject::ReadSegment() error: attempted to read old block> %lu\n", (UINT32)blockId);
+        
         return false;   
     }
     // (TBD) should we check to see if "blockId > write_index.block" ?
-    if ((blockId == write_index.block) &&
-        (segmentId >= write_index.segment))
+    if ((blockId == write_index.block) && (segmentId >= write_index.segment))
     {
         //DMSG(0, "NormStreamObject::ReadSegment(blk>%lu seg>%hu) stream starved (2) (write_index>%lu:%hu)\n",
         //        (UINT32)blockId, (UINT16)segmentId, (UINT32)write_index.block, (UINT16)write_index.segment);
@@ -2850,7 +2885,7 @@ void NormStreamObject::Prune(NormBlockId blockId, bool updateStatus)
     {
         bool resync = false;
         NormBlock* block;
-        while ((block = block_buffer.Find(block_buffer.RangeLo())))
+        while (NULL != (block = block_buffer.Find(block_buffer.RangeLo())))
         {
             if (block->GetId() < blockId)
             {
@@ -3469,8 +3504,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
     }
     else
     {
-        //if (0 != nBytes) 
-            session.TouchServer();  
+        session.TouchServer();  
     }
     return nBytes;
 }  // end NormStreamObject::Write()

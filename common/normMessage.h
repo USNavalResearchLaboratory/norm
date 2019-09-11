@@ -21,8 +21,6 @@
 
 const UINT8 NORM_PROTOCOL_VERSION = 1;
 
-const int NORM_ROBUST_FACTOR = 20;  // default robust factor
-
 // This value is used in a couple places in the code as 
 // a safety check where some critical timeouts may be
 // less than expected operating system clock resolution
@@ -268,8 +266,8 @@ class NormHeaderExtension
     protected:   
         enum
         {
-            TYPE_OFFSET     = 0,
-            LENGTH_OFFSET   = TYPE_OFFSET + 1
+            TYPE_OFFSET     = 0,               // UINT8 offset
+            LENGTH_OFFSET   = TYPE_OFFSET + 1  // UINT8 offset
         };
         UINT32*   buffer;
 };  // end class NormHeaderExtension
@@ -761,7 +759,7 @@ class NormCmdMsg : public NormMsg
         enum
         {
             INSTANCE_ID_OFFSET   = MSG_OFFSET/2,
-            GRTT_OFFSET          = (INSTANCE_ID_OFFSET*2)+2,
+            GRTT_OFFSET          = (INSTANCE_ID_OFFSET+1)*2,
             BACKOFF_OFFSET       = GRTT_OFFSET + 1,
             GSIZE_OFFSET         = BACKOFF_OFFSET,
             FLAVOR_OFFSET        = GSIZE_OFFSET + 1
@@ -1435,7 +1433,8 @@ class NormNackMsg : public NormMsg
             grttResponse.tv_usec = ntohl(buffer[GRTT_RESPONSE_USEC_OFFSET]);
         }      
         //char* AccessRepairContent() {return (buffer + header_length);}
-        const UINT32* GetRepairContent() const {return (buffer + header_length/4);}
+        const UINT32* GetRepairContent() const 
+            {return (buffer + header_length/4);}
         UINT16 GetRepairContentLength() const
             {return ((length > header_length) ? length - header_length : 0);}        
         UINT16 UnpackRepairRequest(NormRepairRequest& request,

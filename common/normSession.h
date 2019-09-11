@@ -72,6 +72,9 @@ class NormSessionMgr
         void ActivateTimer(ProtoTimer& timer) {timer_mgr.ActivateTimer(timer);}
         ProtoTimerMgr& GetTimerMgr() const {return timer_mgr;}        
         ProtoSocket::Notifier& GetSocketNotifier() const {return socket_notifier;}
+        
+        void DoSystemTimeout()
+            {timer_mgr.DoSystemTimeout();}
     
         NormController* GetController() const {return controller;}
     private:   
@@ -103,6 +106,7 @@ class NormSession
         static const UINT16 DEFAULT_NPARITY;
         static const UINT16 DEFAULT_TX_CACHE_MIN;
         static const UINT16 DEFAULT_TX_CACHE_MAX;
+        static const int DEFAULT_ROBUST_FACTOR;
         
         enum ProbingMode {PROBE_NONE, PROBE_PASSIVE, PROBE_ACTIVE};
         enum AckingStatus 
@@ -235,10 +239,21 @@ class NormSession
         void ServerSetWatermark(NormObjectId  objectId,
                                 NormBlockId   blockId,
                                 NormSegmentId segmentId);
+        void ServerCancelWatermark();
         bool ServerAddAckingNode(NormNodeId nodeId);
         void ServerRemoveAckingNode(NormNodeId nodeId);
         AckingStatus ServerGetAckingStatus(NormNodeId nodeId);
         
+        
+        // robust factor
+        void SetTxRobustFactor(int value)
+            {tx_robust_factor = value;}
+        int GetTxRobustFactor() const
+            {return tx_robust_factor;}
+        void SetRxRobustFactor(int value)
+            {rx_robust_factor = value;}
+        int GetRxRobustFactor() const
+            {return rx_robust_factor;}
         
         UINT16 ServerSegmentSize() const {return segment_size;}
         UINT16 ServerBlockSize() const {return ndata;}
@@ -449,6 +464,7 @@ class NormSession
         
         // Server parameters and state
         bool                            is_server;
+        int                             tx_robust_factor;
         UINT16                          instance_id;
         UINT16                          segment_size;
         UINT16                          ndata;
@@ -528,6 +544,7 @@ class NormSession
         
         // Receiver parameters
         bool                            is_client;
+        int                             rx_robust_factor;
         NormNodeTree                    server_tree;
         unsigned long                   remote_server_buffer_size;
         bool                            unicast_nacks;

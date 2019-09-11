@@ -315,6 +315,10 @@ void NormSetGroupSize(NormSessionHandle sessionHandle,
                       unsigned int      groupSize);
 
 NORM_API_LINKAGE 
+void NormSetTxRobustFactor(NormSessionHandle sessionHandle,
+                           int               robustFactor);
+
+NORM_API_LINKAGE 
 NormObjectHandle NormFileEnqueue(NormSessionHandle sessionHandle,
                                  const char*  fileName,
                                  const char*  infoPtr = (const char*)0, 
@@ -364,6 +368,9 @@ void NormStreamMarkEom(NormObjectHandle streamHandle);
 NORM_API_LINKAGE 
 bool NormSetWatermark(NormSessionHandle  sessionHandle,
                       NormObjectHandle   objectHandle);
+
+NORM_API_LINKAGE 
+void NormCancelWatermark(NormSessionHandle sessionHandle);
 
 NORM_API_LINKAGE 
 bool NormAddAckingNode(NormSessionHandle  sessionHandle,
@@ -422,6 +429,14 @@ void NormSetDefaultRepairBoundary(NormSessionHandle  sessionHandle,
 NORM_API_LINKAGE 
 void NormNodeSetRepairBoundary(NormNodeHandle     nodeHandle,
                                NormRepairBoundary repairBoundary);
+
+NORM_API_LINKAGE 
+void NormSetDefaultRxRobustFactor(NormSessionHandle sessionHandle,
+                                  int               robustFactor);
+
+NORM_API_LINKAGE 
+void NormNodeSetRxRobustFactor(NormNodeHandle   nodeHandle,
+                               int              robustFactor);
 
 NORM_API_LINKAGE 
 bool NormStreamRead(NormObjectHandle   streamHandle,

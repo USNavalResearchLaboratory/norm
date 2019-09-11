@@ -669,7 +669,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
             return false;
         }
     }    
-    else if (!strncmp("repeat", cmd, len))
+    else if (!strncmp("repeatcount", cmd, len))
     {
         tx_repeat_count = atoi(val);  
     }

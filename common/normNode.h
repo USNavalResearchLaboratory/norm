@@ -145,13 +145,14 @@ class NormAckingNode : public NormNode
         ~NormAckingNode();
         bool IsPending() const
             {return (!ack_received && (req_count > 0));}
-        void Reset(unsigned int maxAttempts = NORM_ROBUST_FACTOR)
+        void Reset(unsigned int maxAttempts)
         {
             ack_received = false;
             req_count = maxAttempts;   
         }
         void DecrementReqCount() {if (req_count > 0) req_count--;}
-        void ResetReqCount() {req_count = NORM_ROBUST_FACTOR;}
+        void ResetReqCount(unsigned int maxAttempts) 
+            {req_count = maxAttempts;}
         unsigned int GetReqCount() const {return req_count;}
         bool AckReceived() const {return ack_received;}
         void MarkAckReceived() {ack_received = true;}
@@ -225,6 +226,9 @@ class NormServerNode : public NormNode
         void SetDefaultNackingMode(NormObject::NackingMode nackingMode)
             {default_nacking_mode = nackingMode;}
         
+        // Should generally inherit NormSession::GetRxRobustFactor()
+        void SetRobustFactor(int value);
+        
         NormServerNode::RepairBoundary GetRepairBoundary() const 
             {return repair_boundary;}
         // (TBD) force an appropriate RepairCheck on boundary change???
@@ -262,7 +266,6 @@ class NormServerNode : public NormNode
         bool BuffersAllocated() {return (0 != segment_size);}
         void FreeBuffers();
         void Activate(bool isObjectMsg);
-               
         
         bool SyncTest(const NormObjectMsg& msg) const;
         void Sync(NormObjectId objectId);
@@ -386,6 +389,7 @@ class NormServerNode : public NormNode
         void HandleRepairContent(const UINT32* buffer, UINT16 bufferLen);
             
         UINT16                  instance_id;
+        int                     robust_factor;
         bool                    synchronized;
         NormObjectId            sync_id;  // only valid if(synchronized)
         NormObjectId            next_id;  // only valid if(synchronized)

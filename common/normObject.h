@@ -401,6 +401,9 @@ class NormStreamObject : public NormObject
         }
         void SetPushMode(bool state) {push_mode = state;}
         bool GetPushMode() const {return push_mode;}
+        
+        bool IsOldBlock(NormBlockId blockId) const
+            {return (!stream_buffer.IsEmpty() && (blockId < stream_buffer.RangeLo()));}
 
         bool IsClosing() {return stream_closing;}
         bool HasVacancy() 

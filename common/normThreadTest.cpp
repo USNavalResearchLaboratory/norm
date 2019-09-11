@@ -81,7 +81,7 @@ NormThreadApp::NormThreadApp()
    tx_msg_length(0), tx_msg_index(0)
 {
     tx_msg_timer.SetListener(this, &NormThreadApp::OnTxTimeout);
-    tx_msg_timer.SetInterval(0.0015);
+    tx_msg_timer.SetInterval(0.00001);
     tx_msg_timer.SetRepeat(-1);
     
     worker_thread_dispatcher.SetPromptCallback(DoWorkerEvent, this);
@@ -107,7 +107,7 @@ bool NormThreadApp::OnStartup(int argc, const char*const* argv)
     norm_instance = NormCreateInstance();
     ASSERT(NORM_INSTANCE_INVALID != norm_instance);
     
-    SetDebugLevel(2);
+    SetDebugLevel(3);
     
     // Set a callback that will call NormGetNextEvent()
     if (!dispatcher.InstallGenericInput(NormGetDescriptor(norm_instance), DoNormEvent, this))
@@ -157,9 +157,24 @@ bool NormThreadApp::OnStartup(int argc, const char*const* argv)
                                      localId);
     ASSERT(NORM_SESSION_INVALID != norm_session);
     
+    if(!NormSetMulticastInterface(norm_session,"eth0"))
+    {
+        fprintf(stderr, "normTest: Unable to set multicast interface to \"eth0\"\n");
+        //return false;
+    }
+    
     NormSetGrttEstimate(norm_session, 0.250);  // 1 msec initial grtt
     
-    NormSetTransmitRate(norm_session, 10.0e+06);  // in bits/second
+    NormSetTransmitRate(norm_session, 80.0e+06);  // in bits/second
+    
+    
+    NormSetTransmitRateBounds(norm_session, 10.0e+06, 10.0e+06);
+    
+    NormSetCongestionControl(norm_session, true);
+    
+    NormSetTxLoss(norm_session, 2.0);
+    
+    //NormSetMessageTrace(norm_session, true);
     
     //NormSetLoopback(norm_session, true);  
     
@@ -169,8 +184,8 @@ bool NormThreadApp::OnStartup(int argc, const char*const* argv)
     {
         NormSessionId sessionId = (NormSessionId)rand();
         //NormStartSender(norm_session, sessionId, 1024*1024, 1400, 64, 8);
-        NormStartSender(norm_session, sessionId, 1024*1024, 1400, 64, 0);
-        norm_tx_stream = NormStreamOpen(norm_session, 1024*1024);
+        NormStartSender(norm_session, sessionId, 2000000, 1400, 64, 8);
+        norm_tx_stream = NormStreamOpen(norm_session, 1800000);
     
         // Activate tx timer and force first message transmission
         ActivateTimer(tx_msg_timer);
@@ -181,9 +196,8 @@ bool NormThreadApp::OnStartup(int argc, const char*const* argv)
     // 6) If receiver, start receiver
     if (receiver)
     {    
-        NormStartReceiver(norm_session, 1024*1024); 
-
         worker_thread_dispatcher.StartThread();
+        NormStartReceiver(norm_session, 2000000); 
     }
     
     return true;
@@ -207,31 +221,39 @@ void NormThreadApp::OnShutdown()
 bool NormThreadApp::OnTxTimeout(ProtoTimer& /*timer*/)
 {
     //TRACE("enter NormThreadApp::OnTxTimeout() ...\n");
-    if (0 == tx_msg_length)
+    while (1)
     {
-        // Send a new message
-        unsigned int sendCount = 1;
-        sprintf(tx_msg_buffer, "normThreadTest says hello %u ", sendCount);
-        unsigned int msgLength = strlen(tx_msg_buffer);
-        memset(tx_msg_buffer + msgLength, 'a', 900 - msgLength);
-        tx_msg_length = 900;
-        tx_msg_index = 0;
-    }
-    
-    unsigned int bytesHave = tx_msg_length - tx_msg_index;
-    unsigned int bytesWritten =
-        NormStreamWrite(norm_tx_stream, tx_msg_buffer + tx_msg_index, tx_msg_length - tx_msg_index);
-    //TRACE("wrote %u bytes to stream ...\n", bytesWritten);
-    if (bytesWritten == bytesHave)
-    {
-        
-        tx_msg_length = 0;
-    }
-    else
-    {
-        // We filled the stream buffer
-        tx_msg_index += bytesWritten;
-        tx_msg_timer.Deactivate();
+        if (0 == tx_msg_length)
+        {
+            // Send a new message
+            unsigned int sendCount = 1;
+            sprintf(tx_msg_buffer, "normThreadTest says hello %u ", sendCount);
+            unsigned int msgLength = strlen(tx_msg_buffer);
+            memset(tx_msg_buffer + msgLength, 'a', 900 - msgLength);
+            tx_msg_length = 900;
+            tx_msg_index = 0;
+        }
+
+        unsigned int bytesHave = tx_msg_length - tx_msg_index;
+        unsigned int bytesWritten =
+            NormStreamWrite(norm_tx_stream, tx_msg_buffer + tx_msg_index, tx_msg_length - tx_msg_index);
+        //TRACE("wrote %u bytes to stream ...\n", bytesWritten);
+        if (bytesWritten == bytesHave)
+        {
+
+            tx_msg_length = 0;
+        }
+        else
+        {
+            if (0 == bytesWritten)
+            {
+                TRACE("ZERO bytes written\n");
+            }
+            // We filled the stream buffer
+            tx_msg_index += bytesWritten;
+            if (tx_msg_timer.IsActive()) tx_msg_timer.Deactivate();
+            break;
+        }
     }
     return true;   
 }  // end NormThreadApp::OnTxTimeout()
@@ -261,12 +283,20 @@ void NormThreadApp::OnNormEvent()
                     TRACE("NORM_TX_QUEUE_EMPTY ...\n");*/
                 if (!tx_msg_timer.IsActive())
                 {
-                    ActivateTimer(tx_msg_timer);
+                    //ActivateTimer(tx_msg_timer);
                     OnTxTimeout(tx_msg_timer);   
                 }
                 break;
                 
             case NORM_GRTT_UPDATED:
+                break;
+                
+            case NORM_CC_ACTIVE:
+                TRACE("NORM_CC_ACTIVE ...\n");
+                break;
+            
+            case NORM_CC_INACTIVE:
+                TRACE("NORM_CC_INACTIVE ...\n");
                 break;
                 
             case NORM_REMOTE_SENDER_NEW:
@@ -281,7 +311,7 @@ void NormThreadApp::OnNormEvent()
             case NORM_RX_OBJECT_UPDATED:
                 //TRACE("NORM_RX_OBJECT_UPDATED ...\n");
                 updateCount++;
-                if ((updateCount % 100) == 0)
+                if ((updateCount % 1000) == 0)
                     TRACE("updateCount:%lu\n", updateCount);
                 worker_thread_dispatcher.PromptThread();
                 break;
@@ -321,7 +351,7 @@ void NormThreadApp::WorkerReadStream()
             if (0 != bytesRead) 
             {
                 readCount++;
-                if ((readCount % 100) == 0)
+                if ((readCount % 1000) == 0)
                     TRACE("readCount:%lu\n", readCount);
                 bytesRead = 1400;
             }

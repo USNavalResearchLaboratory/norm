@@ -245,8 +245,8 @@ class NormBlock
         
         int          flags;
         UINT16       erasure_count;
-        UINT16       parity_count;
-        UINT16       parity_offset;
+        UINT16       parity_count;  // how many fresh parity we are currently planning to send
+        UINT16       parity_offset; // offset from where our fresh parity will be sent
         UINT16       seg_size_max;
         
         ProtoBitmask pending_mask;

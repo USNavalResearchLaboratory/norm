@@ -1,5 +1,23 @@
 			           NORM Version History
 
+Version 1.4b2
+=============
+    - Fixed bug where NormObjectCancel() usage could result in extra
+      "release" of reference to NormObject
+      (Thanks to Alan McKechnie)
+    - Fixed minor issue with "repeatcount" command of "normApp.cpp"
+      where only the abbreviated command "repeat" was accepted.
+      (Thanks to Deric Sullivan)
+    - Added NormSetTxRobustFactor(), NormSetDefaultRxRobustFactor(), and
+      NormNodeSetRobustFactor() API calls
+    - Fixed issue with CC_INACTIVE being prematurely declared and modified
+      NORM RxSocketHandler to read a maximum of 100 consecutive packets
+      from socket at a time (This makes sure that receivers service timeouts,
+      provide feedback more timely, etc)
+      (Thanks to Peter Lu)
+    - Fixed case when repair request for old NORM_OBJECT_STREAM segment could
+      lockup advancement of stream.
+
 Version 1.4b1
 =============
     - Fixed condition where receivers kept state for remote senders "stuck"

@@ -54,8 +54,6 @@ NormServerNode::NormServerNode(class NormSession& theSession, NormNodeId nodeId)
    nominal_packet_size(0), recv_total(0), recv_goodput(0), resync_count(0),
    nack_count(0), suppress_count(0), completion_count(0), failure_count(0)
 {
-    
-    
     repair_boundary = session.ClientGetDefaultRepairBoundary();
     default_nacking_mode = session.ClientGetDefaultNackingMode();
     unicast_nacks = session.ClientGetUnicastNacks();
@@ -66,10 +64,10 @@ NormServerNode::NormServerNode(class NormSession& theSession, NormNodeId nodeId)
     repair_timer.SetRepeat(1);
     
     activity_timer.SetListener(this, &NormServerNode::OnActivityTimeout);
-    double activityInterval = 2*NormSession::DEFAULT_GRTT_ESTIMATE*NORM_ROBUST_FACTOR;
+    double activityInterval = 2*NormSession::DEFAULT_GRTT_ESTIMATE*session.GetTxRobustFactor();
     if (activityInterval < ACTIVITY_INTERVAL_MIN) activityInterval = ACTIVITY_INTERVAL_MIN;
     activity_timer.SetInterval(activityInterval);
-    activity_timer.SetRepeat(NORM_ROBUST_FACTOR);
+    activity_timer.SetRepeat(robust_factor);
     
     cc_timer.SetListener(this, &NormServerNode::OnCCTimeout);
     cc_timer.SetInterval(0.0);
@@ -308,6 +306,18 @@ void NormServerNode::FreeBuffers()
     segment_size = ndata = nparity = 0; 
 }  // end NormServerNode::FreeBuffers()
 
+void NormServerNode::SetRobustFactor(int value)
+{
+    robust_factor = value;
+    // activity timer depends upon robust_factor
+    // (TBD) do a proper rescaling here instead?
+    double activityInterval = 2*session.GetTxRobustFactor()*grtt_estimate;
+    if (activityInterval < ACTIVITY_INTERVAL_MIN) activityInterval = ACTIVITY_INTERVAL_MIN;
+    activity_timer.SetInterval(activityInterval);
+    activity_timer.SetRepeat(robust_factor);
+    if (activity_timer.IsActive()) activity_timer.Reschedule();
+}  // end NormServerNode::SetRobustFactor()
+
 void NormServerNode::UpdateGrttEstimate(UINT8 grttQuantized)
 {
     grtt_quantized = grttQuantized;
@@ -316,7 +326,7 @@ void NormServerNode::UpdateGrttEstimate(UINT8 grttQuantized)
             LocalNodeId(), GetId(), grtt_estimate);
     // activity timer depends upon sender's grtt estimate
     // (TBD) do a proper rescaling here instead?
-    double activityInterval = 2*NORM_ROBUST_FACTOR*grtt_estimate;
+    double activityInterval = 2*session.GetTxRobustFactor()*grtt_estimate;
     if (activityInterval < ACTIVITY_INTERVAL_MIN) activityInterval = ACTIVITY_INTERVAL_MIN;
     activity_timer.SetInterval(activityInterval);
     if (activity_timer.IsActive()) activity_timer.Reschedule();
@@ -418,6 +428,9 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                         // Respond immediately
                         maxBackoff = 0.0;
                         if (cc_timer.IsActive()) cc_timer.Deactivate();
+                        cc_timer.ResetRepeat();
+                        OnCCTimeout(cc_timer);
+                        break;
                     }
                     else
                     {
@@ -456,6 +469,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                     DMSG(6, "NormServerNode::HandleCommand() node>%lu begin CC back-off: %lf sec)...\n",
                             LocalNodeId(), backoffTime);
                     session.ActivateTimer(cc_timer);
+                    break;
                 }  // end if (CC_RATE == ext.GetType())
             }  // end while (GetNextExtension())
             // Disable CC feedback if sender doesn't want it
@@ -809,9 +823,11 @@ void NormServerNode::CalculateGrttResponse(const struct timeval&    currentTime,
 void NormServerNode::DeleteObject(NormObject* obj)
 {
     if (rx_table.Remove(obj))
+    {
         rx_pending_mask.Unset(obj->GetId());
-    obj->Close();
-    obj->Release();
+        obj->Close();
+        obj->Release();
+    }
 }  // end NormServerNode::DeleteObject()
 
 NormBlock* NormServerNode::GetFreeBlock(NormObjectId objectId, NormBlockId blockId)
@@ -1823,9 +1839,10 @@ void NormServerNode::Activate(bool isObjectMsg)
 {
     if (!activity_timer.IsActive())
     {
-        double activityInterval = 2*NORM_ROBUST_FACTOR*grtt_estimate;
+        double activityInterval = 2*session.GetTxRobustFactor()*grtt_estimate;
         if (activityInterval < ACTIVITY_INTERVAL_MIN) activityInterval = ACTIVITY_INTERVAL_MIN;
         activity_timer.SetInterval(activityInterval);
+        activity_timer.SetRepeat(robust_factor);
         session.ActivateTimer(activity_timer);
         server_active = false;
         session.Notify(NormController::REMOTE_SENDER_ACTIVE, this, NULL);
@@ -2087,7 +2104,7 @@ bool NormServerNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
 
 
 NormAckingNode::NormAckingNode(class NormSession& theSession, NormNodeId nodeId)
- : NormNode(theSession, nodeId), ack_received(false), req_count(NORM_ROBUST_FACTOR)
+ : NormNode(theSession, nodeId), ack_received(false), req_count(theSession.GetTxRobustFactor())
 {
     
 }

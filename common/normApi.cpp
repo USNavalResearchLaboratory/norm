@@ -94,7 +94,7 @@ class NormInstance : public NormController
         static NormInstance* GetInstanceFromNode(NormNodeHandle nodeHandle)
         {
             if (NORM_NODE_INVALID == nodeHandle) return ((NormInstance*)NULL);
-            NormSession& session = ((NormNode*)nodeHandle)->GetSession();
+            NormSession& session = ((NormServerNode*)nodeHandle)->GetSession();
             return static_cast<NormInstance*>(session.GetSessionMgr().GetController());   
         }
         static NormInstance* GetInstanceFromObject(NormObjectHandle objectHandle)
@@ -1182,6 +1182,19 @@ void NormSetGroupSize(NormSessionHandle sessionHandle,
     }
 }  // end NormSetGroupSize()
 
+NORM_API_LINKAGE 
+void NormSetTxRobustFactor(NormSessionHandle sessionHandle,
+                           int               robustFactor)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        session->SetTxRobustFactor(robustFactor);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetTxRobustFactor()
+
 NORM_API_LINKAGE
 NormObjectHandle NormFileEnqueue(NormSessionHandle  sessionHandle,
                                  const char*        fileName,
@@ -1300,8 +1313,7 @@ unsigned int NormStreamWrite(NormObjectHandle   streamHandle,
     {
         NormStreamObject* stream = 
             static_cast<NormStreamObject*>((NormObject*)streamHandle);
-        if (stream)
-            result = stream->Write(buffer, numBytes, false);
+        result = stream->Write(buffer, numBytes, false);
         instance->dispatcher.ResumeThread();
     }
     return result;
@@ -1317,13 +1329,10 @@ void NormStreamFlush(NormObjectHandle streamHandle,
     {
         NormStreamObject* stream = 
             static_cast<NormStreamObject*>((NormObject*)streamHandle);
-        if (stream) 
-        {
-            NormStreamObject::FlushMode saveFlushMode = stream->GetFlushMode();
-            stream->SetFlushMode((NormStreamObject::FlushMode)flushMode);
-            stream->Flush(eom);
-            stream->SetFlushMode(saveFlushMode);
-        }
+        NormStreamObject::FlushMode saveFlushMode = stream->GetFlushMode();
+        stream->SetFlushMode((NormStreamObject::FlushMode)flushMode);
+        stream->Flush(eom);
+        stream->SetFlushMode(saveFlushMode);
         instance->dispatcher.ResumeThread();
     }
 }  // end NormStreamFlush()
@@ -1408,6 +1417,18 @@ bool NormSetWatermark(NormSessionHandle  sessionHandle,
         instance->dispatcher.ResumeThread();
     }
     return result;
+}  // end NormSetWatermark()
+
+NORM_API_LINKAGE
+void NormCancelWatermark(NormSessionHandle sessionHandle)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        session->ServerCancelWatermark();
+        instance->dispatcher.ResumeThread();
+    }
 }  // end NormSetWatermark()
 
 NORM_API_LINKAGE
@@ -1571,10 +1592,40 @@ NORM_API_LINKAGE
 void NormNodeSetRepairBoundary(NormNodeHandle     nodeHandle,
                                NormRepairBoundary repairBoundary)
 {
-    NormServerNode* node = static_cast<NormServerNode*>((NormNode*)nodeHandle);
+    NormServerNode* node = static_cast<NormServerNode*>((NormServerNode*)nodeHandle);
     if (node) 
         node->SetRepairBoundary((NormServerNode::RepairBoundary)repairBoundary);
 }  // end NormNodeSetRepairBoundary()
+
+
+NORM_API_LINKAGE 
+void NormSetDefaultRxRobustFactor(NormSessionHandle sessionHandle,
+                                  int               robustFactor)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        session->SetRxRobustFactor(robustFactor);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetDefaultRxRobustFactor()
+
+NORM_API_LINKAGE 
+void NormNodeSetRxRobustFactor(NormNodeHandle   nodeHandle,
+                               int              robustFactor)
+{
+    if (NORM_NODE_INVALID != nodeHandle)
+    {
+        NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
+        if (instance && instance->dispatcher.SuspendThread())
+        {
+            NormServerNode* node = (NormServerNode*)nodeHandle;
+            node->SetRobustFactor(robustFactor);
+            instance->dispatcher.ResumeThread();
+        }
+    }
+}  // end NormNodeSetRxRobustFactor()
 
 NORM_API_LINKAGE
 bool NormStreamRead(NormObjectHandle   streamHandle,
@@ -1801,8 +1852,8 @@ NormNodeHandle NormObjectGetSender(NormObjectHandle objectHandle)
 NORM_API_LINKAGE
 NormNodeId NormNodeGetId(NormNodeHandle nodeHandle)
 {
-    NormNode* node = (NormNode*)nodeHandle;
-    if (node) 
+    NormServerNode* node = (NormServerNode*)nodeHandle;
+    if (NULL != node) 
         return node->GetId();
     else
         return NORM_NODE_NONE;
@@ -1820,7 +1871,7 @@ bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
         NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            NormNode* node = (NormNode*)nodeHandle;
+            NormServerNode* node = (NormServerNode*)nodeHandle;
             const ProtoAddress& nodeAddr = node->GetAddress();
             unsigned int addrLen = nodeAddr.GetLength();
             if (addrBuffer && bufferLen && (addrLen <= *bufferLen))
