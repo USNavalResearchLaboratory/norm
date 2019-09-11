@@ -369,7 +369,7 @@ class NormMsg
         UINT16          length; 
         UINT16          header_length;
         UINT16          header_length_base;
-        ProtoAddress  addr;  // src or dst address
+        ProtoAddress    addr;  // src or dst address
         
         NormMsg*        prev;
         NormMsg*        next;

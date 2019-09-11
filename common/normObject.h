@@ -264,8 +264,18 @@ class NormStreamObject : public NormObject
                   const char*   infoPtr = NULL, 
                   UINT16        infoLen = 0);
         void Close();
-        
         bool Accept(unsigned long bufferSize);
+        
+        enum FlushType
+        {
+            FLUSH_NONE,    // no flush action taken
+            FLUSH_PASSIVE, // pending queued data is transmitted, but no CMD(FLUSH) sent
+            FLUSH_ACTIVE   // pending queued data is transmitted, _and_ active CMD(FLUSH)
+        };
+        bool Read(char* buffer, unsigned int* buflen, bool findMsgStart = false);
+        unsigned long Write(const char* buffer, unsigned long len, FlushType flushType, bool eom, bool push);
+        
+        
         bool StreamUpdateStatus(NormBlockId blockId);
         void StreamResync(NormBlockId nextBlockId)
             {stream_next_id = nextBlockId;}
@@ -278,8 +288,6 @@ class NormStreamObject : public NormObject
                                    NormSegmentId  segmentId,
                                    char*          buffer);
         
-        bool Read(char* buffer, unsigned int* buflen, bool findMsgStart = false);
-        unsigned long Write(const char* buffer, unsigned long len, bool flush, bool eom, bool push);
         
         // For receive stream, we can rewind to earliest buffered offset
         void Rewind(); 

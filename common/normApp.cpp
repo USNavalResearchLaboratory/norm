@@ -61,6 +61,7 @@ class NormApp : public NormController, public ProtoApp
         unsigned int        input_length;
         bool                input_active;
         bool                push_stream;
+        NormStreamObject::FlushType msg_flush_mode;
         bool                input_messaging; // stream input mode   
         UINT16              input_msg_length;
         UINT16              input_msg_index;
@@ -110,7 +111,8 @@ NormApp::NormApp()
  : session_mgr(GetTimerMgr(), GetSocketNotifier()),
    session(NULL), tx_stream(NULL), rx_stream(NULL), input(NULL), output(NULL), 
    input_index(0), input_length(0), input_active(false),
-   push_stream(false), input_messaging(false), input_msg_length(0), input_msg_index(0),
+   push_stream(false), msg_flush_mode(NormStreamObject::FLUSH_PASSIVE),
+   input_messaging(false), input_msg_length(0), input_msg_index(0),
    output_index(0), output_messaging(false), output_msg_length(0), output_msg_sync(false),
    address(NULL), port(0), ttl(3), tx_rate(64000.0), cc_enable(false),
    segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
@@ -152,6 +154,7 @@ const char* const NormApp::cmd_list[] =
     "+cc",           // congestion control on/off
     "+rate",         // tx date rate (bps)
     "-push",         // push stream writes for real-time messaging
+    "+flush",        // message flushing mode ("none", "passive", or "active")
     "+input",        // send stream input
     "+output",       // recv stream output
     "+minput",       // send message stream input
@@ -516,6 +519,21 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
     {
         push_stream = true;
     }
+    else if (!strncmp("flush", cmd, len))
+    {
+        int valLen = strlen(val);
+        if (!strncmp("none", val, valLen))
+            msg_flush_mode = NormStreamObject::FLUSH_NONE;
+        else if (!strncmp("passive", val, valLen))
+            msg_flush_mode = NormStreamObject::FLUSH_PASSIVE;
+        else if (!strncmp("active", val, valLen))
+            msg_flush_mode = NormStreamObject::FLUSH_ACTIVE;
+        else
+        {
+            DMSG(0, "NormApp::ProcessCommand(flush) invalid msg flush mode!\n");   
+            return false;
+        }
+    }
     else if (!strncmp("processor", cmd, len))
     {
         if (!post_processor->SetCommand(val))
@@ -605,8 +623,8 @@ void NormApp::DoInputReady(ProtoDispatcher::Descriptor /*descriptor*/,
 void NormApp::OnInputReady()
 {
     
-    //TRACE("NormApp::OnInputReady() ...\n");
-    bool flush = false;
+    //DMSG(0, "NormApp::OnInputReady() ...\n");
+    NormStreamObject::FlushType flushType = NormStreamObject::FLUSH_NONE;
     // write to the stream while input is available _and_
     // the stream has buffer space for input
     while (input)
@@ -682,7 +700,7 @@ void NormApp::OnInputReady()
                     }
                     if (stdin != input) fclose(input);
                     input = NULL;
-                    flush = true;   
+                    flushType = NormStreamObject::FLUSH_ACTIVE;   
                 }
                 else if (ferror(input))
                 {
@@ -705,10 +723,10 @@ void NormApp::OnInputReady()
         
         unsigned int writeLength = input_length;// ? input_length - input_index : 0;
             
-        if (writeLength || flush)
+        if (writeLength || (NormStreamObject::FLUSH_NONE != flushType))
         {
             unsigned int wroteLength = tx_stream->Write(input_buffer+input_index, 
-                                                        writeLength, flush, false, 
+                                                        writeLength, flushType, false, 
                                                         push_stream);
             input_length -= wroteLength;
             if (0 == input_length)
@@ -722,8 +740,8 @@ void NormApp::OnInputReady()
                 {
                     input_msg_index = 0;
                     input_msg_length = 0;  
-                    // Mark EOM
-                    tx_stream->Write(NULL, 0, false, true, false); 
+                    // Mark EOM _and_ flush
+                    tx_stream->Write(NULL, 0, msg_flush_mode, true, false); 
                 }
             }
             if (wroteLength < writeLength) 
@@ -792,7 +810,7 @@ void NormApp::Notify(NormController::Event event,
            
         case RX_OBJECT_NEW:
         {
-            //TRACE("NormApp::Notify(RX_OBJECT_NEW) ...\n");
+            //DMSG(0, "NormApp::Notify(RX_OBJECT_NEW) ...\n");
             // It's up to the app to "accept" the object
             switch (object->GetType())
             {
@@ -863,7 +881,7 @@ void NormApp::Notify(NormController::Event event,
         }
             
         case RX_OBJECT_INFO:
-            //TRACE("NormApp::Notify(RX_OBJECT_INFO) ...\n");
+            //DMSG(0, "NormApp::Notify(RX_OBJECT_INFO) ...\n");
             switch(object->GetType())
             {
                 case NormObject::FILE:
@@ -903,7 +921,7 @@ void NormApp::Notify(NormController::Event event,
             break;
             
         case RX_OBJECT_UPDATE:
-            //TRACE("NormApp::Notify(RX_OBJECT_UPDATE) ...\n");
+            //DMSG(0, "NormApp::Notify(RX_OBJECT_UPDATE) ...\n");
             switch (object->GetType())
             {
                 case NormObject::FILE:
@@ -949,7 +967,6 @@ void NormApp::Notify(NormController::Event event,
                             findMsgSync = false;   
                         } 
                         
-                        
                         if(!((NormStreamObject*)object)->Read(output_buffer+output_index, 
                                                              &readLength, findMsgSync))
                         {
@@ -965,11 +982,7 @@ void NormApp::Notify(NormController::Event event,
                         }
                         else
                         {
-                            if (readLength > 0)
-                                output_msg_sync = true;
-                            
-                            TRACE("read %d bytes (index:%d) %hu...\n", readLength, output_index,
-                                    *((UINT16*)(output_buffer+output_index)));   
+                            if (readLength > 0) output_msg_sync = true;
                         }
                         
                         if (readLength)
@@ -1037,7 +1050,7 @@ void NormApp::Notify(NormController::Event event,
             
         case RX_OBJECT_COMPLETE:
         {
-            //TRACE("NormApp::Notify(RX_OBJECT_COMPLETE) ...\n");
+            //DMSG(0, "NormApp::Notify(RX_OBJECT_COMPLETE) ...\n");
             switch(object->GetType())
             {
                 case NormObject::FILE:
@@ -1222,7 +1235,7 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
 
 void NormApp::OnShutdown()
 {
-    //TRACE("NormApp::OnShutdown() ...\n");
+    //DMSG(0, "NormApp::OnShutdown() ...\n");
     session_mgr.Destroy();
     if (input)
     {

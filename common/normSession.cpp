@@ -447,7 +447,7 @@ void NormSession::QueueMessage(NormMsg* msg)
         double delta = currentTime.tv_sec - lastTime.tv_sec;
         delta += (((double)currentTime.tv_usec)*1.0e-06 -  
                   ((double)lastTime.tv_usec)*1.0e-06);
-        TRACE("NormSession::QueueMessage() deltaT:%lf\n", delta);
+        DMSG(0, "NormSession::QueueMessage() deltaT:%lf\n", delta);
     }
     lastTime = currentTime;
 */
@@ -793,7 +793,7 @@ void NormTrace(const struct timeval&    currentTime,
             {
                 const UINT16* x = (const UINT16*)data.GetPayloadData();
                 if (data.FlagIsSet(NormObjectMsg::FLAG_MSG_START))
-                    DMSG(0, "start byte>%hu ", ntohs(*x));   
+                    DMSG(0, "start byte>%hu ", ntohs(x[0]));   
             }
             break;
         }
@@ -1111,7 +1111,7 @@ void NormSession::ServerHandleCCFeedback(NormNodeId nodeId,
         // adjust rate using current rtt for node
         ccRate = CalculateRate(nominal_packet_size, ccRtt, ccLoss);
     }
-    //TRACE("NormSession::ServerHandleCCFeedback() node>%lu rate>%lf (rtt>%lf loss>%lf slow_start>%d)\n",
+    //DMSG(0, "NormSession::ServerHandleCCFeedback() node>%lu rate>%lf (rtt>%lf loss>%lf slow_start>%d)\n",
     //        nodeId, ccRate * 8.0 / 1000.0, ccRtt, ccLoss, (0 != (ccFlags & NormCC::START)));
     
     // Keep the active CLR (if there is one) at the head of the list
@@ -2155,7 +2155,7 @@ bool NormSession::SendMessage(NormMsg& msg)
     bool drop = (UniformRand(100.0) < tx_loss_rate);
     if (drop || (clientMsg && client_silent))
     {
-        //TRACE("TX MESSAGE DROPPED! (tx_loss_rate:%lf\n", tx_loss_rate); 
+        //DMSG(0, "TX MESSAGE DROPPED! (tx_loss_rate:%lf\n", tx_loss_rate); 
     }    
     else
     {
@@ -2365,7 +2365,7 @@ void NormSession::AdjustRate(bool onResponse)
             double scale = tx_rate / sent_rate;
             scale = MAX(1.0, scale);
             scale = 1.0;
-            //TRACE("NormSession::AdjustRate() slow start clr>%lu rate>%lf tx_rate>%lf sent_rate>%lf\n",
+            //DMSG(0, "NormSession::AdjustRate() slow start clr>%lu rate>%lf tx_rate>%lf sent_rate>%lf\n",
             //        clr->Id(), clr->GetRate() * 8.0/1000.0, tx_rate * 8.0/1000.0, sent_rate * 8.0/1000.0);
             tx_rate = clr->GetRate() * scale;
         }
@@ -2383,14 +2383,14 @@ void NormSession::AdjustRate(bool onResponse)
                 tx_rate = clrRate;
             }  
         }
-        //TRACE("NormSession::AdjustRate() regular rate adjust  clr>%lu rate>%lf (rtt>%lf loss>%lf slow_start>%d)\n",
+        //DMSG(0, "NormSession::AdjustRate() regular rate adjust  clr>%lu rate>%lf (rtt>%lf loss>%lf slow_start>%d)\n",
         //      clr->Id(), tx_rate*8.0/1000.0, clr->GetRtt(), clr->GetLoss(), cc_slow_start);
     }
     else if (clr)
     {
         // (TBD) fix CC feedback aging ...
         /*int feedbackAge  = abs((int)cc_sequence - (int)clr->GetCCSequence());
-        TRACE("NormSession::AdjustRate() feedback age>%d (%d - %d\n", 
+        DMSG(0, "NormSession::AdjustRate() feedback age>%d (%d - %d\n", 
                 feedbackAge, cc_sequence, clr->GetCCSequence());
         
         if (feedbackAge > 50)
