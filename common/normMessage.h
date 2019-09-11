@@ -50,21 +50,21 @@ inline double ExponentialRand(double max, double groupSize)
 const double NORM_GRTT_MIN = 0.001;  // 1 msec
 const double NORM_GRTT_MAX = 15.0;   // 15 sec
 const double NORM_RTT_MIN = 1.0e-06;
-const double NORM_RTT_MAX = 1000.0;        
+const double NORM_RTT_MAX = 1000.0;   
+extern const double NORM_RTT[];     
 inline double NormUnquantizeRtt(unsigned char qrtt)
 {
-	return ((qrtt < 31) ? 
-			(((double)(qrtt+1))*(double)NORM_RTT_MIN) :
-		    (NORM_RTT_MAX/exp(((double)(255-qrtt))/(double)13.0)));
+	return NORM_RTT[qrtt];
 }
 unsigned char NormQuantizeRtt(double rtt);
 
+
+extern const double NORM_GSIZE[];
 inline double NormUnquantizeGroupSize(unsigned char gsize)
 {
-    double exponent = (double)((gsize & 0x07) + 1);
-    double mantissa = (0 != (gsize & 0x08)) ? 5.0 : 1.0;
-    return (mantissa * pow(10.0, exponent)); 
+    return NORM_GSIZE[gsize];
 }
+
 inline unsigned char NormQuantizeGroupSize(double gsize)
 {
     unsigned char ebits = (unsigned char)log10(gsize);
@@ -1386,6 +1386,7 @@ class NormCmdApplicationMsg : public NormCmdMsg
 class NormNackMsg : public NormMsg
 {
     public:
+        enum {DEFAULT_LENGTH_MAX = 40};
         void Init()
         {
             SetType(NACK);

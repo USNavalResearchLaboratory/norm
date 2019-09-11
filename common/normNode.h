@@ -91,9 +91,7 @@ class NormLossEstimator2
                     unsigned short          seqNumber, 
                     bool                    ecn = false);
         double LossFraction();
-        double MdpLossFraction() 
-            {return ((loss_interval > 0.0) ? (1.0/loss_interval) : 0.0);}
-        double TfrcLossFraction();
+        
         bool NoLoss() {return no_loss;}
         void SetInitialLoss(double lossFraction) 
         {
@@ -120,8 +118,6 @@ class NormLossEstimator2
         
         bool                no_loss;
         double              initial_loss;
-        
-        double              loss_interval;  // EWMA of loss event interval
         
         unsigned long       history[9];  // loss interval history
         double              discount[9];
@@ -296,6 +292,8 @@ class NormServerNode : public NormNode
         }
         void SetPending(NormObjectId objectId);
         
+        void AbortObject(NormObject* obj);
+        
         void DeleteObject(NormObject* obj);
         
         UINT16 SegmentSize() {return segment_size;}
@@ -340,7 +338,7 @@ class NormServerNode : public NormNode
         
         UINT16 Decode(char** segmentList, UINT16 numData, UINT16 erasureCount)
         {
-            return decoder.Decode(segmentList, numData, erasureCount, erasure_loc);
+            return decoder->Decode(segmentList, numData, erasureCount, erasure_loc);
         }
         
         void CalculateGrttResponse(const struct timeval& currentTime,
@@ -397,8 +395,8 @@ class NormServerNode : public NormNode
         
         bool                    is_open;
         UINT16                  segment_size;
-        UINT16                  ndata;
-        UINT16                  nparity;
+        unsigned int            ndata;
+        unsigned int            nparity;
         
         NormObjectTable         rx_table;
         ProtoSlidingMask        rx_pending_mask;
@@ -408,11 +406,11 @@ class NormServerNode : public NormNode
         bool                    unicast_nacks;
         NormBlockPool           block_pool;
         NormSegmentPool         segment_pool;
-        NormDecoder             decoder;
-        UINT16*                 erasure_loc;
-        UINT16*                 retrieval_loc;
+        NormDecoder*            decoder;
+        unsigned int*           erasure_loc;
+        unsigned int*           retrieval_loc;
         char**                  retrieval_pool;
-        UINT16                  retrieval_index;
+        unsigned int            retrieval_index;
         
         bool                    server_active;
         ProtoTimer              activity_timer;

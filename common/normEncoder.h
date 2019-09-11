@@ -37,50 +37,71 @@
 
 class NormEncoder
 {
-    // Members
-    private:
-	    int		        npar;	      // No. of parity packets (n-k)
-	    int		        vector_size;  // Size of biggest vector to encode
-	    unsigned char*  gen_poly;     // Ptr to generator polynomial
-	    unsigned char*  scratch;      // scratch space for encoding
-	
-    // Methods
     public:
-	    NormEncoder();
-	    ~NormEncoder();
-	    bool Init(int numParity, int vectorSize);
-        void Destroy();
-        bool IsReady(){return (bool)(gen_poly != NULL);}
-        // "Encode" must be called in order of source vector0, vector1, vector2, etc
-	    void Encode(const char *dataVector, char **parityVectorList);
-	    int NumParity() {return npar;}
-	    int VectorSize() {return vector_size;}
-	
-    private:
-	    bool CreateGeneratorPolynomial();
-};
-
+        virtual ~NormEncoder();
+        virtual bool Init(unsigned int numData, unsigned int numParity, UINT16 vectorSize) = 0;
+        virtual void Destroy() = 0;
+        virtual void Encode(const char *dataVector, char **parityVectorList) = 0;    
+};  // end class NormEncoder
 
 class NormDecoder
 {
+    public:
+        virtual ~NormDecoder();
+        virtual bool Init(unsigned int numData, unsigned int numParity, UINT16 vectorSize) = 0;
+        virtual void Destroy() = 0;
+        virtual int Decode(char** vectorList, unsigned int numData,  unsigned int erasureCount, unsigned int* erasureLocs) = 0;    
+};  // end class NormDecoder
+
+
+
+class NormEncoderRS8a : public NormEncoder
+{
+    // Methods
+    public:
+	    NormEncoderRS8a();
+	    ~NormEncoderRS8a();
+	    bool Init(unsigned int numData, unsigned int numParity, UINT16 vectorSize);
+        void Destroy();
+        bool IsReady(){return (bool)(gen_poly != NULL);}
+        
+        // "Encode" must be called in order of source vector0, vector1, vector2, etc
+	    void Encode(const char *dataVector, char **parityVectorList);
+	
+    private:
+	    bool CreateGeneratorPolynomial();
+    
+    // Members
+	    unsigned int    npar;	      // No. of parity packets (n-k)
+	    UINT16		    vector_size;  // Size of biggest vector to encode
+	    unsigned char*  gen_poly;     // Ptr to generator polynomial
+	    unsigned char*  scratch;      // scratch space for encoding
+        
+};  // end class NormEncoderRS8a
+
+
+class NormDecoderRS8a : public NormDecoder
+{
+    // Methods
+    public:
+	    NormDecoderRS8a();
+	    ~NormDecoderRS8a();
+	    bool Init(unsigned int numData, unsigned int numParity, UINT16 vectorSize);
+	    int Decode(char** vectorList, unsigned int numData,  unsigned int erasureCount, unsigned int* erasureLocs);
+        int NumParity() {return npar;}
+	    int VectorSize() {return vector_size;}
+        void Destroy();
+        
     // Members
     private:
-	    int             npar;        // No. of parity packets (n-k)
-	    int             vector_size; // Size of biggest vector to encode  			
+	    unsigned int    npar;        // No. of parity packets (n-k)
+	    UINT16          vector_size; // Size of biggest vector to encode  			
 	    unsigned char*  lambda;      // Erasure location polynomial ("2*npar" ints)
 	    unsigned char** s_vec;       // Syndrome vectors (pointers to "npar" vectors)
 	    unsigned char** o_vec;       // Omega vectors (pointers to "npar" vectors)
 	    unsigned char*  scratch;
-    // Methods
-    public:
-	    NormDecoder();
-	    ~NormDecoder();
-	    bool Init(int numParity, int vectorSize);
-	    int Decode(char** vectorList, int ndata,  UINT16 erasureCount, UINT16* erasureLocs);
-        int NumParity() {return npar;}
-	    int VectorSize() {return vector_size;}
-        void Destroy();
-};
+    
+};  // end class NormDecoderRS8a
 
 
 

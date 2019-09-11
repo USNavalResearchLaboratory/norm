@@ -93,6 +93,8 @@ class NormApp : public NormController, public ProtoApp
         bool                loopback;
         char*               interface_name; // for multi-home hosts
         double              tx_rate;        // bits/sec
+        double              tx_rate_min;
+        double              tx_rate_max;
         bool                cc_enable;
         
         // NormSession server-only parameters
@@ -107,6 +109,13 @@ class NormApp : public NormController, public ProtoApp
         unsigned long       tx_buffer_size; // bytes
         NormFileList        tx_file_list;
         bool                tx_one_shot;
+        bool                tx_ack_shot;
+        bool                tx_file_queued;
+        
+        // save last obj/block/seg id for later in case needed
+        NormObjectId        tx_last_object_id;
+        NormBlockId         tx_last_block_id;
+        NormSegmentId       tx_last_segment_id;
         double              tx_object_interval;
         int                 tx_repeat_count;
         double              tx_repeat_interval;
@@ -123,6 +132,8 @@ class NormApp : public NormController, public ProtoApp
         NormPostProcessor*  post_processor;
         bool                unicast_nacks;
         bool                silent_client;
+        bool                low_delay;
+        bool                process_aborted_files;
         
         // Debug parameters
         bool                tracing;
@@ -140,16 +151,17 @@ NormApp::NormApp()
    input_messaging(false), input_msg_length(0), input_msg_index(0),
    output_index(0), output_messaging(false), output_msg_length(0), output_msg_sync(false),
    address(NULL), port(0), ttl(32), loopback(false), interface_name(NULL),
-   tx_rate(64000.0), cc_enable(false),
+   tx_rate(64000.0), tx_rate_min(-1.0), tx_rate_max(-1.0), cc_enable(false),
    segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
    backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
    grtt_estimate(NormSession::DEFAULT_GRTT_ESTIMATE),
    group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
-   tx_buffer_size(1024*1024), tx_one_shot(false),
+   tx_buffer_size(1024*1024), tx_one_shot(false), tx_ack_shot(false), tx_file_queued(false),
    tx_object_interval(0.0), tx_repeat_count(0), tx_repeat_interval(2.0), tx_repeat_clear(true),
    acking_node_list(NULL), watermark_pending(false),
    rx_buffer_size(1024*1024), rx_sock_buffer_size(0),
-   rx_cache_path(NULL), post_processor(NULL), unicast_nacks(false), silent_client(false),
+   rx_cache_path(NULL), post_processor(NULL), unicast_nacks(false), silent_client(false), 
+    low_delay(false), process_aborted_files(false),
    tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
     
@@ -209,6 +221,7 @@ const char* const NormApp::cmd_list[] =
     "+interface",    // multicast interface name to use
     "+cc",           // congestion control on/off
     "+rate",         // tx date rate (bps)
+    "+limit",        // tx rate limits <rateMin:rateMax>
     "-push",         // push stream writes for real-time messaging
     "+flush",        // message flushing mode ("none", "passive", or "active")
     "+input",        // send stream input
@@ -220,6 +233,7 @@ const char* const NormApp::cmd_list[] =
     "+repeatcount",  // How many times to repeat the file/directory list tx
     "+rinterval",    // Interval (sec) between file/directory list repeats
     "-oneshot",      // Transmit file(s), exiting upon TX_FLUSH_COMPLETED
+    "-ackshot",      // Transmit file(s), exiting upon TX_WATERMARK_COMPLETED
     "-updatesOnly",  // only send updated files on repeat transmission
     "+ackingNodes",  // comma-delimited list of node id's to from which to collect acks
     "+rxcachedir",   // recv file cache directory
@@ -235,7 +249,9 @@ const char* const NormApp::cmd_list[] =
     "+rxbuffer",     // Size receiver allocates for buffering each sender
     "+rxsockbuffer", // Optional recv socket buffer size.
     "-unicastNacks", // unicast instead of multicast feedback messages
-    "-silentClient", // "silent" (non-nacking) client (EMCON mode)
+    "-silentClient", // "silent" (non-nacking) receiver (EMCON mode) (must set for sender too)
+    "-lowDelay",     // for silent receivers only, delivers data/files to app sooner\n"
+    "-saveAborts",   // save (and possibly post-process) aborted receive files\n"
     "+processor",    // receive file post processing command
     "+instance",     // specify norm instance name for remote control commands
     NULL         
@@ -261,6 +277,7 @@ void NormApp::ShowHelp()
         "   +interface,    // multicast interface name to use\n"
         "   +cc,           // congestion control 'on' or 'off'\n"
         "   +rate,         // tx date rate (bps)\n"
+        "   +limit         // tx rate bounds <rateMin:rateMax>\n"
         "   -push,         // push stream writes for real-time messaging\n"
         "   +flush,        // message flushing mode ('none', 'passive', or 'active')\n"
         "   +input,        // send stream input\n"
@@ -272,6 +289,7 @@ void NormApp::ShowHelp()
         "   +repeatcount,  // How many times to repeat the file/directory list tx\n"
         "   +rinterval,    // Interval (sec) between file/directory list repeats\n"
         "   -oneshot,      // Exit upon sender TX_FLUSH_COMPLETED event (sender exits after transmission)\n"
+        "   -ackshot,      // Exit upon sender TX_WATERMARK_COMPLETED event (sender exits after transmission)\n"
         "   -updatesOnly,  // only send updated files on repeat transmission\n"
         "   +ackingNodes,  // comma-delimited list of node id's to from which to collect acks\n"
         "   +rxcachedir,   // recv file cache directory\n"
@@ -287,7 +305,9 @@ void NormApp::ShowHelp()
         "   +rxbuffer,     // Size receiver allocates for buffering each sender\n"
         "   +rxsockbuffer, // Optional recv socket buffer size.\n"
         "   -unicastNacks, // unicast instead of multicast feedback messages\n"
-        "   -silentClient, // silent (non-nacking) receiver (EMCON mode)\n"
+        "   -silentClient, // silent (non-nacking) receiver (EMCON mode) (must set for sender too)\n"
+        "   -lowDelay,     // for silent receivers only, delivers data/files to app sooner\n"
+        "   -saveAborts,   // save (and possibly post-process) aborted receive files\n"
         "   +processor,    // receive file post processing command\n"
         "   +instance,     // specify norm instance name for remote control commands\n"
         "\n");
@@ -527,6 +547,18 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         tx_rate = txRate;
         if (session) session->SetTxRate(txRate);
     }
+    else if (!strncmp("rate", cmd, len))
+    {
+        double rateMin, rateMax;
+        if (2 != sscanf(val, "%lf:%lf", &rateMin, &rateMax))
+        {
+            DMSG(0, "NormApp::OnCommand(rate) invalid txRate limits!\n");
+            return false;
+        }
+        tx_rate_min = rateMin;
+        tx_rate_max = rateMax;
+        if (session) session->SetTxRateBounds(rateMin, rateMax);
+    }
     else if (!strncmp("cc", cmd, len))
     {
         if (!strcmp("on", val))
@@ -656,6 +688,11 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     else if (!strncmp("oneshot", cmd, len))
     {
         tx_one_shot = true;
+    }   
+         
+    else if (!strncmp("ackshot", cmd, len))
+    {
+        tx_ack_shot = true;
     }      
     else if (!strncmp("updatesOnly", cmd, len))
     {
@@ -823,7 +860,20 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     else if (!strncmp("silentClient", cmd, len))
     {
         silent_client = true;
-        if (session) session->ClientSetSilent(true);
+        if (session) 
+        {
+            session->ClientSetSilent(true);
+            session->SndrSetEmcon(true);
+        }
+    }
+    else if (!strncmp("lowDelay", cmd, len))
+    {
+        low_delay = true;
+        if (session) session->RcvrSetMaxDelay(1);
+    }
+    else if (!strncmp("saveAborts", cmd, len))
+    {
+        process_aborted_files = true;
     }
     else if (!strncmp("push", cmd, len))
     {
@@ -1189,6 +1239,7 @@ void NormApp::Notify(NormController::Event event,
     switch (event)
     {
         case TX_QUEUE_VACANCY:
+            DMSG(6, "NormApp::Notify(TX_QUEUE_VACANCY) ...\n");
             if (NULL != object)
             {
                 if (input && (object == tx_stream))
@@ -1197,7 +1248,7 @@ void NormApp::Notify(NormController::Event event,
             break;
         case TX_QUEUE_EMPTY:
             // Write to stream as needed
-            DMSG(3, "NormApp::Notify(TX_QUEUE_EMPTY) ...\n");
+            DMSG(6, "NormApp::Notify(TX_QUEUE_EMPTY) ...\n");
             if (NULL != object)
             {
                 if (input && (object == tx_stream))
@@ -1215,11 +1266,11 @@ void NormApp::Notify(NormController::Event event,
             break;
             
         case TX_OBJECT_SENT:
-            DMSG(3, "NormApp::Notify(TX_OBJECT_SENT) ...\n");
+            DMSG(4, "NormApp::Notify(TX_OBJECT_SENT) ...\n");
             break;
             
         case TX_FLUSH_COMPLETED:
-            DMSG(3, "NormApp::Notify(TX_FLUSH_COMPLETED) ...\n");
+            DMSG(4, "NormApp::Notify(TX_FLUSH_COMPLETED) ...\n");
             if (tx_one_shot)
             {
                 DMSG(0, "norm: transmit flushing completed, exiting.\n");
@@ -1229,18 +1280,27 @@ void NormApp::Notify(NormController::Event event,
             
         case TX_WATERMARK_COMPLETED:
         {
-            DMSG(3, "NormApp::Notify(TX_WATERMARK_COMPLETED) ...\n");
-            NormSession::AckingStatus status = session->ServerGetAckingStatus(NORM_NODE_ANY);
-            
-            DMSG(0, "norm: positive ack collection completed (%s)\n",
-                    (NormSession::ACK_SUCCESS == status) ? "succeed" : "failed");
+            DMSG(4, "NormApp::Notify(TX_WATERMARK_COMPLETED) ...\n");
+            //NormSession::AckingStatus status = session->ServerGetAckingStatus(NORM_NODE_ANY);
             watermark_pending = false;  // enable new watermark to be set
+            if (tx_ack_shot)
+            {
+                DMSG(0, "norm: transmit flushing completed, exiting.\n");
+                Stop();     
+            }
             break;
         }
            
         case RX_OBJECT_NEW:
         {
-            DMSG(3, "NormApp::Notify(RX_OBJECT_NEW) ...\n");
+            DMSG(4, "NormApp::Notify(RX_OBJECT_NEW) ...\n");
+            struct timeval currentTime;
+            ProtoSystemTime(currentTime);
+            struct tm* timePtr = gmtime((time_t*)&currentTime.tv_sec); 
+            DMSG(3, "%02d:%02d:%02d.%06lu start rx object>%hu sender>%lu\n",
+		            timePtr->tm_hour, timePtr->tm_min, timePtr->tm_sec, 
+		            (unsigned long)currentTime.tv_usec, (UINT16)object->GetId(), server->GetId());
+            
             // It's up to the app to "accept" the object
             switch (object->GetType())
             {
@@ -1342,7 +1402,7 @@ void NormApp::Notify(NormController::Event event,
         }
             
         case RX_OBJECT_INFO:
-            DMSG(3, "NormApp::Notify(RX_OBJECT_INFO) ...\n");
+            DMSG(4, "NormApp::Notify(RX_OBJECT_INFO) ...\n");
             switch(object->GetType())
             {
                 case NormObject::FILE:
@@ -1383,7 +1443,7 @@ void NormApp::Notify(NormController::Event event,
             break;
             
         case RX_OBJECT_UPDATED:
-            DMSG(3, "NormApp::Notify(RX_OBJECT_UPDATED) ...\n");
+            DMSG(6, "NormApp::Notify(RX_OBJECT_UPDATED) ...\n");
             switch (object->GetType())
             {
                 case NormObject::FILE:
@@ -1433,7 +1493,7 @@ void NormApp::Notify(NormController::Event event,
                         } 
                         
                         if(!((NormStreamObject*)object)->Read(output_buffer+output_index, 
-                                                             &readLength, findMsgSync))
+                                                              &readLength, findMsgSync))
                         {
                             // The stream broke
                             if (output_messaging)
@@ -1442,7 +1502,10 @@ void NormApp::Notify(NormController::Event event,
                                     DMSG(0, "NormApp::Notify() detected broken stream ...\n");
                                 output_msg_length = output_index = 0;
                                 output_msg_sync = false;
-                                break;
+                                if (findMsgSync)
+                                    break;
+                                else
+                                    continue;  // try to re-sync
                             }
                         }
                         else if (readLength > 0)
@@ -1479,6 +1542,7 @@ void NormApp::Notify(NormController::Event event,
                         while (put < writeLength)
                         {
                             size_t result = fwrite(output_buffer+put, sizeof(char), writeLength-put, output);
+                            
                             if (result)
                             {
                                 put += (unsigned int)result;   
@@ -1526,7 +1590,13 @@ void NormApp::Notify(NormController::Event event,
             // (TBD) if we're not archiving files we should
             //       manage our cache, deleting the cache
             //       on shutdown ...
-            DMSG(3, "NormApp::Notify(RX_OBJECT_COMPLETED) ...\n");
+            DMSG(4, "NormApp::Notify(RX_OBJECT_COMPLETED) ...\n");
+            struct timeval currentTime;
+            ProtoSystemTime(currentTime);
+            struct tm* timePtr = gmtime((time_t*)&currentTime.tv_sec); 
+            DMSG(3, "%02d:%02d:%02d.%06lu completed rx object>%hu sender>%lu\n",
+		            timePtr->tm_hour, timePtr->tm_min, timePtr->tm_sec, 
+		            (unsigned long)currentTime.tv_usec, (UINT16)object->GetId(), server->GetId());
             switch(object->GetType())
             {
                 case NormObject::FILE:
@@ -1554,6 +1624,45 @@ void NormApp::Notify(NormController::Event event,
             }
             break;
         }
+        
+        case RX_OBJECT_ABORTED:
+        {
+            DMSG(0, "NormApp::Notify(RX_OBJECT_ABORTED) ...\n");
+            struct timeval currentTime;
+            ProtoSystemTime(currentTime);
+            struct tm* timePtr = gmtime((time_t*)&currentTime.tv_sec); 
+            DMSG(3, "%02d:%02d:%02d.%06lu aborted rx object>%hu sender>%lu\n",
+		            timePtr->tm_hour, timePtr->tm_min, timePtr->tm_sec, 
+		            (unsigned long)currentTime.tv_usec, (UINT16)object->GetId(), server->GetId());
+            switch(object->GetType())
+            {
+                case NormObject::FILE:
+                {
+                    const char* filePath = static_cast<NormFileObject*>(object)->GetPath();
+                    if (process_aborted_files)
+                    {
+                        // in case file size isn't padded properly
+                        static_cast<NormFileObject*>(object)->PadToSize();
+                        if (post_processor->IsEnabled())
+                        {
+                            if (!post_processor->ProcessFile(filePath))
+                            {
+                                DMSG(0, "norm: post processing error\n");
+                            }  
+                        }
+                    }
+                    else
+                    {
+                        NormFile::Unlink(filePath);
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+            break;
+        }
+        
         default:
         {
             DMSG(4, "NormApp::Notify() unhandled event: %d\n", event);
@@ -1600,13 +1709,25 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
             ActivateTimer(interval_timer);
             return false;
         }
-        if (!watermark_pending && (NULL != acking_node_list))
+        tx_file_queued = true;
+        
+        
+        struct timeval currentTime;
+        ProtoSystemTime(currentTime);
+        struct tm* timePtr = gmtime((time_t*)&currentTime.tv_sec); 
+        DMSG(3, "%02d:%02d:%02d.%06lu enqueued tx object>%hu sender>%lu\n",
+		        timePtr->tm_hour, timePtr->tm_min, timePtr->tm_sec, 
+		        (unsigned long)currentTime.tv_usec, (UINT16)obj->GetId(), session->LocalNodeId());
+        
+        // save last obj/block/seg id for later in case needed
+        tx_last_object_id = obj->GetId();
+        tx_last_block_id = obj->GetFinalBlockId();
+        tx_last_segment_id = obj->GetBlockSize(tx_last_block_id) - 1;
+        if (!watermark_pending && (NULL != acking_node_list) && !tx_ack_shot)
         {
-            NormBlockId blockId = obj->GetFinalBlockId();
-            NormSegmentId segmentId = obj->GetBlockSize(blockId) - 1;
-            session->ServerSetWatermark(obj->GetId(), 
-                                        blockId,
-                                        segmentId);
+            session->ServerSetWatermark(tx_last_object_id, 
+                                        tx_last_block_id,
+                                        tx_last_segment_id);
             watermark_pending = true;  // only allow one pending watermark at a time
         }
         //DMSG(0, "norm: File \"%s\" queued for transmission.\n", fileName);
@@ -1645,6 +1766,13 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
     {
         tx_repeat_clear = true;
         DMSG(0, "norm: End of tx file list reached.\n");  
+        if (tx_ack_shot && !watermark_pending && tx_file_queued)
+        {
+            session->ServerSetWatermark(tx_last_object_id, 
+                                        tx_last_block_id,
+                                        tx_last_segment_id);
+            watermark_pending = true;  // only allow one pending watermark at a time
+        }
     }   
     return true;
 }  // end NormApp::OnIntervalTimeout()
@@ -1695,6 +1823,7 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
         // Common session parameters
         session->SetTxPort(tx_port);
         session->SetTxRate(tx_rate);
+        session->SetTxRateBounds(tx_rate_min, tx_rate_max);
         session->SetTrace(tracing);
         session->SetTxLoss(tx_loss);
         session->SetRxLoss(rx_loss);
@@ -1715,7 +1844,8 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
                 session_mgr.Destroy();
                 return false;
             }
-            
+            // redundant info transmission if we have silent clients
+            if (silent_client) session->SndrSetEmcon(true);
             // We also use the baseId as our server's "instance id" for illustrative purposes
             UINT16 instanceId = baseId;
             if (!session->StartServer(instanceId, tx_buffer_size, segment_size, ndata, nparity, interface_name))
@@ -1746,6 +1876,10 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
             // StartClient(bufferMax (per-sender))
             session->ClientSetUnicastNacks(unicast_nacks);
             session->ClientSetSilent(silent_client);
+            if (low_delay)
+                session->RcvrSetMaxDelay(1);
+            else
+                session->RcvrSetMaxDelay(-1);
             if (!session->StartClient(rx_buffer_size, interface_name))
             {
                 DMSG(0, "NormApp::OnStartup() start client error!\n");

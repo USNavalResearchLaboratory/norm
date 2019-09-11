@@ -13,16 +13,21 @@ const double NormSession::DEFAULT_BACKOFF_FACTOR = 4.0;
 const double NormSession::DEFAULT_GSIZE_ESTIMATE = 1000.0; 
 const UINT16 NormSession::DEFAULT_NDATA = 64; 
 const UINT16 NormSession::DEFAULT_NPARITY = 32;  
+const UINT16 NormSession::DEFAULT_TX_CACHE_MIN = 8;
+const UINT16 NormSession::DEFAULT_TX_CACHE_MAX = 256;
 
 NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId) 
  : session_mgr(sessionMgr), notify_pending(false), tx_port(0), 
-   tx_socket(&tx_socket_actual), tx_socket_actual(ProtoSocket::UDP), 
+   tx_socket_actual(ProtoSocket::UDP), tx_socket(&tx_socket_actual), 
    rx_socket(ProtoSocket::UDP), local_node_id(localNodeId), 
    ttl(DEFAULT_TTL), tos(0), loopback(false), rx_port_reuse(false), rx_addr_bind(false),
    tx_rate(DEFAULT_TRANSMIT_RATE/8.0), tx_rate_min(-1.0), tx_rate_max(-1.0),
    backoff_factor(DEFAULT_BACKOFF_FACTOR), is_server(false), instance_id(0),
    ndata(DEFAULT_NDATA), nparity(DEFAULT_NPARITY), auto_parity(0), extra_parity(0),
-   next_tx_object_id(0), tx_cache_count_min(8), tx_cache_count_max(256),
+   sndr_emcon(false), encoder(NULL), 
+   next_tx_object_id(0), 
+   tx_cache_count_min(DEFAULT_TX_CACHE_MIN), 
+   tx_cache_count_max(DEFAULT_TX_CACHE_MAX),
    tx_cache_size_max((UINT32)20*1024*1024),
    flush_count(NORM_ROBUST_FACTOR+1),
    posted_tx_queue_empty(false), 
@@ -36,7 +41,8 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    grtt_decrease_delay_count(DEFAULT_GRTT_DECREASE_DELAY),
    grtt_response(false), grtt_current_peak(0.0), grtt_age(0.0),
    cc_enable(false), cc_sequence(0), cc_slow_start(true), cc_active(false),
-   is_client(false), unicast_nacks(false), client_silent(false), receiver_low_delay(false),
+   is_client(false), unicast_nacks(false), 
+   client_silent(false), rcvr_ignore_info(false), rcvr_max_delay(-1),
    default_repair_boundary(NormServerNode::BLOCK_BOUNDARY),
    default_nacking_mode(NormObject::NACK_NORMAL),
    trace(false), tx_loss_rate(0.0), rx_loss_rate(0.0),
@@ -81,6 +87,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
     report_timer.SetInterval(10.0);
     report_timer.SetRepeat(-1);
 }
+
 
 NormSession::~NormSession()
 {
@@ -229,9 +236,8 @@ void NormSession::Close()
 
 bool NormSession::SetMulticastInterface(const char* interfaceName)
 {
-    if (interfaceName)
+    if (NULL != interfaceName)
     {
-
         bool result = true;
         if (rx_socket.IsOpen())
             result &= rx_socket.SetMulticastInterface(interfaceName);
@@ -358,19 +364,19 @@ bool NormSession::StartServer(UINT16        instanceId,
         if (!Open(interfaceName)) return false;
     }
     // (TBD) parameterize the object history depth
-    if (!tx_table.Init(256))
+    if (!tx_table.Init(tx_cache_count_max)) 
     {
         DMSG(0, "NormSession::StartServer() tx_table.Init() error!\n");
         StopServer();
         return false;   
     }
-    if (!tx_pending_mask.Init(256, 0x0000ffff))
+    if (!tx_pending_mask.Init(tx_cache_count_max, 0x0000ffff))
     {
         DMSG(0, "NormSession::StartServer() tx_pending_mask.Init() error!\n");
         StopServer();
         return false; 
     }
-    if (!tx_repair_mask.Init(256, 0x0000ffff))
+    if (!tx_repair_mask.Init(tx_cache_count_max, 0x0000ffff))
     {
         DMSG(0, "NormSession::StartServer() tx_repair_mask.Init() error!\n");
         StopServer();
@@ -407,7 +413,15 @@ bool NormSession::StartServer(UINT16        instanceId,
     
     if (numParity)
     {
-        if (!encoder.Init(numParity, segmentSize + NormDataMsg::GetStreamPayloadHeaderLength()))
+        if (NULL != encoder) delete encoder;
+        if (NULL == (encoder = new NormEncoderRS8a))
+        {
+            DMSG(0, "NormSession::StartServer() new NormEncoderRS8a error: %s\n", GetErrorString());
+            StopServer();
+            return false;
+        }
+        
+        if (!encoder->Init(numData, numParity, segmentSize + NormDataMsg::GetStreamPayloadHeaderLength()))
         {
             DMSG(0, "NormSession::StartServer() encoder init error\n");
             StopServer();
@@ -477,7 +491,12 @@ void NormSession::StopServer()
         repair_timer.Deactivate();
         tx_repair_pending = false;
     }
-    encoder.Destroy();
+    if (NULL != encoder)
+    {
+        encoder->Destroy();
+        delete encoder;
+        encoder = NULL;
+    }
     acking_node_tree.Destroy();
     cc_node_list.Destroy();
     // Iterate tx_table and release objects
@@ -749,6 +768,7 @@ void NormSession::Serve()
                             }
                         }
                     }
+                    //ASSERT(stream->IsPending() || stream->IsRepairPending());
                     if (!posted_tx_queue_empty && stream->IsPending() && !stream->IsClosing())
                     {
                         //data_active = false;
@@ -756,7 +776,7 @@ void NormSession::Serve()
                         Notify(NormController::TX_QUEUE_EMPTY, (NormServerNode*)NULL, obj);
                         // (TBD) Was session deleted?
                         return;
-                    }      
+                    }
                 }
                 else
                 {
@@ -778,9 +798,7 @@ void NormSession::Serve()
         {
             data_active = false;  // (TBD) should we wait until the flush process completes before setting false???
             posted_tx_queue_empty = true;
-            Notify(NormController::TX_QUEUE_EMPTY,
-                   (NormServerNode*)NULL,
-                   (NormObject*)NULL);
+            Notify(NormController::TX_QUEUE_EMPTY, (NormServerNode*)NULL, (NormObject*)NULL);
             // (TBD) Was session deleted?
             return;
         }     
@@ -1103,7 +1121,8 @@ void NormSession::QueueMessage(NormMsg* msg)
         tx_timer.SetInterval(0.0);
         ActivateTimer(tx_timer);   
     }
-    if (msg) message_queue.Append(msg);
+    if (msg) 
+        message_queue.Append(msg);
 }  // end NormSesssion::QueueMessage(NormMsg& msg)
 
 
@@ -1339,29 +1358,52 @@ void NormSession::DeleteTxObject(NormObject* obj)
     obj->Release();
 }  // end NormSession::DeleteTxObject()
 
-void NormSession::SetTxCacheBounds(NormObjectSize  sizeMax,
+bool NormSession::SetTxCacheBounds(NormObjectSize  sizeMax,
                                    unsigned long   countMin,
                                    unsigned long   countMax)
 {
+    bool result = true;
     tx_cache_size_max = sizeMax;
     tx_cache_count_min = (countMin < countMax) ? countMin : countMax;
     tx_cache_count_max = (countMax > countMin) ? countMax : countMin;
-    // Now trim the tx_table as needed
+    
     if (IsServer())
     {
+        // Trim/resize the tx_table and tx masks as needed
         unsigned long count = tx_table.Count();
         while ((count >= tx_cache_count_min) &&
                ((count >= tx_cache_count_max) ||
                 (tx_table.GetSize() > tx_cache_size_max)))
         {
-            // Remove oldest non-pending 
+            // Remove oldest (hopefully non-pending ) object
             NormObject* oldest = tx_table.Find(tx_table.RangeLo());
             ASSERT(oldest);
             Notify(NormController::TX_OBJECT_PURGED, (NormServerNode*)NULL, oldest);
             DeleteTxObject(oldest);
             count = tx_table.Count();
         }
+        if (tx_cache_count_max < DEFAULT_TX_CACHE_MAX)
+            countMax = DEFAULT_TX_CACHE_MAX;
+        else
+            countMax = tx_cache_count_max;
+        if (countMax != tx_table.GetRangeMax())
+        {
+            tx_table.SetRangeMax((UINT16)countMax);
+            result = tx_pending_mask.Resize(countMax);
+            result &= tx_repair_mask.Resize(countMax);
+            if (!result)
+            {
+                countMax = tx_pending_mask.GetSize();
+                if (tx_repair_mask.GetSize() < (INT32)countMax)
+                    countMax = tx_repair_mask.GetSize(); 
+                if (tx_cache_count_max > countMax)
+                    tx_cache_count_max = countMax;
+                if (tx_cache_count_min > tx_cache_count_max)
+                    tx_cache_count_min = tx_cache_count_max;
+            }
+        }
     }
+    return result;
 }  // end NormSession::SetTxCacheBounds()
 
 NormBlock* NormSession::ServerGetFreeBlock(NormObjectId objectId, 
@@ -1550,14 +1592,10 @@ void NormTrace(const struct timeval&    currentTime,
             if (data.IsData() && data.IsStream())
             {
                 //if (NormDataMsg::StreamPayloadFlagIsSet(data.GetPayload(), NormDataMsg::FLAG_MSG_START))
-                if (0 != NormDataMsg::ReadStreamPayloadMsgStart(data.GetPayload()))
+                UINT16 msgStartOffset = NormDataMsg::ReadStreamPayloadMsgStart(data.GetPayload());
+                if (0 != msgStartOffset)
                 {
-                    // (TBD) use "payload_msg_start" value for this ...
-                    // We usually use the first two bytes of "messages"
-                    // as a "message length" header
-                    UINT16 x;
-                    memcpy(&x, data.GetPayloadData(), 2);
-                    DMSG(0, "start word>%hu ", ntohs(x));
+                    DMSG(0, "start word>%hu ", msgStartOffset - 1);
                 }
                 //if (NormDataMsg::StreamPayloadFlagIsSet(data.GetPayload(), NormDataMsg::FLAG_STREAM_END))
                 if (0 == NormDataMsg::ReadStreamPayloadLength(data.GetPayload()))
@@ -1923,13 +1961,11 @@ void NormSession::ServerHandleCCFeedback(struct timeval  currentTime,
     NormCCNode* node = (NormCCNode*)cc_node_list.FindNodeById(nodeId);
     if (node) ccRtt = node->UpdateRtt(ccRtt);
     
-    if (0 == (ccFlags & NormCC::START))
-    {
-        // slow start has ended
-        cc_slow_start = false;  
-        // adjust rate using current rtt for node
-        ccRate = CalculateRate(nominal_packet_size, ccRtt, ccLoss);
-    }
+    bool ccSlowStart = (0 != (ccFlags & NormCC::START));
+    
+    if (!ccSlowStart)
+        ccRate = CalculateRate(nominal_packet_size, ccRtt, ccLoss); 
+    
     //DMSG(0, "NormSession::ServerHandleCCFeedback() node>%lu rate>%lf (rtt>%lf loss>%lf slow_start>%d)\n",
     //        nodeId, ccRate * 8.0 / 1000.0, ccRtt, ccLoss, (0 != (ccFlags & NormCC::START)));
     
@@ -1959,6 +1995,7 @@ void NormSession::ServerHandleCCFeedback(struct timeval  currentTime,
             next->SetCCSequence(ccSequence);
             next->SetActive(true);
             next->SetFeedbackTime(currentTime);
+            cc_slow_start = ccSlowStart;  // use CLR status for our slow_start state
             if (savedId == nodeId)
             {
                 // This was feedback from the current CLR  
@@ -2559,6 +2596,7 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         }  // end if (freshBlock)
                         ASSERT(NULL != block);
                         // If stream && explicit data repair, lock the data for retransmission
+                        // (TBD) this use of "ndata" needs to be replaced for dynamically shortened blocks
                         if (object->IsStream() && (nextSegmentId < ndata))
                         {
                             bool attemptLock = true;
@@ -3017,7 +3055,7 @@ bool NormSession::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                     if (!tx_pending_mask.Set(objectId))
                         DMSG(0, "NormSession::OnRepairTimeout() rx_pending_mask.Set(%hu) error (2)\n",
                                 (UINT16)objectId); 
-                }  
+                } 
             } 
         }  // end while (iterator.GetNextObject())   
         PromptServer();
@@ -3103,9 +3141,18 @@ bool NormSession::OnTxTimeout(ProtoTimer& /*theTimer*/)
         }
         else
         {
+            // (TBD) should we check the type of error that occurred
+            //       and take some smarter action here (e.g. re-open our sockets?)
             // Requeue the message for another try
             if (!advertise_repairs) 
-                message_queue.Prepend(msg);   
+                message_queue.Prepend(msg); 
+            // Make sure the tx_timer interval is non-ZERO
+            // (this avoids a sort of infinite loop that can occur
+            //  under certain conditions)
+            if (tx_rate > 0.0)
+                tx_timer.SetInterval(msg->GetLength() / tx_rate);
+            else if (0.0 == tx_timer.GetInterval())
+                tx_timer.SetInterval(0.1);
         }
         return true;  // reinstall tx_timer
     }
@@ -3203,12 +3250,17 @@ bool NormSession::SendMessage(NormMsg& msg)
     
     msg.SetSourceId(local_node_id);
     UINT16 msgSize = msg.GetLength();
-    bool result = true;
     // Possibly drop some tx messages for testing purposes
     bool drop = (UniformRand(100.0) < tx_loss_rate);
     if (drop || (isClientMsg && client_silent))
     {
         //DMSG(0, "TX MESSAGE DROPPED! (tx_loss_rate:%lf\n", tx_loss_rate); 
+        if (!(isClientMsg && client_silent))
+        {
+            // Update sent rate tracker even if dropped (for testing/debugging)
+            sent_accumulator += msgSize;
+            nominal_packet_size += 0.05 * (((double)msgSize) - nominal_packet_size);    
+        }
     }    
     else
     {
@@ -3228,40 +3280,34 @@ bool NormSession::SendMessage(NormMsg& msg)
         }
         else
         {
-            DMSG(8, "NormSession::SendMessage() sendto() error\n");
-            result = false;
+            DMSG(8, "NormSession::SendMessage() sendto() error: %s\n", GetErrorString());
+            tx_sequence--;
+            return false;
         }
     }
-    if (result)
+    if (isProbe)
     {
-        if (isProbe)
+        probe_pending = false;
+        probe_data_check = true;
+        if (probe_reset) 
         {
-            probe_pending = false;
-            probe_data_check = true;
-            if (probe_reset) 
-            {
-                probe_reset = false;
-                if (!probe_timer.IsActive())
-                    ActivateTimer(probe_timer);  
-            }
+            probe_reset = false;
+            if (!probe_timer.IsActive())
+                ActivateTimer(probe_timer);  
         }
-        else if (!isClientMsg)
-        {
-            probe_data_check = false;
-            if (!probe_pending && probe_reset)
-            {
-                probe_reset = false;
-                OnProbeTimeout(probe_timer);
-                if (!probe_timer.IsActive())
-                    ActivateTimer(probe_timer);
-            }
-        }
-        return true;
     }
-    else
+    else if (!isClientMsg)
     {
-        return false;
+        probe_data_check = false;
+        if (!probe_pending && probe_reset)
+        {
+            probe_reset = false;
+            OnProbeTimeout(probe_timer);
+            if (!probe_timer.IsActive())
+                ActivateTimer(probe_timer);
+        }
     }
+    return true;
 }  // end NormSession::SendMessage()
 
 void NormSession::SetGrttProbingInterval(double intervalMin, double intervalMax)
@@ -3503,7 +3549,7 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
                     feedbackAge += 1.0e-06*((double)(currentTime.tv_usec - feedbackTime.tv_usec));
                 else
                     feedbackAge -= 1.0e-06*((double)(feedbackTime.tv_usec - currentTime.tv_usec));
-                double maxFeedbackAge = 5 * grtt_advertised;
+                double maxFeedbackAge = 5 * MAX(grtt_advertised, next->GetRtt());
                 // Safety bound to compensate for computer clock coarseness
                 // and possible sluggish feedback from slower machines
                 // at higher norm data rates (keeps rate from being 
@@ -3511,7 +3557,11 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
                 if (maxFeedbackAge <(10*NORM_TICK_MIN)) 
                     maxFeedbackAge = (10*NORM_TICK_MIN);  
                 if (feedbackAge > maxFeedbackAge)
+                {
+                    DMSG(6, "Deactivating cc node feedbackAge:%lf sec maxAge:%lf sec\n",
+                            feedbackAge, maxFeedbackAge);
                     next->SetActive(false);
+                }
             }             
         }
        

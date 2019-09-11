@@ -85,7 +85,7 @@ int main(int argc, char* argv[])
     
     NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 1.0e+05);  // in bits/second
+    NormSetTransmitRate(session, 1.0e+07);  // in bits/second
     
     // Uncomment to enable TCP-friendly congestion control (overrides NormSetTransmitRate())
     //NormSetCongestionControl(session, true);
@@ -114,7 +114,7 @@ int main(int argc, char* argv[])
     //NormSetSilentReceiver(session, true);
     
     // Uncomment this line to participate as a receiver
-    NormStartReceiver(session, 1024*1024);
+    //NormStartReceiver(session, 1024*1024);
     
     // Uncomment to set large rx socket buffer size
     // (might be needed for high rate sessions)
@@ -124,7 +124,7 @@ int main(int argc, char* argv[])
     NormSessionId sessionId = (NormSessionId)rand();
     
     // Uncomment the following line to start sender
-    //NormStartSender(session, sessionId, 1024*1024, 1400, 64, 8);
+    NormStartSender(session, sessionId, 1024*1024, 1400, 64, 8);
     
     //NormSetAutoParity(session, 6);
 
@@ -146,7 +146,7 @@ int main(int argc, char* argv[])
     
     
     // Uncomment this line to send a stream instead of the file
-    //stream = NormStreamOpen(session, 4*1024*1024);
+    stream = NormStreamOpen(session, 4*1024*1024);
        
     // NORM_FLUSH_PASSIVE automatically flushes full writes to
     // the stream.

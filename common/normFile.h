@@ -11,14 +11,14 @@
 #else
 #include <unistd.h>
 #include <dirent.h>
-#include <fcntl.h>
-#include <sys/stat.h>
 #endif // if/else WIN32
 
 #ifdef _WIN32_WCE
 #include <stdio.h>
 #else
+#include <fcntl.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #endif // if/else _WIN32_WCE
 
 // From PROTOLIB
@@ -56,7 +56,7 @@ class NormFile
         bool Lock();
         void Unlock();
         bool Rename(const char* oldName, const char* newName);
-        bool Unlink(const char *path);
+        static bool Unlink(const char *path);
         void Close();
         bool IsOpen() const 
         {
@@ -71,6 +71,7 @@ class NormFile
         bool Seek(Offset theOffset);
 		NormFile::Offset GetOffset() const {return (offset);}
 		NormFile::Offset GetSize() const;
+        bool Pad(Offset theOffset);  // if file size is less than theOffset, writes a byte to force filesize
         
         // static helper methods
         static NormFile::Type GetType(const char *path);

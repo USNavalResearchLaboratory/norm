@@ -1,13 +1,14 @@
+#ifndef _NORM_SIM_AGENT
+#define _NORM_SIM_AGENT
 
 // normSimAgent.h - Generic (base class) NORM simulation agent
 
 #include "normSession.h"
 #include "protokit.h"
-
-#include "mgen.h"  // for MGEN instance attachment
+#include "protoSimAgent.h"
 
 // Base class for Norm simulation agents (e.g. ns-2, OPNET, etc)
-class NormSimAgent : public NormController
+class NormSimAgent : public NormController, public ProtoMessageSink
 {
     public:
         virtual ~NormSimAgent();
@@ -20,8 +21,8 @@ class NormSimAgent : public NormController
         bool IsActive() {return (NULL != session);}
         void Stop();
         
-        bool SendMessage(unsigned int len, const char* txBuffer);
-        void AttachMgen(Mgen* mgenInstance) {mgen = mgenInstance;}
+        
+       bool SendMessage(unsigned int len, const char* txBuffer);
                
     protected:
         NormSimAgent(ProtoTimerMgr&         timerMgr,
@@ -29,11 +30,15 @@ class NormSimAgent : public NormController
         enum CmdType {CMD_INVALID, CMD_NOARG, CMD_ARG};
         CmdType CommandType(const char* cmd);
         virtual unsigned long GetAgentId() = 0;
- 		/* JPH 4/11/06  Use packet stream instead of direct call on mgen process */
-	    void HandleMgenMessage(char*             buffer, 
-                           unsigned int          len, 
-                           const ProtoAddress& srcAddr);
-    
+        ProtoMessageSink*      msg_sink; 
+
+#ifdef OPNET
+        void HandleMessage(char*             buffer, 
+			unsigned int          len, 
+			const ProtoAddress& srcAddr);
+		void SetSink(ProtoMessageSink* sink){msg_sink=sink;}
+#endif //OPNET     
+
     private:
         void OnInputReady();
         bool FlushStream();
@@ -87,12 +92,10 @@ class NormSimAgent : public NormController
         char*                       tx_msg_buffer;
         unsigned int                tx_msg_len;
         unsigned int                tx_msg_index;
-        Mgen*                       mgen;           // mgen receiver
         char                        mgen_buffer[64];
         bool                        msg_sync;
         unsigned int                mgen_bytes;
         unsigned int                mgen_pending_bytes;
-        
         ProtoTimer                  interval_timer;  
         
         // protocol debug parameters
@@ -102,3 +105,4 @@ class NormSimAgent : public NormController
     
 }; // end class NormSimAgent
 
+#endif // NORM_SIM_AGENT

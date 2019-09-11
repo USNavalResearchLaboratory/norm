@@ -1,6 +1,6 @@
 /*********************************************************************
  *
- * AUTHORIZATION TO USE AND DISTRIBUTE
+ * Authorization TO USE AND DISTRIBUTE
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that: 
@@ -33,8 +33,8 @@
 #include "ip.h"  	// for hdr_ip def
 #include "flags.h"  // for hdr_flags def
 
+#include "nsMgenAgent.h"
 #include "nsNormAgent.h" 
-
 static class NsNormAgentClass : public TclClass
 {
 	public:
@@ -45,7 +45,7 @@ static class NsNormAgentClass : public TclClass
 
 
 NsNormAgent::NsNormAgent()
- : NormSimAgent(GetTimerMgr(), GetSocketNotifier())
+  : NormSimAgent(GetTimerMgr(), GetSocketNotifier())
 {
  
 }  
@@ -56,6 +56,7 @@ NsNormAgent::~NsNormAgent()
 
 bool NsNormAgent::OnStartup(int argc, const char*const* argv)
 {
+
     if (ProcessCommands(argc, argv))
     {
         return true;
@@ -89,10 +90,10 @@ bool NsNormAgent::ProcessCommands(int argc, const char*const* argv)
                 return false;
             } 
             Tcl& tcl = Tcl::instance();  
-            NsMgenAgent* mgenAgent = dynamic_cast<NsMgenAgent*> (tcl.lookup(argv[i]));
-            if (mgenAgent)
+            msg_sink = dynamic_cast<ProtoMessageSink*>(tcl.lookup(argv[i]));
+
+            if (msg_sink)
             {
-                AttachMgen(mgenAgent->GetMgenInstance());
                 i++;
                 continue;
             }
@@ -144,14 +145,4 @@ bool NsNormAgent::ProcessCommands(int argc, const char*const* argv)
     }
     return true; 
 }  // end NsNormAgent::ProcessCommands()
-
-bool NsNormAgent::SendMgenMessage(const char*           txBuffer,
-                                  unsigned int          len,
-                                  const ProtoAddress&   /*dstAddr*/)
-{
-    return SendMessage(len, txBuffer);
-}  // end NsNormAgent::SendMgenMessage()
-        
-
-
 

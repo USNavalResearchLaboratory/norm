@@ -24,6 +24,12 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NormDll", "NormDll.vcproj",
 		{50D1D52B-702A-49FE-B490-9104FC72598D} = {50D1D52B-702A-49FE-B490-9104FC72598D}
 	EndProjectSection
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "npc", "npc.vcproj", "{32CF83E0-D2E0-4E43-8F7B-72BD0AB64647}"
+	ProjectSection(ProjectDependencies) = postProject
+		{50D1D52B-702A-49FE-B490-9104FC72598D} = {50D1D52B-702A-49FE-B490-9104FC72598D}
+		{D7B0023C-8798-4918-8DA0-05C9054D70B9} = {D7B0023C-8798-4918-8DA0-05C9054D70B9}
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfiguration) = preSolution
 		Debug = Debug
@@ -50,6 +56,10 @@ Global
 		{182006F3-188F-466E-89FE-8421C0478691}.Debug.Build.0 = Debug|Win32
 		{182006F3-188F-466E-89FE-8421C0478691}.Release.ActiveCfg = Release|Win32
 		{182006F3-188F-466E-89FE-8421C0478691}.Release.Build.0 = Release|Win32
+		{32CF83E0-D2E0-4E43-8F7B-72BD0AB64647}.Debug.ActiveCfg = Debug|Win32
+		{32CF83E0-D2E0-4E43-8F7B-72BD0AB64647}.Debug.Build.0 = Debug|Win32
+		{32CF83E0-D2E0-4E43-8F7B-72BD0AB64647}.Release.ActiveCfg = Release|Win32
+		{32CF83E0-D2E0-4E43-8F7B-72BD0AB64647}.Release.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 	EndGlobalSection

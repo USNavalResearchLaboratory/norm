@@ -36,31 +36,31 @@
 #include "nsProtoSimAgent.h" // from Protolib
 #include "normSimAgent.h"
 
-#include "nsMgenAgent.h"
-
 // The "NsProtoAgent" is based on the ns Agent class.
 // This lets us have a send/recv attachment to the NS
 // simulation environment
 
 // IMPORTANT NOTE! NsProtoAgent must be listed _first_ here
 // (because we can't dynamic_cast install_data void* pointers)
-class NsNormAgent : public NsProtoSimAgent, public NormSimAgent, public MgenSink
+class NsNormAgent : public NsProtoSimAgent, public NormSimAgent
 {
-    public:
-        NsNormAgent();
-        ~NsNormAgent();
-                
-        // NsProtoSimAgent base class overrides
-        virtual bool OnStartup(int argc, const char*const* argv);
-        virtual bool ProcessCommands(int argc, const char*const* argv);
-        virtual void OnShutdown();
-           
-        // NormSimAgent override   
-        unsigned long GetAgentId() {return (unsigned long)addr();} 
-        // MgenSink override
-        bool SendMgenMessage(const char*           txBuffer,
-                             unsigned int          len,
-                             const ProtoAddress&   dstAddr);     
+  public:
+    NsNormAgent();
+    ~NsNormAgent();
+    
+    // NsProtoSimAgent base class overrides
+    virtual bool OnStartup(int argc, const char*const* argv);
+    virtual bool ProcessCommands(int argc, const char*const* argv);
+    virtual void OnShutdown();
+
+    // NormSimAgent overrides   
+    unsigned long GetAgentId() {return (unsigned long)addr();} 
+    bool HandleMessage(const char* txBuffer, unsigned int len, const ProtoAddress& srcAddr)
+    {
+        return NormSimAgent::SendMessage(len,txBuffer);
+    }
+
+
 };  // end class NsNormAgent
 
 

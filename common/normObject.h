@@ -44,7 +44,9 @@ class NormObject
         
         // This must be reset after each update
         void SetNotifyOnUpdate(bool state)
-            {notify_on_update = state;}
+        {
+            notify_on_update = state;
+        }
         
         // Object information
         NormObject::Type GetType() const {return type;}
@@ -116,6 +118,8 @@ class NormObject
         bool IsPending(bool flush = true) const;
         bool IsRepairPending() const;
         bool IsPendingInfo() {return pending_info;}
+        bool PendingMaskIsSet() const
+            {return pending_mask.IsSet();}
         bool GetFirstPending(NormBlockId& blockId) const 
         {
             UINT32 index = 0;
@@ -297,6 +301,8 @@ class NormFileObject : public NormObject
             result ? strncpy(path, newPath, PATH_MAX) : NULL;
             return result;
         }
+        bool PadToSize()
+            {return file.Pad(GetSize().GetOffset());}
         
         virtual bool WriteSegment(NormBlockId   blockId, 
                                   NormSegmentId segmentId, 
@@ -404,8 +410,6 @@ class NormStreamObject : public NormObject
         bool Read(char* buffer, unsigned int* buflen, bool findMsgStart = false);
         UINT32 Write(const char* buffer, UINT32 len, bool eom = false);
         
-        bool SyncOffsetIsValid() {return sync_offset_valid;}
-        UINT32 GetSyncOffset() {return sync_offset;}
         UINT32 GetCurrentReadOffset() {return read_offset;}
         
         bool StreamUpdateStatus(NormBlockId blockId);
@@ -434,8 +438,9 @@ class NormStreamObject : public NormObject
         void Rewind(); 
         
         bool LockBlocks(NormBlockId nextId, NormBlockId lastId);
-        bool LockSegments(NormBlockId blockId, NormSegmentId firstId,
-                          NormSegmentId lastId);
+        void UnlockBlock(NormBlockId blockId);
+        
+        bool LockSegments(NormBlockId blockId, NormSegmentId firstId, NormSegmentId lastId);
         NormBlockId StreamBufferLo() {return stream_buffer.RangeLo();}
         void Prune(NormBlockId blockId, bool updateStatus);
         
@@ -455,13 +460,20 @@ class NormStreamObject : public NormObject
         UINT32 GetBlockPoolCount() {return block_pool.GetCount();}
         void SetBlockPoolThreshold(UINT32 value) 
             {block_pool_threshold = value;}
-
-        void ResetPostedTxQueueVacancy() {posted_tx_queue_vacancy = false;}
         
+        bool IsReadReady() const {return read_ready;}
+        
+        bool DetermineReadReadiness()
+        {
+            NormBlock* block = stream_buffer.Find(read_index.block);
+            return ((NULL != block) && (NULL != block->GetSegment(read_index.segment)));  
+        }
+
         bool IsReadIndex(NormBlockId blockId, NormSegmentId segmentId) const
             {return ((blockId == read_index.block) && (segmentId == read_index.segment));}
          
     private:
+        bool ReadPrivate(char* buffer, unsigned int* buflen, bool findMsgStart = false);
         void Terminate();
         
         class Index
@@ -474,8 +486,6 @@ class NormStreamObject : public NormObject
         bool                        stream_sync;
         NormBlockId                 stream_sync_id;
         NormBlockId                 stream_next_id;
-        UINT32                      sync_offset;
-        bool                        sync_offset_valid;
         
         NormBlockPool               block_pool;
         NormSegmentPool             segment_pool;
@@ -485,10 +495,10 @@ class NormStreamObject : public NormObject
         Index                       tx_index;
         UINT32                      tx_offset;
         bool                        write_vacancy;
-        bool                        posted_tx_queue_vacancy;
         bool                        read_init;
         Index                       read_index;
         UINT32                      read_offset;
+        bool                        read_ready;
         bool                        flush_pending;
         bool                        msg_start;
         FlushMode                   flush_mode;
@@ -539,9 +549,11 @@ class NormObjectTable
         NormObjectTable();
         ~NormObjectTable();
         bool Init(UINT16 rangeMax, UINT16 tableSize = 256);
+        void SetRangeMax(UINT16 rangeMax);
         void Destroy();
         
         bool IsInited() const {return (NULL != table);}
+        UINT16 GetRangeMax() const {return range_max;}
         bool CanInsert(NormObjectId objectId) const;
         bool Insert(NormObject* theObject);
         bool Remove(NormObject* theObject);

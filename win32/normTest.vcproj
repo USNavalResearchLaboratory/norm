@@ -88,7 +88,7 @@
 				Optimization="2"
 				InlineFunctionExpansion="1"
 				AdditionalIncludeDirectories="..\common;..\protolib\common;..\protolib\win32;NormDll3"
-				PreprocessorDefinitions="NORM_USE_DLL, PROTO_DEBUG, WIN32, HAVE_ASSERT"
+				PreprocessorDefinitions="NORM_USE_DLL;PROTO_DEBUG;WIN32;HAVE_ASSERT"
 				StringPooling="TRUE"
 				RuntimeLibrary="2"
 				EnableFunctionLevelLinking="TRUE"

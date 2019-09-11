@@ -40,14 +40,13 @@ NormCCNode::~NormCCNode()
 {
 }
 
-
 const double NormServerNode::DEFAULT_NOMINAL_INTERVAL = 2*NormSession::DEFAULT_GRTT_ESTIMATE;
 const double NormServerNode::ACTIVITY_INTERVAL_MIN = 1.0;  // 1 second min activity timeout
         
 NormServerNode::NormServerNode(class NormSession& theSession, NormNodeId nodeId)
  : NormNode(theSession, nodeId), instance_id(0), synchronized(false), sync_id(0),
    max_pending_range(256), is_open(false), segment_size(0), ndata(0), nparity(0), 
-   repair_boundary(BLOCK_BOUNDARY), erasure_loc(NULL),
+   repair_boundary(BLOCK_BOUNDARY), decoder(NULL), erasure_loc(NULL),
    retrieval_loc(NULL), retrieval_pool(NULL),
    cc_sequence(0), cc_enable(false), cc_rate(0.0), 
    rtt_confirmed(false), is_clr(false), is_plr(false),
@@ -228,20 +227,28 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
     }
     retrieval_index = 0;
     
-    if (!(retrieval_loc = new UINT16[numData]))
+    if (!(retrieval_loc = new unsigned int[numData]))
     {
         DMSG(0, "NormServerNode::AllocateBuffers() retrieval_loc allocation error: %s\n", GetErrorString());
         Close();
         return false;   
     }
     
-    if (!decoder.Init(numParity, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()))
+    if (NULL != decoder) delete decoder;
+    if (NULL == (decoder = new NormDecoderRS8a))
+    {
+        DMSG(0, "NormServerNode::AllocateBuffers() new NormDecoderRSa error: %s\n", GetErrorString());
+        Close();
+        return false; 
+    }
+    
+    if (!decoder->Init(numData, numParity, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()))
     {
         DMSG(0, "NormServerNode::AllocateBuffers() decoder init error\n");
         Close();
         return false; 
     }
-    if (!(erasure_loc = new UINT16[numParity]))
+    if (!(erasure_loc = new unsigned int[numParity]))
     {
         DMSG(0, "NormServerNode::AllocateBuffers() erasure_loc allocation error: %s\n",  GetErrorString());
         Close();
@@ -262,7 +269,12 @@ void NormServerNode::FreeBuffers()
         delete[] erasure_loc;
         erasure_loc = NULL;
     }
-    decoder.Destroy();
+    if (NULL != decoder)
+    {
+        decoder->Destroy();
+        delete decoder;
+        decoder = NULL;
+    }
     if (retrieval_loc)
     {
         delete[] retrieval_loc;
@@ -270,7 +282,7 @@ void NormServerNode::FreeBuffers()
     }
     if (retrieval_pool)
     {
-        for (UINT16 i = 0; i < ndata; i++)
+        for (unsigned int i = 0; i < ndata; i++)
         {
             if (retrieval_pool[i]) 
             {
@@ -285,10 +297,9 @@ void NormServerNode::FreeBuffers()
     NormObject* obj;
     while ((obj = rx_table.Find(rx_table.RangeLo()))) 
     {
-        session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
         UINT16 objectId = obj->GetId();
-        DeleteObject(obj);
-        // We do the following to remember which objects were pending
+        AbortObject(obj);
+        // We do the following to remember which _objects_ were pending
         rx_pending_mask.Set(objectId);
     }
     
@@ -304,6 +315,7 @@ void NormServerNode::UpdateGrttEstimate(UINT8 grttQuantized)
     DMSG(4, "NormServerNode::UpdateGrttEstimate() node>%lu server>%lu new grtt: %lf sec\n",
             LocalNodeId(), GetId(), grtt_estimate);
     // activity timer depends upon sender's grtt estimate
+    // (TBD) do a proper rescaling here instead?
     double activityInterval = 2*NORM_ROBUST_FACTOR*grtt_estimate;
     if (activityInterval < ACTIVITY_INTERVAL_MIN) activityInterval = ACTIVITY_INTERVAL_MIN;
     activity_timer.SetInterval(activityInterval);
@@ -361,10 +373,12 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
             cc.GetSendTime(grtt_send_time);
             cc_sequence = cc.GetCCSequence();
             NormCCRateExtension ext;
+            bool hasCCRateExtension = false;
             while (cc.GetNextExtension(ext))
             {
                 if (NormHeaderExtension::CC_RATE == ext.GetType())
                 {
+                    hasCCRateExtension = true;
                     cc_enable = true;
                     send_rate = NormUnquantizeRate(ext.GetSendRate());
                     // Are we in the cc_node_list?
@@ -444,6 +458,8 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                     session.ActivateTimer(cc_timer);
                 }  // end if (CC_RATE == ext.GetType())
             }  // end while (GetNextExtension())
+            // Disable CC feedback if sender doesn't want it
+            if (!hasCCRateExtension && cc_enable) cc_enable = false;
             break;
         }    
         case NormCmdMsg::FLUSH:
@@ -468,7 +484,9 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                 if (doAck)
                 {
                     // Force sync since we're expected to ACK 
+                    // and request repair for object indicated
                     Sync(flush.GetObjectId());   
+                    SetPending(flush.GetObjectId());
                 }
                 else
                 {
@@ -1032,49 +1050,68 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
             if (NULL != obj)
             { 
                 rx_table.Insert(obj);
-                NormFtiExtension fti;
-                while (msg.GetNextExtension(fti))
+                if (129 == msg.GetFecId())
                 {
-                    if (NormHeaderExtension::FTI == fti.GetType())
+                    
+                    // Look for FEC Object Transport Information header extension
+                    NormFtiExtension fti;
+                    while (msg.GetNextExtension(fti))
                     {
-                        // Pre-open receive object and notify app for accept.
-                        if (obj->Open(fti.GetObjectSize(), 
-                                      msg.FlagIsSet(NormObjectMsg::FLAG_INFO),
-                                      fti.GetSegmentSize(), 
-                                      fti.GetFecMaxBlockLen(),
-                                      fti.GetFecNumParity()))
+                        if (NormHeaderExtension::FTI == fti.GetType())
                         {
-                            session.Notify(NormController::RX_OBJECT_NEW, this, obj);
-                            if (obj->Accepted())
+#ifndef ASSUME_MDP_FEC
+                            if (0 != fti.GetFecInstanceId())
                             {
-                                // (TBD) Do I _need_ to call "StreamUpdateStatus()" here?
-                                if (obj->IsStream()) 
-                                    (static_cast<NormStreamObject*>(obj))->StreamUpdateStatus(blockId);
-                                DMSG(8, "NormServerNode::HandleObjectMessage() node>%lu server>%lu new obj>%hu\n", 
-                                    LocalNodeId(), GetId(), (UINT16)objectId);
-                            }
-                            else
-                            {
-                                DMSG(0, "NormServerNode::HandleObjectMessage() object not accepted\n");
+                                DMSG(0, "NormServerNode::HandleObjectMessage() error: invalid FEC instance id\n");
                                 DeleteObject(obj);
-                                obj = NULL;    
+                                obj = NULL;   
                             }
+                            else 
+#endif // !ASSUME_MDP_FEC
+                            if (obj->Open(fti.GetObjectSize(), 
+                                msg.FlagIsSet(NormObjectMsg::FLAG_INFO),
+                                fti.GetSegmentSize(), 
+                                fti.GetFecMaxBlockLen(),
+                                fti.GetFecNumParity()))
+                            {
+                                session.Notify(NormController::RX_OBJECT_NEW, this, obj);
+                                if (obj->Accepted())
+                                {
+                                    // (TBD) Do I _need_ to call "StreamUpdateStatus()" here?
+                                    if (obj->IsStream()) 
+                                        (static_cast<NormStreamObject*>(obj))->StreamUpdateStatus(blockId);
+                                    DMSG(8, "NormServerNode::HandleObjectMessage() node>%lu server>%lu new obj>%hu\n", 
+                                        LocalNodeId(), GetId(), (UINT16)objectId);
+                                }
+                                else
+                                {
+                                    DMSG(0, "NormServerNode::HandleObjectMessage() object not accepted\n");
+                                    DeleteObject(obj);
+                                    obj = NULL;    
+                                }
+                            }
+                            else        
+                            {
+                                DMSG(0, "NormServerNode::HandleObjectMessage() error opening object\n");
+                                DeleteObject(obj);
+                                obj = NULL;   
+                            }
+                            break;
                         }
-                        else        
-                        {
-                            DMSG(0, "NormServerNode::HandleObjectMessage() error opening object\n");
-                            DeleteObject(obj);
-                            obj = NULL;   
-                        }
-                        break;
+                    }
+                    if ((NULL != obj) && !obj->IsOpen())
+                    {
+                        DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu "
+                                "new obj>%hu - no FTI provided!\n", LocalNodeId(), GetId(), (UINT16)objectId);
+                        DeleteObject(obj);
+                        obj = NULL;
                     }
                 }
-                if (obj && !obj->IsOpen())
+                else
                 {
-                    DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu "
-                            "new obj>%hu - no FTI provided!\n", LocalNodeId(), GetId(), (UINT16)objectId);
+                    DMSG(0, "NormServerNode::HandleObjectMessage() error: invalid FEC type\n");
                     DeleteObject(obj);
-                    obj = NULL;
+                    obj = NULL;  
                 }
             }
             break;
@@ -1090,7 +1127,14 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
     if (obj)
     {
         obj->HandleObjectMessage(msg, msgType, blockId, segmentId);
-        if (!obj->IsPending())
+        
+        bool objIsPending = obj->IsPending();
+        
+        // Silent receivers may be configured to allow obj completion w/out INFO
+        if (objIsPending && session.RcvrIgnoreInfo())
+            objIsPending = obj->PendingMaskIsSet();
+        
+        if (!objIsPending)
         {
             // Reliable reception of this object has completed
             if (NormObject::FILE == obj->GetType()) 
@@ -1102,7 +1146,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
             if (NormObject::STREAM != obj->GetType())
             {
                 // Streams never complete unless they are "closed" by sender
-                // and this handled within stream control code in "normObject.cpp"
+                // and this is handled within stream control code in "normObject.cpp"
                 session.Notify(NormController::RX_OBJECT_COMPLETED, this, obj);
                 DeleteObject(obj);
                 obj = NULL;
@@ -1145,6 +1189,21 @@ bool NormServerNode::SyncTest(const NormObjectMsg& msg) const
     
 }  // end NormServerNode::SyncTest()
 
+// a little helper method
+void NormServerNode::AbortObject(NormObject* obj)
+{
+    // it it's a file, close it first, so app can do something
+    if (NormObject::FILE == obj->GetType()) 
+#ifdef SIMULATE
+        static_cast<NormSimObject*>(obj)->Close();           
+#else
+        static_cast<NormFileObject*>(obj)->Close();
+#endif // !SIMULATE
+    session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
+    DeleteObject(obj);
+    failure_count++;
+}  // end NormServerNode::AbortObject()
+
 
 // This method establishes the sync point "sync_id"
 // objectId.  The sync point is the first ordinal
@@ -1176,9 +1235,7 @@ void NormServerNode::Sync(NormObjectId objectId)
                 NormObject* obj;
                 while ((obj = rx_table.Find(rx_table.RangeLo()))) 
                 {
-                    session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
-                    DeleteObject(obj);
-                    failure_count++;
+                    AbortObject(obj);
                 }
                 rx_pending_mask.Clear(); 
             }
@@ -1188,9 +1245,7 @@ void NormServerNode::Sync(NormObjectId objectId)
                while ((obj = rx_table.Find(rx_table.RangeLo())) &&
                       (obj->GetId() < objectId)) 
                {
-                   session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
-                   DeleteObject(obj);
-                   failure_count++;
+                   AbortObject(obj);
                }
                unsigned long numBits = (UINT16)(objectId - firstPending) + 1;
                rx_pending_mask.UnsetBits(firstPending, numBits); 
@@ -1495,7 +1550,10 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         {
                             //if (slow_start)   // (TBD) should we only set flag on actual slow_start?
                                 ext.SetCCFlag(NormCC::START);
-                            ext.SetCCRate(NormQuantizeRate(2.0 * recv_rate));
+                            if (recv_rate > 0.0)
+                                ext.SetCCRate(NormQuantizeRate(2.0 * recv_rate)); 
+                            else
+                                ext.SetCCRate(NormQuantizeRate(2.0 * nominal_packet_size));  // (TBD revisit this 
                         }
                         else
                         {
@@ -1568,7 +1626,10 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                 }
                                 if (NormRepairRequest::INVALID != nextForm)
                                 {
-                                    nack->AttachRepairRequest(req, segment_size); // (TBD) error check
+                                    if (0 != segment_size)
+                                        nack->AttachRepairRequest(req, segment_size); // (TBD) error check
+                                    else
+                                        nack->AttachRepairRequest(req, NormNackMsg::DEFAULT_LENGTH_MAX);
                                     req.SetForm(nextForm);
                                     req.ResetFlags();
                                     // Set flags for missing objects according to
@@ -2413,7 +2474,7 @@ NormLossEstimator2::NormLossEstimator2()
       event_window(0), event_index(0), 
       event_window_time(0.0), event_index_time(0.0), 
       seeking_loss_event(true),
-      no_loss(true), initial_loss(0.0), loss_interval(0.0),
+      no_loss(true), initial_loss(0.0),
       current_discount(1.0)
 {
     memset(history, 0, 9*sizeof(unsigned long));
@@ -2527,11 +2588,6 @@ bool NormLossEstimator2::Update(const struct timeval&   currentTime,
     
     if (seeking_loss_event)
     {
-        double scale;
-        if (history[0] > loss_interval)
-            scale = 0.125 / (1.0 + log((double)(event_window ? event_window : 1)));
-        else
-            scale = 0.125;
         if (outageDepth)  // non-zero outageDepth means pkt loss(es)
         {
             if (no_loss)  // first loss
@@ -2547,11 +2603,6 @@ bool NormLossEstimator2::Update(const struct timeval&   currentTime,
                 no_loss = false;
             }
             
-            // Old method
-            if (loss_interval > 0.0)
-                loss_interval += scale*(((double)history[0]) - loss_interval);
-            else
-                loss_interval = (double) history[0]; 
             
             // New method
             // New loss event, shift loss interval history & discounts
@@ -2571,19 +2622,6 @@ bool NormLossEstimator2::Update(const struct timeval&   currentTime,
                                 (((double)currentTime.tv_usec)/1.0e06));
             event_index_time += event_window_time;
         }
-        else 
-        {
-            //if (no_loss) fprintf(stderr, "No loss (seq:%u) ...\n", theSequence);
-            if (loss_interval > 0.0)
-            {
-                double diff = ((double)history[0]) - loss_interval;
-                if (diff >= 1.0)
-                {
-                    //scale *= (diff * diff) / (loss_interval * loss_interval);
-                    loss_interval += scale*log(diff);
-                }
-            }
-        }    
     }  
     else
     {
@@ -2595,20 +2633,9 @@ bool NormLossEstimator2::Update(const struct timeval&   currentTime,
     return newLossEvent;
 }  // end NormLossEstimator2::Update()
 
-double NormLossEstimator2::LossFraction()
-{
-#if defined0
-    if (use_ewma_loss_estimate)
-        return MdpLossFraction();   // MDP EWMA approach
-    else
-#endif // SIMULATOR
-    return (TfrcLossFraction());    // ACIRI TFRC approach
-}  // end NormLossEstimator2::LossFraction()
-
-
 
 // TFRC Loss interval averaging with discounted, weighted averaging
-double NormLossEstimator2::TfrcLossFraction()
+double NormLossEstimator2::LossFraction()
 {
     if (!history[1]) return 0.0;   
     // Compute older weighted average s1->s8 for discount determination  

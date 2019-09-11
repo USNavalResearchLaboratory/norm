@@ -1,10 +1,10 @@
 /* Process model C++ form file: norm_protolib.pr.cpp */
-/* Portions of this file copyright 1992-2004 by OPNET Technologies, Inc. */
+/* Portions of this file copyright 1992-2006 by OPNET Technologies, Inc. */
 
 
 
 /* This variable carries the header into the object file */
-const char norm_protolib_pr_cpp [] = "MIL_3_Tfile_Hdr_ 115A 30A op_runsim 7 448841E4 448841E4 1 apocalypse Jim@Hauser 0 0 none none 0 0 none 0 0 0 0 0 0 0 0 d2c 2                                                                                                                                                                                                                                                                                                                                                                                                   ";
+const char norm_protolib_pr_cpp [] = "MIL_3_Tfile_Hdr_ 120A 30A modeler 7 464DEF85 464DEF85 1 wn12jh Jim@Hauser 0 0 none none 0 0 none 0 0 0 0 0 0 0 0 10de 3                                                                                                                                                                                                                                                                                                                                                                                                        ";
 #include <string.h>
 
 
@@ -62,6 +62,10 @@ static const int MAXSTATFLOWS = 25;
 /* State variable definitions */
 class norm_protolib_state
 	{
+	private:
+		/* Internal state tracking for FSM */
+		FSM_SYS_STATE
+
 	public:
 		norm_protolib_state (void);
 
@@ -116,7 +120,7 @@ class norm_protolib_state
 		IpT_Address	            		dest_ip_addr                                    ;
 		FILE*	                  		script_fp                                       ;
 		int	                    		source                                          ;
-		Ici*	                   		app_ici_v3_ptr                                  ;
+		Ici*	                   		app_ici_ptr                                     ;
 
 		/* FSM code */
 		void norm_protolib (OP_SIM_CONTEXT_ARG_OPT);
@@ -132,63 +136,58 @@ class norm_protolib_state
 
 		/* Memory management */
 		static VosT_Obtype obtype;
-
-	private:
-		/* Internal state tracking for FSM */
-		FSM_SYS_STATE
 	};
 
 VosT_Obtype norm_protolib_state::obtype = (VosT_Obtype)OPC_NIL;
 
-#define pr_state_ptr            		((norm_protolib_state*) (OP_SIM_CONTEXT_PTR->_op_mod_state_ptr))
-#define norm_proc               		pr_state_ptr->norm_proc
-#define my_id                   		pr_state_ptr->my_id
-#define my_node_id              		pr_state_ptr->my_node_id
-#define my_pro_id               		pr_state_ptr->my_pro_id
-#define my_udp_id               		pr_state_ptr->my_udp_id
-#define my_tcp_id               		pr_state_ptr->my_tcp_id
-#define my_mgen_id              		pr_state_ptr->my_mgen_id
-#define my_ip_addr              		pr_state_ptr->my_ip_addr
-#define my_ip_mask              		pr_state_ptr->my_ip_mask
-#define own_prohandle           		pr_state_ptr->own_prohandle
-#define own_process_record_handle		pr_state_ptr->own_process_record_handle
-#define pid_string              		pr_state_ptr->pid_string
-#define node_name               		pr_state_ptr->node_name
-#define timer                   		pr_state_ptr->timer
-#define udpsocket               		pr_state_ptr->udpsocket
-#define tcpsocket               		pr_state_ptr->tcpsocket
-#define udpnotifier             		pr_state_ptr->udpnotifier
-#define tcpnotifier             		pr_state_ptr->tcpnotifier
-#define host_ipv4_addr          		pr_state_ptr->host_ipv4_addr
-#define bits_rcvd_stathandle    		pr_state_ptr->bits_rcvd_stathandle
-#define bitssec_rcvd_flow_stathandle		pr_state_ptr->bitssec_rcvd_flow_stathandle
-#define bitssec_sent_flow_stathandle		pr_state_ptr->bitssec_sent_flow_stathandle
-#define bitssec_rcvd_stathandle 		pr_state_ptr->bitssec_rcvd_stathandle
-#define pkts_rcvd_stathandle    		pr_state_ptr->pkts_rcvd_stathandle
-#define pktssec_rcvd_flow_stathandle		pr_state_ptr->pktssec_rcvd_flow_stathandle
-#define pktssec_sent_flow_stathandle		pr_state_ptr->pktssec_sent_flow_stathandle
-#define pktssec_rcvd_stathandle 		pr_state_ptr->pktssec_rcvd_stathandle
-#define bits_sent_stathandle    		pr_state_ptr->bits_sent_stathandle
-#define bitssec_sent_stathandle 		pr_state_ptr->bitssec_sent_stathandle
-#define pkts_sent_stathandle    		pr_state_ptr->pkts_sent_stathandle
-#define pktssec_sent_stathandle 		pr_state_ptr->pktssec_sent_stathandle
-#define ete_delay_stathandle    		pr_state_ptr->ete_delay_stathandle
-#define ete_delay_flow_stathandle		pr_state_ptr->ete_delay_flow_stathandle
-#define bits_rcvd_gstathandle   		pr_state_ptr->bits_rcvd_gstathandle
-#define bitssec_rcvd_gstathandle		pr_state_ptr->bitssec_rcvd_gstathandle
-#define pkts_rcvd_gstathandle   		pr_state_ptr->pkts_rcvd_gstathandle
-#define pktssec_rcvd_gstathandle		pr_state_ptr->pktssec_rcvd_gstathandle
-#define bits_sent_gstathandle   		pr_state_ptr->bits_sent_gstathandle
-#define bitssec_sent_gstathandle		pr_state_ptr->bitssec_sent_gstathandle
-#define pkts_sent_gstathandle   		pr_state_ptr->pkts_sent_gstathandle
-#define pktssec_sent_gstathandle		pr_state_ptr->pktssec_sent_gstathandle
-#define ete_delay_gstathandle   		pr_state_ptr->ete_delay_gstathandle
-#define udp_outstream_index     		pr_state_ptr->udp_outstream_index
-#define local_port              		pr_state_ptr->local_port
-#define dest_ip_addr            		pr_state_ptr->dest_ip_addr
-#define script_fp               		pr_state_ptr->script_fp
-#define source                  		pr_state_ptr->source
-#define app_ici_v3_ptr          		pr_state_ptr->app_ici_v3_ptr
+#define norm_proc               		op_sv_ptr->norm_proc
+#define my_id                   		op_sv_ptr->my_id
+#define my_node_id              		op_sv_ptr->my_node_id
+#define my_pro_id               		op_sv_ptr->my_pro_id
+#define my_udp_id               		op_sv_ptr->my_udp_id
+#define my_tcp_id               		op_sv_ptr->my_tcp_id
+#define my_mgen_id              		op_sv_ptr->my_mgen_id
+#define my_ip_addr              		op_sv_ptr->my_ip_addr
+#define my_ip_mask              		op_sv_ptr->my_ip_mask
+#define own_prohandle           		op_sv_ptr->own_prohandle
+#define own_process_record_handle		op_sv_ptr->own_process_record_handle
+#define pid_string              		op_sv_ptr->pid_string
+#define node_name               		op_sv_ptr->node_name
+#define timer                   		op_sv_ptr->timer
+#define udpsocket               		op_sv_ptr->udpsocket
+#define tcpsocket               		op_sv_ptr->tcpsocket
+#define udpnotifier             		op_sv_ptr->udpnotifier
+#define tcpnotifier             		op_sv_ptr->tcpnotifier
+#define host_ipv4_addr          		op_sv_ptr->host_ipv4_addr
+#define bits_rcvd_stathandle    		op_sv_ptr->bits_rcvd_stathandle
+#define bitssec_rcvd_flow_stathandle		op_sv_ptr->bitssec_rcvd_flow_stathandle
+#define bitssec_sent_flow_stathandle		op_sv_ptr->bitssec_sent_flow_stathandle
+#define bitssec_rcvd_stathandle 		op_sv_ptr->bitssec_rcvd_stathandle
+#define pkts_rcvd_stathandle    		op_sv_ptr->pkts_rcvd_stathandle
+#define pktssec_rcvd_flow_stathandle		op_sv_ptr->pktssec_rcvd_flow_stathandle
+#define pktssec_sent_flow_stathandle		op_sv_ptr->pktssec_sent_flow_stathandle
+#define pktssec_rcvd_stathandle 		op_sv_ptr->pktssec_rcvd_stathandle
+#define bits_sent_stathandle    		op_sv_ptr->bits_sent_stathandle
+#define bitssec_sent_stathandle 		op_sv_ptr->bitssec_sent_stathandle
+#define pkts_sent_stathandle    		op_sv_ptr->pkts_sent_stathandle
+#define pktssec_sent_stathandle 		op_sv_ptr->pktssec_sent_stathandle
+#define ete_delay_stathandle    		op_sv_ptr->ete_delay_stathandle
+#define ete_delay_flow_stathandle		op_sv_ptr->ete_delay_flow_stathandle
+#define bits_rcvd_gstathandle   		op_sv_ptr->bits_rcvd_gstathandle
+#define bitssec_rcvd_gstathandle		op_sv_ptr->bitssec_rcvd_gstathandle
+#define pkts_rcvd_gstathandle   		op_sv_ptr->pkts_rcvd_gstathandle
+#define pktssec_rcvd_gstathandle		op_sv_ptr->pktssec_rcvd_gstathandle
+#define bits_sent_gstathandle   		op_sv_ptr->bits_sent_gstathandle
+#define bitssec_sent_gstathandle		op_sv_ptr->bitssec_sent_gstathandle
+#define pkts_sent_gstathandle   		op_sv_ptr->pkts_sent_gstathandle
+#define pktssec_sent_gstathandle		op_sv_ptr->pktssec_sent_gstathandle
+#define ete_delay_gstathandle   		op_sv_ptr->ete_delay_gstathandle
+#define udp_outstream_index     		op_sv_ptr->udp_outstream_index
+#define local_port              		op_sv_ptr->local_port
+#define dest_ip_addr            		op_sv_ptr->dest_ip_addr
+#define script_fp               		op_sv_ptr->script_fp
+#define source                  		op_sv_ptr->source
+#define app_ici_ptr             		op_sv_ptr->app_ici_ptr
 
 /* These macro definitions will define a local variable called	*/
 /* "op_sv_ptr" in each function containing a FIN statement.	*/
@@ -196,13 +195,9 @@ VosT_Obtype norm_protolib_state::obtype = (VosT_Obtype)OPC_NIL;
 /* and can be used from a C debugger to display their values.	*/
 #undef FIN_PREAMBLE_DEC
 #undef FIN_PREAMBLE_CODE
-#  define FIN_PREAMBLE_DEC	norm_protolib_state *op_sv_ptr;
-#if defined (OPD_PARALLEL)
-#  define FIN_PREAMBLE_CODE	\
-		op_sv_ptr = ((norm_protolib_state *)(sim_context_ptr->_op_mod_state_ptr));
-#else
-#  define FIN_PREAMBLE_CODE	op_sv_ptr = pr_state_ptr;
-#endif
+#define FIN_PREAMBLE_DEC	norm_protolib_state *op_sv_ptr;
+#define FIN_PREAMBLE_CODE	\
+		op_sv_ptr = ((norm_protolib_state *)(OP_SIM_CONTEXT_PTR->_op_mod_state_ptr));
 
 
 /* Function Block */
@@ -414,7 +409,9 @@ void norm_init ()
 
 void norm_stop()
 	{
+	FIN(norm_stop());
 	norm_proc.OnShutdown();
+	FOUT;
 	}
 
 
@@ -422,7 +419,6 @@ void
 norm_fatal_error (char *emsg)
 	{
 	char info[40];
-	
 	/** Abort the simulation with the given message. **/
 	FIN (norm_fatal_error (emsg));
    
@@ -619,13 +615,17 @@ OpnetNormProcess::~OpnetNormProcess()
 
 IpT_Address OpnetNormProcess::addr()
 	{
-	return my_ip_addr;
+	FIN(OpnetNormProcess());
+	FRET (my_ip_addr);
 	}
 
 
 bool OpnetNormProcess::OnStartup(int argc, const char*const* argv)
 {
 	char val[128];
+	
+	FIN (OnStartup(argc,argv));
+	norm_proc.SetSink(new OpnetProtoMessageSink(app_ici_ptr,OUTSTRM_TO_MGEN,local_port));
 	norm_host_addr();
 	op_ima_obj_attr_get_str(my_id,"start",128,val);	// clients will unicast feedback
 	if (val[0])
@@ -645,7 +645,7 @@ bool OpnetNormProcess::OnStartup(int argc, const char*const* argv)
 		printf(" NORM openStream =  %s\n",val);
 		ProcessCommand("openStream",val);
 		/* JPH 4/11/06  fake attachment of mgen instance */
-		AttachMgen((Mgen*)true);
+		//AttachMgen((Mgen*)true);
 		}
 	op_ima_obj_attr_get_str(my_id,"sendFile",128,val);	// queue a "sim" file of <size> bytes for transmission
 	if (val[0])
@@ -653,7 +653,7 @@ bool OpnetNormProcess::OnStartup(int argc, const char*const* argv)
 		printf(" sendFile =  %s\n",val);
 		ProcessCommand("sendFile",val);
 		}
-	return true;
+	FRET (true);
 } // end OpnetNormProcess::OnStartup()
 
 void OpnetNormProcess::OnShutdown()
@@ -719,7 +719,7 @@ bool OpnetNormProcess::SendMgenMessage(const char*           txBuffer,
 
 void OpnetNormProcess::ReceivePacketMonitor(Ici* iciptr, Packet* pkptr)
 	{
-
+	FIN (ReceivePacketMonitor(iciptr,pkptr));
 	/* Caclulate metrics to be updated.		*/
 	double pk_size = (double) op_pk_total_size_get (pkptr);
 	double ete_delay = op_sim_time () - op_pk_creation_time_get (pkptr);
@@ -743,12 +743,14 @@ void OpnetNormProcess::ReceivePacketMonitor(Ici* iciptr, Packet* pkptr)
 	op_stat_write (bitssec_rcvd_gstathandle, 	0.0);
 	op_stat_write (pktssec_rcvd_gstathandle, 	1.0);
 	op_stat_write (pktssec_rcvd_gstathandle, 	0.0);
+	FOUT;
 	}
 
 
 
 void OpnetNormProcess::TransmitPacketMonitor(Ici* ici, Packet* pkptr) 
 	{
+	FIN (TransmitPacketMonitor(ici,pkptr));
 	/* Caclulate metrics to be updated.		*/
 	double pk_size = (double) op_pk_total_size_get (pkptr);
 
@@ -769,27 +771,9 @@ void OpnetNormProcess::TransmitPacketMonitor(Ici* ici, Packet* pkptr)
 	op_stat_write (bitssec_sent_gstathandle, 	0.0);
 	op_stat_write (pktssec_sent_gstathandle, 	1.0);
 	op_stat_write (pktssec_sent_gstathandle, 	0.0);
+	FOUT;
 	}
 
-void NormSimAgent::HandleMgenMessage(char*   buffer, 
-                           unsigned int      buflen, 
-                           const ProtoAddress& srcAddr)
-	{
-	Packet* pkt = op_pk_create(buflen*8);
-    char* payload = (char*) op_prg_mem_copy_create((void*)buffer, buflen);
-    op_pk_fd_set(pkt, 0, OPC_FIELD_TYPE_STRUCT, payload, 0,
-                 op_prg_mem_copy_create, op_prg_mem_free, buflen);
-	
-	
-	op_ici_attr_set(app_ici_v3_ptr, "local_port", local_port);
-    op_ici_attr_set(app_ici_v3_ptr, "rem_port", srcAddr.GetPort());
-    op_ici_attr_set(app_ici_v3_ptr, "rem_addr", srcAddr.SimGetAddress());
-    op_ici_attr_set(app_ici_v3_ptr, "src_addr", srcAddr.SimGetAddress());
-    op_ici_install(app_ici_v3_ptr);
-  	
-    op_pk_send_forced(pkt, OUTSTRM_TO_MGEN);
-
-	}
 
 /* End of Function Block */
 
@@ -851,13 +835,13 @@ void NormSimAgent::HandleMgenMessage(char*   buffer,
 #undef dest_ip_addr
 #undef script_fp
 #undef source
-#undef app_ici_v3_ptr
+#undef app_ici_ptr
 
 /* Access from C kernel using C linkage */
 extern "C"
 {
 	VosT_Obtype _op_norm_protolib_init (int * init_block_ptr);
-	VosT_Address _op_norm_protolib_alloc (VOS_THREAD_INDEX_ARG_COMMA VosT_Obtype, int);
+	VosT_Address _op_norm_protolib_alloc (VosT_Obtype, int);
 	void norm_protolib (OP_SIM_CONTEXT_ARG_OPT)
 		{
 		((norm_protolib_state *)(OP_SIM_CONTEXT_PTR->_op_mod_state_ptr))->norm_protolib (OP_SIM_CONTEXT_PTR_OPT);
@@ -877,9 +861,9 @@ extern "C"
 		}
 
 
-	VosT_Obtype Vos_Define_Object_Prstate (const char * _op_name, unsigned int _op_size);
-	VosT_Address Vos_Alloc_Object_MT (VOS_THREAD_INDEX_ARG_COMMA VosT_Obtype _op_ob_hndl);
-	VosT_Fun_Status Vos_Poolmem_Dealloc_MT (VOS_THREAD_INDEX_ARG_COMMA VosT_Address _op_ob_ptr);
+	VosT_Obtype Vos_Define_Object_Prstate (const char * _op_name, size_t _op_size);
+	VosT_Address Vos_Alloc_Object (VosT_Obtype _op_ob_hndl);
+	VosT_Fun_Status Vos_Poolmem_Dealloc (VosT_Address _op_ob_ptr);
 } /* end of 'extern "C"' */
 
 
@@ -976,7 +960,7 @@ norm_protolib_state::norm_protolib (OP_SIM_CONTEXT_ARG_OPT)
 			FSM_STATE_ENTER_UNFORCED_NOLABEL (1, "init", "norm_protolib [init enter execs]")
 				FSM_PROFILE_SECTION_IN ("norm_protolib [init enter execs]", state1_enter_exec)
 				{
-				app_ici_v3_ptr = op_ici_create ("udp_command_v3");
+				app_ici_ptr = op_ici_create ("sink_command");
 				
 				/* Obtain the object ID of the surrounding norm processor. 	*/
 				my_id = op_id_self ();
@@ -1037,6 +1021,11 @@ norm_protolib_state::norm_protolib (OP_SIM_CONTEXT_ARG_OPT)
 
 			/** state (init2) enter executives **/
 			FSM_STATE_ENTER_UNFORCED (2, "init2", state2_enter_exec, "norm_protolib [init2 enter execs]")
+				FSM_PROFILE_SECTION_IN ("norm_protolib [init2 enter execs]", state2_enter_exec)
+				{
+				
+				}
+				FSM_PROFILE_SECTION_OUT (state2_enter_exec)
 
 			/** blocking after enter executives of unforced state. **/
 			FSM_EXIT (5,"norm_protolib")
@@ -1191,7 +1180,7 @@ void
 norm_protolib_state::operator delete (void* ptr)
 	{
 	FIN (norm_protolib_state::operator delete (ptr));
-	Vos_Poolmem_Dealloc_MT (OP_SIM_CONTEXT_THREAD_INDEX_COMMA ptr);
+	Vos_Poolmem_Dealloc (ptr);
 	FOUT
 	}
 
@@ -1224,7 +1213,7 @@ norm_protolib_state::operator new (size_t)
 
 	FIN_MT (norm_protolib_state::operator new ());
 
-	new_ptr = Vos_Alloc_Object_MT (VOS_THREAD_INDEX_UNKNOWN_COMMA norm_protolib_state::obtype);
+	new_ptr = Vos_Alloc_Object (norm_protolib_state::obtype);
 #if defined (VOSD_NEW_BAD_ALLOC)
 	if (new_ptr == VOSC_NIL) throw VOSD_BAD_ALLOC();
 #endif
@@ -1256,7 +1245,7 @@ _op_norm_protolib_init (int * init_block_ptr)
 	}
 
 VosT_Address
-_op_norm_protolib_alloc (VOS_THREAD_INDEX_ARG_COMMA VosT_Obtype, int)
+_op_norm_protolib_alloc (VosT_Obtype, int)
 	{
 #if !defined (VOSD_NO_FIN)
 	int _op_block_origin = 0;
@@ -1528,9 +1517,9 @@ _op_norm_protolib_svar (void * gen_ptr, const char * var_name, void ** var_p_ptr
 		*var_p_ptr = (void *) (&prs_ptr->source);
 		FOUT
 		}
-	if (strcmp ("app_ici_v3_ptr" , var_name) == 0)
+	if (strcmp ("app_ici_ptr" , var_name) == 0)
 		{
-		*var_p_ptr = (void *) (&prs_ptr->app_ici_v3_ptr);
+		*var_p_ptr = (void *) (&prs_ptr->app_ici_ptr);
 		FOUT
 		}
 	*var_p_ptr = (void *)OPC_NIL;

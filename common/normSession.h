@@ -101,6 +101,9 @@ class NormSession
         static const double DEFAULT_GSIZE_ESTIMATE;
         static const UINT16 DEFAULT_NDATA;
         static const UINT16 DEFAULT_NPARITY;
+        static const UINT16 DEFAULT_TX_CACHE_MIN;
+        static const UINT16 DEFAULT_TX_CACHE_MAX;
+        
         enum ProbingMode {PROBE_NONE, PROBE_PASSIVE, PROBE_ACTIVE};
         enum AckingStatus 
         {
@@ -129,7 +132,7 @@ class NormSession
             // (TBD) call tx_socket->SetFlowLabel() to set traffic class for IPv6 sockets
             // (or should we have ProtoSocket::SetTOS() do this for us?)
             bool result = tx_socket->IsOpen() ? tx_socket->SetTOS(theTOS) : true;
-            tos = result ? theTOS : ttl;
+            tos = result ? theTOS : tos;
             return result; 
         }
         bool SetLoopback(bool state) 
@@ -177,7 +180,7 @@ class NormSession
         void SetGrttMax(double grttMax) {grtt_max = grttMax;}
         
         void SetTxRateBounds(double rateMin, double rateMax);
-        void SetTxCacheBounds(NormObjectSize sizeMax,
+        bool SetTxCacheBounds(NormObjectSize sizeMax,
                               unsigned long  countMin,
                               unsigned long  countMax);
         void Notify(NormController::Event event,
@@ -247,6 +250,13 @@ class NormSession
         void ServerSetExtraParity(UINT16 extraParity)
             {extra_parity = extraParity;}
         
+        // EMCON Server (useful when there are silent receivers)
+        // (NORM_INFO is redundantly sent)
+        void SndrSetEmcon(bool state)
+            {sndr_emcon = true;}
+        bool SndrEmcon() const
+            {return sndr_emcon;}
+        
         bool ServerGetFirstPending(NormObjectId& objectId)
         {
             UINT32 index;
@@ -282,7 +292,7 @@ class NormSession
         }
         
         void ServerEncode(const char* segment, char** parityVectorList)
-            {encoder.Encode(segment, parityVectorList);}
+            {encoder->Encode(segment, parityVectorList);}
         
         
         NormBlock* ServerGetFreeBlock(NormObjectId objectId, NormBlockId blockId);
@@ -313,16 +323,30 @@ class NormSession
             {return remote_server_buffer_size;}
         void ClientSetUnicastNacks(bool state) {unicast_nacks = state;}
         bool ClientGetUnicastNacks() const {return unicast_nacks;}
+        
         void ClientSetSilent(bool state) 
-        {
-            client_silent = state;
-            receiver_low_delay = client_silent ? receiver_low_delay : false;
-        }
+            {client_silent = state;}
         bool ClientIsSilent() const {return client_silent;}
         
-        void ReceiverSetLowDelay(bool state) 
-            {receiver_low_delay = client_silent ? state : false;}
-        bool ReceiverIsLowDelay() {return receiver_low_delay;}
+        void RcvrSetIgnoreInfo(bool state)
+            {rcvr_ignore_info = state;}
+        bool RcvrIgnoreInfo() const
+            {return rcvr_ignore_info;}        
+        
+        // "-1" corresponds to typical operation where source data for
+        // partially received FEC blocks are only provided to the app
+        // when buffer constraints require it.
+        // Otherwise, the "maxDelay" corresponds to the max number
+        // of FEC blocks the receiver waits before passing partially
+        // received blocks to the app.
+        // Note a "maxDelay == 0" provides _no_ protection from 
+        // out-of-order received packets!
+        void RcvrSetMaxDelay(INT32 maxDelay) 
+            {rcvr_max_delay = maxDelay;}
+        bool RcvrIsLowDelay() 
+            {return (ClientIsSilent() && (rcvr_max_delay >= 0));}
+        INT32 RcvrGetMaxDelay() const
+            {return rcvr_max_delay;}
         
         NormObject::NackingMode ClientGetDefaultNackingMode() const
             {return default_nacking_mode;}
@@ -401,8 +425,8 @@ class NormSession
         bool                            notify_pending;
         ProtoTimer                      tx_timer;
         UINT16                          tx_port;
-        ProtoSocket*                    tx_socket;
         ProtoSocket                     tx_socket_actual;
+        ProtoSocket*                    tx_socket;
         ProtoSocket                     rx_socket;
         NormMessageQueue                message_queue;
         NormMessageQueue                message_pool;
@@ -431,6 +455,7 @@ class NormSession
         UINT16                          nparity;
         UINT16                          auto_parity;
         UINT16                          extra_parity;
+        bool                            sndr_emcon;
         
         NormObjectTable                 tx_table;
         ProtoSlidingMask                tx_pending_mask;
@@ -438,7 +463,7 @@ class NormSession
         ProtoTimer                      repair_timer;
         NormBlockPool                   block_pool;
         NormSegmentPool                 segment_pool;
-        NormEncoder                     encoder;
+        NormEncoder*                    encoder;
         
         NormObjectId                    next_tx_object_id;
         unsigned int                    tx_cache_count_min;
@@ -507,7 +532,8 @@ class NormSession
         unsigned long                   remote_server_buffer_size;
         bool                            unicast_nacks;
         bool                            client_silent;
-        bool                            receiver_low_delay;
+        bool                            rcvr_ignore_info;
+        INT32                           rcvr_max_delay;
         NormServerNode::RepairBoundary  default_repair_boundary;
         NormObject::NackingMode         default_nacking_mode;    
         

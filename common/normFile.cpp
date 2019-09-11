@@ -4,6 +4,7 @@
 #include <stdio.h>   // for rename()
 #ifdef WIN32
 #ifndef _WIN32_WCE
+#include <errno.h>
 #include <direct.h>
 #include <share.h>
 #include <io.h>
@@ -47,21 +48,24 @@ bool NormFile::Open(const char* thePath, int theFlags)
         char tempPath[PATH_MAX];
         strncpy(tempPath, thePath, PATH_MAX);
         char* ptr = strrchr(tempPath, PROTO_PATH_DELIMITER);
-        if (ptr) *ptr = '\0';
-        ptr = NULL;
-        while (!NormFile::Exists(tempPath))
+        if (NULL != ptr) 
         {
-            char* ptr2 = ptr;
-            ptr = strrchr(tempPath, PROTO_PATH_DELIMITER);
-            if (ptr2) *ptr2 = PROTO_PATH_DELIMITER;
-            if (ptr)
+            *ptr = '\0';
+            ptr = NULL;
+            while (!NormFile::Exists(tempPath))
             {
-                *ptr = '\0';
-            }
-            else
-            {
-                ptr = tempPath;
-                break;
+                char* ptr2 = ptr;
+                ptr = strrchr(tempPath, PROTO_PATH_DELIMITER);
+                if (ptr2) *ptr2 = PROTO_PATH_DELIMITER;
+                if (ptr)
+                {
+                    *ptr = '\0';
+                }
+                else
+                {
+                    ptr = tempPath;
+                    break;
+                }
             }
         }
         if (ptr && ('\0' == *ptr)) *ptr++ = PROTO_PATH_DELIMITER;
@@ -162,7 +166,6 @@ bool NormFile::Lock()
 {
 #ifndef WIN32    // WIN32 files are automatically locked
     fchmod(fd, 0640 | S_ISGID);
-    
 #ifdef HAVE_FLOCK
     if (flock(fd, LOCK_EX | LOCK_NB))
         return false;
@@ -334,50 +337,70 @@ bool NormFile::Rename(const char* oldName, const char* newName)
 size_t NormFile::Read(char* buffer, size_t len)
 {
     ASSERT(IsOpen());
+    
+    size_t got = 0;
+    while (got < len)
+    {
 #ifdef WIN32
 #ifdef _WIN32_WCE
-    size_t result = fread(buffer, 1, len, file_ptr);
+        size_t result = fread(buffer+got, 1, len-got, file_ptr);
 #else
-    size_t result = _read(fd, buffer, (unsigned int)len);
+        size_t result = _read(fd, buffer+got, (unsigned int)(len-got));
 #endif // if/else _WIN32_WCE
 #else
-    ssize_t result = read(fd, buffer, len);
+        ssize_t result = read(fd, buffer+got, len-got);
 #endif // if/else WIN32
-    if (result < 0)
-    {
-        DMSG(0, "NormFile::Read() read(%d) error: %s (fd = %d, offset:%d)\n", len, GetErrorString(), fd, offset);
-        return 0;
-    }
-    else
-    {
-        offset += (Offset)result;
-        return result;
-    }
+        if (result <= 0)
+        {
+#ifndef _WIN32_WCE
+            if (EINTR != errno)
+#endif // !_WIN32_WCE
+            {
+                DMSG(0, "NormFile::Read() read(%d) result:%d error:%s (offset:%d)\n", len, result, GetErrorString(), offset);
+                return 0;
+            }
+        }
+        else
+        {
+            got += result;
+            offset += (Offset)result;
+        }
+    }  // end while (have < want)
+    return got;
 }  // end NormFile::Read()
 
 size_t NormFile::Write(const char* buffer, size_t len)
 {
     ASSERT(IsOpen());
+    size_t put = 0;
+    while (put < len)
+    {
 #ifdef WIN32
 #ifdef _WIN32_WCE
-    size_t result = fwrite(buffer, 1, len, file_ptr);
+        size_t result = fwrite(buffer+put, 1, len-put, file_ptr);
 #else
-    size_t result = _write(fd, buffer, (unsigned int)len);
+        size_t result = _write(fd, buffer+put, (unsigned int)(len-put));
 #endif // if/else _WIN32_WCE
 #else
-    size_t result = write(fd, buffer, len);
+        size_t result = write(fd, buffer+put, len-put);
 #endif // if/else WIN32
-    if (result < 0)
-    {
-        DMSG(0, "NormFile::Write() write() error: %s\n", GetErrorString());
-        return 0;
-    }
-    else
-    {
-        offset += (Offset)result;
-        return result;
-    }
-    return result;
+        if (result <= 0)
+        {
+ #ifndef _WIN32_WCE
+            if (EINTR != errno)
+#endif // !_WIN32_WCE
+            {
+                DMSG(0, "NormFile::Write() write(%d) result:%d error: %s\n", len, result, GetErrorString());
+                return 0;
+            }
+        }
+        else
+        {
+            offset += (Offset)result;
+            put += result;
+        }
+    }  // end while (put < len)
+    return put;
 }  // end NormFile::Write()
 
 bool NormFile::Seek(Offset theOffset)
@@ -395,7 +418,7 @@ bool NormFile::Seek(Offset theOffset)
 #endif // if/else WIN32
     if (result == (Offset)-1)
     {
-        DMSG(0, "NormFile::Seek() lseek() error: %s", GetErrorString());
+        DMSG(0, "NormFile::Seek() lseek() error: %s\n", GetErrorString());
         return false;
     }
     else
@@ -404,6 +427,28 @@ bool NormFile::Seek(Offset theOffset)
         return true; // no error
     }
 }  // end NormFile::Seek()
+
+bool NormFile::Pad(Offset theOffset)
+{
+    if (theOffset > GetSize())
+    {
+        if (Seek(theOffset - 1))
+        {
+            char byte = 0;
+            if (1 != Write(&byte, 1))
+            {
+                DMSG(0, "NormFile::Pad() write error: %s\n", GetErrorString());
+                return false;
+            }
+        }
+        else
+        {
+            DMSG(0, "NormFile::Pad() seek error: %s\n", GetErrorString());
+            return false;
+        }
+    }
+    return true; 
+}  // end NormFile::Pad()
 
 NormFile::Offset NormFile::GetSize() const
 {

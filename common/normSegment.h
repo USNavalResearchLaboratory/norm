@@ -19,10 +19,6 @@ class NormSegmentPool
         void Put(char* segment)
         {
             ASSERT(seg_count < seg_total);
-            //char** ptr = (char**)segment;
-            //ptr = seg_list;
-            // (TBD) avoid this system call
-            //memcpy(segment, &seg_list, sizeof(char*));
             *((char**)segment) = seg_list;  // this might make a warning on Solaris
             seg_list = segment;
             seg_count++;
@@ -32,7 +28,6 @@ class NormSegmentPool
         unsigned long CurrentUsage() const {return (seg_total - seg_count);}
         unsigned long PeakUsage() const {return peak_usage;}
         unsigned long OverunCount() const {return overruns;}
-        
         unsigned int GetSegmentSize() {return seg_size;}
         
     private: 

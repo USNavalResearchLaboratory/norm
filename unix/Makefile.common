@@ -80,7 +80,27 @@ TEST_OBJ = $(TEST_SRC:.cpp=.o)
 
 normTest:    $(TEST_OBJ) libnorm.a $(LIBPROTO) 
 	$(CC) $(CFLAGS) -o $@ $(TEST_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
-       
+    
+# (normThreadTest) test of threaded use of NORM API
+TTEST_SRC = $(COMMON)/normThreadTest.cpp
+TTEST_OBJ = $(TTEST_SRC:.cpp=.o)
+normThreadTest:    $(TTEST_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(TTEST_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)    
+
+# (normThreadTest2) alt test of threaded use of NORM API
+TTEST2_SRC = $(UNIX)/normThreadTest2.cpp
+TTEST2_OBJ = $(TTEST2_SRC:.cpp=.o)
+normThreadTest2:    $(TTEST2_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(TTEST2_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS) 
+
+
+# (npc) NORM Pre-Coder
+PCODE_SRC = $(COMMON)/normPrecode.cpp
+PCODE_OBJ = $(PCODE_SRC:.cpp=.o)
+npc:    $(PCODE_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(PCODE_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)     
+    
+           
 # (raft) command-line reliable tunnel helper
 RAFT_SRC = $(COMMON)/raft.cpp
 RAFT_OBJ = $(RAFT_SRC:.cpp=.o)

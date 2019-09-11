@@ -1,5 +1,4 @@
 #include "normSimAgent.h"
-
 #include <errno.h>
 
 // This NORM simulation agent includes support for providing transport
@@ -8,22 +7,22 @@
 
 NormSimAgent::NormSimAgent(ProtoTimerMgr&         timerMgr,
                            ProtoSocket::Notifier& socketNotifier)
- : session_mgr(timerMgr, socketNotifier), session(NULL),
-   address(NULL), port(0), ttl(3), 
-   tx_rate(NormSession::DEFAULT_TRANSMIT_RATE), 
-   cc_enable(false), unicast_nacks(false), silent_client(false),
-   backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
-   segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
-   group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
-   grtt_estimate(NormSession::DEFAULT_GRTT_ESTIMATE),
-   tx_buffer_size(1024*1024), rx_buffer_size(1024*1024),
-   tx_object_size(0), tx_object_interval(0.0), 
-   tx_object_size_min(0), tx_object_size_max(0), 
-   tx_repeat_count(0), tx_repeat_interval(0.0),
-   stream(NULL), auto_stream(false), push_mode(false),
-   flush_mode(NormStreamObject::FLUSH_PASSIVE),
-   mgen(NULL), msg_sync(false), mgen_bytes(0), mgen_pending_bytes(0),
-   tracing(false), tx_loss(0.0), rx_loss(0.0)
+  : msg_sink(NULL), session_mgr(timerMgr, socketNotifier), session(NULL),
+    address(NULL), port(0), ttl(3), 
+    tx_rate(NormSession::DEFAULT_TRANSMIT_RATE), 
+    cc_enable(false), unicast_nacks(false), silent_client(false),
+    backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
+    segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
+    group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
+    grtt_estimate(NormSession::DEFAULT_GRTT_ESTIMATE),
+    tx_buffer_size(1024*1024), rx_buffer_size(1024*1024),
+    tx_object_size(0), tx_object_interval(0.0), 
+    tx_object_size_min(0), tx_object_size_max(0), 
+    tx_repeat_count(0), tx_repeat_interval(0.0),
+    stream(NULL), auto_stream(false), push_mode(false),
+    flush_mode(NormStreamObject::FLUSH_PASSIVE),
+    msg_sync(false), mgen_bytes(0), mgen_pending_bytes(0),
+    tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
     // Bind NormSessionMgr to this agent and simulation environment
     session_mgr.SetController(static_cast<NormController*>(this));
@@ -586,6 +585,8 @@ bool NormSimAgent::SendMessage(unsigned int len, const char* txBuffer)
         DMSG(0, "NormSimAgent::SendMessage() session not started!\n");
         return false;
     }
+
+    return true;
 }  // end NormSimAgent::SendMessage()
 
 void NormSimAgent::OnInputReady()
@@ -622,246 +623,242 @@ bool NormSimAgent::FlushStream()
     
 
 void NormSimAgent::Notify(NormController::Event event,
-                     class NormSessionMgr* sessionMgr,
-                     class NormSession*    session,
-                     class NormServerNode* server,
-                     class NormObject*     object)
+                          class NormSessionMgr* sessionMgr,
+                          class NormSession*    session,
+                          class NormServerNode* server,
+                          class NormObject*     object)
 {
     switch (event)
     {
         //case TX_QUEUE_VACANCY:
-        case TX_QUEUE_EMPTY:
-            // Can queue a new object or write to stream for transmission  
-            if (object && (object == stream))
+    case TX_QUEUE_EMPTY:
+      // Can queue a new object or write to stream for transmission  
+      if (object && (object == stream))
+      {
+          if (auto_stream)
+          {
+              // sending a dummy byte stream
+              char buffer[NormMsg::MAX_SIZE];
+              stream->Write(buffer, segment_size, false);
+          }
+          else
+          {
+              // Stream starved, ask for input from "source" ?   
+              OnInputReady();
+          }
+      }
+      else
+      {            
+          // Schedule or queue next "sim file" transmission
+          if (interval_timer.GetInterval() > 0.0)
+          {
+              ActivateTimer(interval_timer);            
+          }
+          else
+          {
+              OnIntervalTimeout(interval_timer);
+          }
+      } 
+      break;
+      
+    case RX_OBJECT_NEW:
+      {
+          // It's up to the app to "accept" the object
+          switch (object->GetType())
+          {
+          case NormObject::STREAM:
             {
-                if (auto_stream)
-                {
-                    // sending a dummy byte stream
-                    char buffer[NormMsg::MAX_SIZE];
-                    stream->Write(buffer, segment_size, false);
-                }
+                NormObjectSize size;
+                if (silent_client)
+                  size = NormObjectSize(rx_buffer_size);
                 else
+                  size = object->GetSize();
+                if (!((NormStreamObject*)object)->Accept(size.LSB()))
                 {
-                    // Stream starved, ask for input from "source" ?   
-                    OnInputReady();
+                    DMSG(0, "NormSimAgent::Notify(RX_OBJECT_NEW) stream object accept error!\n");
+                }
+                if (!stream)
+                  stream = (NormStreamObject*)object;
+                else
+                  DMSG(0, "NormSimAgent::Notify(RX_OBJECT_NEW) warning! one stream already accepted.\n");
+            }
+            break;   
+          case NormObject::FILE:
+            {
+                if (!((NormSimObject*)object)->Accept())
+                {
+                    DMSG(0, "NormSimAgent::Notify(RX_OBJECT_NEW) sim object accept error!\n");
                 }
             }
-            else
-            {            
-                // Schedule or queue next "sim file" transmission
-                if (interval_timer.GetInterval() > 0.0)
-                {
-                    ActivateTimer(interval_timer);            
-                }
-                else
-                {
-                    OnIntervalTimeout(interval_timer);
-                }
-            } 
             break;
-           
-        case RX_OBJECT_NEW:
+          case NormObject::DATA: 
+            DMSG(0, "NormSimAgent::Notify() DATA objects not _yet_ supported...\n");      
+            break;
+          default:
+            DMSG(0, "NormSimAgent::Notify() INVALID object type!\n");      
+            ASSERT(0);
+            break;    
+          }   
+          break;
+      }
+      
+    case RX_OBJECT_INFO:
+      switch(object->GetType())
+      {
+      case NormObject::FILE:
+      case NormObject::DATA:
+      case NormObject::STREAM:
+      default:
+        break;
+      }  // end switch(object->GetType())
+      break;
+      
+    case RX_OBJECT_UPDATED:
+      switch (object->GetType())
+      {
+      case NormObject::FILE:
+        // (TBD) update progress
+        break;
+        
+      case NormObject::STREAM:
         {
-            // It's up to the app to "accept" the object
-            switch (object->GetType())
-            {
-                case NormObject::STREAM:
-                {
-                    NormObjectSize size;
-                    if (silent_client)
-                        size = NormObjectSize(rx_buffer_size);
-                    else
-                        size = object->GetSize();
-                    if (!((NormStreamObject*)object)->Accept(size.LSB()))
+            // Read the stream when it's updated  
+            if (msg_sink)
+            {      
+                bool dataReady = true;
+                while (dataReady)  
+                {             
+                    if (!mgen_pending_bytes)
                     {
-                        DMSG(0, "NormSimAgent::Notify(RX_OBJECT_NEW) stream object accept error!\n");
-                    }
-                    if (!stream)
-                        stream = (NormStreamObject*)object;
-                    else
-                        DMSG(0, "NormSimAgent::Notify(RX_OBJECT_NEW) warning! one stream already accepted.\n");
-                }
-                break;   
-                case NormObject::FILE:
-                {
-                    if (!((NormSimObject*)object)->Accept())
-                    {
-                        DMSG(0, "NormSimAgent::Notify(RX_OBJECT_NEW) sim object accept error!\n");
-                    }
-                }
-                break;
-                case NormObject::DATA: 
-                    DMSG(0, "NormSimAgent::Notify() DATA objects not _yet_ supported...\n");      
-                    break;
-                default:
-                    DMSG(0, "NormSimAgent::Notify() INVALID object type!\n");      
-                    ASSERT(0);
-                    break;    
-            }   
-            break;
-        }
-            
-        case RX_OBJECT_INFO:
-            switch(object->GetType())
-            {
-                case NormObject::FILE:
-                case NormObject::DATA:
-                case NormObject::STREAM:
-                default:
-                    break;
-            }  // end switch(object->GetType())
-            break;
-            
-        case RX_OBJECT_UPDATED:
-            switch (object->GetType())
-            {
-                case NormObject::FILE:
-                    // (TBD) update progress
-                    break;
-                
-                case NormObject::STREAM:
-                {
-                    // Read the stream when it's updated  
-                    if (mgen)
-                    {      
-                        bool dataReady = true;
-                        while (dataReady)  
-                        {             
-                            if (!mgen_pending_bytes)
-                            {
-                                // Read 2 byte MGEN msg len header
-                                unsigned int want = 2 - mgen_bytes;
-                                unsigned int got = want;
-                                bool findMsgSync = msg_sync ? false : true;
-                                if ((static_cast<NormStreamObject*>(object))->Read(mgen_buffer + mgen_bytes, 
-                                                                                   &got, findMsgSync))
-                                {
-                                    mgen_bytes += got;
-                                    msg_sync = true;
-                                    if (got != want) dataReady = false;
-                                }
-                                else
-                                {
-                                    DMSG(0, "NormSimAgent::Notify(1) detected stream break\n");
-                                    mgen_bytes = mgen_pending_bytes = 0;
-                                    msg_sync = false;
-                                    continue;
-                                }
-                                if (2 == mgen_bytes)
-                                {
-                                    UINT16 msgSize;
-                                    memcpy(&msgSize, mgen_buffer, sizeof(UINT16));
-                                    mgen_pending_bytes = ntohs(msgSize) - 2;  
-                                }
-                            }
-                            if (mgen_pending_bytes)
-                            {
-                                // Save the first part for MGEN logging
-                                if (mgen_bytes < 64)
-                                {
-                                    unsigned int want = MIN(mgen_pending_bytes, 62);
-                                    unsigned int got = want;
-                                    if ((static_cast<NormStreamObject*>(object))->Read(mgen_buffer+mgen_bytes, 
-                                                                                       &got))
-                                    {
-                                        mgen_pending_bytes -= got;
-                                        mgen_bytes += got;
-                                        if (got != want) dataReady = false;
-                                    }
-                                    else
-                                    {
-                                        DMSG(0, "NormSimAgent::Notify(2) detected stream break\n");
-                                        mgen_bytes = mgen_pending_bytes = 0;
-                                        msg_sync = false;
-                                        continue;
-                                    }
-                                }
-                                while (dataReady && mgen_pending_bytes)
-                                {
-                                    char buffer[256];
-                                    unsigned int want = MIN(256, mgen_pending_bytes); 
-                                    unsigned int got = want;
-                                    if ((static_cast<NormStreamObject*>(object))->Read(buffer, &got))
-                                    {
-                                        mgen_pending_bytes -= got;
-                                        mgen_bytes += got;
-                                        if (got != want) dataReady = false;
-                                    }
-                                    else
-                                    {
-                                        DMSG(0, "NormSimAgent::Notify(3) detected stream break\n");
-                                        mgen_bytes = mgen_pending_bytes = 0;
-                                        msg_sync = false;
-                                        break;
-                                    }
-                                }
-                                if (msg_sync && (0 == mgen_pending_bytes))
-                                {
-                                    ProtoAddress srcAddr;
-                                    srcAddr.ResolveFromString(server->GetAddress().GetHostString());
-                                    srcAddr.SetPort(server->GetAddress().GetPort());
-#ifdef OPNET  // JPH 4/11/06  Use packet stream to send msg to mgen rather than direct call on mgen method.
-									HandleMgenMessage(mgen_buffer, mgen_bytes, srcAddr);
-#else
-                                    mgen->HandleMgenMessage(mgen_buffer, mgen_bytes, srcAddr);
-#endif OPNET
-
-                                    mgen_bytes = 0;   
-                                }
-                            }  // end if (mgen_pending_bytes)
-                        }  // end while(dataReady)
-                    }
-                    else
-                    {
-                        char buffer[1024];
-                        unsigned int want = 1024;
+                        // Read 2 byte MGEN msg len header
+                        unsigned int want = 2 - mgen_bytes;
                         unsigned int got = want;
-                        while (1)
+                        bool findMsgSync = msg_sync ? false : true;
+                        if ((static_cast<NormStreamObject*>(object))->Read(mgen_buffer + mgen_bytes, 
+                                                                           &got, findMsgSync))
                         {
-                            if ((static_cast<NormStreamObject*>(object))->Read(buffer, &got))
+                            mgen_bytes += got;
+                            msg_sync = true;
+                            if (got != want) dataReady = false;
+                        }
+                        else
+                        {
+                            DMSG(0, "NormSimAgent::Notify(1) detected stream break\n");
+                            mgen_bytes = mgen_pending_bytes = 0;
+                            msg_sync = false;
+                            continue;
+                        }
+                        if (2 == mgen_bytes)
+                        {
+                            UINT16 msgSize;
+                            memcpy(&msgSize, mgen_buffer, sizeof(UINT16));
+                            mgen_pending_bytes = ntohs(msgSize) - 2;  
+                        }
+                    }
+                    if (mgen_pending_bytes)
+                    {
+                        // Save the first part for MGEN logging
+                        if (mgen_bytes < 64)
+                        {
+                            unsigned int want = MIN(mgen_pending_bytes, 62);
+                            unsigned int got = want;
+                            if ((static_cast<NormStreamObject*>(object))->Read(mgen_buffer+mgen_bytes, 
+                                                                               &got))
                             {
-                                // Break when data is no longer available
-                                if (got != want) break;
+                                mgen_pending_bytes -= got;
+                                mgen_bytes += got;
+                                if (got != want) dataReady = false;
                             }
                             else
                             {
-                                DMSG(0, "NormSimAgent::Notify() detected stream break\n");
+                                DMSG(0, "NormSimAgent::Notify(2) detected stream break\n");
+                                mgen_bytes = mgen_pending_bytes = 0;
+                                msg_sync = false;
+                                continue;
                             }
-                            got = want = 1024;
                         }
-                    }
-                    break;
-                }
-                                        
-                case NormObject::DATA: 
-                    DMSG(0, "NormSimAgent::Notify() FILE/DATA objects not _yet_ supported...\n");      
-                    break;
-                    
-                default:
-                    // should never occur
-                    break;
-            }  // end switch (object->GetType())
-            break;
-        case RX_OBJECT_COMPLETED:
-        {
-            switch(object->GetType())
+                        while (dataReady && mgen_pending_bytes)
+                        {
+                            char buffer[256];
+                            unsigned int want = MIN(256, mgen_pending_bytes); 
+                            unsigned int got = want;
+                            if ((static_cast<NormStreamObject*>(object))->Read(buffer, &got))
+                            {
+                                mgen_pending_bytes -= got;
+                                mgen_bytes += got;
+                                if (got != want) dataReady = false;
+                            }
+                            else
+                            {
+                                DMSG(0, "NormSimAgent::Notify(3) detected stream break\n");
+                                mgen_bytes = mgen_pending_bytes = 0;
+                                msg_sync = false;
+                             
+   break;
+                            }
+                        }
+                        if (msg_sync && (0 == mgen_pending_bytes))
+                        {
+                            ProtoAddress srcAddr;
+                            srcAddr.ResolveFromString(server->GetAddress().GetHostString());
+                            srcAddr.SetPort(server->GetAddress().GetPort());
+                            msg_sink->HandleMessage(mgen_buffer,mgen_bytes,srcAddr);
+                            mgen_bytes = 0;   
+                        }
+                    }  // end if (mgen_pending_bytes)
+                }  // end while(dataReady)
+            }
+            else
             {
-                case NormObject::FILE:
-                    //DMSG(0, "norm: Completed rx file: %s\n", ((NormFileObject*)object)->Path());
-                    break;
-                case NormObject::STREAM:
-                    //DMSG(0, "norm: Completed rx stream ...\n");
-                    break;
-                case NormObject::DATA:
-                    ASSERT(0);
-                    break;
-                default:
-                    break;
+                char buffer[1024];
+                unsigned int want = 1024;
+                unsigned int got = want;
+                while (1)
+                {
+                    if ((static_cast<NormStreamObject*>(object))->Read(buffer, &got))
+                    {
+                        // Break when data is no longer available
+                        if (got != want) break;
+                    }
+                    else
+                    {
+                        DMSG(0, "NormSimAgent::Notify() detected stream break\n");
+                    }
+                    got = want = 1024;
+                }
             }
             break;
         }
-        default:
-            DMSG(0, "NormSimAgent::Notify() unhandled NormEvent type\n");
+        
+      case NormObject::DATA: 
+        DMSG(0, "NormSimAgent::Notify() FILE/DATA objects not _yet_ supported...\n");      
+        break;
+        
+      default:
+        // should never occur
+        break;
+      }  // end switch (object->GetType())
+      break;
+    case RX_OBJECT_COMPLETED:
+      {
+          switch(object->GetType())
+          {
+          case NormObject::FILE:
+            //DMSG(0, "norm: Completed rx file: %s\n", ((NormFileObject*)object)->Path());
+            break;
+          case NormObject::STREAM:
+            //DMSG(0, "norm: Completed rx stream ...\n");
+            break;
+          case NormObject::DATA:
+            ASSERT(0);
+            break;
+          default:
+            break;
+          }
+          break;
+      }
+    default:
+      DMSG(0, "NormSimAgent::Notify() unhandled NormEvent type\n");
     }  // end switch(event)
 }  // end NormSimAgent::Notify()
 

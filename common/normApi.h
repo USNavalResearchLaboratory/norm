@@ -393,7 +393,7 @@ bool NormSetRxSocketBuffer(NormSessionHandle sessionHandle,
 NORM_API_LINKAGE 
 void NormSetSilentReceiver(NormSessionHandle sessionHandle,
                            bool              silent,
-                           bool              lowDelay = false);
+                           int               maxDelay = -1);
 
 NORM_API_LINKAGE 
 void NormSetDefaultUnicastNack(NormSessionHandle sessionHandle,

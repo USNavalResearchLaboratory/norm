@@ -55,9 +55,20 @@
 
 19) Fix "activity_timer" interval setting (COMPLETED)
 
-20) Double-check watermark check code around line 600 of normSession.cpp
+20) Fix issue related to setting tx cache count_max > 256!
+    Fix NormSession::SetTxCacheBounds() ... tx_table may need to be
+    resized accordingly (COMPLETED, but needs testing).
+
+21) Double-check watermark check code around line 600 of normSession.cpp
     (COMPLETED - reimplemented, adding tx_repair_pending index to use 
      instead of seeking each time)
 
+22) Implement LDPC FEC code within NORM as alternative to Reed Solomon
+
+23) Add ability to control receiver cache on a per-sender basis?
+    (max_pending_range, etc)
+    
+24)  Look at NormStreamObject::StreamAdvance() for "push-enabled" streams
+     (COMPLETED)
 
    

@@ -491,9 +491,14 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
                 }
                 break;
             case NORM_RX_OBJECT_UPDATED:
-                // reset update event notification
-                ((NormObject*)n->event.object)->SetNotifyOnUpdate(true);
+            {
+                // reset update event notification for non-streams
+                // (NormStreamRead() takes care of streams)
+                NormObject* obj = ((NormObject*)n->event.object);
+                if (!obj->IsStream())
+                    obj->SetNotifyOnUpdate(true);
                 break;
+            }
             default:
                 break;   
         }
@@ -1502,13 +1507,13 @@ bool NormSetRxSocketBuffer(NormSessionHandle sessionHandle,
 NORM_API_LINKAGE
 void NormSetSilentReceiver(NormSessionHandle sessionHandle,
                            bool              silent,
-                           bool              lowDelay)
+                           INT32             maxDelay)
 {
     NormSession* session = (NormSession*)sessionHandle;
     if (session) 
     {
         session->ClientSetSilent(silent);
-        session->ReceiverSetLowDelay(lowDelay);
+        session->RcvrSetMaxDelay(maxDelay);
     }
 }  // end NormSetSilentReceiver()
 

@@ -1,5 +1,30 @@
 			           NORM Version History
 
+Version 1.4b1
+=============
+    - Fixed condition where receivers kept state for remote senders "stuck"
+      with CC feedback (cc_enable) even if newer NORM_CMD(CC) messages
+      indicate that sender CC operation has been disabled.
+    - Fixed error in NormSession::SetTOS() method that transmogrifried the
+      default TTL value into TOS under certain conditions.
+      (thanks to Ron in 't Velt yet again for finding this and the one above).
+    - Made NormFile read/write more persistent (e.g. when EINT occurs)
+    - Fixed NormObject::PassiveRepairCheck() bug that incorrectly reported
+      no repair needed when in fact, the last segment was missing.
+    - Fixed ProtoSlidingBitmask error that interfered with proper 
+      sender stream advancement under severe conditions
+    - NORM still used old "MDP" FEC codecs but now explicitly check for
+      FEC ID == 129 and FEC instance id == 0.  Can be built with
+      -DASSUME_MDP_FEC to avoid this check in case of backward compatbility
+      issue.  Future NORM release will be using new FEC implementation
+      for Reed-Solomon coding but will continue to support compile-time
+      backwards compatibility option to use old MDP FEC encoder.
+    - Added "lowDelay" and other options to "norm" demo application
+    - Modified "lowDelay" option for silent receiver use to allow
+      control of FEC block delay (how many blocks to wait before passing
+      partially-received coding blocks to application).
+    - Added "Norm Pre-Coder" (NPC) utility to distribution.
+
 Version 1.3b9
 =============
     - Fixed ProtoSocket WINVER stuff and NormApplicationMsg::SetContent()

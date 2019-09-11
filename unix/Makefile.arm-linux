@@ -1,15 +1,15 @@
 #
-# Linux NORM Makefile definitions
+# arm-linux Protean Makefile definitions
 #
 
-# 5) System specific additional libraries, include paths, etc
+# 1) System specific additional libraries, include paths, etc
 #    (Where to find X11 libraries, etc)
 #
-SYSTEM_INCLUDES = -Wall -I/usr/X11R6/include 
-SYSTEM_LDFLAGS = -L/usr/X11R6/lib 
+SYSTEM_INCLUDES = -I/usr/local/arm/2.95.3/arm-linux/include 
+SYSTEM_LDFLAGS = -L/usr/local/arm/2.95.3/arm-linux/lib 
 SYSTEM_LIBS = -ldl 
 
-# 6) System specific capabilities
+# 2) System specific capabilities
 # Must choose appropriate for the following:
 #
 # A) -DHAVE_CUSERID (preferred) or -DHAVE_GETLOGIN for cuserid() or getlogin()
@@ -25,6 +25,10 @@ SYSTEM_LIBS = -ldl
 # D) Optionally specify -DHAVE_ASSERT if your system has a built-in ASSERT()
 #    routine.
 #
+# E) The MDP code's use of offset pointers requires special treatment
+#    for some different compilers. Set -DUSE_INHERITANCE for some
+#    to keep some compilers (gcc 2.7.2) happy.
+#
 # F) Some systems (SOLARIS/SUNOS) have a few gotchas which require
 #    some #ifdefs to avoid compiler warnings ... so you might need
 #    to specify -DSOLARIS or -DSUNOS depending on your OS.
@@ -35,17 +39,25 @@ SYSTEM_LIBS = -ldl
 # (We export these for other Makefiles as needed)
 #
 
-SYSTEM_HAVES = -DLINUX -DHAVE_IPV6 -DHAVE_GETLOGIN -D_FILE_OFFSET_BITS=64 -DHAVE_LOCKF \
--DHAVE_OLD_SIGNALHANDLER -DHAVE_DIRFD -DHAVE_ASSERT  
+#add -DHAVE_IPV6 if you have ipv6 support
+export SYSTEM_HAVES = -DARM -DLINUX -DHAVE_GETLOGIN -DHAVE_LOCKF \
+-DHAVE_OLD_SIGNALHANDLER -DNO_SCM_RIGHTS -DHAVE_DIRFD -DHAVE_ASSERT $(NETSEC)
 
-SYSTEM_SRC = 
+SYSTEM_SRC = linuxRouteMgr.cpp
 
-SYSTEM = linux
+SYSTEM = arm-linux
 
-export CC = g++
-export SYSTEM_CFLAGS = -fPIC -Wall -Wcast-align
-export SYSTEM_SOFLAGS = -shared 
-export RANLIB = ranlib
-export AR = ar
+CC = arm-linux-g++
+SYSTEM_CFLAGS = -Wall -Wcast-align -pedantic -fPIC 
+SYSTEM_SOFLAGS = -shared 
+RANLIB = arm-linux-ranlib
+AR = arm-linux-ar
+
+AS = arm-linux-as
+LD = arm-linux-ld
+NM = arm-linux-nm
+STRIP = arm-linux-strip
+OBJCOPY = arm-linux-objcopy
+OBJDUMP = arm-linux-objdump
 
 include Makefile.common

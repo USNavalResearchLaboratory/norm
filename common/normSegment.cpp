@@ -491,8 +491,7 @@ NormObjectSize NormBlock::GetBytesPending(UINT16      numData,
         } while (GetNextPending(nextId));        
     }
     // Correct for final_segment_size, if applicable
-    if ((id == finalBlockId) &&
-        (IsPending(numData - 1)))
+    if ((id == finalBlockId) && IsPending(numData - 1))
     {
         pendingBytes -= NormObjectSize(segmentSize);
         pendingBytes += NormObjectSize(finalSegmentSize);  
