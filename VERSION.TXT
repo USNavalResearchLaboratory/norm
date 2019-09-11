@@ -1,5 +1,15 @@
 			           NORM Version History
 
+Version 1.2b9
+=============
+    - Fixed bugs with NormServerNode::retrieval_pool mgmnt
+      (Thanks to Charlie Davis for tracking these down!!!)
+    - Changed ProtoDispatcher thread stuff so threads
+      (e.g. the NORM API thread) are only actively
+      signaled and interrupted when absolutely necessary
+    - Added support for NORM_TX_QUEUE_VACANCY notification
+       (for NORM_OBJECT_STREAM only at the moment)
+    
 Version 1.2b8
 =============
     - Fixed bug introduced during "alignment" changes
@@ -14,7 +24,7 @@ Version 1.2b7
       (might significantly help CC performance
     - Fixed NormServerNode::FreeBuffers() bug which
       could result in seg fault on remote server timeout
-      or at app shutdown\
+      or at app shutdown
     - Fixed bug where tx_sequence count was being
       incremented for all transmitted messages (The "fix"
       does not yet address separate increment of messages

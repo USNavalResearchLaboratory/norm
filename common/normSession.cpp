@@ -537,6 +537,11 @@ void NormSession::Serve()
                     else
                         tx_pending_mask.Unset(obj->GetId());
                 }
+                else if (obj->IsStream())
+                {
+                    // Is there room write to the stream
+                       
+                }
             }
             else
             {
@@ -890,6 +895,7 @@ NormDataObject* NormSession::QueueTxData(const char* dataPtr,
 
 
 NormStreamObject* NormSession::QueueTxStream(UINT32         bufferSize, 
+                                             bool           doubleBuffer,
                                              const char*    infoPtr, 
                                              UINT16         infoLen)
 {
@@ -905,7 +911,7 @@ NormStreamObject* NormSession::QueueTxStream(UINT32         bufferSize,
                 strerror(errno));
         return NULL; 
     }
-    if (!stream->Open(bufferSize, infoPtr, infoLen))
+    if (!stream->Open(bufferSize, doubleBuffer, infoPtr, infoLen))
     {
         DMSG(0, "NormSession::QueueTxStream() stream open error\n");
         delete stream;

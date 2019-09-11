@@ -162,6 +162,7 @@ class NormSession
                          const char*    interfaceName = NULL);
         void StopServer();
         NormStreamObject* QueueTxStream(UINT32      bufferSize, 
+                                        bool        doubleBuffer = false,
                                         const char* infoPtr = NULL, 
                                         UINT16      infoLen = 0);
         NormFileObject* QueueTxFile(const char* path,

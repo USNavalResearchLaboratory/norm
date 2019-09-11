@@ -35,22 +35,25 @@ int main(int argc, char* argv[])
     
     //NormSetMessageTrace(session, true);
     
-    NormSetTxLoss(session, 1.0);  // 10% packet loss
+    //NormSetTxLoss(session, 1.0);  // 10% packet loss
     
-    NormSetGrttEstimate(session, 0.5);//0.001);  // 1 msec initial grtt
+    NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 1.0e+06);  // in bits/second
+    NormSetTransmitRate(session, 90.0e+06);  // in bits/second
     
     NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK);  
     
-    // Uncomment to receive own traffic
-    NormSetLoopback(session, true);     
+    // Uncomment to receive your own traffic
+    //NormSetLoopback(session, true);     
     
     // Uncomment this line to participate as a receiver
     //NormStartReceiver(session, 1024*1024);
     
+    // Uncomment to enable TCP-friendly congestion control
+    //NormSetCongestionControl(session, true);
+    
     // Uncomment the following line to start sender
-    NormStartSender(session, 1024*1024, 1024, 64, 0);
+    NormStartSender(session, 4096*1024, 1400, 64, 0);
     
     NormAddAckingNode(session, NormGetLocalNodeId(session));
     
@@ -59,7 +62,7 @@ int main(int argc, char* argv[])
     const char* fileName = "ferrari.jpg";
     
     // Uncomment this line to send a stream instead of the file
-    stream = NormStreamOpen(session, 1024*1024);
+    stream = NormStreamOpen(session, 4096*1024);
     
     
     // NORM_FLUSH_PASSIVE automatically flushes full writes to
@@ -86,27 +89,39 @@ int main(int argc, char* argv[])
         switch (theEvent.type)
         {
             case NORM_TX_QUEUE_EMPTY:
+                //TRACE("NORM_TX_QUEUE_EMPTY ...\n");
+            case NORM_TX_QUEUE_VACANCY:
+                //TRACE("NORM_TX_QUEUE_VACANCY ...\n");
+            
                 if (NORM_OBJECT_INVALID != stream)
                 {
-                    if (0 == txLen)
+                    // We loop here to keep stream buffer full ....
+                    bool keepWriting = true;
+                    while (keepWriting)
                     {
-                        // Write a message to the "txBuffer"
-                        memset(txBuffer, 'a', 1037);
-                        sprintf(txBuffer+1037, "normTest says hello %d ...\n", sendCount);
-                        txLen = strlen(txBuffer);
-                    }
-                    txIndex += NormStreamWrite(stream, txBuffer+txIndex, (txLen - txIndex));
-                    if (txIndex == txLen)
-                    {
-                        // Instead of "NormStreamSetFlushMode(stream, NORM_FLUSH_PASSIVE)" above
-                        // and "NormStreamMarkEom()" here, I could have used 
-                        // "NormStreamFlush(stream, true)" here to perform explicit flushing 
-                        // and EOM marking in one fell swoop.  That would be a better approach 
-                        // for apps where big stream messages need to be written with 
-                        // multiple calls to "NormStreamWrite()"
-                        NormStreamMarkEom(stream);
-                        txLen = txIndex = 0;
-                        sendCount++;
+                        if (0 == txLen)
+                        {
+                            // Write a message to the "txBuffer"
+                            memset(txBuffer, 'a', 1037);
+                            sprintf(txBuffer+1037, "normTest says hello %d ...\n", sendCount);
+                            txLen = strlen(txBuffer);
+                        }
+                        unsigned int want = txLen - txIndex;
+                        unsigned int put = NormStreamWrite(stream, txBuffer+txIndex, want);
+                        if (put != want) keepWriting = false;
+                        txIndex += put;
+                        if (txIndex == txLen)
+                        {
+                            // Instead of "NormStreamSetFlushMode(stream, NORM_FLUSH_PASSIVE)" above
+                            // and "NormStreamMarkEom()" here, I could have used 
+                            // "NormStreamFlush(stream, true)" here to perform explicit flushing 
+                            // and EOM marking in one fell swoop.  That would be a better approach 
+                            // for apps where big stream messages need to be written with 
+                            // multiple calls to "NormStreamWrite()"
+                            NormStreamMarkEom(stream);
+                            txLen = txIndex = 0;
+                            sendCount++;
+                        }
                     }
                 }
                 else

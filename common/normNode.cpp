@@ -204,6 +204,7 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
         Close();
         return false;          
     }
+    memset(retrieval_pool, 0, numData*sizeof(char*));
     for (UINT16 i = 0; i < numData; i++)
     {
         char* s = new char[segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()];
@@ -323,9 +324,10 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
             if (obj && (NormObject::STREAM == obj->GetType()))
             {
                 NormBlockId blockId = squelch.GetFecBlockId();
-                ((NormStreamObject*)obj)->Prune(blockId);   
+                static_cast<NormStreamObject*>(obj)->Prune(blockId);   
             }
-            // 3) (TBD) Discard any invalidated objects
+            // 3) (TBD) Go ahead and discard any invalidated objects
+            //   (although they will eventually get discarded anyway)
             break;
         }
             

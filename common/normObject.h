@@ -94,7 +94,8 @@ class NormObject
                                    bool*          msgStart = NULL) = 0;
         
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId) = 0;
+                                      NormSegmentId segmentId,
+                                      bool&         tempRetrieval) = 0;
         
         NackingMode GetNackingMode() const {return nacking_mode;}
         void SetNackingMode(NackingMode nackingMode) 
@@ -303,7 +304,8 @@ class NormFileObject : public NormObject
                                    char*          buffer,
                                    bool*          msgStart = NULL);
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId);
+                                      NormSegmentId segmentId,
+                                      bool&         tempRetrieval);
             
     private:
         char            path[PATH_MAX];
@@ -348,7 +350,8 @@ class NormDataObject : public NormObject
                                    bool*           msgStart = NULL);
         
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId);
+                                      NormSegmentId segmentId,
+                                      bool&         tempRetrieval);
             
     private:
         NormObjectSize  large_block_length;
@@ -369,10 +372,11 @@ class NormStreamObject : public NormObject
         ~NormStreamObject(); 
 
         bool Open(UINT32        bufferSize, 
+                  bool          doubleBuffer = false,
                   const char*   infoPtr = NULL, 
                   UINT16        infoLen = 0);
         void Close();
-        bool Accept(UINT32 bufferSize);
+        bool Accept(UINT32 bufferSize, bool doubleBuffer = false);
         
         enum FlushMode
         {
@@ -415,7 +419,8 @@ class NormStreamObject : public NormObject
                                    bool*          msgStart = NULL);
         
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId);
+                                      NormSegmentId segmentId,
+                                      bool&         tempRetrieval);
         
         
         // For receive stream, we can rewind to earliest buffered offset
@@ -465,6 +470,9 @@ class NormStreamObject : public NormObject
         NormBlockBuffer             stream_buffer;
         Index                       write_index;
         UINT32                      write_offset;
+        UINT32                      tx_offset;
+        bool                        write_vacancy;
+        bool                        posted_tx_queue_vacancy;
         bool                        read_init;
         Index                       read_index;
         UINT32                      read_offset;
@@ -505,7 +513,8 @@ class NormSimObject : public NormObject
                                    bool*          msgStart = NULL);
         
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId);
+                                      NormSegmentId segmentId,
+                                      bool&         tempRetrieval);
 };  // end class NormSimObject
 #endif // SIMULATE
 

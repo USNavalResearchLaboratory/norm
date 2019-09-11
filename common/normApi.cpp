@@ -229,9 +229,9 @@ void NormInstance::Notify(NormController::Event   event,
                     NormStreamObject* stream = static_cast<NormStreamObject*>(object);
                     // (TBD) implement silent_client accept differently
                     NormObjectSize size = stream->GetSize();
-                    // We double the size to prevent unecessary data loss
+                    // We double the stream buffer to prevent unecessary data loss
                     // for our threaded API
-                    if (!stream->Accept(2*size.LSB()))
+                    if (!stream->Accept(size.LSB(), true))
                     {
                         DMSG(0, "NormInstance::Notify() stream accept error\n");
                         notify_pool.Append(n);
@@ -897,7 +897,7 @@ NormObjectHandle NormStreamOpen(NormSessionHandle  sessionHandle,
         if (session)
         {
             NormObject* obj = 
-                static_cast<NormObject*>(session->QueueTxStream(bufferSize));
+                static_cast<NormObject*>(session->QueueTxStream(bufferSize, true));
             if (obj) objectHandle = (NormObjectHandle)obj;
         }
         instance->dispatcher.ResumeThread();
