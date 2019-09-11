@@ -118,6 +118,9 @@ class NormSession
         
         NormSessionMgr& GetSessionMgr() {return session_mgr;}
         
+        bool SetRxSocketBuffer(unsigned int bufferSize)
+            {return rx_socket.SetRxBufferSize(bufferSize);}
+        
         // Session parameters
         double TxRate() {return (tx_rate * 8.0);}
         // (TBD) watch timer scheduling and min/max bounds

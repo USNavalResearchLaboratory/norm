@@ -1018,13 +1018,27 @@ bool NormReadStream(NormObjectHandle   streamHandle,
         NormStreamObject* stream = 
             static_cast<NormStreamObject*>((NormObject*)streamHandle);
         if (stream)
-        {
             result = stream->Read(buffer, numBytes);
-        }
         instance->dispatcher.ResumeThread();
     }
     return result;
 }  // end NormReadStream()
+
+bool NormFindStreamMsgStart(NormObjectHandle streamHandle)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormStreamObject* stream = 
+            static_cast<NormStreamObject*>((NormObject*)streamHandle);
+        unsigned int numBytes = 0;
+        if (stream)
+            result = stream->Read(NULL, &numBytes, true);
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+}  // end NormFindStreamMsgStart()
 
 NormObjectHandle NormQueueFile(NormSessionHandle  sessionHandle,
                                const char*        fileName,

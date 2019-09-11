@@ -198,6 +198,7 @@ class NormObjectId
         bool operator!=(const NormObjectId& id) const
             {return (value != id.value);}
         NormObjectId& operator++(int) {value++; return *this;}
+        NormObjectId& operator--(int) {value--; return *this;}
         
     private:
         UINT16  value;  

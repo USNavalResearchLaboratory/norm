@@ -186,6 +186,8 @@ bool NormReadStream(NormObjectHandle   streamHandle,
                     char*              buffer,
                     unsigned int*      numBytes);
 
+bool NormFindStreamMsgStart(NormObjectHandle streamHandle);
+
 // NormFileObject Functions
 NormObjectHandle NormQueueFile(NormSessionHandle sessionHandle,
                                const char*  fileName,

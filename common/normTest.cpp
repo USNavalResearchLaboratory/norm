@@ -16,7 +16,7 @@ int main(int argc, char* argv[])
 {
     printf("normTest starting ...\n");
 
-    SetDebugLevel(4);
+    SetDebugLevel(2);
     
     NormInstanceHandle instance = NormCreateInstance();
 
@@ -33,13 +33,13 @@ int main(int argc, char* argv[])
                                                    6003,
                                                    NORM_NODE_ANY);
     
-    NormSetMessageTrace(session, true);
+    //NormSetMessageTrace(session, true);
     
-    NormSetTxLoss(session, 10.0);  // 1% packet loss
+    NormSetTxLoss(session, 10.0);  // 10% packet loss
     
-    NormSetGrttEstimate(session, 0.1);//0.001);  // 1 msec initial grtt
+    NormSetGrttEstimate(session, 0.2);//0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 1.0e+05);  // in bits/second
+    NormSetTransmitRate(session, 1.0e+06);  // in bits/second
     
     NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK);  
     
@@ -60,9 +60,20 @@ int main(int argc, char* argv[])
     
     // Uncomment this line to send a stream instead of the file
     stream = NormOpenStream(session, 1024*1024);
-    NormSetStreamFlushMode(stream, NORM_FLUSH_NONE);
+    NormSetStreamFlushMode(stream, NORM_FLUSH_PASSIVE);
     
-    int index = -1;  // used to monitor reliable stream reception
+    
+    // Some variable for stream input/output
+    char txBuffer[8192], rxBuffer[8192];
+    int txIndex = 0;
+    int txLen = 0;
+    int rxIndex = 0;
+    char refBuffer[1037];
+    memset(refBuffer, 'a', 1037);
+    bool msgSync = false;
+    
+    int msgCount = 0;
+    int recvCount = -1;  // used to monitor reliable stream reception
     int sendCount = 0;
     int sendMax = 200;
     NormEvent theEvent;
@@ -73,17 +84,19 @@ int main(int argc, char* argv[])
             case NORM_TX_QUEUE_EMPTY:
                 if (NORM_OBJECT_INVALID != stream)
                 {
-                    // Write a message to the "stream"
-                    char buffer[1024];
-                    sprintf(buffer, "normTest says hello %d ...\n", sendCount++);
-                    unsigned int len = strlen(buffer);
-                    TRACE("writing to stream ...\n");
-                    if (len != NormWriteStream(stream, buffer, len))
-                        TRACE("incomplete write:%u\n", len);
-                    else
+                    if (0 == txLen)
                     {
-                        NormFlushStream(stream);
-                        NormSetWatermark(session, stream);
+                        // Write a message to the "txBuffer"
+                        memset(txBuffer, 'a', 1037);
+                        sprintf(txBuffer+1037, "normTest says hello %d ...\n", sendCount);
+                        txLen = strlen(txBuffer);
+                    }
+                    txIndex += NormWriteStream(stream, txBuffer+txIndex, (txLen - txIndex));
+                    if (txIndex == txLen)
+                    {
+                        NormMarkStreamEom(stream);
+                        txLen = txIndex = 0;
+                        sendCount++;
                     }
                 }
                 else
@@ -102,9 +115,9 @@ int main(int argc, char* argv[])
                     else
                     {
                         TRACE("QUEUED FILE ...\n");
+                        sendCount++;
                         NormSetWatermark(session, txFile);
                     }
-                    sendCount++;
                 }
                 break;   
 
@@ -152,44 +165,77 @@ int main(int argc, char* argv[])
                 //TRACE("normTest: NORM_RX_OBJECT_UPDATE event ...\n");
                 if (NORM_OBJECT_STREAM != NormGetObjectType(theEvent.object))
                     break;
-                char buffer[1024];
-                unsigned int len = 1023;
+                unsigned int len;
                 do
                 {
-                    len = 1023;
-                    if (NormReadStream(theEvent.object, buffer, &len))
+                    if (!msgSync) 
+                        msgSync = NormFindStreamMsgStart(theEvent.object);
+                    if (!msgSync) break;
+                    len = 8191 - rxIndex;
+                    if (NormReadStream(theEvent.object, rxBuffer+rxIndex, &len))
                     {
-                        buffer[len] = '\0';
-                        if (len)
+                        rxIndex += len;
+                        rxBuffer[rxIndex] = '\0';
+                        if (rxIndex > 0)
                         {
-                            TRACE("normTest: recvd(%u):\n\"%s\"\n", len, buffer);
-                            // This while() loop is cheesy test, looking for broken stream
-                            //
-                            char* ptr = buffer;
-                            while ((ptr = strstr(ptr, "hello")))
-                            {   
-                                int value;
-                                if (1 == sscanf(ptr, "hello %d", &value))
+                            char* ptr = strchr(rxBuffer, '\n');
+                            if (ptr)
+                            {
+                                // Save sub-string length
+                                len = ptr - rxBuffer + 1;
+                                
+                                // Validate string
+                                if (memcmp(rxBuffer, refBuffer, 1037))
+                                    ptr = (char*)NULL;
+                                else
+                                    ptr = strstr(rxBuffer, "hello");
+                                if (NULL != ptr)
                                 {
-                                    if (index >= 0)
+                                    int value;
+                                    if (1 == sscanf(ptr, "hello %d", &value))
                                     {
-                                        if (1 != (value - index))
-                                            TRACE("WARNING! possible break? value:%d index:%d\n",
-                                                    value, index);
+                                        if (recvCount >= 0)
+                                        {
+                                            if (1 != (value - recvCount))
+                                                TRACE("WARNING! possible break? value:%d recvCount:%d\n",
+                                                        value, recvCount);
+                                            else
+                                                msgCount++; // successful recv
+                                            //else
+                                            //    TRACE("validated recv msg len:%d\n", len);
+                                        }
+                                        recvCount = value;   
                                     }
-                                    index = value;
+                                    else
+                                    {
+                                        TRACE("couldn't find index!?\n");
+                                        ASSERT(0);
+                                    }
+                                    if ((unsigned int)rxIndex > len)
+                                    {
+                                        memmove(rxBuffer, rxBuffer+len, rxIndex - len);
+                                        rxIndex -= len;   
+                                    }
+                                    else
+                                    {
+                                        rxIndex = 0;
+                                    }
                                 }
                                 else
                                 {
-                                    TRACE("couldn't find index\n");
+                                    TRACE("invalid string!?\n");
+                                    ASSERT(0);
                                 }
-                                ptr += 5;
                             }
                         }
                     }
                     else
                     {
-                        TRACE("normTest: error reading stream\n");  
+                        TRACE("normTest: error reading stream\n"); 
+                        TRACE("status: msgCount:%d of total:%d (%lf)\n",
+                                msgCount, recvCount, 100.0*((double)msgCount)/((double)recvCount));
+                        msgSync = false;
+                        rxIndex = 0;
                         break; 
                     }  
                 } while (0 != len);
@@ -209,7 +255,7 @@ int main(int argc, char* argv[])
         }  // end switch(theEvent.type)
         
         // Break after sending "sendMax" messages or files
-        if (sendCount >= sendMax) break;
+        //if (sendCount >= sendMax) break;
         
     }  // end while (NormGetNextEvent())
     

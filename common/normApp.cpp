@@ -108,6 +108,7 @@ class NormApp : public NormController, public ProtoApp
         
         // NormSession client-only parameters
         unsigned long       rx_buffer_size; // bytes
+        unsigned int        rx_sock_buffer_size;
         NormFileList        rx_file_cache;
         char*               rx_cache_path;
         NormPostProcessor*  post_processor;
@@ -129,7 +130,7 @@ NormApp::NormApp()
    push_mode(false), msg_flush_mode(NormStreamObject::FLUSH_PASSIVE),
    input_messaging(false), input_msg_length(0), input_msg_index(0),
    output_index(0), output_messaging(false), output_msg_length(0), output_msg_sync(false),
-   address(NULL), port(0), ttl(3), loopback(false), interface_name(NULL),
+   address(NULL), port(0), ttl(32), loopback(false), interface_name(NULL),
    tx_rate(64000.0), cc_enable(false),
    segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
    backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
@@ -137,7 +138,8 @@ NormApp::NormApp()
    group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
    tx_buffer_size(1024*1024), 
    tx_object_interval(0.0), tx_repeat_count(0), tx_repeat_interval(2.0), tx_repeat_clear(true),
-   rx_buffer_size(1024*1024), rx_cache_path(NULL), unicast_nacks(false), silent_client(false),
+   rx_buffer_size(1024*1024), rx_sock_buffer_size(0),
+   rx_cache_path(NULL), unicast_nacks(false), silent_client(false),
    tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
     
@@ -215,6 +217,7 @@ const char* const NormApp::cmd_list[] =
     "+gsize",        // Set sender's group size estimate
     "+txbuffer",     // Size of sender's buffer
     "+rxbuffer",     // Size receiver allocates for buffering each sender
+    "+rxsockbuffer", // Optional recv socket buffer size.
     "-unicastNacks", // unicast instead of multicast feedback messages
     "-silentClient", // "silent" (non-nacking) client (EMCON mode)
     "+processor",    // receive file post processing command
@@ -686,6 +689,16 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
             DMSG(0, "NormApp::OnCommand(rxbuffer) invalid value!\n");   
             return false;
         }
+    }
+    else if (!strncmp("rxsockbuffer", cmd, len))
+    {
+        if (1 != sscanf(val, "%u", &rx_sock_buffer_size))
+        {
+            DMSG(0, "NormApp::OnCommand(rxsockbuffer) invalid value!\n");   
+            return false;
+        }
+        if (session && (rx_sock_buffer_size > 0)) 
+            session->SetRxSocketBuffer(rx_sock_buffer_size);
     }
     else if (!strncmp("unicastNacks", cmd, len))
     {
@@ -1186,7 +1199,7 @@ void NormApp::Notify(NormController::Event event,
                                     DMSG(0, "NormApp::Notify() detected broken stream ...\n");
                                 output_msg_length = output_index = 0;
                                 output_msg_sync = false;
-                                continue;
+                                break;
                             }
                         }
                         else
@@ -1464,6 +1477,8 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
                 session_mgr.Destroy();
                 return false;
             }
+            if (rx_sock_buffer_size > 0)
+                session->SetRxSocketBuffer(rx_sock_buffer_size);
         }
         return true;
     }

@@ -281,7 +281,7 @@ class NormServerNode : public NormNode
         }
         void SetPending(NormObjectId objectId);
         
-        void DeleteObject(NormObject* obj, int which);
+        void DeleteObject(NormObject* obj);
         
         UINT16 SegmentSize() {return segment_size;}
         UINT16 BlockSize() {return ndata;}

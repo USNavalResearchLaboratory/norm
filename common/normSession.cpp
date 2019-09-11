@@ -1378,22 +1378,26 @@ double NormSession::CalculateRtt(const struct timeval& currentTime,
 void NormSession::ServerUpdateGrttEstimate(double clientRtt)
 {
     grtt_response = true;
-    if ((clientRtt > grtt_current_peak) || !address.IsMulticast()) 
+    //if ((clientRtt > grtt_current_peak) || !address.IsMulticast()) 
+    if ((clientRtt > grtt_measured) || !address.IsMulticast())
     {
         // Immediately incorporate bigger RTT's
         grtt_current_peak = clientRtt;
-        if ((clientRtt > grtt_measured) || !address.IsMulticast()) 
+        //if ((clientRtt > grtt_measured) || !address.IsMulticast()) 
         {
             grtt_decrease_delay_count = DEFAULT_GRTT_DECREASE_DELAY;
-            grtt_measured = 0.25 * grtt_measured + 0.75 * clientRtt; 
+            //grtt_measured = 0.25 * grtt_measured + 0.75 * clientRtt; 
+            grtt_measured = 0.9 * grtt_measured + 0.1 * clientRtt; 
             if (grtt_measured > grtt_max) grtt_measured = grtt_max;
             double pktInterval =  ((double)(44+segment_size))/tx_rate;
             UINT8 grttQuantizedOld = grtt_quantized;
             grtt_quantized = NormQuantizeRtt(MAX(pktInterval, grtt_measured));
             // Calculate grtt_advertised since quantization rounds upward
             grtt_advertised = NormUnquantizeRtt(grtt_quantized);
+            
+            double clrRtt = cc_node_list.Head() ? ((NormCCNode*)cc_node_list.Head())->GetRtt() : -1;
             if (grttQuantizedOld != grtt_quantized)
-                DMSG(4, "NormSession::ServerUpdateGrttEstimate() node>%lu new grtt: %lf sec.\n",
+                DMSG(4, "NormSession::ServerUpdateGrttEstimate() node>%lu new grtt>%lf sec\n",
                         LocalNodeId(), grtt_advertised);
         }
     } 
@@ -1433,7 +1437,7 @@ void NormSession::ServerHandleCCFeedback(NormNodeId nodeId,
     }
     if (!cc_enable) return;
     
-    // Adjust ccRtt if we have state on this nodeId
+    // Adjust ccRtt if we already have state on this nodeId
     NormCCNode* node = (NormCCNode*)cc_node_list.FindNodeById(nodeId);
     if (node) ccRtt = node->UpdateRtt(ccRtt);
     
@@ -1818,7 +1822,8 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         if ((OBJECT == requestLevel) || (INFO == requestLevel))
                         {
                             nextObjectId++;
-                            if (nextObjectId > lastObjectId) inRange = false;
+                            if (nextObjectId > lastObjectId) 
+                                inRange = false;
                         }
                         else
                         {
@@ -1842,7 +1847,7 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                             startTimer = true;
                         }
                     }
-                }
+                }  // end if (freshObject)
                 ASSERT(object);
                 
                 switch (requestLevel)
@@ -1871,11 +1876,10 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         nextObjectId++;
                         if (nextObjectId > lastObjectId) inRange = false;
                         break;
-                        
                     case BLOCK:
                         DMSG(8, "NormSession::ServerHandleNackMessage(BLOCK) obj>%hu blks>%lu:%lu\n", 
                                 (UINT16)nextObjectId, (UINT32)nextBlockId, (UINT32)lastBlockId);
-                        
+                        inRange = false; // BLOCK requests are processed in one pass
                         // (TBD) if entire object is TxReset(), continue
                         if (object->IsStream())
                         {
@@ -1893,7 +1897,7 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                 }
                                 else if (nextObjectId < txObjectIndex)
                                 {
-                                    attemptLock = false;  // NACK arrived too late 
+                                    attemptLock = false;  // NACK arrived too late to be useful
                                 }
                             }
                             
@@ -1907,21 +1911,19 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                 {
                                     DMSG(4, "NormSession::ServerHandleNackMessage() node>%lu LockBlocks() failure\n",
                                             LocalNodeId());
-                                    inRange = false;
                                     if (!squelchQueued) 
                                     {
                                         ServerQueueSquelch(nextObjectId);
                                         squelchQueued = true;
                                     }
-                                    continue;
+                                    break;
                                 } 
                             }
                             else
                             {
-                                inRange = false;
-                                continue;
+                                break;   // ignore late arriving NACK
                             }   
-                        }
+                        }  // end if (object->IsStream()
                         if (holdoff)
                         {
                             if (nextObjectId == txObjectIndex)
@@ -1946,21 +1948,19 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                             object->HandleBlockRequest(nextBlockId, lastBlockId);
                             startTimer = true;
                         }
-                        inRange = false;
                         break;
                     case SEGMENT:
                         DMSG(8, "NormSession::ServerHandleNackMessage(SEGMENT) obj>%hu blk>%lu segs>%hu:%hu\n", 
                                 (UINT16)nextObjectId, (UINT32)nextBlockId, 
                                 (UINT32)nextSegmentId, (UINT32)lastSegmentId);
+                        inRange = false;  // SEGMENT repairs are also handled in one pass
                         if (nextBlockId != prevBlockId) freshBlock = true;
                         if (freshBlock)
                         {
+                            freshBlock = false;
                             // Is this entire block already repair pending?
                             if (object->IsRepairSet(nextBlockId)) 
-                            {
-                                inRange = false;
-                                continue;
-                            }
+                                break;
                             if (!(block = object->FindBlock(nextBlockId)))
                             {
                                 // Is this entire block already tx pending?
@@ -1974,22 +1974,19 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                             DMSG(4, "NormSession::ServerHandleNackMessage() node>%lu "
                                                     "recvd repair request for old stream block(%lu) ...\n",
                                                     LocalNodeId(), (UINT32)nextBlockId);
-                                            inRange = false;
                                             if (!squelchQueued) 
                                             {
                                                 ServerQueueSquelch(nextObjectId);
                                                 squelchQueued = true;
                                             }
-                                            continue;
                                         }
                                         else
                                         {
                                             // Resource constrained, move on.
                                             DMSG(2, "NormSession::ServerHandleNackMessage() node>%lu "
                                                     "Warning - server is resource contrained ...\n");
-                                            inRange = false;
-                                            continue; 
                                         }  
+                                        break;
                                     }
                                 }
                                 else
@@ -1997,10 +1994,9 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                     // Entire block already tx pending, don't recover
                                     DMSG(0, "NormSession::ServerHandleNackMessage() node>%lu "
                                             "recvd SEGMENT repair request for pending block.\n");
-                                    continue;   
+                                    break;   
                                 }
                             }
-                            freshBlock = false;
                             numErasures = extra_parity;
                             prevBlockId = nextBlockId;
                         }
@@ -2052,21 +2048,19 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                 {
                                     DMSG(0, "NormSession::ServerHandleNackMessage() node>%lu "
                                             "LockSegments() failure\n", LocalNodeId());
-                                    inRange = false;
                                     if (!squelchQueued) 
                                     {
                                         ServerQueueSquelch(nextObjectId);
                                         squelchQueued = true;
                                     }
-                                    continue;
+                                    break;
                                 }  
                             }  
                             else
                             {
-                                inRange = false;
-                                continue;
+                                break;  // ignore late arriving NACK
                             }  
-                        }  // end (object->IsStream() && (nextSegmentId < ndata))
+                        }  // end if (object->IsStream() && (nextSegmentId < ndata))
                             
                         // With a series of SEGMENT repair requests for a block, "numErasures" will
                         // eventually total the number of missing segments in the block.
@@ -2115,12 +2109,11 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                                         nparity, numErasures);
                             startTimer = true;
                         }  // end if/else (holdoff)
-                        inRange = false;
                         break;
-                        
                     case INFO:
                         nextObjectId++;
-                        if (nextObjectId > lastObjectId) inRange = false;
+                        if (nextObjectId > lastObjectId) 
+                            inRange = false;
                         break; 
                 }  // end switch(requestLevel)
             }  // end while(inRange)
@@ -2841,7 +2834,7 @@ void NormSession::AdjustRate(bool onResponse)
         }
     }
     
-    DMSG(6, "ServerRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n\n", theTime, tx_rate*(8.0/1000.0), ccRtt, ccLoss);
+    DMSG(8, "ServerRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n\n", theTime, tx_rate*(8.0/1000.0), ccRtt, ccLoss);
 }  // end NormSession::AdjustRate()
 
 bool NormSession::OnReportTimeout(ProtoTimer& /*theTimer*/)
@@ -2855,8 +2848,16 @@ bool NormSession::OnReportTimeout(ProtoTimer& /*theTimer*/)
     if (IsServer())
     {
         DMSG(2, "Local status:\n");
-        DMSG(2, "   txRate>%9.3lf kbps grtt>%lf\n", 
-                 ((double)tx_rate)*8.0/1000.0, grtt_advertised);
+        DMSG(2, "   txRate>%9.3lf kbps sentRate>%9.3lf grtt>%lf\n", 
+                 ((double)tx_rate)*8.0/1000.0, sent_rate*8.0/1000.0, grtt_advertised);
+        if (cc_enable)
+        {
+            const NormCCNode* clr = (const NormCCNode*)cc_node_list.Head(); 
+            if (clr)  
+                DMSG(2, "   clr>%lu rate>%9.3lf rtt>%lf loss>%lf\n", clr->GetId(),
+                     clr->GetRate()*8.0/1000.0, clr->GetRtt(), clr->GetLoss());
+        }
+            
     }
     if (IsClient())
     {

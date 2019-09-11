@@ -2315,7 +2315,8 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
             block = stream_buffer.Find(stream_buffer.RangeLo());
             if (block->IsPending()) broken = true;
             // This loop feeds any received user data segments to the application
-            // (if the application doesn't want the data, it's lost)
+            // (if the application doesn't want the data, it's lost!)
+            bool dataLost = false;
             while (block->IsPending())
             {             
                 // Notify app for stream data salvage  
@@ -2330,9 +2331,8 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
                     if (tempOffset == read_offset)
                     {
                         // App didn't want any data here, purge segment
-                        DMSG(0, "NormStreamObject::WriteSegment() app didn't want data ?!, blockId:%lu\n",
-                                (UINT32)block->GetId());
-                        ASSERT(0);
+                        //ASSERT(0);
+                        dataLost = true;
                         char* s = block->DetachSegment(read_index.segment);
                         segment_pool.Put(s);
                         block->UnsetPending(read_index.segment);
@@ -2345,6 +2345,9 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
                     break;
                 }              
             }
+            if (dataLost)
+                DMSG(0, "NormStreamObject::WriteSegment() broken stream data dropped!\n");
+                        
             if (block)
             {
                 // if the app didn't consume the block, we must
@@ -2443,7 +2446,10 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
         {
            // DMSG(0, "NormStreamObject::Read() stream buffer empty (1) (sbEmpty:%d)\n", stream_buffer.IsEmpty());
             *buflen = bytesRead;
-            return true;   
+            if (bytesRead > 0)
+                return true;
+            else
+                return findMsgStart ? false : true;   
         }
         char* segment = block->Segment(read_index.segment);
         if (!segment)
@@ -2451,7 +2457,10 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
             //DMSG(0, "NormStreamObject::Read(%lu:%hu) stream buffer empty (2)\n",
             //        (UINT32)read_index.block, read_index.segment);
             *buflen = bytesRead;
-            return true;   
+            if (bytesRead > 0)
+                return true;
+            else
+                return findMsgStart ? false : true; 
         }
         
         UINT32 segmentOffset = NormDataMsg::ReadStreamPayloadOffset(segment);

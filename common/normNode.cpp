@@ -207,7 +207,9 @@ void NormServerNode::FreeBuffers()
     while ((obj = rx_table.Find(rx_table.RangeLo()))) 
     {
         session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
-        DeleteObject(obj, 6);
+        DeleteObject(obj);
+        // We do the following to remember which objects were pending
+        rx_pending_mask.Set(obj->GetId());
     }
     segment_pool.Destroy();
     block_pool.Destroy();
@@ -685,7 +687,7 @@ void NormServerNode::CalculateGrttResponse(const struct timeval&    currentTime,
     }
 }  // end NormServerNode::CalculateGrttResponse()
 
-void NormServerNode::DeleteObject(NormObject* obj, int which)
+void NormServerNode::DeleteObject(NormObject* obj)
 {
     if (rx_table.Remove(obj))
         rx_pending_mask.Unset(obj->GetId());
@@ -866,10 +868,16 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
         }
         else
         {
+            // The hacky use of "sync_id" here keeps the debug message from
+            // printing too often.
             if (0 == sync_id)
             {
                 DMSG(0, "NormServerNode::HandleObjectMessage() waiting to sync ...\n");
-                sync_id = 1;
+                sync_id = 100;
+            }
+            else
+            {
+                sync_id--;
             }
             return;   
         }
@@ -939,13 +947,13 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                             }
                             else
                             {
-                                DeleteObject(obj, 7);
+                                DeleteObject(obj);
                                 obj = NULL;    
                             }
                         }
                         else        
                         {
-                            DeleteObject(obj, 1);
+                            DeleteObject(obj);
                             obj = NULL;   
                         }
                         break;
@@ -955,7 +963,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                 {
                     DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu "
                             "new obj>%hu - no FTI provided!\n", LocalNodeId(), GetId(), (UINT16)objectId);
-                    DeleteObject(obj, 2);
+                    DeleteObject(obj);
                     obj = NULL;
                 }
             }
@@ -985,7 +993,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
             {
                 // Streams never complete
                 session.Notify(NormController::RX_OBJECT_COMPLETED, this, obj);
-                DeleteObject(obj, 3);
+                DeleteObject(obj);
                 completion_count++;
             }
         } 
@@ -1058,7 +1066,7 @@ void NormServerNode::Sync(NormObjectId objectId)
                 while ((obj = rx_table.Find(rx_table.RangeLo()))) 
                 {
                     session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
-                    DeleteObject(obj, 4);
+                    DeleteObject(obj);
                     failure_count++;
                 }
                 rx_pending_mask.Clear(); 
@@ -1070,7 +1078,7 @@ void NormServerNode::Sync(NormObjectId objectId)
                       (obj->GetId() < objectId)) 
                {
                    session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
-                   DeleteObject(obj, 5);
+                   DeleteObject(obj);
                    failure_count++;
                }
                unsigned long numBits = (UINT16)(objectId - firstPending) + 1;
@@ -1583,15 +1591,15 @@ void NormServerNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
         else
             interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);            
         double rttEstimate = rtt_confirmed ? rtt_estimate : grtt_estimate;
-        if (interval < rttEstimate)
-        {
-            recv_accumulator += msgSize;
-        }
-        else
+        // We put a 0.100 sec lower bound on our rttEstimate for the recv_rate measurement
+        // interval because of the typical limited granularity of our system clock
+        rttEstimate = rttEstimate < 0.1 ? 0.1 : rttEstimate;
+        recv_accumulator += msgSize;
+        if (interval >= rttEstimate)
         {
             recv_rate = ((double)(recv_accumulator)) / interval;
             prev_update_time = currentTime;
-            recv_accumulator = msgSize;
+            recv_accumulator = 0;
         }
     }
     else
