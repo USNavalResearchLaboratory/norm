@@ -205,6 +205,7 @@ bool NormBlock::IsRepairPending(UINT16 numData, UINT16 numParity)
         repair_mask.SetBits(0, numData);
         repair_mask.SetBits(numData+erasure_count, numParity-erasure_count);
     }
+    // Calculate repair_mask = pending_mask - repair_mask 
     repair_mask.XCopy(pending_mask);
     return (repair_mask.IsSet());
 }  // end NormBlock::IsRepairPending()

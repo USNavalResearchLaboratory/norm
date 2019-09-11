@@ -554,7 +554,8 @@ void NormServerNode::HandleRepairContent(const char* buffer, UINT16 bufferLen)
                             block = object->FindBlock(nextBlockId);
                             prevBlockId = nextBlockId;
                         }
-                        if (block) block->SetRepairs(nextSegmentId,lastSegmentId);
+                        if (block) 
+                            block->SetRepairs(nextSegmentId,lastSegmentId);
                     }
                     break;
                 }
@@ -1336,7 +1337,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                 else
                 {
                     suppress_count++;
-                    DMSG(6, "NormServerNode::OnRepairTimeout() node>%lu NACK SUPPRESSED ...\n",
+                    DMSG(4, "NormServerNode::OnRepairTimeout() node>%lu NACK SUPPRESSED ...\n",
                             LocalNodeId());
                 }  // end if/else(repairPending)
                 // BACKOFF related code

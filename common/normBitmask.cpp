@@ -201,6 +201,8 @@ void NormBitmask::Destroy()
 
 bool NormBitmask::GetNextSet(unsigned long& index) const
 {   
+    //TRACE("NormBitmask::GetNextSet(%lu) first_set:%lu num_bits:%lu\n",
+    //        index, first_set, num_bits);
     if (index >= num_bits) return false;
     if (index < first_set) return GetFirstSet(index);
     unsigned long maskIndex = index >> 3;
@@ -394,7 +396,7 @@ bool NormBitmask::Subtract(const NormBitmask& b)
 }  // end NormBitmask::Subtract()
 
 
-// this = ~this & b
+// this = ~this & b  (this = b - this)
 bool NormBitmask::XCopy(const NormBitmask& b)
 {
     if (b.num_bits > num_bits) return false;
@@ -411,7 +413,7 @@ bool NormBitmask::XCopy(const NormBitmask& b)
     else
     {
         first_set = b.first_set;
-        GetNextSet(first_set);
+        if (!GetNextSet(first_set)) first_set = num_bits;
     }
     return true;
 }  // end NormBitmask::XCopy()
@@ -442,7 +444,9 @@ bool NormBitmask::Xor(const NormBitmask& b)
     for(unsigned int i = 0; i < b.mask_len; i++)
         mask[i] ^= b.mask[i];
     if (b.first_set == first_set)
-        GetNextSet(first_set);
+    {
+        if (!GetNextSet(first_set)) first_set = num_bits;
+    }
     return true;
 }  // end NormBitmask::Xor()
 
