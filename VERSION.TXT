@@ -21,9 +21,8 @@ Version 1.4b3
     - Fixed issue with NormSession::QueueTxObject() where ASSERT() failure
       occurred depending upon previous tx object enqueue/dequeue history
       (Thanks to Jeff Bush for finding this one)
-    - Changed repeated scheduling of receiver remote sender inactivity
-      timer to ensure that busy CPU doesn't result in premature 
-      inactivity indication.
+    - Fixed issue with fix for stream lockup problem from below.
+      (this is in version 1.4b3a)
       
 Version 1.4b2
 =============

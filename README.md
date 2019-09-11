@@ -105,8 +105,6 @@ NormDeveloperGuide.html - HTML version of NORM Developer's Guide
                           (nice for browsing)
 
 NormUserGuide.pdf       - Guide to "norm" demo app usage
-                          (this document needs corrections and
-                           is currently incomplete)
 
 VERSION.TXT             - NORM version history notes
 

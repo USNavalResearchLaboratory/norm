@@ -1598,19 +1598,18 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
        }      
        
        block->TxInit(blockId, numData, session.ServerAutoParity());  
-       
-       if (blockId < max_pending_block)
-           block->SetFlag(NormBlock::IN_REPAIR);
+       if (blockId < max_pending_block) block->SetFlag(NormBlock::IN_REPAIR);
        while (!block_buffer.Insert(block))
        {
            ASSERT(STREAM == type);
            if (blockId > block_buffer.RangeLo())
            {
-               NormBlock* b = block_buffer.Find(block_buffer.RangeLo());
-               ASSERT(NULL != b);
-               ASSERT(!b->IsPending());
+               NormBlock* lowBlock = block_buffer.Find(block_buffer.RangeLo());
+               ASSERT(NULL != lowBlock);
+               ASSERT(!lowBlock->IsPending());
+               NormBlockId lowBlockId = lowBlock->GetId();
                bool push = static_cast<NormStreamObject*>(this)->GetPushMode();
-               if (!push && (b->IsRepairPending() || IsRepairSet(b->GetId())))
+               if (!push && (lowBlock->IsRepairPending() || IsRepairSet(lowBlockId)))
                {
                    // Pending repairs delaying stream advance
                    DMSG(4, "NormObject::NextServerMsg() node>%lu pending repairs delaying stream progress\n", LocalNodeId());
@@ -1620,12 +1619,12 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
                else
                {
                     // Prune old non-pending block (or even pending if "push" enabled stream)
-                    block_buffer.Remove(b);
-                    repair_mask.Unset(blockId);  // just in case
-                    pending_mask.Unset(blockId);
-                    if (IsStream())
-                        static_cast<NormStreamObject*>(this)->UnlockBlock(b->GetId());
-                    session.ServerPutFreeBlock(b);
+                    block_buffer.Remove(lowBlock);
+                    repair_mask.Unset(lowBlockId);  // just in case
+                    pending_mask.Unset(lowBlockId);
+                    if (IsStream())  // always true
+                        static_cast<NormStreamObject*>(this)->UnlockBlock(lowBlockId);
+                    session.ServerPutFreeBlock(lowBlock);
                     continue;
                }
            }
@@ -1641,8 +1640,8 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
            }
            else
            {
-               ASSERT(0);
                DMSG(0, "NormObject::NextServerMsg() invalid non-stream state!\n");
+               ASSERT(0);
                return false;
            }
        }
