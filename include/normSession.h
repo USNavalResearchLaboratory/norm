@@ -51,6 +51,7 @@ class NormController
             RX_OBJECT_UPDATED,
             RX_OBJECT_COMPLETED,
             RX_OBJECT_ABORTED,
+            RX_ACK_REQUEST,         // upon receipt of app-extended watermark ack request
             GRTT_UPDATED,
             CC_ACTIVE,              // posted when cc feedback is detected
             CC_INACTIVE,            // posted when no cc feedback and min rate reached 
@@ -165,6 +166,14 @@ class NormSession
             TRACK_RECEIVERS = 0x01,
             TRACK_SENDERS   = 0x02,
             TRACK_ALL       = 0x03
+        };
+       
+        // Object FEC Transport Information (FTI) mode
+        enum FtiMode
+        {
+            FTI_PRESET  = 0,  // Receivers have preset FTI, don't send
+            FTI_INFO    = 1,  // Send FTI in NORM_INFO messages only
+            FTI_ALWAYS  = 2   // Send FTI in NORM_DATA and NORM_INFO messages
         };
                
         // General methods
@@ -384,11 +393,14 @@ class NormSession
         NormObject* SenderFindTxObject(NormObjectId objectId)
             {return tx_table.Find(objectId);}
         
-        // postive ack mgmnt
-        void SenderSetWatermark(NormObjectId  objectId,
+        // postive ack mgmnt (can only fail when 'appAckReq' is set)
+        bool SenderSetWatermark(NormObjectId  objectId,
                                 NormBlockId   blockId,
                                 NormSegmentId segmentId,
-                                bool          overrideFlush = false);
+                                bool          overrideFlush = false,
+                                const char*   appAckReq = NULL,
+                                unsigned int  appAckReqLen = 0);
+        
         void SenderResetWatermark();
         void SenderCancelWatermark();
         
@@ -400,6 +412,7 @@ class NormSession
         AckingStatus SenderGetAckingStatus(NormNodeId nodeId);
         // Set "prevNodeId = NORM_NODE_NONE" to init this iteration (returns "false" when done)
         bool SenderGetNextAckingNode(NormNodeId& prevNodeId, AckingStatus* ackingStatus = NULL);
+        bool SenderGetAckEx(NormNodeId nodeId, char* buffer, unsigned int* buflen);
         
         NormAckingNode* SenderFindAckingNode(NormNodeId nodeId) const
         {
@@ -486,6 +499,11 @@ class NormSession
             gsize_advertised = NormUnquantizeGroupSize(gsize_quantized);
         }
         
+        FtiMode SenderFtiMode() const
+            {return fti_mode;}
+        void SenderSetFtiMode(FtiMode ftiMode)
+            {fti_mode = ftiMode;}
+        
         void SenderEncode(unsigned int segmentId, const char* segment, char** parityVectorList)
             {encoder->Encode(segmentId, segment, parityVectorList);}
         
@@ -529,6 +547,21 @@ class NormSession
                                      UINT16         numData, 
                                      UINT16         numParity, 
                                      unsigned int   streamBufferSize = 0);
+        
+        bool SetPresetFtiData(unsigned int objectSize,
+                              UINT16       segmentSize,   
+                              UINT16       numData,       
+                              UINT16       numParity);   
+        
+        bool GetPresetFtiData(NormFtiData& ftiData)
+        {
+            if (preset_fti.IsValid())
+            {
+                ftiData = preset_fti;
+                return true;
+            }
+            return false;   
+        }
         
         void ReceiverSetUnicastNacks(bool state) 
             {unicast_nacks = state;}
@@ -724,6 +757,7 @@ class NormSession
         bool                            sndr_emcon;
         bool                            tx_only;
         bool                            tx_connect;
+        FtiMode                         fti_mode;  
         
         NormObjectTable                 tx_table;
         ProtoSlidingMask                tx_pending_mask;
@@ -813,6 +847,10 @@ class NormSession
         ProtoTimer                      cmd_timer;
         bool                            syn_status;
         
+        // Sender "app-defined" ACK_REQUEST state (for NormSetWatermarkEx())
+        char*                           ack_ex_buffer;
+        unsigned int                    ack_ex_length;
+        
         // Receiver parameters
         bool                            is_receiver;
         int                             rx_robust_factor;
@@ -828,6 +866,7 @@ class NormSession
         NormObject::NackingMode         default_nacking_mode;
         NormSenderNode::SyncPolicy      default_sync_policy;
         UINT16                          rx_cache_count_max;
+        NormFtiData                     preset_fti;
         
         // For NormSocket server-listener support
         bool                            is_server_listener;

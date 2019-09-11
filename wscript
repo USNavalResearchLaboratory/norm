@@ -65,8 +65,11 @@ def configure(ctx):
         ctx.env.DEFINES_BUILD_NORM += ['NORM_USE_DLL']
 
     if ctx.env.COMPILER_CXX == 'g++' or ctx.env.COMPILER_CXX == 'clang++':
-        ctx.env.CFLAGS += ['-fvisibility=hidden']
-        ctx.env.CXXFLAGS += ['-fvisibility=hidden']
+        ctx.env.CFLAGS += ['-fvisibility=hidden', '-Wno-attributes']
+        ctx.env.CXXFLAGS += ['-fvisibility=hidden', '-Wno-attributes']
+
+    # Will be used by the pkg-config generator
+    ctx.env.VERSION = VERSION
 
 def build(ctx):
     ctx.recurse('protolib')
@@ -132,7 +135,8 @@ def build(ctx):
     if ctx.env.BUILD_JAVA:
         ctx.shlib(
             target = 'mil_navy_nrl_norm',
-            use = ['norm_shlib', 'JAVA'],
+            includes = ['include'],
+            use = ['norm', 'JAVA'],
 		    vnum = VERSION,
             source = ['src/java/jni/{0}.cpp'.format(x) for x in [
                 'normJni',
@@ -204,6 +208,16 @@ def build(ctx):
 
     # Enable example targets specified on the command line
     ctx._parse_targets()
+
+    # Generate pkg-config file
+    # Add additional static compilation dependencies based on the system.
+    # libpcap is used by protolib on GNU/Hurd based systems.
+    static_libs = ''
+    if ctx.options.enable_static_library:
+        static_libs += ' -lstdc++ -lprotolib'
+        if system == "gnu":
+            static_libs += ' -lpcap'
+    ctx(source='norm.pc.in', STATIC_LIBS = static_libs)
 
 def _make_simple_example(ctx, name, path='examples'):
     '''Makes a task from a single source file in the examples directory.

@@ -49,7 +49,7 @@ bool NormMsg::InitFromBuffer(UINT16 msgLength)
                         PLOG(PL_FATAL, "NormMsg::InitFromBuffer(DATA) unknown fec_id value: %u\n", fecId);
                         return false;
                     }
-                    header_length_base  = 4*NormCmdFlushMsg::FEC_ID_OFFSET + fecIdLen;
+                    header_length_base  = 4 * NormCmdFlushMsg::FEC_PAYLOAD_ID_OFFSET + fecIdLen;
                     break;
                 }
                 case NormCmdMsg::EOT:

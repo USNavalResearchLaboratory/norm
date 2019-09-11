@@ -69,11 +69,13 @@ NORM_RX_OBJECT_INFO         = 18
 NORM_RX_OBJECT_UPDATED      = 19
 NORM_RX_OBJECT_COMPLETED    = 20
 NORM_RX_OBJECT_ABORTED      = 21
-NORM_GRTT_UPDATED           = 22
-NORM_CC_ACTIVE              = 23
-NORM_CC_INACTIVE            = 24
-
-
+NORM_RX_ACK_REQUEST         = 22
+NORM_GRTT_UPDATED           = 23
+NORM_CC_ACTIVE              = 24
+NORM_CC_INACTIVE            = 25
+NORM_ACKING_NODE_NEW        = 26
+NORM_SEND_ERROR             = 27
+NORM_USER_TIMEOUT           = 28
 
 NORM_INSTANCE_INVALID = ctypes.c_void_p.in_dll(libnorm, "NORM_INSTANCE_INVALID").value
 NORM_SESSION_INVALID  = ctypes.c_void_p.in_dll(libnorm, "NORM_SESSION_INVALID").value

@@ -206,10 +206,21 @@ class NormAckingNode : public NormNode
         unsigned int GetReqCount() const {return req_count;}
         bool AckReceived() const {return ack_received;}
         void MarkAckReceived() {ack_received = true;}
+        
+        bool SetAckEx(const char* buffer, UINT16 numBytes);
+        bool GetAckEx(char* buffer, unsigned int* buflen);
+        
+        /*
+        const char* GetAppAckContent() const
+            {return (const char*)ack_ex_buffer;}
+        unsigned int GetAppAckLength() const
+            {return ack_ex_length;} */
                 
     private:
         bool            ack_received; // was ack received?
         unsigned int    req_count;    // remaining request attempts
+        char*           ack_ex_buffer;
+        unsigned int    ack_ex_length;
         
 };  // end NormAckingNode
 
@@ -297,7 +308,7 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
                                  UINT16       segmentSize  ,     
                                  UINT16       numData,           
                                  UINT16       numParity);
-        bool GetFtiData(const NormObjectMsg& msg, NormFtiData& ftiData);         
+        bool GetFtiData(const NormObjectMsg& msg, NormFtiData& ftiData);
         
         // Parameters
         NormObject::NackingMode GetDefaultNackingMode() const 
@@ -359,7 +370,7 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
                              UINT16         segmentSize,
                              UINT16         numData, 
                              UINT16         numParity);
-        bool BuffersAllocated() {return (0 != segment_size);}
+        bool BuffersAllocated() {return (NULL != retrieval_pool);}
         void FreeBuffers();
         void Activate(bool isObjectMsg);
         
@@ -370,7 +381,7 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         
         
         UINT8 GetFecFieldSize() const 
-            {return fec_m;}
+            {return fti_data.GetFecFieldSize();}
         
         bool GetFirstPending(NormObjectId& objectId) const
         {
@@ -408,9 +419,9 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
                 return NULL;
         }        
         
-        UINT16 SegmentSize() {return segment_size;}
-        UINT16 BlockSize() {return ndata;}
-        UINT16 NumParity() {return nparity;}
+        UINT16 SegmentSize() const {return fti_data.GetSegmentSize();}
+        UINT16 BlockSize() const {return fti_data.GetFecMaxBlockLen();}
+        UINT16 NumParity() const {return fti_data.GetFecNumParity();}
         
         NormBlock* GetFreeBlock(NormObjectId objectId, NormBlockId blockId);
         void PutFreeBlock(NormBlock* block)
@@ -425,7 +436,7 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         
         void SetErasureLoc(UINT16 index, UINT16 value)
         {
-            ASSERT(index < nparity);
+            ASSERT(index < NumParity());
             erasure_loc[index] = value;
         }
         UINT16 GetErasureLoc(UINT16 index) 
@@ -434,7 +445,7 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         }
         void SetRetrievalLoc(UINT16 index, UINT16 value)
         {
-            ASSERT(index < ndata);
+            ASSERT(index < BlockSize());
             retrieval_loc[index] = value;
         }
         UINT16 GetRetrievalLoc(UINT16 index) 
@@ -444,7 +455,7 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         char* GetRetrievalSegment()
         {
             char* s = retrieval_pool[retrieval_index++];
-            retrieval_index = (retrieval_index >= ndata) ? 0 : retrieval_index;
+            retrieval_index = (retrieval_index >= BlockSize()) ? 0 : retrieval_index;
             return s;   
         }
         
@@ -458,9 +469,9 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         
         // Statistics kept on sender
         unsigned long CurrentBufferUsage() const
-            {return (segment_size * segment_pool.CurrentUsage());}
+            {return (SegmentSize() * segment_pool.CurrentUsage());}
         unsigned long PeakBufferUsage() const
-            {return (segment_size * segment_pool.PeakUsage());}
+            {return (SegmentSize() * segment_pool.PeakUsage());}
         unsigned long BufferOverunCount() const
             {return segment_pool.OverunCount() + block_pool.OverrunCount();}
         
@@ -530,6 +541,9 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         
         bool ReadNextCmd(char* buffer, unsigned int* buflen);
         
+        bool SendAckEx(const char* data, unsigned int numBytes);   
+        bool GetWatermarkEx(char* buffer, unsigned int* buflen);
+        
         void SetAddress(const ProtoAddress& address)
         {
             unsigned int len = address.GetLength();
@@ -591,11 +605,15 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         UINT16                  max_pending_range;  // max range of pending objs allowed
         
         bool                    is_open;
-        UINT16                  segment_size;
+        // TBD - embed the FTI parameters into a NormFtiData object
         UINT8                   fec_id;
-        UINT8                   fec_m;
-        unsigned int            ndata;
-        unsigned int            nparity;
+        NormFtiData             fti_data;
+        bool                    preset_fti;
+        //UINT16                  segment_size;
+        //UINT8                   fec_id;
+        //UINT8                   fec_m;
+        //unsigned int            ndata;
+        //unsigned int            nparity;
         NormStreamObject*       preset_stream;
         
         NormObjectTable         rx_table;
@@ -622,6 +640,9 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         NormObjectId            watermark_object_id;
         NormBlockId             watermark_block_id;
         NormSegmentId           watermark_segment_id;
+        bool                    ack_ex_pending;
+        char*                   ack_ex_buffer;
+        unsigned int            ack_ex_length;
         
         // Remote sender grtt measurement state       
         double                  grtt_estimate;

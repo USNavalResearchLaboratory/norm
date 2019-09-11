@@ -71,7 +71,16 @@ class NormStreamer
             loopback = state;
             if (NORM_SESSION_INVALID != norm_session)
                 NormSetMulticastLoopback(norm_session, state);
-        }       
+        }  
+        void SetFtiInfo(bool state)
+        {
+            fti_info = state;
+            if (NORM_SESSION_INVALID != norm_session)
+                NormLimitObjectInfo(norm_session, state);
+        }     
+        
+       void SetAckEx(bool state)
+           {ack_ex = state;}
         
         bool EnableUdpRelay(const char* relayAddr, unsigned short relayPort);
        	bool EnableUdpListener(unsigned short thePort, const char* groupAddr, const char * interfaceName);
@@ -302,6 +311,8 @@ class NormStreamer
         bool                norm_acking;
         bool                tx_ack_pending;
         NormFlushMode       flush_mode;  // TBD - allow for "none", "passive", "active" options
+        bool                fti_info;
+        bool                ack_ex;
         
         // Receive stream and state variables for writing received messages to output
         NormObjectHandle    rx_stream;
@@ -324,7 +335,7 @@ class NormStreamer
         
         // These are some options mainly for testing purposes
         bool                omit_header;  // if "true", receive message length header is _not_ written to output
-        //bool                rx_silent;
+        bool                rx_silent;
         //double              tx_loss;
         unsigned long       input_byte_count;
         unsigned long       tx_byte_count;
@@ -351,11 +362,11 @@ NormStreamer::NormStreamer()
    tx_stream (NORM_OBJECT_INVALID), tx_ready(true),
    tx_stream_buffer_max(0), tx_stream_buffer_count(0), tx_stream_bytes_remain(0), 
    tx_watermark_pending(false), norm_acking(false), tx_ack_pending(false), flush_mode(NORM_FLUSH_ACTIVE),
-   rx_stream(NORM_OBJECT_INVALID), rx_ready(false), rx_needed(false), msg_sync(false),
+   fti_info(false), ack_ex(false), rx_stream(NORM_OBJECT_INVALID), rx_ready(false), rx_needed(false), msg_sync(false),
    output_bucket_rate(0.0), output_bucket_interval(0.0), output_bucket_depth(0), output_bucket_count(0),
    output_socket(ProtoSocket::UDP), output_file(stdout), output_fd(fileno(stdout)), output_ready(true), 
    output_msg_length(0), output_index(0), 
-   omit_header(false), input_byte_count(0), tx_byte_count(0),
+   omit_header(false), rx_silent(false), input_byte_count(0), tx_byte_count(0),
    segment_size(1398), block_size(64), num_parity(0), auto_parity(0),
    stream_buffer_size(2*1024*1024),
    tx_socket_buffer_size(0), rx_socket_buffer_size(0),
@@ -626,6 +637,8 @@ bool NormStreamer::Start(bool sender, bool receiver)
         gettimeofday(&currentTime, NULL);
         srand(currentTime.tv_usec);  // seed random number generator
         NormSessionId instanceId = (NormSessionId)rand();
+        if (fti_info)
+            NormLimitObjectInfo(norm_session, true);
         if (!NormStartSender(norm_session, instanceId, bufferSize, segment_size, block_size, num_parity))
         {
             fprintf(stderr, "normStreamer error: unable to start NORM sender\n");
@@ -758,7 +771,15 @@ void NormStreamer::ReadInput()
             NormStreamClose(tx_stream, true);
             if (norm_acking)
             {
-                NormSetWatermark(norm_session, tx_stream, true);
+                if (ack_ex)
+                {
+                    const char* req = "Hello, acker";
+                    NormSetWatermarkEx(norm_session, tx_stream, req, strlen(req) + 1, true);
+                }
+                else
+                {
+                    NormSetWatermark(norm_session, tx_stream, true);
+                }
                 tx_ack_pending = false;
             }
             input_needed = false;
@@ -840,7 +861,16 @@ unsigned int NormStreamer::WriteToStream(const char* buffer, unsigned int numByt
             {
                 // Initiate flow control ACK request
                 //fprintf(stderr, "write-initiated flow control ACK REQUEST\n");
-                NormSetWatermark(norm_session, tx_stream);
+                if (ack_ex)
+                {
+                    const char* req = "Hello, acker";
+                    NormSetWatermarkEx(norm_session, tx_stream, req, strlen(req) + 1);
+                }
+                else
+                {
+                    NormSetWatermark(norm_session, tx_stream);
+                }
+                
                 tx_watermark_pending = true;
                 tx_ack_pending = false;
             }
@@ -915,7 +945,15 @@ void NormStreamer::FlushStream(bool eom, NormFlushMode flushMode)
         }
         if (setWatermark) 
         {
-            NormSetWatermark(norm_session, tx_stream, true);
+            if (ack_ex)
+            {
+                const char* req = "Hello, acker";
+                NormSetWatermarkEx(norm_session, tx_stream, req, strlen(req) + 1, true);
+            }
+            else
+            {
+                NormSetWatermark(norm_session, tx_stream, true);
+            }
             tx_ack_pending = false;
         }
     }
@@ -1109,6 +1147,7 @@ void NormStreamer::HandleNormEvent(const NormEvent& event)
             break;
             
         case NORM_TX_WATERMARK_COMPLETED:
+            TRACE("NORM_TX_WATERMARK_COMPLETED ...\n");
             if (NORM_ACK_SUCCESS == NormGetAckingStatus(norm_session))
             {
                 //fprintf(stderr, "WATERMARK COMPLETED\n");
@@ -1120,7 +1159,15 @@ void NormStreamer::HandleNormEvent(const NormEvent& event)
                     //fprintf(stderr, "flow control ACK completed\n");
                     if (tx_ack_pending)
                     {
-                        NormSetWatermark(norm_session, tx_stream, true);
+                        if (ack_ex)
+                        {
+                            const char* req = "Hello, acker";
+                            NormSetWatermarkEx(norm_session, tx_stream, req, strlen(req) + 1, true);
+                        }
+                        else
+                        {
+                            NormSetWatermark(norm_session, tx_stream, true);
+                        }
                         tx_ack_pending = false;
                     }
                 }
@@ -1137,12 +1184,40 @@ void NormStreamer::HandleNormEvent(const NormEvent& event)
                 if (tx_ack_pending)
                 {
                     // May as well advance the ack request point
-                    NormSetWatermark(norm_session, tx_stream, true);
+                    if (ack_ex)
+                    {
+                        const char* req = "Hello, acker";
+                        NormSetWatermarkEx(norm_session, tx_stream, req, strlen(req) + 1, true);
+                    }
+                    else
+                    {
+                        NormSetWatermark(norm_session, tx_stream, true);
+                    }
                     tx_ack_pending = false;
                 }
                 else
                 {
                     NormResetWatermark(norm_session);
+                }
+            }
+            if (ack_ex)
+            {
+                // This iterates through the acking nodes looking for responses
+                // to our application-defined NormSetWatermarkEx() request
+                NormAckingStatus ackingStatus;
+                NormNodeId nodeId = NORM_NODE_NONE;  // this inits NormGetNextAckingNode() iteration
+                while (NormGetNextAckingNode(event.session, &nodeId, &ackingStatus))
+                {
+                    if (NORM_ACK_SUCCESS == ackingStatus)
+                    {
+                        // This node acked, so look for AckEx response
+                        // In our example/test case here, we use strings for the content
+                        char buffer[256];
+                        buffer[0] = '\0';
+                        unsigned int buflen = 256;
+                        if (NormGetAckEx(event.session, nodeId, buffer, &buflen))
+                            fprintf(stderr, "Received APP_ACK from node>%u \"%s\"\n", nodeId, buffer);
+                    }
                 }
             }
             break; 
@@ -1209,6 +1284,19 @@ void NormStreamer::HandleNormEvent(const NormEvent& event)
             rx_needed = false;
             break;
             
+        case NORM_RX_ACK_REQUEST:
+        {
+            char buffer[256];
+            buffer[0] = '\0';
+            unsigned int buflen = 256;
+            NormNodeGetWatermarkEx(event.sender, buffer, &buflen);
+            fprintf(stderr, "Received NORM_RX_ACK_REQUEST: \"%s\"\n", buffer);
+            // Send a reply
+            const char* ack = "Yes, master";
+            NormNodeSendAckEx(event.sender, ack, strlen(ack) + 1);
+            break;
+        }
+            
         default:
             break;     
     }
@@ -1218,7 +1306,7 @@ void NormStreamer::HandleNormEvent(const NormEvent& event)
 
 void Usage()
 {
-    fprintf(stderr, "Usage: normStreamer id <nodeId> {send|recv} [addr <addr>[/<port>]][interface <name>][loopback]\n"
+    fprintf(stderr, "Usage: normStreamer id <nodeId> {send|recv} [addr <addr>[/<port>]][interface <name>][loopback][info]\n"
                     "                    [cc|cce|ccl|rate <bitsPerSecond>][ack <node1>[,<node2>,...][flush {none|passive|active}]\n"
                     "                    [listen [<mcastAddr>/]<port>][linterface <name>]\n"
                     "                    [relay <dstAddr>/<port>][limit [<rate>/]<depth>][output <device>]\n"
@@ -1244,6 +1332,7 @@ void PrintHelp()
 			"   interface <name>        -- Specifies the name of the network interface on which to conduct NORM protocol\n"
 			"                              (e.g., 'eth0')\n"
             "   loopback                -- Enables 'loopback' sessions on the same host machine.  Required for multicast loopback.\n"
+            "   info                    -- Limits FTI header extension to NORM_INFO message only (reduced overhead)\n"
             "   rate <bitsPerSecond>    -- sets fixed sender rate (and receiver token bucket rate if 'limit' option is used)\n"
             "   [cc|cce|ccl]            -- Enables optional NORM congestion control mode (overrides 'rate')\n"
             "   ack [<nodeId list>]     -- Instructs sender to request positive acknowledgement from listed receiver nodes\n"
@@ -1301,6 +1390,8 @@ int main(int argc, char* argv[])
     unsigned int ackingNodeCount = 0;
             
     bool loopback = false;
+    bool ftiInfo = false;
+    bool ackEx = false;
     int debugLevel = 0;
     bool trace = false;
     const char* logFile = NULL;
@@ -1342,6 +1433,15 @@ int main(int argc, char* argv[])
         else if (0 == strncmp(cmd, "loopback", len))
         {
             loopback = true;
+        }
+        else if (0 == strncmp(cmd, "info", len))
+        {
+            ftiInfo = true;
+        }
+        else if (0 == strncmp(cmd, "ex", len))
+        {
+            // This enables testing/demonstrating NormSetWatermarkEx() operation
+            ackEx = true;
         }
         else if (0 == strncmp(cmd, "addr", len))
         {
@@ -1881,6 +1981,8 @@ int main(int argc, char* argv[])
     normStreamer.SetStreamBufferSize(streamBufferSize);
 
     normStreamer.SetLoopback(loopback);
+    normStreamer.SetFtiInfo(ftiInfo);
+    normStreamer.SetAckEx(ackEx);
     
     if (omitHeaderOnOutput) normStreamer.OmitHeader(true);
     
@@ -2129,7 +2231,7 @@ int main(int argc, char* argv[])
         }
         
         // for debugging to see if anything gets "stuck"
-        if ((thisTime.tv_sec - lastTime.tv_sec) >= 1)
+        if ((thisTime.tv_sec - lastTime.tv_sec) >= 100)
         {
             if (send)
                 fprintf(stderr, "normStreamer: inputNeeded:%d inputReady:%d txPending:%d txReady:%d inputCount:%lu txCount:%lu fdMask:%d\n",

@@ -1,0 +1,11 @@
+prefix=@PREFIX@
+exec_prefix=${prefix}
+libdir=@LIBDIR@
+includedir=${prefix}/include
+
+Name: norm
+Version: @VERSION@
+Description: NACK-Oriented Reliable Multicast (NORM) library
+Libs: -L${libdir} -lnorm
+Libs.private: @STATIC_LIBS@
+Cflags: -I${includedir}

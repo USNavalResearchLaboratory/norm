@@ -784,7 +784,7 @@ bool NormDecoderRS16::InvertDecodingMatrix()
 	        icol = col ;
 	        goto found_piv ;
 	    }
-	    for (int row = 0 ; row < k ; row++) 
+	    for (unsigned int row = 0 ; row < k ; row++) 
         {
 	        if (inv_pivt[row] != 1) 
             {
@@ -879,7 +879,7 @@ bool NormDecoderRS16::InvertDecodingMatrix()
         }
 	    else if (inv_ndxr[col] != inv_ndxc[col] ) 
         {
-	        for (int row = 0 ; row < k ; row++ ) 
+	        for (unsigned int row = 0 ; row < k ; row++ ) 
 		        SWAP( src[row*k + inv_ndxr[col]], src[row*k + inv_ndxc[col]], gf) ;
 	    }
     }

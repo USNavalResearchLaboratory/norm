@@ -50,8 +50,6 @@ void NormObject::Retain()
 
 void NormObject::Release()
 {
-    //if ((NULL != sender) && (reference_count == 1))
-    //   TRACE("NormObject final release node>%lu object>%hu\n", (unsigned long)sender->GetId(), (unsigned short)transport_id);
     if (sender) sender->Release();
     if (reference_count)
     {
@@ -93,18 +91,18 @@ bool NormObject::Open(const NormObjectSize& objectSize,
         if (infoLen > 0) 
         {
             pending_info = true;
-            info_len = 0;
             if (!(info_ptr = new char[segmentSize]))
             {
                 PLOG(PL_FATAL, "NormObject::Open() info allocation error\n");
                 return false;
             }               
         }
+        info_len = 0;  // will be set properly upon NORM_INFO arrival
         last_nack_time.GetCurrentTime(); // init to now
     }
     else
     {
-        if (infoPtr)
+        if (NULL != infoPtr)
         {
             if (NULL != info_ptr) delete[] info_ptr;
             if (infoLen > segmentSize)
@@ -122,6 +120,14 @@ bool NormObject::Open(const NormObjectSize& objectSize,
             memcpy(info_ptr, infoPtr, infoLen);
             info_len = infoLen;
             pending_info = true;
+        }
+        else 
+        {
+            if (NormSession::FTI_INFO == session.SenderFtiMode())
+            {
+                
+                pending_info = true;
+            }
         }
     }
     
@@ -190,11 +196,11 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     }
     else
     {
-        // Set everything pending   
+        // Set everything pending (i.e, nothing sent or received yet)
         pending_mask.Clear();
         pending_mask.SetBits(0, numBlocks.LSB());
         // Compute FEC block structure per NORM Protocol Spec Section 5.1.1
-        // (Note NormObjectSize divide operator always rounds _up_)
+        // (Note NormObjectSize divide operator always rounds _up_, i.e., ceil(numSegments/numBlocks))
         NormObjectSize largeBlockSize = numSegments / numBlocks;
         ASSERT(0 == largeBlockSize.MSB());
         large_block_size = largeBlockSize.LSB();
@@ -290,7 +296,7 @@ NormObjectSize NormObject::GetBytesPending() const
 bool NormObject::HandleInfoRequest(bool holdoff)
 {
     bool increasedRepair = false;
-    if (info_ptr)
+    if (info_ptr || (NormSession::FTI_INFO == session.SenderFtiMode()))
     {
         if (!repair_info)
         {
@@ -379,7 +385,7 @@ bool NormObject::HandleBlockRequest(const NormBlockId& firstId, const NormBlockI
 bool NormObject::TxReset(NormBlockId firstBlock, bool requeue)
 {
     bool increasedRepair = false;
-    if (!pending_info && HaveInfo())
+    if (!pending_info && (HaveInfo() || (NormSession::FTI_INFO == session.SenderFtiMode())))
     {
         increasedRepair = true;
         pending_info = true;
@@ -1387,9 +1393,22 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                               "Warning! info too long.\n", (unsigned long)LocalNodeId(), 
                                 (unsigned long)sender->GetId(), (UINT16)transport_id);   
             }
-            memcpy(info_ptr, infoMsg.GetInfo(), info_len);
-            pending_info = false;
-            session.Notify(NormController::RX_OBJECT_INFO, sender, this);
+            else if (0 == info_len)
+            {
+                // NORM_INFO used to convey FTI only
+                if (NULL != info_ptr)
+                {
+                    delete[] info_ptr;
+                    info_ptr = NULL;
+                }
+                pending_info = false;
+            }
+            else
+            {
+                memcpy(info_ptr, infoMsg.GetInfo(), info_len);
+                pending_info = false;
+                session.Notify(NormController::RX_OBJECT_INFO, sender, this);
+            }
         }
         else
         {
@@ -1538,7 +1557,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                         if (nextErasure < numData)
                         {
                             // Use "NormObject::RetrieveSegment() method to "retrieve" 
-                            // source symbol segments already received which weren't cached.
+                            // source symbol segments already received which aren't still cached.
                             for (UINT16 nextSegment = 0; nextSegment < numData; nextSegment++)
                             {
                                 if (block->IsPending(nextSegment))
@@ -1622,7 +1641,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 //        so it's not called unnecessarily
                 if (objectUpdated && notify_on_update)
                 {
-                    if ((NULL == stream) || stream->DetermineReadReadiness())
+                    if ((NULL == stream) || stream->DetermineReadReadiness() || session.RcvrIsLowDelay())
                     {
                         notify_on_update = false;
                         session.Notify(NormController::RX_OBJECT_UPDATED, sender, this);
@@ -1780,50 +1799,55 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
         default:
             break;
     }
-    if (info_ptr) 
+    NormSession::FtiMode ftiMode = session.SenderFtiMode();
+    if ((NULL != info_ptr) || (NormSession::FTI_INFO == ftiMode))
         msg->SetFlag(NormObjectMsg::FLAG_INFO);
     
     msg->SetObjectId(transport_id);
     
-    // We currently always apply the FTI extension
-    switch (fec_id)
+    // Apply FTI extension as needed
+    if ((NormSession::FTI_ALWAYS == ftiMode) || 
+        (pending_info && (NormSession::FTI_INFO == ftiMode)))
     {
-        case 2:
+        switch (fec_id)
         {
-            NormFtiExtension2 fti;
-            msg->AttachExtension(fti);
-            fti.SetObjectSize(object_size);
-            fti.SetFecFieldSize(fec_m);
-            fti.SetFecGroupSize(1);
-            fti.SetSegmentSize(segment_size);
-            fti.SetFecMaxBlockLen(ndata);
-            fti.SetFecNumParity(nparity);
-            break;
+            case 2:
+            {
+                NormFtiExtension2 fti;
+                msg->AttachExtension(fti);
+                fti.SetObjectSize(object_size);
+                fti.SetFecFieldSize(fec_m);
+                fti.SetFecGroupSize(1);
+                fti.SetSegmentSize(segment_size);
+                fti.SetFecMaxBlockLen(ndata);
+                fti.SetFecNumParity(nparity);
+                break;
+            }
+            case 5:
+            {
+                NormFtiExtension5 fti;
+                msg->AttachExtension(fti);
+                fti.SetObjectSize(object_size);
+                fti.SetSegmentSize(segment_size);
+                fti.SetFecMaxBlockLen((UINT8)ndata);
+                fti.SetFecNumParity((UINT8)nparity);
+                break;
+            }
+            case 129:
+            {
+                NormFtiExtension129 fti;
+                msg->AttachExtension(fti);
+                fti.SetObjectSize(object_size);
+                fti.SetFecInstanceId(0);   // ZERO is for legacy MDP/NORM FEC encoder (TBD - use appropriate instanceId)
+                fti.SetSegmentSize(segment_size);
+                fti.SetFecMaxBlockLen(ndata);
+                fti.SetFecNumParity(nparity);
+                break;
+            }
+            default:
+                ASSERT(0);
+                return false;
         }
-        case 5:
-        {
-            NormFtiExtension5 fti;
-            msg->AttachExtension(fti);
-            fti.SetObjectSize(object_size);
-            fti.SetSegmentSize(segment_size);
-            fti.SetFecMaxBlockLen((UINT8)ndata);
-            fti.SetFecNumParity((UINT8)nparity);
-            break;
-        }
-        case 129:
-        {
-            NormFtiExtension129 fti;
-            msg->AttachExtension(fti);
-            fti.SetObjectSize(object_size);
-            fti.SetFecInstanceId(0);   // ZERO is for legacy MDP/NORM FEC encoder (TBD - use appropriate instanceId)
-            fti.SetSegmentSize(segment_size);
-            fti.SetFecMaxBlockLen(ndata);
-            fti.SetFecNumParity(nparity);
-            break;
-        }
-        default:
-            ASSERT(0);
-            return false;
     }
     if (pending_info)
     {
@@ -1990,7 +2014,7 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
                         block->ResetParityCount(nparity);
                         pending_mask.Unset(blockId.GetValue()); 
                         // for EMCON sending, mark NORM_INFO for re-transmission, if applicable
-                        if (session.SndrEmcon() && HaveInfo())
+                        if (session.SndrEmcon() && (HaveInfo() || (NormSession::FTI_INFO == session.SenderFtiMode())))
                             pending_info = true;
                     }
                     block = NULL;
@@ -2052,7 +2076,7 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
         block->ResetParityCount(nparity);       
         pending_mask.Unset(blockId.GetValue()); 
         // for EMCON sending, mark NORM_INFO for re-transmission, if applicable
-        if (session.SndrEmcon() && HaveInfo())
+        if (session.SndrEmcon() && (HaveInfo() || (NormSession::FTI_INFO == session.SenderFtiMode())))
             pending_info = true;
         // Advance sender use of "max_pending_block" so we always
         // know when a block should be flagged as IN_REPAIR
@@ -2506,7 +2530,6 @@ NormDataObject::NormDataObject(class NormSession&       theSession,
 
 NormDataObject::~NormDataObject()
 {
-    //TRACE("NormDataObject destructor ...\n");
     Close();
     if (data_released)
     {
@@ -3289,7 +3312,6 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
                             block->EmptyToPool(segment_pool);
                             block_pool.Put(block);
                             block = NULL;
-                            //TRACE("Prune(%u) 6 ...\n", (unsigned int)read_index.block.GetValue());
                             Prune(read_index.block, false);
                             break;
                         }      
@@ -3315,7 +3337,6 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
                     Increment(read_index.block);
                     read_index.segment = 0;
                     read_index.offset = 0;
-                    //TRACE("Prune(%lu) 7 ...\n", (unsigned long)read_index.block.GetValue());
                     Prune(read_index.block, false);   
                 }
             } 
@@ -3553,7 +3574,9 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                     {
                         INT32 delta = (INT32)Difference(max_pending_block, read_index.block);
                         if (delta > session.RcvrGetMaxDelay())
-                            forceForward = true;
+                        {
+                           forceForward = true;
+                        }
                     }
                 }
                 else
@@ -3571,7 +3594,6 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                     Increment(read_index.block);  
                     read_index.segment = 0; 
                     read_index.offset = 0;
-                    //TRACE("Prune(%u) 1 ...\n", (unsigned int)read_index.block.GetValue());
                     if (!seekMsgStart) brokenStream = true;
                     Prune(read_index.block, false);
                     continue;
@@ -3638,7 +3660,6 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                         Increment(read_index.block);
                         read_index.segment = 0;
                         read_index.offset = 0;
-                        //TRACE("Prune(%u) 2 ...\n", (unsigned int)read_index.block.GetValue());
                         Prune(read_index.block, false); // prevents repair requests for data we 
                     }                                   // no longer care about (i.e, prior to this block)
                     if (!seekMsgStart) brokenStream = true;
@@ -3712,7 +3733,6 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                     Increment(read_index.block);
                     read_index.segment = 0;
                     read_index.offset = 0;
-                    //TRACE("Prune(%u) 3 ...\n", (unsigned int)read_index.block.GetValue());
                     Prune(read_index.block, false);
                 }
                 *buflen = 0;
@@ -3800,7 +3820,6 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                     block_pool.Put(block);
                     Increment(read_index.block);
                     read_index.segment = 0;
-                    //TRACE("Prune(%u) 4 ...\n", (unsigned int)read_index.block.GetValue());
                     Prune(read_index.block, false);
                 }
                 continue;
@@ -3843,7 +3862,6 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                 block_pool.Put(block);
                 Increment(read_index.block);
                 read_index.segment = 0;
-                //TRACE("Prune(%u) 5 ...\n", (unsigned int)read_index.block.GetValue());
                 Prune(read_index.block, false);
                 if (0 == bytesToRead)
                     read_ready = DetermineReadReadiness();

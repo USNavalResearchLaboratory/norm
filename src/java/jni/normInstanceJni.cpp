@@ -182,7 +182,7 @@ JNIEXPORT jobject JNICALL PKGNAME(NormInstance_getNextEvent)
   
   if (env->GetArrayLength(array) <= event.type) {
     env->ThrowNew((jclass)env->NewLocalRef(jw_IOException), "Invalid NORM event type (NormEventType.java out of sync with NORM API event header?)");
-    return false;
+    return NULL;
   }
       
   jobject type = env->GetObjectArrayElement(array, event.type);

@@ -183,7 +183,7 @@ const NormNodeId NORM_NODE_ANY  = 0xffffffff;
 class NormObjectId
 {
     public:
-        NormObjectId() {};
+        NormObjectId() : value(0) {};
         NormObjectId(UINT16 id) {value = id;}
         NormObjectId(const NormObjectId& id) {value = id.value;}
         operator UINT16() const {return value;}
@@ -331,14 +331,16 @@ class NormHeaderExtension
             INVALID     =   0,
             FTI         =  64,  // FEC Object Transmission Information (FTI) extension
             CC_FEEDBACK =   3,  // NORM-CC Feedback extension
-            CC_RATE     = 128   // NORM-CC Rate extension
+            CC_RATE     = 128,  // NORM-CC Rate extension
+            APP_ACK     =  65   // app-defined ACK extension (see NormSetWatermarkEx())
         }; 
             
         NormHeaderExtension();
         virtual ~NormHeaderExtension() {}
-        virtual void Init(UINT32* theBuffer) 
+        virtual void Init(UINT32* theBuffer, UINT16 numBytes) 
         {
-            buffer = theBuffer;
+            // TBD - should we confirm that 'numBytes' is sufficient
+            AttachBuffer(theBuffer, numBytes);
             SetType(INVALID);
             SetWords(0);
         }
@@ -347,13 +349,17 @@ class NormHeaderExtension
         void SetWords(UINT8 words) 
             {((UINT8*)buffer)[LENGTH_OFFSET] = words;}
         
-        void AttachBuffer(const UINT32* theBuffer) {buffer = (UINT32*)theBuffer;}
-        const UINT32* GetBuffer() {return buffer;}
+        void AttachBuffer(const UINT32* theBuffer, UINT16 bufferLength) 
+        {
+                buffer = (UINT32*)theBuffer;
+                buffer_length = bufferLength;
+        }
+        const UINT32* GetBuffer() 
+            {return buffer;}
          
         Type GetType() const
-        {
-            return buffer ? (Type)(((UINT8*)buffer)[TYPE_OFFSET]) : INVALID;  
-        }
+            {return buffer ? (Type)(((UINT8*)buffer)[TYPE_OFFSET]) : INVALID;}
+        
         UINT16 GetLength() const
         {
             return (buffer ? 
@@ -361,14 +367,27 @@ class NormHeaderExtension
                             ((((UINT8*)buffer)[LENGTH_OFFSET]) << 2) : 4) : 
                         0);  
         }
+        // These currently only used for APP_ACK extension
+        const char* GetContent() 
+            {return (((const char*)buffer) + CONTENT_OFFSET);}
+        
+        UINT16 GetContentLength() const
+        {
+            UINT16 totalLen = GetLength();
+            return ((totalLen > CONTENT_OFFSET) ? (totalLen - CONTENT_OFFSET) : 0);
+        }
+        static UINT16 GetContentOffset() 
+            {return (UINT16)CONTENT_OFFSET;}
                   
     protected:   
         enum
         {
-            TYPE_OFFSET     = 0,               // UINT8 offset
-            LENGTH_OFFSET   = TYPE_OFFSET + 1  // UINT8 offset
+            TYPE_OFFSET     = 0,                // UINT8 offset
+            LENGTH_OFFSET   = TYPE_OFFSET + 1,  // UINT8 offset
+            CONTENT_OFFSET  = LENGTH_OFFSET + 1 // UINT8 offset
         };
         UINT32*   buffer;
+        UINT16    buffer_length;
 };  // end class NormHeaderExtension
 
     
@@ -594,8 +613,14 @@ class NormMsg
         
         void AttachExtension(NormHeaderExtension& extension)
         {
-            extension.Init(buffer+(header_length/4));
+            extension.Init(buffer+(header_length/4), MAX_SIZE - header_length);
             ExtendHeaderLength(extension.GetLength());
+        }
+        // Only use this for extensions that have content appended after attachment
+        // (Fixed-length extensions should set their length upon Init())
+        void PackExtension(NormHeaderExtension& extension)
+        {
+            ExtendHeaderLength(2 + extension.GetContentLength());
         }
         
         // Message processing routines
@@ -610,7 +635,7 @@ class NormMsg
             {return (((UINT8*)buffer)[VERSION_OFFSET] >> 4);}
         NormMsg::Type GetType() const 
             {return (Type)(((UINT8*)buffer)[TYPE_OFFSET] & 0x0f);}
-        UINT16 GetHeaderLength() 
+        UINT16 GetHeaderLength() const
             {return ((UINT8*)buffer)[HDR_LEN_OFFSET] << 2;}
         UINT16 GetBaseHeaderLength()
             {return header_length_base;}
@@ -633,12 +658,21 @@ class NormMsg
         bool HasExtensions() const {return (header_length > header_length_base);}
         bool GetNextExtension(NormHeaderExtension& ext) const
         {
-            const UINT32* currentBuffer =  ext.GetBuffer();
+            const UINT32* currentBuffer = ext.GetBuffer();
+            // 'nextOffset' here is a UINT32 offset
             UINT16 nextOffset = 
                 (UINT16)(currentBuffer ? (currentBuffer - buffer + (ext.GetLength()/4)) : 
-			                    (header_length_base/4));
+			                             (header_length_base/4));
             bool result = HasExtensions() ? (nextOffset < (header_length/4)) : false;
-            ext.AttachBuffer(result ? (buffer+nextOffset) : (UINT32*)NULL);
+            if (result)
+            {
+                UINT16 nextLength = ((UINT8*)(buffer + nextOffset))[1] << 2;
+                ext.AttachBuffer(buffer+nextOffset, nextLength);
+            }
+            else
+            {
+                ext.AttachBuffer((UINT32*)NULL, 0);
+            }
             return result;
         }
         
@@ -753,9 +787,9 @@ class NormFtiExtension2 : public NormHeaderExtension
 {
     public:
         // To build the FTI Header Extension
-        virtual void Init(UINT32* theBuffer)
+        virtual void Init(UINT32* theBuffer, UINT16 numBytes)
         {
-            AttachBuffer(theBuffer);
+            AttachBuffer(theBuffer, numBytes);
             SetType(FTI);  // HET = 64
             SetWords(4);
         }    
@@ -814,6 +848,16 @@ class NormFtiData
             num_data(0), num_parity(0), fec_m(0), instance_id(0) {}
         ~NormFtiData() {}
         
+        bool IsValid() const
+            {return (0 != segment_size);}
+        
+        void Invalidate()
+        {
+            object_size = 0;
+            segment_size = num_data = num_parity = instance_id = 0;
+            fec_m = 0;
+        }       
+        
         void SetObjectSize(const NormObjectSize& objectSize)
             {object_size = objectSize;}
         void SetSegmentSize(UINT16 segmentSize)
@@ -850,16 +894,15 @@ class NormFtiData
         
 };  // end class NormFtiData
 
-
 // This FEC Object Transmission Information assumes "fec_id" == 5 (RFC 5510)
 // (this is the fully-defined 8-bit Reed-Solomon codec)
 class NormFtiExtension5 : public NormHeaderExtension
 {
     public:
         // To build the fec_id=5 FTI Header Extension
-        virtual void Init(UINT32* theBuffer)
+        virtual void Init(UINT32* theBuffer, UINT16 numBytes)
         {
-            AttachBuffer(theBuffer);
+            AttachBuffer(theBuffer, numBytes);
             SetType(FTI);  // HET = 64
             SetWords(3);
         }    
@@ -891,13 +934,44 @@ class NormFtiExtension5 : public NormHeaderExtension
     private:
         enum
         {
-            OBJ_SIZE_MSB_OFFSET = (LENGTH_OFFSET + 1)/2,
+            OBJ_SIZE_MSB_OFFSET = (CONTENT_OFFSET)/2,       // UINT16 offset
             OBJ_SIZE_LSB_OFFSET = ((OBJ_SIZE_MSB_OFFSET*2)+2)/4,
             SEG_SIZE_OFFSET = ((OBJ_SIZE_LSB_OFFSET*4)+4)/2,
             FEC_NDATA_OFFSET    = ((SEG_SIZE_OFFSET+1)*2),
             FEC_NPARITY_OFFSET  = (FEC_NDATA_OFFSET+1)
         };  
 };  // end class NormFtiExtension5
+
+class NormAppAckExtension : public NormHeaderExtension
+{
+    public:
+        virtual void Init(UINT32* theBuffer, UINT16 numBytes)
+        {
+            AttachBuffer(theBuffer, numBytes);
+            SetType(APP_ACK);
+            SetWords(0);
+        }  
+        bool SetContent(const char* data, UINT16 dataLen)
+        {
+            if (dataLen > (buffer_length - CONTENT_OFFSET)) return false;
+            memcpy(((char*)buffer) + CONTENT_OFFSET, data, dataLen);
+            if (dataLen > 2)
+            {
+                // Pad out to get 32-bit alignment of extension
+                dataLen += CONTENT_OFFSET;
+                UINT16 padLen = dataLen % 4;
+                if (padLen)
+                    padLen = 4 - padLen;
+                dataLen += padLen;
+                SetWords(dataLen/4);
+            }    
+            else
+            {
+                SetWords(1);
+            }       
+            return true;       
+        }
+};  // end class NormAppAckExtension
 
 
 // This FEC Object Transmission Information assumes "fec_id" == 129
@@ -906,9 +980,9 @@ class NormFtiExtension129 : public NormHeaderExtension
     public:
         // To build the FTI Header Extension
         // (TBD) allow for different "fec_id" types in the future
-        virtual void Init(UINT32* theBuffer)
+        virtual void Init(UINT32* theBuffer, UINT16 numBytes)
         {
-            AttachBuffer(theBuffer);
+            AttachBuffer(theBuffer, numBytes);
             SetType(FTI);
             SetWords(4);
         }        
@@ -1204,7 +1278,7 @@ class NormCmdFlushMsg : public NormCmdMsg
             {length = header_length;}
         bool AppendAckingNode(NormNodeId nodeId, UINT16 segmentSize)
         {
-            if ((length-header_length+ 4) > segmentSize) return false;
+            if ((length-header_length + 4) > segmentSize) return false;
             buffer[length/4] = htonl((UINT32)nodeId);
             length += 4;
             return true;
@@ -1448,9 +1522,9 @@ class NormCCRateExtension : public NormHeaderExtension
 {
     public:
             
-        virtual void Init(UINT32* theBuffer)
+        virtual void Init(UINT32* theBuffer, UINT16 numBytes)
         {
-            AttachBuffer(theBuffer);
+            AttachBuffer(theBuffer, numBytes);
             SetType(CC_RATE);
             ((UINT8*)buffer)[RESERVED_OFFSET] = 0;
         }
@@ -1668,9 +1742,9 @@ class NormCmdRepairAdvMsg : public NormCmdMsg
 class NormCCFeedbackExtension : public NormHeaderExtension
 {
     public:
-        virtual void Init(UINT32* theBuffer)
+        virtual void Init(UINT32* theBuffer, UINT16 numBytes)
         {
-            AttachBuffer(theBuffer);
+            AttachBuffer(theBuffer, numBytes);
             SetType(CC_FEEDBACK);
             SetWords(3);
             ((UINT8*)buffer)[CC_FLAGS_OFFSET] = 0;

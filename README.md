@@ -38,7 +38,7 @@ purposes, the authors would prefer that the code not be
 re-distributed so that users will obtain the latest (and most
 debugged/improved) release from the official NORM web site:
 
-<http://cs.itd.nrl.navy.mil/work/norm>
+<https://www.nrl.navy.mil/itd/ncs/products/norm>
 
 
 SOURCE CODE
@@ -102,14 +102,12 @@ NormUserGuide.pdf       - Guide to "norm" demo app usage
 
 VERSION.TXT             - NORM version history notes
 
-README.TXT              - this file
+README.md               - this file
 
 
 NOTES:
 ======
 
-The NORM code depends upon the current "Protolib" release.  The NORM
-source code tarballs contain an appropriate release of "Protolib" as
-part of the NORM source tree.  If the NORM code is checked out from
-our CVS server, it is necessary to also check out "protolib" separately
-and provide paths to it for NORM to build.
+The NORM code depends upon the current "Protolib" release:
+  https://www.nrl.navy.mil/itd/ncs/products/protolib
+  https://github.com/USNavalResearchLaboratory/protolib

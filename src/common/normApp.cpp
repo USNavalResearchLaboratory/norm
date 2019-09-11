@@ -67,6 +67,14 @@ class NormApp : public NormController, public ProtoApp
                 char            file_path[PATH_MAX];
                 NormObjectId    object_id;
         };  // end class NormApp::FileCacheItem
+        
+        class Notification : public ProtoList::Item
+        {
+            public:
+                NormController::Event event;
+        };  // end class NormApp::Notification
+        class NotificationQueue : public ProtoListTemplate<Notification> {};
+        Notification* GetNotification(); // get from pool or create as needed
             
         void ShowHelp();
         void OnInputReady();
@@ -98,6 +106,9 @@ class NormApp : public NormController, public ProtoApp
         NormSession*        session;
         NormStreamObject*   tx_stream;
         NormStreamObject*   rx_stream;
+        NotificationQueue   notify_queue;
+        NotificationQueue   notify_pool;
+        bool                notify_reentry;
               
         // application parameters
         FILE*               input;  // input stream
@@ -215,7 +226,7 @@ NormApp::FileCacheItem::~FileCacheItem()
 NormApp::NormApp()
  : control_pipe(ProtoPipe::MESSAGE), control_remote(false), 
    session_mgr(GetTimerMgr(), GetSocketNotifier(), &dispatcher),
-   session(NULL), tx_stream(NULL), rx_stream(NULL), input(NULL), output(NULL), 
+   session(NULL), tx_stream(NULL), rx_stream(NULL), notify_reentry(false), input(NULL), output(NULL), 
    output_io_buffer(NULL), output_io_bufsize(0),
    input_index(0), input_length(0), input_active(false),
    push_mode(false), msg_flush_mode(NormStreamObject::FLUSH_PASSIVE),
@@ -257,6 +268,8 @@ NormApp::NormApp()
 
 NormApp::~NormApp()
 {
+    notify_queue.Destroy();
+    notify_pool.Destroy();
     if (address) delete[] address;
     if (interface_name) delete[] interface_name;
     
@@ -271,6 +284,20 @@ NormApp::~NormApp()
         output_io_buffer = NULL;
     }
 }
+
+NormApp::Notification* NormApp::GetNotification()
+{
+    Notification* notification = notify_pool.RemoveHead();
+    if (NULL == notification)
+    {
+        if (NULL == (notification = new Notification()))
+        {
+            PLOG(PL_ERROR, "NormApp::GetNotification() new Notification error: %s\n", GetErrorString());
+            return NULL;
+        }
+    }
+    return notification;
+}  // end NormApp::GetNotification()
 
 // NOTE on message flushing mode:
 //
@@ -1557,6 +1584,18 @@ void NormApp::Notify(NormController::Event event,
                      class NormNode*       sender,
                      class NormObject*     object)
 {
+    if (notify_reentry)
+    {
+        Notification* notification;
+        if (NULL == (notification = GetNotification()))
+        {
+            PLOG(PL_ERROR, "NormApp::Notify() error: unable to create Notification item!\n");
+            return;
+        }
+        notification->event = event;
+        return;
+    }
+    notify_reentry = true;
     switch (event)
     {
         case TX_QUEUE_VACANCY:
@@ -1804,7 +1843,7 @@ void NormApp::Notify(NormController::Event event,
                     // Read the stream when it's updated  
                     ASSERT(NULL != output);
                     bool reading = true;
-                    bool findMsgSync;
+                    bool seekMsgStart;
                     while (reading)
                     {
                         unsigned int readLength;
@@ -1825,17 +1864,17 @@ void NormApp::Notify(NormController::Event event,
                                 ASSERT(output_msg_length >= 2);
                                 readLength = output_msg_length - output_index;
                             }     
-                            findMsgSync = output_msg_sync ? false : true;                                            
+                            seekMsgStart = output_msg_sync ? false : true;                                            
                         }
                         else
                         {
                             output_index = 0;
                             readLength = 512; 
-                            findMsgSync = false;   
+                            seekMsgStart = false;   
                         } 
                         
                         if(!((NormStreamObject*)object)->Read(output_buffer+output_index, 
-                                                              &readLength, findMsgSync))
+                                                              &readLength, seekMsgStart))
                         {
                             // The stream broke
                             if (output_messaging)
@@ -1844,8 +1883,8 @@ void NormApp::Notify(NormController::Event event,
                                     PLOG(PL_ERROR, "NormApp::Notify() detected broken stream ...\n");
                                 output_msg_length = output_index = 0;
                                 output_msg_sync = false;
-                                if (findMsgSync)
-                                    break;
+                                if (seekMsgStart)
+                                    break;  // didn't find msg start yet
                                 else
                                     continue;  // try to re-sync
                             }
@@ -2019,6 +2058,14 @@ void NormApp::Notify(NormController::Event event,
             break;
         }
     }  // end switch(event)
+    notify_reentry = false;
+    // Now handle any deferred, reentrant notifications
+    Notification* notification;
+    while (NULL != (notification = notify_queue.RemoveHead()))
+    {
+        Notify(notification->event, sessionMgr, session, sender, object);
+        notify_pool.Append(*notification);
+    }
 }  // end NormApp::Notify()
 
 

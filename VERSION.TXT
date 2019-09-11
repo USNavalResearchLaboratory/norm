@@ -1,9 +1,10 @@
 			           NORM Version History
 
+
 Version 1.5.8
 =============
-    - Corrections to eliminate compiler warnings and suport kfreebsd builds
-      (Thanks to Luca Buccassi)
+    - Modified waf build to build pkg-config file.cThanks to Luca Boccassi
+       for this and some other patches for Gnu/Hurd, etc.)
 
 Version 1.5.7
 =============

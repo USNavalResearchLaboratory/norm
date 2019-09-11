@@ -1,3 +1,11 @@
+
+IMPORTANT NOTE:  This "norm/makefiles/android-ndk" directory contains build
+files for the ndk-build command more commonly used in older Android SDK
+installations.  The newer "norm/android" directory has gradle/CMake files 
+that are compatible with Android Studio or for command-line builds using the 
+provided "./gradlew" script.
+
+
 This directory contains an Android NDK import module for NORM, which builds
 a shared library, and the JNI bindings.
 

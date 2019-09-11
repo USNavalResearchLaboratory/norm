@@ -85,6 +85,8 @@ class Event(object):
             return "NORM_RX_OBJECT_COMPLETED"
         elif self.type == c.NORM_RX_OBJECT_ABORTED:
             return "NORM_RX_OBJECT_ABORTED"
+        elif self.type == c.NORM_RX_ACK_REQUEST:
+            return "NORM_RX_ACK_REQUEST"
         elif self.type == c.NORM_GRTT_UPDATED:
             return "NORM_GRTT_UPDATED"
         elif self.type == c.NORM_CC_ACTIVE:

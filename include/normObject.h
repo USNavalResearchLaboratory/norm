@@ -89,7 +89,14 @@ class NormObject
             info_len = 0;
             pending_info = false;
         }
-        
+        // This is used to bootstrap reception sender
+        // is using FTI_INFO FtiMode
+        void SetPendingInfo(bool state, UINT8 fecId)
+        {
+            pending_info = true;
+            fec_id = fecId;
+        }
+
         const char* GetInfo() const {return info_ptr;}
         UINT16 GetInfoLength() const {return info_len;}
         bool IsStream() const {return (STREAM == type);}

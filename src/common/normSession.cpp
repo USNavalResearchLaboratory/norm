@@ -48,7 +48,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    backoff_factor(DEFAULT_BACKOFF_FACTOR), is_sender(false), 
    tx_robust_factor(DEFAULT_ROBUST_FACTOR), instance_id(0),
    ndata(DEFAULT_NDATA), nparity(DEFAULT_NPARITY), auto_parity(0), extra_parity(0),
-   sndr_emcon(false), tx_only(false), tx_connect(false), encoder(NULL), 
+   sndr_emcon(false), tx_only(false), tx_connect(false), fti_mode(FTI_ALWAYS), encoder(NULL), 
    next_tx_object_id(0), 
    tx_cache_count_min(DEFAULT_TX_CACHE_MIN), 
    tx_cache_count_max(DEFAULT_TX_CACHE_MAX),
@@ -67,6 +67,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    cc_enable(false), cc_adjust(true), cc_sequence(0), cc_slow_start(true), cc_active(false),
    flow_control_factor(DEFAULT_FLOW_CONTROL_FACTOR), 
    cmd_count(0), cmd_buffer(NULL), cmd_length(0), syn_status(false),
+   ack_ex_buffer(NULL), ack_ex_length(0),
    is_receiver(false), rx_robust_factor(DEFAULT_ROBUST_FACTOR), preset_sender(NULL), unicast_nacks(false), 
    receiver_silent(false), rcvr_ignore_info(false), rcvr_max_delay(-1), rcvr_realtime(false),
    default_repair_boundary(NormSenderNode::BLOCK_BOUNDARY), 
@@ -721,6 +722,22 @@ bool NormSession::StartSender(UINT16        instanceId,
                               UINT16        numParity,
                               UINT8         fecId)
 {
+    UINT16 blockSize = numData + numParity;
+    if (blockSize <= 255)
+        fec_m = 8;
+    else
+        fec_m = 16;
+    if (preset_fti.IsValid())
+    {
+        if ((preset_fti.GetSegmentSize() != segmentSize) ||
+            (preset_fti.GetFecMaxBlockLen() != numData) ||
+            (preset_fti.GetFecNumParity() != numParity) ||
+            (preset_fti.GetFecFieldSize() != fec_m))
+        {
+            PLOG(PL_FATAL, "NormSession::StartSender() preset FTI mismatch error!\n");
+            return false;
+        }
+    }
 	if (!IsOpen())
     {
         if (!Open()) return false;
@@ -745,7 +762,6 @@ bool NormSession::StartSender(UINT16        instanceId,
     }
     
     // Calculate how much memory each buffered block will require
-    UINT16 blockSize = numData + numParity;
     unsigned long maskSize = blockSize >> 3;
     if (0 != (blockSize & 0x07)) maskSize++;
     unsigned long blockSpace = sizeof(NormBlock) + 
@@ -917,6 +933,13 @@ void NormSession::StopSender()
     if (flow_control_timer.IsActive())
         flow_control_timer.Deactivate();
     
+    if (NULL != ack_ex_buffer)
+    {
+        delete[] ack_ex_buffer;
+        ack_ex_buffer = NULL;
+        ack_ex_length = 0;
+    }
+    
     if (NULL != cmd_buffer)
     {
         delete[] cmd_buffer;
@@ -1044,6 +1067,37 @@ bool NormSession::PreallocateRemoteSender(unsigned int  bufferSpace,
     }
     return true;
 }  // end NormSession::PreallocateRemoteSender()
+
+bool NormSession::SetPresetFtiData(unsigned int objectSize,
+                                   UINT16       segmentSize,   
+                                   UINT16       numData,       
+                                   UINT16       numParity)    
+{
+    UINT16 blockSize = numData + numParity;
+    UINT8 fecM;
+    if (blockSize > 255)
+        fecM = 16;
+    else
+        fecM = 8;
+    if (IsSender())
+    {
+        if ((segmentSize != segment_size) ||
+            (numData != ndata) ||
+            (numParity != nparity) ||
+            (fecM != fec_m))
+        {
+            PLOG(PL_FATAL, "NormSession::SetPresetFtiData() sender FTI mismatch error!\n");
+            return false;
+        }
+    }
+    preset_fti.SetObjectSize(NormObjectSize(objectSize));
+    preset_fti.SetSegmentSize(segmentSize);
+    preset_fti.SetFecMaxBlockLen(numData);
+    preset_fti.SetFecNumParity(numParity);
+    preset_fti.SetFecFieldSize(fecM);
+    preset_fti.SetFecInstanceId(0);
+    return true;
+}  // end NormSession::SetPresetFtiData()
 
 void NormSession::Serve()
 {
@@ -1341,10 +1395,12 @@ void NormSession::Serve()
     }
 }  // end NormSession::Serve()
 
-void NormSession::SenderSetWatermark(NormObjectId  objectId,
+bool NormSession::SenderSetWatermark(NormObjectId  objectId,
                                      NormBlockId   blockId,
                                      NormSegmentId segmentId,
-                                     bool          overrideFlush)       
+                                     bool          overrideFlush,
+                                     const char*   appAckReq,
+                                     unsigned int  appAckReqLen)       
 {
     PLOG(PL_DEBUG, "NormSession::SenderSetWatermark() watermark>%hu:%lu:%hu\n",
                     (UINT16)objectId, (unsigned long)blockId.GetValue(), (UINT16)segmentId);
@@ -1361,7 +1417,42 @@ void NormSession::SenderSetWatermark(NormObjectId  objectId,
     int robustFactor = GetTxRobustFactor();
     while ((next = iterator.GetNextNode()))
         static_cast<NormAckingNode*>(next)->Reset(robustFactor);
+    
+    if (NULL != appAckReq)
+    {
+        if (appAckReqLen != ack_ex_length)
+        {
+            if (NULL != ack_ex_buffer) 
+            {
+                delete[] ack_ex_buffer;
+                ack_ex_buffer = NULL;
+                ack_ex_length = 0;
+            }
+            // Make sure there is room left  for at least one acker NormNodeId in
+            if ((NormHeaderExtension::GetContentOffset() + appAckReqLen) > (segment_size - sizeof(NormNodeId)))
+            {
+                PLOG(PL_ERROR, "NormSession::SenderSetWatermark() error: application-defined ACK_REQ content too large!\n");
+                watermark_pending = false;
+                return false;
+            }
+            else if (NULL == (ack_ex_buffer = new char[appAckReqLen]))
+            {
+                PLOG(PL_ERROR, "NormSession::SenderSetWatermark() new app_req_buffer error: %s\n", GetErrorString());
+                watermark_pending = false;
+                return false;
+            }
+        }
+        memcpy(ack_ex_buffer, appAckReq, appAckReqLen);
+        ack_ex_length = appAckReqLen;
+    }
+    else if (NULL != ack_ex_buffer)
+    {
+        delete[] ack_ex_buffer;
+        ack_ex_buffer = NULL;
+        ack_ex_length = 0;
+    }
     PromptSender();
+    return true;
 }  // end NormSession::SenderSetWatermark()
 
 void NormSession::SenderResetWatermark()
@@ -1504,6 +1595,21 @@ bool NormSession::SenderGetNextAckingNode(NormNodeId& prevNodeId, AckingStatus* 
     }
 }  // end NormSession::SenderGetNextAckingNode()
 
+bool NormSession::SenderGetAckEx(NormNodeId nodeId, char* buffer, unsigned int* buflen)
+{
+    NormAckingNode* theNode = 
+        static_cast<NormAckingNode*>(acking_node_tree.FindNodeById(nodeId));
+    if (NULL != theNode)
+    {
+        return theNode->GetAckEx(buffer, buflen);
+    }
+    else
+    {
+        if (NULL != buflen) *buflen = 0;
+        return false;
+    }
+}  // end NormSession::SenderGetAckEx()
+
 bool NormSession::SenderQueueWatermarkFlush()
 {
     if (flush_timer.IsActive()) return false;
@@ -1511,6 +1617,7 @@ bool NormSession::SenderQueueWatermarkFlush()
     if (flush)
     {
         flush->Init();
+        
         flush->SetDestination(address);
         flush->SetGrtt(grtt_quantized);
         flush->SetBackoffFactor((unsigned char)backoff_factor);
@@ -1526,6 +1633,14 @@ bool NormSession::SenderQueueWatermarkFlush()
         else
             blockLen = watermark_segment_id;
         flush->SetFecPayloadId(fec_id, watermark_block_id.GetValue(), watermark_segment_id, blockLen, fec_m);
+        
+        if (0 != ack_ex_length)
+        {
+            NormAppAckExtension ext;
+            flush->AttachExtension(ext);
+            ext.SetContent(ack_ex_buffer, ack_ex_length);
+            flush->PackExtension(ext);
+        }
         
         NormNodeTreeIterator iterator(acking_node_tree);
         NormAckingNode* next;
@@ -1869,6 +1984,12 @@ bool NormSession::QueueTxObject(NormObject* obj)
     if (!IsSender())
     {
         PLOG(PL_FATAL, "NormSession::QueueTxObject() non-sender session error!?\n");
+        return false;
+    }
+    
+    if (preset_fti.IsValid() && (obj->GetSize() != preset_fti.GetObjectSize()))
+    {
+        PLOG(PL_FATAL, "NormSession::QueueTxObject() preset object info mismatch!\n");
         return false;
     }
     
@@ -2424,7 +2545,7 @@ void NormTrace(const struct timeval&    currentTime,
         "RTT",
         "APP"
     };
-    
+        
     NormMsg::Type msgType = msg.GetType();
     UINT16 length = msg.GetLength();
     const char* status = sent ? "dst" : "src";
@@ -3284,7 +3405,7 @@ void NormSession::SenderHandleCCFeedback(struct timeval  currentTime,
     // 3) Replace candidate if this response is higher precedence
     if (candidate)
     {
-        bool haveRtt = (0 != (ccFlags && NormCC::RTT));
+        bool haveRtt = (0 != (ccFlags & NormCC::RTT));
         bool replace;
         if (candidate->GetId() == nodeId)
             replace = true;
@@ -3377,6 +3498,19 @@ void NormSession::SenderHandleAckMessage(const struct timeval& currentTime, cons
                                  (watermark_block_id == flushAck.GetFecBlockId(fec_m)) &&  
                                  (watermark_segment_id == flushAck.GetFecSymbolId(fec_m)))
                         {
+                            // Cache any application-defined extended ACK content for this acker
+                            NormAppAckExtension ext;
+                            while (ack.GetNextExtension(ext))
+                            {
+                                if (NormHeaderExtension::APP_ACK == ext.GetType())
+                                {
+                                    if (!acker->SetAckEx(ext.GetContent(), ext.GetContentLength()))
+                                    {
+                                        // TBD - notify app of error
+                                        PLOG(PL_ERROR, "NormSession::SenderHandleAckMessage() error: unable to cache application-defined ACK content!\n");
+                                    }
+                                }
+                            }
                             acker->MarkAckReceived(); 
                             /*  This code was an attempt to expedite delivery of the TX_WATERMARK_COMPLETED
                                 notification to the application, but breaks some other desired behavior.
@@ -3403,7 +3537,7 @@ void NormSession::SenderHandleAckMessage(const struct timeval& currentTime, cons
                         {
                             // This can happen when new watermarks are set when an old watermark is still
                             // pending (i.e. receivers may still be in the process of replying)
-                            PLOG(PL_DEBUG, "NormSession::SenderHandleAckMessage() received wrong watermark ACK?!\n");    
+                            PLOG(PL_DEBUG, "NormSession::SenderHandleAckMessage() received old/wrong watermark ACK?!\n");    
                         }
                     }
                     else
@@ -4742,6 +4876,7 @@ NormSession::MessageStatus NormSession::SendMessage(NormMsg& msg)
     msg.SetSourceId(local_node_id);
     UINT16 msgSize = msg.GetLength();
     // Possibly drop some tx messages for testing purposes
+    
     
     bool drop = (tx_loss_rate > 0.0) ? (UniformRand(100.0) < tx_loss_rate) : false;
     

@@ -188,6 +188,7 @@ typedef enum NormEventType
     NORM_RX_OBJECT_UPDATED,
     NORM_RX_OBJECT_COMPLETED,
     NORM_RX_OBJECT_ABORTED,
+    NORM_RX_ACK_REQUEST,         // upon receipt of app-extended watermark ack request
     NORM_GRTT_UPDATED,
     NORM_CC_ACTIVE,
     NORM_CC_INACTIVE,
@@ -327,6 +328,16 @@ NORM_API_LINKAGE
 void NormSetTxOnly(NormSessionHandle sessionHandle,
                    bool              txOnly,
                    bool              connectToSessionAddress DEFAULT(false));
+
+NORM_API_LINKAGE
+void NormLimitObjectInfo(NormSessionHandle sessionHandle, bool state);  // if true, FEC OTI in NORM_INFO only
+
+NORM_API_LINKAGE
+bool NormPresetObjectInfo(NormSessionHandle  sessionHandle,             // FEC OTI is preset and not sent
+                          unsigned long      objectSize,                // (most useful for NORM_OBJECT_STREAM)
+                          UINT16             segmentSize, 
+                          UINT16             numData, 
+                          UINT16             numParity);
 
 NORM_API_LINKAGE
 void NormSetId(NormSessionHandle sessionHandle, NormNodeId normId);
@@ -576,6 +587,15 @@ NORM_API_LINKAGE
 bool NormSetWatermark(NormSessionHandle  sessionHandle,
                       NormObjectHandle   objectHandle,
                       bool               overrideFlush DEFAULT(false));
+
+NORM_API_LINKAGE 
+bool NormSetWatermarkEx(NormSessionHandle  sessionHandle,
+                        NormObjectHandle   objectHandle,
+                        const char*        buffer,
+                        unsigned int       numBytes,
+                        bool               overrideFlush DEFAULT(false));
+
+
 NORM_API_LINKAGE 
 bool NormResetWatermark(NormSessionHandle sessionHandle);
 
@@ -606,6 +626,12 @@ NORM_API_LINKAGE
 bool NormGetNextAckingNode(NormSessionHandle    sessionHandle,
                            NormNodeId*          nodeId,   
                            NormAckingStatus*    ackingStatus DEFAULT(0));
+
+NORM_API_LINKAGE
+bool NormGetAckEx(NormSessionHandle sessionHandle,
+                  NormNodeId        nodeId,   
+                  char*             buffer,
+                  unsigned int*     buflen);
 
 NORM_API_LINKAGE 
 bool NormSendCommand(NormSessionHandle  sessionHandle,
@@ -783,6 +809,16 @@ NORM_API_LINKAGE
 bool NormNodeGetCommand(NormNodeHandle remoteSender,
                         char*          buffer,
                         unsigned int*  buflen);
+
+NORM_API_LINKAGE
+bool NormNodeSendAckEx(NormNodeHandle remoteSender,
+                       const char*    buffer,
+                       unsigned int   numBytes);
+
+NORM_API_LINKAGE
+bool NormNodeGetWatermarkEx(NormNodeHandle remoteSender,
+                            char*          buffer,
+                            unsigned int*  buflen);
 
 NORM_API_LINKAGE
 void NormNodeFreeBuffers(NormNodeHandle remoteSender);

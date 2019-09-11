@@ -60,4 +60,4 @@ LOCAL_SRC_FILES := \
 	../../../examples/normMsgr.cpp
 include $(BUILD_EXECUTABLE)
 
-$(call import-module,protolib/makefiles/android/jni)
+$(call import-module,protolib/makefiles/android-ndk/jni)

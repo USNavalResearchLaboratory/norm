@@ -1195,7 +1195,47 @@ void NormSetTxOnly(NormSessionHandle sessionHandle,
     }
 }  // end NormSetTxOnly()
 
-// These functions are used internally by the NormSocket API extensiont
+NORM_API_LINKAGE
+bool NormPresetObjectInfo(NormSessionHandle  sessionHandle,
+                          unsigned long      objectSize,
+                          UINT16             segmentSize, 
+                          UINT16             numData, 
+                          UINT16             numParity)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) 
+        {
+            result = session->SetPresetFtiData(objectSize, segmentSize, numData, numParity);
+            if (result) session->SenderSetFtiMode(NormSession::FTI_PRESET);
+        }
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+} // end NormPresetObjectInfo()
+
+NORM_API_LINKAGE
+void NormLimitObjectInfo(NormSessionHandle sessionHandle, bool state)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) 
+        {
+            if (state)
+                session->SenderSetFtiMode(NormSession::FTI_INFO);
+            else
+                session->SenderSetFtiMode(NormSession::FTI_ALWAYS);
+        }
+        instance->dispatcher.ResumeThread();
+    }
+} // end NormLimitObjectInfo()
+
+// These functions are used internally by the NormSocket API extension
 
 NORM_API_LINKAGE
 void NormSetId(NormSessionHandle sessionHandle, NormNodeId normId)
@@ -2046,6 +2086,49 @@ bool NormSetWatermark(NormSessionHandle  sessionHandle,
     return result;
 }  // end NormSetWatermark()
 
+NORM_API_LINKAGE 
+bool NormSetWatermarkEx(NormSessionHandle  sessionHandle,
+                        NormObjectHandle   objectHandle,
+                        const char*        buffer,
+                        unsigned int       numBytes,
+                        bool               overrideFlush)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        NormObject* obj = (NormObject*)objectHandle;
+        if (session && obj)
+        {
+            // Purge any existing NORM_TX_WATERMARK_COMPLETED notifications to be safe
+            instance->PurgeNotifications(sessionHandle, NORM_TX_WATERMARK_COMPLETED);
+            // (segmentId doesn't matter for non-stream)
+            if (obj->IsStream())
+            {
+                NormStreamObject* stream = static_cast<NormStreamObject*>(obj);
+                result = session->SenderSetWatermark(stream->GetId(), 
+                                                     stream->FlushBlockId(),
+                                                     stream->FlushSegmentId(),
+                                                     overrideFlush,
+                                                     buffer, numBytes);  
+            }
+            else
+            {
+                NormBlockId blockId = obj->GetFinalBlockId();
+                NormSegmentId segmentId = obj->GetBlockSize(blockId) - 1;
+                result = session->SenderSetWatermark(obj->GetId(), 
+                                                     blockId,
+                                                     segmentId,
+                                                     overrideFlush,
+                                                     buffer, numBytes);   
+            }
+        }        
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+}  // end NormSetWatermarkEx()
+
 NORM_API_LINKAGE
 bool NormResetWatermark(NormSessionHandle  sessionHandle)
 {
@@ -2187,6 +2270,25 @@ bool NormGetNextAckingNode(NormSessionHandle    sessionHandle,
         return false;
     }
 }   // end NormGetNextAckingNode()
+
+NORM_API_LINKAGE
+bool NormGetAckEx(NormSessionHandle sessionHandle,
+                  NormNodeId        nodeId,   
+                  char*             buffer,
+                  unsigned int*     buflen)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        bool result = (NormAckingStatus)session->SenderGetAckEx(nodeId, buffer, buflen);
+        instance->dispatcher.ResumeThread();
+        return result;
+    }
+    if (NULL != buflen) *buflen = 0;
+    return false;
+}  // end NormGetAckEx()
+
 
 NORM_API_LINKAGE 
 bool NormSendCommand(NormSessionHandle  sessionHandle,
@@ -2523,8 +2625,8 @@ UINT16 NormObjectGetInfoLength(NormObjectHandle objectHandle)
 
 NORM_API_LINKAGE
 UINT16 NormObjectGetInfo(NormObjectHandle objectHandle,
-                                 char*            buffer,
-                                 UINT16   bufferLen)
+                         char*            buffer,
+                         UINT16           bufferLen)
 {
     UINT16 result = 0;
     if (NORM_OBJECT_INVALID != objectHandle)
@@ -2815,6 +2917,52 @@ bool NormNodeGetCommand(NormNodeHandle nodeHandle,
     }
     return result;
 }  // end NormNodeGetCommand()
+
+NORM_API_LINKAGE
+bool NormNodeSendAckEx(NormNodeHandle nodeHandle,
+                       const char*    buffer,
+                       unsigned int   numBytes)
+{
+    bool result = false;
+    if (NORM_NODE_INVALID != nodeHandle)
+    {
+        NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
+        if (instance && instance->dispatcher.SuspendThread())
+        {
+            NormNode* node = (NormNode*)nodeHandle;
+            if (NormNode::SENDER == node->GetType())
+            {
+                NormSenderNode* sender = static_cast<NormSenderNode*>(node);
+                result = sender->SendAckEx(buffer, numBytes);
+            }
+            instance->dispatcher.ResumeThread();  
+        }
+    }
+    return result;
+}  // end NormNodeSendAckEx()
+
+NORM_API_LINKAGE
+bool NormNodeGetWatermarkEx(NormNodeHandle nodeHandle,
+                            char*          buffer,
+                            unsigned int*  buflen)
+{
+    bool result = false;
+    if (NORM_NODE_INVALID != nodeHandle)
+    {
+        NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
+        if (instance && instance->dispatcher.SuspendThread())
+        {
+            NormNode* node = (NormNode*)nodeHandle;
+            if (NormNode::SENDER == node->GetType())
+            {
+                NormSenderNode* sender = static_cast<NormSenderNode*>(node);
+                result = sender->GetWatermarkEx(buffer, buflen);
+            }
+            instance->dispatcher.ResumeThread();  
+        }
+    }
+    return result;
+}  // end NormNodeGetWatermarkEx()
 
 NORM_API_LINKAGE
 void NormNodeFreeBuffers(NormNodeHandle nodeHandle)
