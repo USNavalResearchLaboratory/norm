@@ -293,6 +293,7 @@ class NormServerNode : public NormNode
             block->EmptyToPool(segment_pool);
             block_pool.Put(block);   
         }
+        bool SegmentPoolIsEmpty() {return segment_pool.IsEmpty();}
         char* GetFreeSegment(NormObjectId objectId, NormBlockId blockId);
         void PutFreeSegment(char* segment)
             {segment_pool.Put(segment);}
@@ -303,7 +304,25 @@ class NormServerNode : public NormNode
             erasure_loc[index] = value;
         }
         UINT16 GetErasureLoc(UINT16 index) 
-            {return erasure_loc[index];} 
+        {
+            return erasure_loc[index];
+        }
+        void SetRetrievalLoc(UINT16 index, UINT16 value)
+        {
+            ASSERT(index < ndata);
+            retrieval_loc[index] = value;
+        }
+        UINT16 GetRetrievalLoc(UINT16 index) 
+        {
+            return retrieval_loc[index];
+        } 
+        char* GetRetrievalSegment()
+        {
+            char* s = retrieval_pool[retrieval_index++];
+            retrieval_index = (retrieval_index >= ndata) ? 0 : retrieval_index;
+            return s;   
+        }
+        
         UINT16 Decode(char** segmentList, UINT16 numData, UINT16 erasureCount)
         {
             return decoder.Decode(segmentList, numData, erasureCount, erasure_loc);
@@ -373,6 +392,9 @@ class NormServerNode : public NormNode
         NormSegmentPool         segment_pool;
         NormDecoder             decoder;
         UINT16*                 erasure_loc;
+        UINT16*                 retrieval_loc;
+        char**                  retrieval_pool;
+        UINT16                  retrieval_index;
         
         bool                    server_active;
         ProtoTimer              activity_timer;

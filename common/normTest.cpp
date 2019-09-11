@@ -50,7 +50,7 @@ int main(int argc, char* argv[])
     NormStartReceiver(session, 1024*1024);
     
     // Uncomment the following line to start sender
-    NormStartSender(session, 1024*1024, 1024, 64, 0);
+    //NormStartSender(session, 1024*1024, 1024, 64, 0);
     
     NormAddAckingNode(session, NormGetLocalNodeId(session));
     
@@ -59,8 +59,12 @@ int main(int argc, char* argv[])
     const char* fileName = "ferrari.jpg";
     
     // Uncomment this line to send a stream instead of the file
-    stream = NormOpenStream(session, 1024*1024);
-    NormSetStreamFlushMode(stream, NORM_FLUSH_PASSIVE);
+    stream = NormStreamOpen(session, 1024*1024);
+    
+    
+    // NORM_FLUSH_PASSIVE automatically flushes full writes to
+    // the stream.
+    NormStreamSetFlushMode(stream, NORM_FLUSH_PASSIVE);
     
     
     // Some variable for stream input/output
@@ -91,10 +95,16 @@ int main(int argc, char* argv[])
                         sprintf(txBuffer+1037, "normTest says hello %d ...\n", sendCount);
                         txLen = strlen(txBuffer);
                     }
-                    txIndex += NormWriteStream(stream, txBuffer+txIndex, (txLen - txIndex));
+                    txIndex += NormStreamWrite(stream, txBuffer+txIndex, (txLen - txIndex));
                     if (txIndex == txLen)
                     {
-                        NormMarkStreamEom(stream);
+                        // Instead of "NormStreamSetFlushMode(stream, NORM_FLUSH_PASSIVE)" above
+                        // and "NormStreamMarkEom()" here, I could have used 
+                        // "NormStreamFlush(stream, true)" here to perform explicit flushing 
+                        // and EOM marking in one fell swoop.  That would be a better approach 
+                        // for apps where big stream messages need to be written with 
+                        // multiple calls to "NormStreamWrite()"
+                        NormStreamMarkEom(stream);
                         txLen = txIndex = 0;
                         sendCount++;
                     }
@@ -102,10 +112,10 @@ int main(int argc, char* argv[])
                 else
                 {
                     NormObjectHandle txFile = 
-                        NormQueueFile(session,
-                                      filePath,
-                                      fileName,
-                                      strlen(fileName));
+                        NormFileEnqueue(session,
+                                        filePath,
+                                        fileName,
+                                        strlen(fileName));
                     // Repeatedly queue our file for sending
                     if (NORM_OBJECT_INVALID == txFile)
                     {
@@ -131,12 +141,12 @@ int main(int argc, char* argv[])
 
             case NORM_RX_OBJECT_INFO:
                 // Assume info contains '/' delimited <path/fileName> string
-                if (NORM_OBJECT_FILE == NormGetObjectType(theEvent.object))
+                if (NORM_OBJECT_FILE == NormObjectGetType(theEvent.object))
                 {
-                    NormObjectTransportId id = NormGetObjectTransportId(theEvent.object);
+                    NormObjectTransportId id = NormObjectGetTransportId(theEvent.object);
                     if (0 != (id & 0x01))
                     {
-                        //NormCancelObject(theEvent.object);
+                        //NormObjectCancel(theEvent.object);
                         //break;
                     }
 
@@ -144,7 +154,7 @@ int main(int argc, char* argv[])
                     strcpy(fileName, cachePath);
                     int pathLen = strlen(fileName);
                     unsigned short nameLen = PATH_MAX - pathLen;
-                    NormGetObjectInfo(theEvent.object, fileName+pathLen, &nameLen);
+                    NormObjectGetInfo(theEvent.object, fileName+pathLen, &nameLen);
                     fileName[nameLen + pathLen] = '\0';
                     char* ptr = fileName + 5;
                     while ('\0' != *ptr)
@@ -152,7 +162,7 @@ int main(int argc, char* argv[])
                         if ('/' == *ptr) *ptr = PROTO_PATH_DELIMITER;
                         ptr++;   
                     }
-                    if (!NormSetFileName(theEvent.object, fileName))
+                    if (!NormFileRename(theEvent.object, fileName))
                         TRACE("normTest: NormSetFileName(%s) error\n", fileName);
                     DMSG(3, "normTest: recv'd info for file: %s\n", fileName);   
 
@@ -163,16 +173,16 @@ int main(int argc, char* argv[])
             case NORM_RX_OBJECT_UPDATE:
             {
                 //TRACE("normTest: NORM_RX_OBJECT_UPDATE event ...\n");
-                if (NORM_OBJECT_STREAM != NormGetObjectType(theEvent.object))
+                if (NORM_OBJECT_STREAM != NormObjectGetType(theEvent.object))
                     break;
                 unsigned int len;
                 do
                 {
                     if (!msgSync) 
-                        msgSync = NormFindStreamMsgStart(theEvent.object);
+                        msgSync = NormStreamSeekMsgStart(theEvent.object);
                     if (!msgSync) break;
                     len = 8191 - rxIndex;
-                    if (NormReadStream(theEvent.object, rxBuffer+rxIndex, &len))
+                    if (NormStreamRead(theEvent.object, rxBuffer+rxIndex, &len))
                     {
                         rxIndex += len;
                         rxBuffer[rxIndex] = '\0';
@@ -266,7 +276,7 @@ int main(int argc, char* argv[])
     sleep(30);  // allows time for cleanup if we're sending to someone else
 #endif // if/else WIN32/UNIX
 
-    NormCloseStream(stream);
+    NormStreamClose(stream);
     NormStopReceiver(session);
     NormStopSender(session);
     NormDestroySession(session);

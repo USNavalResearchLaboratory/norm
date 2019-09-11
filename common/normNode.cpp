@@ -48,6 +48,7 @@ NormServerNode::NormServerNode(class NormSession& theSession, NormNodeId nodeId)
  : NormNode(theSession, nodeId), session_id(0), synchronized(false), sync_id(0),
    max_pending_range(256), is_open(false), segment_size(0), ndata(0), nparity(0), 
    repair_boundary(BLOCK_BOUNDARY), erasure_loc(NULL),
+   retrieval_loc(NULL), retrieval_pool(NULL),
    cc_sequence(0), cc_enable(false), cc_rate(0.0), 
    rtt_confirmed(false), is_clr(false), is_plr(false),
    slow_start(true), send_rate(0.0), recv_rate(0.0), recv_accumulator(0),
@@ -140,22 +141,42 @@ void NormServerNode::Close()
     is_open = false;
 }  // end NormServerNode::Close()
 
-bool NormServerNode::AllocateBuffers(UINT16 segmentSize, UINT16 numData, UINT16 numParity)
+bool NormServerNode::AllocateBuffers(UINT16 segmentSize, 
+                                     UINT16 numData, 
+                                     UINT16 numParity)
 {    
     ASSERT(IsOpen());
     // Calculate how much memory each buffered block will require
     UINT16 blockSize = numData + numParity;
     unsigned long maskSize = blockSize >> 3;
     if (0 != (blockSize & 0x07)) maskSize++;
-    unsigned long blockSpace = sizeof(NormBlock) + 
-                               blockSize * sizeof(char*) + 
-                               2*maskSize  +
-                               numData * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());  
+    unsigned long blockStateSpace = sizeof(NormBlock) +  blockSize * sizeof(char*) + 2*maskSize;
     unsigned long bufferSpace = session.RemoteServerBufferSize();
+
+    // The "bufferFactor" weight determines the ratio of segment buffers (blockSegmentSpace) to
+    // allocated NormBlock (blockStateSpace).  
+    // If "bufferFactor = 1.0", this is equivalent to the old scheme, where every allocated
+    // block can be fully buffered (numData segs) for decoding (no seeking required).  If 
+    // "bufferFactor = 0.0", only a guarantee of at least "numParity" segments per block is 
+    // enforced.  Note that "bufferFactor" values > 0.0 help reduce "seeking" for decoding, 
+    // but reduce the number of blocks for which NORM can keep state.  Note this only comes 
+    // into play when NORM would be "buffer constrained"
+    // (TBD) perhaps we should keep more "block state" than we can even buffer parity for ???
+    //       (this would reduce requests for full block retransmissions when resource contrained)
+    double bufferFactor = 0.0;
+    unsigned long segPerBlock = 
+        (unsigned long) ((bufferFactor * (double)numData) +
+                         ((1.0 - bufferFactor) * (double)numParity) + 0.5);
+    // If there's no parity, no segment buffering for decoding is required at all!
+    // (Thus, the full rxbuffer space can be used for block state)
+    if (0 == numParity) segPerBlock = 0;
+    unsigned long blockSegmentSpace = segPerBlock * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());    
+    unsigned long blockSpace = blockStateSpace+blockSegmentSpace;
     unsigned long numBlocks = bufferSpace / blockSpace;
     if (bufferSpace > (numBlocks*blockSpace)) numBlocks++;
     if (numBlocks < 2) numBlocks = 2;
-    unsigned long numSegments = numBlocks * numData;
+    unsigned long numSegments = numBlocks * segPerBlock;
+
     
     if (!block_pool.Init(numBlocks, blockSize))
     {
@@ -164,7 +185,7 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize, UINT16 numData, UINT16 
         return false;
     }
     
-    // The extra byte of segments is used for marking segments 
+    // The extra byte of segments is used for marking segments  (not any more!! TBD remove)
     // which are "start segments" for messages encapsulated in 
     // a NormStreamObject
     if (!segment_pool.Init(numSegments, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()+1))
@@ -174,17 +195,44 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize, UINT16 numData, UINT16 
         return false;
     }
     
+    // The "retrieval_pool" is used for FEC block decoding
+    // These segments are temporarily used for "retrieved" source symbol segments
+    // needed for block decoding  (new rx buffer mgmt scheme)
+    if (!(retrieval_pool = new char*[numData]))
+    {
+        DMSG(0, "NormServerNode::Open() new retrieval_pool error: %s\n", GetErrorString());
+        Close();
+        return false;          
+    }
+    for (UINT16 i = 0; i < numData; i++)
+    {
+        char* s = new char[segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()];
+        if (NULL == s)
+        {
+            DMSG(0, "NormServerNode::Open() new retrieval segment error: %s\n", GetErrorString());
+            Close();
+            return false;
+        }   
+        retrieval_pool[i] = s;
+    }
+    retrieval_index = 0;
+    
+    if (!(retrieval_loc = new UINT16[numData]))
+    {
+        DMSG(0, "NormServerNode::Open() retrieval_loc allocation error: %s\n", GetErrorString());
+        Close();
+        return false;   
+    }
+    
     if (!decoder.Init(numParity, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()))
     {
-        DMSG(0, "NormServerNode::Open() decoder init error: %s\n",
-                 strerror(errno));
+        DMSG(0, "NormServerNode::Open() decoder init error\n");
         Close();
         return false; 
     }
     if (!(erasure_loc = new UINT16[numParity]))
     {
-        DMSG(0, "NormServerNode::Open() erasure_loc allocation error: %s\n",
-                 strerror(errno));
+        DMSG(0, "NormServerNode::Open() erasure_loc allocation error: %s\n",  GetErrorString());
         Close();
         return false;   
     }
@@ -197,12 +245,31 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize, UINT16 numData, UINT16 
 
 void NormServerNode::FreeBuffers()
 {
-    decoder.Destroy();
     if (erasure_loc)
     {
-        delete []erasure_loc;
+        delete[] erasure_loc;
         erasure_loc = NULL;
     }
+    decoder.Destroy();
+    if (retrieval_loc)
+    {
+        delete[] retrieval_loc;
+        retrieval_loc = NULL;
+    }
+    if (retrieval_pool)
+    {
+        for (UINT16 i = 0; i < ndata; i++)
+        {
+            if (retrieval_pool[i]) 
+            {
+                delete[] retrieval_pool[i];   
+                retrieval_pool[i] = NULL;
+            }
+        }   
+        delete[] retrieval_pool;
+        retrieval_pool = NULL;
+    }
+    
     NormObject* obj;
     while ((obj = rx_table.Find(rx_table.RangeLo()))) 
     {
@@ -701,7 +768,6 @@ NormBlock* NormServerNode::GetFreeBlock(NormObjectId objectId, NormBlockId block
     if (!b)
     {
         if (session.ClientIsSilent())
-        //if (1)
         {
             // forward iteration to find oldest older object with resources
             NormObjectTable::Iterator iterator(rx_table);
@@ -757,13 +823,29 @@ NormBlock* NormServerNode::GetFreeBlock(NormObjectId objectId, NormBlockId block
 
 char* NormServerNode::GetFreeSegment(NormObjectId objectId, NormBlockId blockId)
 {
-    while (segment_pool.IsEmpty())
+    if (segment_pool.IsEmpty())
     {
-        NormBlock* b = GetFreeBlock(objectId, blockId);
-        if (b)
-            block_pool.Put(b);
-        else
-            break;
+        // First, try to steal (retrievable) buffered source symbol segments
+        NormObjectTable::Iterator iterator(rx_table);
+        NormObject* obj;
+        while ((obj = iterator.GetNextObject()))
+        {
+            // This takes source segments only from the "oldest" obj/blk
+            // (TBD) Should these be from the "newest" obj/blk instead?
+            if (obj->ReclaimSourceSegments(segment_pool))
+                break;     
+        }  
+        // Second, if necessary, steal an ordinally "newer" block
+        // (TBD) we might try to keep the block state, and only
+        //       steal the segment needed?
+        while (segment_pool.IsEmpty())
+        {
+            NormBlock* b = GetFreeBlock(objectId, blockId);
+            if (b)
+                block_pool.Put(b);
+            else
+                break;
+        }
     }
     return segment_pool.Get();
 }  // end NormServerNode::GetFreeSegment()
@@ -869,7 +951,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
         else
         {
             // The hacky use of "sync_id" here keeps the debug message from
-            // printing too often.
+            // printing too often while "waiting to sync" ...
             if (0 == sync_id)
             {
                 DMSG(0, "NormServerNode::HandleObjectMessage() waiting to sync ...\n");
@@ -1278,7 +1360,7 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
                         ExponentialRand(grtt_estimate*backoff_factor, gsize_estimate) : 
                         0.0;
                 repair_timer.SetInterval(backoffInterval);
-                DMSG(4, "NormServerNode::RepairCheck() node>%lu begin NACK back-off: %lf sec)...\n",
+                DMSG(4, "NormServerNode::RepairCheck() node>%lu begin NACK backoff: %lf sec)...\n",
                         LocalNodeId(), backoffInterval);
                 session.ActivateTimer(repair_timer);  
             }
@@ -1305,7 +1387,7 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
         if (rewindDetected)
         {
             repair_timer.Deactivate();
-            DMSG(4, "NormServerNode::RepairCheck() node>%lu server rewind detected, ending NACK hold-off ...\n",
+            DMSG(4, "NormServerNode::RepairCheck() node>%lu server rewind detected, ending NACK holdoff ...\n",
                     LocalNodeId());
             
             RepairCheck(checkLevel, objectId, blockId, segmentId);
@@ -1356,7 +1438,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                     NormNackMsg* nack = (NormNackMsg*)session.GetMessageFromPool();
                     if (!nack)
                     {
-                        DMSG(0, "NormServerNode::OnRepairTimeout() node>%lu Warning! "
+                        DMSG(3, "NormServerNode::OnRepairTimeout() node>%lu Warning! "
                                 "message pool empty ...\n", LocalNodeId());
                         repair_timer.Deactivate();
                         return false;   
@@ -1446,7 +1528,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                 {
                                     if (0 == nack->PackRepairRequest(req))
                                     {
-                                        DMSG(0, "NormServerNode::OnRepairTimeout() warning: full NACK msg\n");
+                                        DMSG(3, "NormServerNode::OnRepairTimeout() warning: full NACK msg\n");
                                         break;
                                     } 
                                     nackAppended = true;
@@ -1489,7 +1571,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                     {
                                         if (0 == nack->PackRepairRequest(req))
                                         {
-                                            DMSG(0, "NormServerNode::OnRepairTimeout() warning: full NACK msg\n");
+                                            DMSG(3, "NormServerNode::OnRepairTimeout() warning: full NACK msg\n");
                                             break;
                                         } 
                                         nackAppended = true;
@@ -1520,7 +1602,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         if (0 != nack->PackRepairRequest(req))
                             nackAppended = true;
                         else
-                            DMSG(0, "NormServerNode::OnRepairTimeout() warning: full NACK msg\n");
+                            DMSG(3, "NormServerNode::OnRepairTimeout() warning: full NACK msg\n");
                     }
                     // Queue NACK for transmission
                     nack->SetServerId(GetId());
@@ -1535,7 +1617,9 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                     if (nackAppended)
                     {
                         ASSERT(nack->GetRepairContentLength() > 0);
-                        session.QueueMessage(nack);
+                        //session.QueueMessage(nack);
+                        session.SendMessage(*nack);
+                        session.ReturnMessageToPool(nack);
                         nack_count++;
                     }
                     else
@@ -1558,7 +1642,8 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                 double holdoffInterval = 
                     session.Address().IsMulticast() ? grtt_estimate*(backoff_factor + 2.0) : 
                                                        grtt_estimate;
-                holdoffInterval = (backoff_factor > 0.0) ? holdoffInterval : 1.01*grtt_estimate;
+                // backoff == 0.0 is a special case
+                //holdoffInterval = (backoff_factor > 0.0) ? holdoffInterval : 1.0*grtt_estimate;
                 
                 repair_timer.SetInterval(holdoffInterval);
                 DMSG(4, "NormServerNode::OnRepairTimeout() node>%lu begin NACK hold-off: %lf sec ...\n",
@@ -1742,7 +1827,7 @@ bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
             NormAckMsg* ack = (NormAckMsg*)session.GetMessageFromPool();
             if (!ack)
             {
-                DMSG(0, "NormServerNode::OnCCTimeout() node>%lu Warning! "
+                DMSG(3, "NormServerNode::OnCCTimeout() node>%lu warning: "
                         "message pool empty ...\n", LocalNodeId());
                 if (cc_timer.IsActive()) cc_timer.Deactivate();
                 return false;   
@@ -1759,16 +1844,16 @@ bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
                 ack->SetDestination(GetAddress());
             else
                 ack->SetDestination(session.Address());
-            if (is_clr || is_plr)
+            //if (is_clr || is_plr)
             {
-                // Don't rate limit clr or plr reps.
+                // Don't rate-limit feedback messages.
                 session.SendMessage(*ack);
                 session.ReturnMessageToPool(ack);
             }
-            else
-            {
-                session.QueueMessage(ack);
-            }
+            //else
+            //{
+            //    session.QueueMessage(ack);
+            //}
             
             // Begin cc_timer "holdoff" phase
             cc_timer.SetInterval(grtt_estimate*backoff_factor);
@@ -1802,15 +1887,11 @@ bool NormServerNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
         else
             ack->SetDestination(session.Address());
         
-        if (is_clr || is_plr)
+        // Don't rate limit feedback messages
+        session.SendMessage(*ack);
+        session.ReturnMessageToPool(ack);
+        if (!is_clr && !is_plr)
         {
-            // Don't rate limit clr or plr reps.
-            session.SendMessage(*ack);
-            session.ReturnMessageToPool(ack);
-        }
-        else
-        {
-            session.QueueMessage(ack);
             // Install cc feedback holdoff
             if (cc_timer.IsActive()) cc_timer.Deactivate();
             cc_timer.SetInterval(grtt_estimate*backoff_factor);
@@ -1820,7 +1901,7 @@ bool NormServerNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
     }
     else
     {
-        DMSG(0, "NormServerNode::OnAckTimeout() warning: message pool exhausted!\n");
+        DMSG(3, "NormServerNode::OnAckTimeout() warning: message pool exhausted!\n");
     }
     return true;
 }  // end NormServerNode::OnAckTimeout()

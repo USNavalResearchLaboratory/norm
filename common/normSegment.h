@@ -69,7 +69,7 @@ class NormBlock
         void SetParityReadiness(UINT16 ndata) {erasure_count = ndata;}
         
         char** SegmentList(UINT16 index = 0) {return &segment_table[index];}
-        char* Segment(NormSegmentId sid)
+        char* GetSegment(NormSegmentId sid)
         {
             ASSERT(sid < size);
             return segment_table[sid];
@@ -152,6 +152,7 @@ class NormBlock
         // Note: This invalidates the repair_mask state.
         bool IsRepairPending(UINT16 ndata, UINT16 nparity); 
         void DecrementErasureCount() {erasure_count--;}
+        void IncrementErasureCount() {erasure_count++;}
         UINT16 ErasureCount() const {return erasure_count;}
         void IncrementParityCount() {parity_count++;}
         UINT16 ParityCount() const {return parity_count;}
@@ -257,6 +258,7 @@ class NormBlockPool
             head = b ? b->next : NULL;
             if (b) 
             {
+                count--;
                 overrun_flag = false;
             }
             else if (!overrun_flag)
@@ -271,11 +273,14 @@ class NormBlockPool
         {
             b->next = head;
             head = b;
+            count++;
         }
         unsigned long OverrunCount() const {return overruns;}
+        UINT32 GetCount() {return count;}
         
     private:
         NormBlock*      head;
+        UINT32          count;
         unsigned long   overruns;
         bool            overrun_flag;
 };  // end class NormBlockPool

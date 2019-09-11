@@ -43,6 +43,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    trace(false), tx_loss_rate(0.0), rx_loss_rate(0.0),
    next(NULL)
 {
+    interface_name[0] = '\0';
     tx_socket.SetNotifier(&sessionMgr.GetSocketNotifier());
     tx_socket.SetListener(this, &NormSession::TxSocketRecvHandler);
     
@@ -133,6 +134,8 @@ bool NormSession::Open(const char* interfaceName)
         {
             rx_socket.SetMulticastInterface(interfaceName);
             tx_socket.SetMulticastInterface(interfaceName);
+            strncpy(interface_name, interfaceName, 31);
+            interface_name[31] = '\0';
         }
     }
     for (unsigned int i = 0; i < DEFAULT_MESSAGE_POOL_DEPTH; i++)
@@ -165,7 +168,12 @@ void NormSession::Close()
     if (tx_socket.IsOpen()) tx_socket.Close();
     if (rx_socket.IsOpen()) 
     {
-        if (address.IsMulticast()) rx_socket.LeaveGroup(address);
+        if (address.IsMulticast()) 
+        {
+            const char* interfaceName = ('\0' != interface_name[0]) ?
+                                        interface_name : NULL;
+            rx_socket.LeaveGroup(address, interfaceName);
+        }
         rx_socket.Close();
     }
 }  // end NormSession::Close()
@@ -654,7 +662,7 @@ void NormSession::ServerQueueFlush()
     else
     {
         // Why did I do this? - Brian
-        // (TBD) send NORM_CMD(EOT) instead?
+        // (TBD) send NORM_CMD(EOT) instead? - no
         if (ServerQueueSquelch(next_tx_object_id))
         {
             flush_count++;
@@ -1395,7 +1403,6 @@ void NormSession::ServerUpdateGrttEstimate(double clientRtt)
             // Calculate grtt_advertised since quantization rounds upward
             grtt_advertised = NormUnquantizeRtt(grtt_quantized);
             
-            double clrRtt = cc_node_list.Head() ? ((NormCCNode*)cc_node_list.Head())->GetRtt() : -1;
             if (grttQuantizedOld != grtt_quantized)
                 DMSG(4, "NormSession::ServerUpdateGrttEstimate() node>%lu new grtt>%lf sec\n",
                         LocalNodeId(), grtt_advertised);
@@ -2122,9 +2129,10 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
     if (startTimer && !repair_timer.IsActive())
     {
         // BACKOFF related code
-        double aggregateInterval = address.IsMulticast() ? grtt_advertised * (backoff_factor + 1.0) : 
-                                                           0.0;
-        aggregateInterval = (backoff_factor > 0.0) ? aggregateInterval : 0.0;//grtt_advertised / 100.0;
+        double aggregateInterval = address.IsMulticast() ? 
+                                    grtt_advertised * (backoff_factor + 1.0) : 0.0;
+        // backoff == 0.0 is a special case
+        //aggregateInterval = (backoff_factor > 0.0) ? aggregateInterval : 0.0;
         
         if (tx_timer.IsActive())
         {

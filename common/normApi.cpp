@@ -217,12 +217,19 @@ void NormInstance::Notify(NormController::Event   event,
                     NormStreamObject* stream = static_cast<NormStreamObject*>(object);
                     // (TBD) implement silent_client accept differently
                     NormObjectSize size = stream->GetSize();
-                    if (!stream->Accept(size.LSB()))
+                    // We double the size to prevent unecessary data loss
+                    // for our threaded API
+                    if (!stream->Accept(2*size.LSB()))
                     {
                         DMSG(0, "NormInstance::Notify() stream accept error\n");
                         notify_pool.Append(n);
                         return;   
                     }
+                    // By setting a non-zero "block pool threshold", this
+                    // gives the API a chance to "catch up" on reading
+                    // when the receive stream becomes buffer-constrained
+                    UINT32 blockPoolCount = stream->GetBlockPoolCount();
+                    stream->SetBlockPoolThreshold(blockPoolCount / 2);
                     break;
                 }
                 case NormObject::FILE:
@@ -688,33 +695,6 @@ void NormSetRxLoss(NormSessionHandle sessionHandle, double percent)
 }  // end NormSetRxLoss()
 
 
-
-NormNodeId NormGetNodeId(NormNodeHandle nodeHandle)
-{
-    NormNode* node = (NormNode*)nodeHandle;
-    if (node) 
-        return node->GetId();
-    else
-        return NORM_NODE_NONE;
-}  // end NormGetNodeId()
-
-NormRepairBoundary NormGetNodeRepairBoundary(NormNodeHandle nodeHandle)
-{
-    NormServerNode* node = static_cast<NormServerNode*>((NormNode*)nodeHandle);
-    if (node) 
-        return ((NormRepairBoundary)(node->GetRepairBoundary()));
-    else
-        return NORM_BOUNDARY_BLOCK;  // return default value
-}  // end NormGetNodeRepairBoundary()
-
-void NormSetNodeRepairBoundary(NormNodeHandle     nodeHandle,
-                               NormRepairBoundary repairBoundary)
-{
-    NormServerNode* node = static_cast<NormServerNode*>((NormNode*)nodeHandle);
-    if (node) 
-        node->SetRepairBoundary((NormServerNode::RepairBoundary)repairBoundary);
-}  // end NormSetNodeRepairBoundary()
-
 void NormSetDefaultRepairBoundary(NormSessionHandle  sessionHandle,
                                   NormRepairBoundary repairBoundary)
 {
@@ -724,15 +704,44 @@ void NormSetDefaultRepairBoundary(NormSessionHandle  sessionHandle,
 }  // end NormSetDefaultRepairBoundary()
 
 
-NormObjectType NormGetObjectType(NormObjectHandle objectHandle)
+NormRepairBoundary NormNodeGetRepairBoundary(NormNodeHandle nodeHandle)
+{
+    NormServerNode* node = static_cast<NormServerNode*>((NormNode*)nodeHandle);
+    if (node) 
+        return ((NormRepairBoundary)(node->GetRepairBoundary()));
+    else
+        return NORM_BOUNDARY_BLOCK;  // return default value
+}  // end NormNodeGetRepairBoundary()
+
+
+void NormNodeSetRepairBoundary(NormNodeHandle     nodeHandle,
+                               NormRepairBoundary repairBoundary)
+{
+    NormServerNode* node = static_cast<NormServerNode*>((NormNode*)nodeHandle);
+    if (node) 
+        node->SetRepairBoundary((NormServerNode::RepairBoundary)repairBoundary);
+}  // end NormNodeSetRepairBoundary()
+
+
+NormNodeId NormNodeGetId(NormNodeHandle nodeHandle)
+{
+    NormNode* node = (NormNode*)nodeHandle;
+    if (node) 
+        return node->GetId();
+    else
+        return NORM_NODE_NONE;
+}  // end NormNodeGetId()
+
+
+NormObjectType NormObjectGetType(NormObjectHandle objectHandle)
 {
     if (NORM_OBJECT_INVALID != objectHandle)
         return ((NormObjectType)(((NormObject*)objectHandle)->GetType()));
     else
         return NORM_OBJECT_NONE;
-}  // end NormGetObjectType()
+}  // end NormObjectGetType()
 
-NormObjectTransportId NormGetObjectTransportId(NormObjectHandle objectHandle)
+NormObjectTransportId NormObjectGetTransportId(NormObjectHandle objectHandle)
 {
     // Like many other API calls, these should be changed
     // to provide an error code result
@@ -740,9 +749,9 @@ NormObjectTransportId NormGetObjectTransportId(NormObjectHandle objectHandle)
         return ((NormObjectTransportId)(((NormObject*)objectHandle)->GetId()));
     else
         return 0;
-}  // end NormGetFileName()
+}  // end NormObjectGetTransportId()
 
-bool NormGetObjectInfo(NormObjectHandle objectHandle,
+bool NormObjectGetInfo(NormObjectHandle objectHandle,
                        char*            infoBuffer,
                        unsigned short*  infoLen)
 {
@@ -768,9 +777,9 @@ bool NormGetObjectInfo(NormObjectHandle objectHandle,
         return result;
     }
     return false;
-}  // end NormGetObjectInfo()
+}  // end NormObjectGetInfo()
 
-void NormCancelObject(NormObjectHandle objectHandle)
+void NormObjectCancel(NormObjectHandle objectHandle)
 {
     if (NORM_OBJECT_INVALID != objectHandle)
     {
@@ -780,16 +789,16 @@ void NormCancelObject(NormObjectHandle objectHandle)
             NormObject* obj = (NormObject*)objectHandle;
             NormServerNode* server = obj->GetServer();
             if (server)
-                server->DeleteObject(obj, 8); 
+                server->DeleteObject(obj); 
             else
                 obj->GetSession().DeleteTxObject(obj);
             instance->PurgeObjectNotifications(objectHandle);
             instance->dispatcher.ResumeThread();
         }
     }
-}  // end NormCancelObject()
+}  // end NormObjectCancel()
 
-void NormRetainObject(NormObjectHandle objectHandle)
+void NormObjectRetain(NormObjectHandle objectHandle)
 {
     if (NORM_OBJECT_INVALID != objectHandle)
     {
@@ -803,7 +812,7 @@ void NormRetainObject(NormObjectHandle objectHandle)
     }
 }  // end NormRetainObject()
 
-void NormReleaseObject(NormObjectHandle objectHandle)
+void NormObjectRelease(NormObjectHandle objectHandle)
 {
     if (NORM_OBJECT_INVALID != objectHandle)
     {
@@ -812,20 +821,20 @@ void NormReleaseObject(NormObjectHandle objectHandle)
         {
             NormObject* obj = (NormObject*)objectHandle;
             obj->Release();
-            //instance->PurgeObjectNotifications(objectHandle);
+            instance->PurgeObjectNotifications(objectHandle);
             instance->dispatcher.ResumeThread();
         }
     }
-}  // end NormReleaseObject()
+}  // end NormObjectRelease()
 
-NormNackingMode NormGetObjectNackingMode(NormObjectHandle objectHandle)
+NormNackingMode NormObjectGetNackingMode(NormObjectHandle objectHandle)
 {
     NormObject* object = (NormObject*)objectHandle;
     if (object) 
         return ((NormNackingMode)object->GetNackingMode());
     else
         return NORM_NACK_NONE;
-}  // end NormGetObjectNackingMode()
+}  // end NormObjectGetNackingMode()
 
 void NormSetObjectNackingMode(NormObjectHandle objectHandle,
                               NormNackingMode  nackingMode)
@@ -834,12 +843,12 @@ void NormSetObjectNackingMode(NormObjectHandle objectHandle,
     if (object) object->SetNackingMode((NormObject::NackingMode)nackingMode);
 }  // end NormSetObjectNackingMode()
 
-void NormSetNodeNackingMode(NormNodeHandle   nodeHandle,
+void NormObjectSetNackingMode(NormNodeHandle   nodeHandle,
                             NormNackingMode  nackingMode)
 {
      NormServerNode* node = (NormServerNode*)nodeHandle;
     if (node) node->SetDefaultNackingMode((NormObject::NackingMode)nackingMode);
-}  // end NormSetNodeNackingMode()
+}  // end NormObjectSetNackingMode()
 
 void NormSetDefaultNackingMode(NormSessionHandle sessionHandle,
                                NormNackingMode   nackingMode)
@@ -910,7 +919,7 @@ void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
     }
 }  // end NormAddAckingNode()
 
-NormObjectHandle NormOpenStream(NormSessionHandle  sessionHandle,
+NormObjectHandle NormStreamOpen(NormSessionHandle  sessionHandle,
                                 unsigned long      bufferSize)
 {
     NormObjectHandle objectHandle = NORM_OBJECT_INVALID;
@@ -927,12 +936,12 @@ NormObjectHandle NormOpenStream(NormSessionHandle  sessionHandle,
         instance->dispatcher.ResumeThread();
     }
     return objectHandle;
-}  // end NormOpenStream()
+}  // end NormStreamOpen()
 
-void NormCloseStream(NormObjectHandle streamHandle)
+void NormStreamClose(NormObjectHandle streamHandle)
 {
-    NormCancelObject(streamHandle);
-}  // end NormCloseStream()
+    NormObjectCancel(streamHandle);
+}  // end NormStreamClose()
 
 
 // (TBD) Some stream i/o performance improvement can be realized
@@ -950,35 +959,35 @@ void NormCloseStream(NormObjectHandle streamHandle)
 //        events with a "NormDispatchEvents()" call ...
 //
 
-void NormSetStreamFlushMode(NormObjectHandle    streamHandle,
+void NormStreamSetFlushMode(NormObjectHandle    streamHandle,
                             NormFlushMode       flushMode)
 {
     NormStreamObject* stream = 
         static_cast<NormStreamObject*>((NormObject*)streamHandle);
     if (stream)
         stream->SetFlushMode((NormStreamObject::FlushMode)flushMode);
-}  // end NormSetStreamFlushMode()
+}  // end NormStreamSetFlushMode()
 
-void NormSetStreamPushMode(NormObjectHandle streamHandle, bool state)
+void NormStreamSetPushMode(NormObjectHandle streamHandle, bool state)
 {
     NormStreamObject* stream = 
         static_cast<NormStreamObject*>((NormObject*)streamHandle);
     if (stream) stream->SetPushMode(state);
-}  // end NormSetStreamPushMode()
+}  // end NormStreamSetPushMode()
 
-void NormFlushStream(NormObjectHandle streamHandle)
+void NormStreamFlush(NormObjectHandle streamHandle, bool eom)
 {
     NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
     if (instance && instance->dispatcher.SuspendThread())
     {
         NormStreamObject* stream = 
             static_cast<NormStreamObject*>((NormObject*)streamHandle);
-        if (stream) stream->Flush();
+        if (stream) stream->Flush(eom);
         instance->dispatcher.ResumeThread();
     }
-}  // end NormFlushStream()
+}  // end NormStreamFlush()
 
-void NormMarkStreamEom(NormObjectHandle streamHandle)
+void NormStreamMarkEom(NormObjectHandle streamHandle)
 {
     NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
     if (instance && instance->dispatcher.SuspendThread())
@@ -990,7 +999,7 @@ void NormMarkStreamEom(NormObjectHandle streamHandle)
     }
 }  // end NormMarkStreamEom()
 
-unsigned int NormWriteStream(NormObjectHandle   streamHandle,
+unsigned int NormStreamWrite(NormObjectHandle   streamHandle,
                              const char*        buffer,
                              unsigned int       numBytes)
 {
@@ -1005,9 +1014,9 @@ unsigned int NormWriteStream(NormObjectHandle   streamHandle,
         instance->dispatcher.ResumeThread();
     }
     return result;
-}  // end NormWriteStream()
+}  // end NormStreamWrite()
 
-bool NormReadStream(NormObjectHandle   streamHandle,
+bool NormStreamRead(NormObjectHandle   streamHandle,
                     char*              buffer,
                     unsigned int*      numBytes)
 {
@@ -1022,9 +1031,9 @@ bool NormReadStream(NormObjectHandle   streamHandle,
         instance->dispatcher.ResumeThread();
     }
     return result;
-}  // end NormReadStream()
+}  // end NormStreamRead()
 
-bool NormFindStreamMsgStart(NormObjectHandle streamHandle)
+bool NormStreamSeekMsgStart(NormObjectHandle streamHandle)
 {
     bool result = false;
     NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
@@ -1038,12 +1047,12 @@ bool NormFindStreamMsgStart(NormObjectHandle streamHandle)
         instance->dispatcher.ResumeThread();
     }
     return result;
-}  // end NormFindStreamMsgStart()
+}  // end NormStreamSeekMsgStart()
 
-NormObjectHandle NormQueueFile(NormSessionHandle  sessionHandle,
-                               const char*        fileName,
-                               const char*        infoPtr, 
-                               unsigned int       infoLen)
+NormObjectHandle NormFileEnqueue(NormSessionHandle  sessionHandle,
+                                 const char*        fileName,
+                                 const char*        infoPtr, 
+                                 unsigned int       infoLen)
 {
     NormObjectHandle objectHandle = NORM_OBJECT_INVALID;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -1058,7 +1067,7 @@ NormObjectHandle NormQueueFile(NormSessionHandle  sessionHandle,
         instance->dispatcher.ResumeThread();
     }
     return objectHandle;
-}  // end NormQueueFile()
+}  // end NormFileEnqueue()
 
 bool NormSetCacheDirectory(NormInstanceHandle instanceHandle, 
                            const char*        cachePath)
@@ -1070,8 +1079,8 @@ bool NormSetCacheDirectory(NormInstanceHandle instanceHandle,
         return false;
 } // end NormSetCacheDirectory()
 
-bool NormSetFileName(NormObjectHandle   fileHandle,
-                     const char*        fileName)
+bool NormFileRename(NormObjectHandle   fileHandle,
+                    const char*        fileName)
 {
     bool result = false;
     NormInstance* instance = NormInstance::GetInstanceFromObject(fileHandle);
@@ -1084,9 +1093,9 @@ bool NormSetFileName(NormObjectHandle   fileHandle,
         instance->dispatcher.ResumeThread();
     }
     return result;
-}  // end NormGetFileName()
+}  // end NormFileRename()
 
-bool NormGetFileName(NormObjectHandle   fileHandle,
+bool NormFileGetName(NormObjectHandle   fileHandle,
                      char*              nameBuffer,
                      unsigned int       bufferLen)
 {
@@ -1102,13 +1111,13 @@ bool NormGetFileName(NormObjectHandle   fileHandle,
         result = true;
     }
     return result;
-}  // end NormGetFileName()
+}  // end NormFileGetName()
 
-NormObjectHandle NormQueueData(NormSessionHandle  sessionHandle,
-                               const char*        dataPtr,
-                               unsigned long      dataLen,
-                               const char*        infoPtr = NULL, 
-                               unsigned int       infoLen = 0)
+NormObjectHandle NormDataEnqueue(NormSessionHandle  sessionHandle,
+                                 const char*        dataPtr,
+                                 unsigned long      dataLen,
+                                 const char*        infoPtr = NULL, 
+                                 unsigned int       infoLen = 0)
 {
     NormObjectHandle objectHandle = NORM_OBJECT_INVALID;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -1123,7 +1132,7 @@ NormObjectHandle NormQueueData(NormSessionHandle  sessionHandle,
         instance->dispatcher.ResumeThread();
     }
     return objectHandle;
-}  // end NormQueueData()
+}  // end NormDataEnqueue()
 
 
 bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent)

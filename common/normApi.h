@@ -93,22 +93,28 @@ enum NormNackingMode
     NORM_NACK_NORMAL  
 };
     
+void NormSetDefaultNackingMode(NormSessionHandle sessionHandle,
+                               NormNackingMode   nackingMode);
+    
 enum NormRepairBoundary
 {
     NORM_BOUNDARY_BLOCK,
     NORM_BOUNDARY_OBJECT
 };
     
-
-NormNodeId NormGetNodeId(NormNodeHandle nodeHandle);
-
-NormRepairBoundary NormGetNodeRepairBoundary(NormNodeHandle nodeHandle);
-
-void NormSetNodeRepairBoundary(NormNodeHandle     nodeHandle,
-                               NormRepairBoundary repairBoundary);
-
 void NormSetDefaultRepairBoundary(NormSessionHandle  sessionHandle,
                                   NormRepairBoundary repairBoundary); 
+
+NormRepairBoundary NormNodeGetRepairBoundary(NormNodeHandle nodeHandle);
+
+void NormNodeSetRepairBoundary(NormNodeHandle     nodeHandle,
+                               NormRepairBoundary repairBoundary);
+
+NormNodeId NormNodeGetId(NormNodeHandle nodeHandle);
+
+void NormNodeSetNackingMode(NormNodeHandle   nodeHandle,
+                            NormNackingMode  nackingMode);
+
                                           
 // General NormObject functions
 
@@ -121,33 +127,30 @@ enum NormObjectType
 };
     
     
-NormObjectType NormGetObjectType(NormObjectHandle objectHandle);
+NormObjectType NormObjectGetType(NormObjectHandle objectHandle);
 
 
-bool NormGetObjectInfo(NormObjectHandle   objectHandle,
+bool NormObjectGetInfo(NormObjectHandle   objectHandle,
                        char*              infoBuffer,
                        unsigned short*    infoLen);
 
-NormObjectTransportId NormGetObjectTransportId(NormObjectHandle objectHandle);
+NormObjectTransportId NormObjectGetTransportId(NormObjectHandle objectHandle);
 
-void NormCancelObject(NormObjectHandle objectHandle);
+void NormObjectCancel(NormObjectHandle objectHandle);
 
 
-void NormRetainObject(NormObjectHandle objectHandle);
-void NormReleaseObject(NormObjectHandle objectHandle);
+void NormObjectReNormObjectRetaintain(NormObjectHandle objectHandle);
+void NormObjectRelease(NormObjectHandle objectHandle);
 
 
 // Receiver-only NormObject functions
-NormNackingMode NormGetObjectNackingMode(NormObjectHandle objectHandle);
+NormNackingMode NormObjectGetNackingMode(NormObjectHandle objectHandle);
         
-void NormSetObjectNackingMode(NormObjectHandle objectHandle,
+void NormObjectSetNackingMode(NormObjectHandle objectHandle,
                               NormNackingMode  nackingMode);
 
-void NormSetNodeNackingMode(NormNodeHandle   nodeHandle,
-                            NormNackingMode  nackingMode);
 
-void NormSetDefaultNackingMode(NormSessionHandle sessionHandle,
-                               NormNackingMode   nackingMode);
+
 
 // Sender-only NormObject functions
 bool NormSetWatermark(NormSessionHandle  sessionHandle,
@@ -156,10 +159,10 @@ bool NormSetWatermark(NormSessionHandle  sessionHandle,
         
 // NormStreamObject functions
 
-NormObjectHandle NormOpenStream(NormSessionHandle sessionHandle,
+NormObjectHandle NormStreamOpen(NormSessionHandle sessionHandle,
                                 unsigned long     bufferSize);
 
-void NormCloseStream(NormObjectHandle streamHandle);
+void NormStreamClose(NormObjectHandle streamHandle);
 
 enum NormFlushMode
 {
@@ -168,47 +171,47 @@ enum NormFlushMode
     NORM_FLUSH_ACTIVE   
 };
 
-void NormSetStreamFlushMode(NormObjectHandle    streamHandle,
+void NormStreamSetFlushMode(NormObjectHandle    streamHandle,
                             NormFlushMode       flushMode);
 
-void NormSetStreamPushMode(NormObjectHandle streamHandle, 
+void NormStreamSetPushMode(NormObjectHandle streamHandle, 
                            bool             state);
 
-unsigned int NormWriteStream(NormObjectHandle   streamHandle,
+unsigned int NormStreamWrite(NormObjectHandle   streamHandle,
                              const char*        buffer,
                              unsigned int       numBytes);
 
-void NormFlushStream(NormObjectHandle streamHandle);
+void NormStreamFlush(NormObjectHandle streamHandle, bool eom = false);
 
-void NormMarkStreamEom(NormObjectHandle streamHandle);
+void NormStreamMarkEom(NormObjectHandle streamHandle);
 
-bool NormReadStream(NormObjectHandle   streamHandle,
+bool NormStreamRead(NormObjectHandle   streamHandle,
                     char*              buffer,
                     unsigned int*      numBytes);
 
-bool NormFindStreamMsgStart(NormObjectHandle streamHandle);
+bool NormStreamSeekMsgStart(NormObjectHandle streamHandle);
 
 // NormFileObject Functions
-NormObjectHandle NormQueueFile(NormSessionHandle sessionHandle,
-                               const char*  fileName,
-                               const char*  infoPtr = (const char*)0, 
-                               unsigned int infoLen = 0);
+NormObjectHandle NormFileEnqueue(NormSessionHandle sessionHandle,
+                                 const char*  fileName,
+                                 const char*  infoPtr = (const char*)0, 
+                                 unsigned int infoLen = 0);
 
 bool NormSetCacheDirectory(NormInstanceHandle instanceHandle, 
                            const char*        cachePath);
 
-bool NormGetFileName(NormObjectHandle   fileHandle,
+bool NormFileGetName(NormObjectHandle   fileHandle,
                      char*              nameBuffer,
                      unsigned int       bufferLen);
 
-bool NormSetFileName(NormObjectHandle   fileHandle,
-                     const char*        fileName);
+bool NormFileRename(NormObjectHandle   fileHandle,
+                    const char*        fileName);
 
 // NormDataObject Functions
-bool NormQueueData(const char*   dataPtr,
-                   unsigned long dataLen,
-                   const char*   infoPtr = (const char*)0, 
-                   unsigned int  infoLen = 0);
+bool NormDataEnqueue(const char*   dataPtr,
+                     unsigned long dataLen,
+                     const char*   infoPtr = (const char*)0, 
+                     unsigned int  infoLen = 0);
 
 // NORM Event Notification Routines
 
@@ -252,9 +255,10 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent);
 // not block.
 
 #ifdef WIN32
-HANDLE NormGetDescriptor(NormInstanceHandle instanceHandle);
+typedef HANDLE NormDescriptor;
 #else
-int NormGetDescriptor(NormInstanceHandle instanceHandle);
+typedef int NormDescriptor;
 #endif // if/else WIN32/UNIX
+NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle);
 
 #endif // _NORM_API

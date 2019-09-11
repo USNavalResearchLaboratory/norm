@@ -409,7 +409,7 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
         int j;
 	    for (j = 1; j < degree; j += 2)
 	        denom ^= gmult(Lambda[j], gexp(((255-k)*(j-1)) % 255));
-	    // Invert for use computing errror value below 
+	    // Invert for use computing error value below 
 	    denom = ginv(denom);
 
 	    // Now evaluate Omega at alpha^(-i) (numerator) 

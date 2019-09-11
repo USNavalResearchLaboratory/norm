@@ -84,10 +84,15 @@ class NormObject
         
         virtual bool WriteSegment(NormBlockId   blockId, 
                                   NormSegmentId segmentId, 
-                                  const char*   buffer) = 0;
+                                  const char*   buffer,
+                                  bool          msgStart) = 0;
         virtual UINT16 ReadSegment(NormBlockId    blockId, 
                                    NormSegmentId  segmentId,
-                                   char*          buffer) = 0;
+                                   char*          buffer,
+                                   bool*          msgStart = NULL) = 0;
+        
+        virtual char* RetrieveSegment(NormBlockId   blockId,
+                                      NormSegmentId segmentId) = 0;
         
         NackingMode GetNackingMode() const {return nacking_mode;}
         void SetNackingMode(NackingMode nackingMode) 
@@ -201,6 +206,7 @@ class NormObject
         // Used by receiver for resource management scheme
         NormBlock* StealNewestBlock(bool excludeBlock, NormBlockId excludeId = 0);
         NormBlock* StealOldestBlock(bool excludeBlock, NormBlockId excludeId = 0);
+        bool ReclaimSourceSegments(NormSegmentPool& segmentPool);
         bool PassiveRepairCheck(NormBlockId   blockId,
                                 NormSegmentId segmentId);
         bool ClientRepairCheck(CheckLevel    level,
@@ -287,11 +293,15 @@ class NormFileObject : public NormObject
         
         virtual bool WriteSegment(NormBlockId   blockId, 
                                   NormSegmentId segmentId, 
-                                  const char*   buffer);
+                                  const char*   buffer,
+                                  bool          msgStart);
         
         virtual UINT16 ReadSegment(NormBlockId    blockId, 
                                    NormSegmentId  segmentId,
-                                   char*          buffer);
+                                   char*          buffer,
+                                   bool*          msgStart = NULL);
+        virtual char* RetrieveSegment(NormBlockId   blockId,
+                                      NormSegmentId segmentId);
             
     private:
         char            path[PATH_MAX];
@@ -320,11 +330,16 @@ class NormDataObject : public NormObject
         
         virtual bool WriteSegment(NormBlockId   blockId, 
                                   NormSegmentId segmentId, 
-                                  const char*   buffer);
+                                  const char*   buffer,
+                                  bool          msgStart);
         
         virtual UINT16 ReadSegment(NormBlockId    blockId, 
                                    NormSegmentId  segmentId,
-                                   char*          buffer);
+                                   char*          buffer,
+                                   bool*           msgStart = NULL);
+        
+        virtual char* RetrieveSegment(NormBlockId   blockId,
+                                      NormSegmentId segmentId);
             
     private:
         NormObjectSize  large_block_length;
@@ -359,7 +374,7 @@ class NormStreamObject : public NormObject
         void Flush(bool eom = false)
         {
             FlushMode oldFlushMode = flush_mode;
-            SetFlushMode(FLUSH_ACTIVE);
+            SetFlushMode((FLUSH_ACTIVE == oldFlushMode) ? FLUSH_ACTIVE : FLUSH_PASSIVE);
             Write(NULL, 0, eom);
             SetFlushMode(oldFlushMode);   
         }
@@ -381,10 +396,15 @@ class NormStreamObject : public NormObject
         
         virtual bool WriteSegment(NormBlockId   blockId, 
                                   NormSegmentId segmentId, 
-                                  const char*   buffer);
+                                  const char*   buffer,
+                                  bool          msgStart);
         virtual UINT16 ReadSegment(NormBlockId    blockId, 
                                    NormSegmentId  segmentId,
-                                   char*          buffer);
+                                   char*          buffer,
+                                   bool*          msgStart = NULL);
+        
+        virtual char* RetrieveSegment(NormBlockId   blockId,
+                                      NormSegmentId segmentId);
         
         
         // For receive stream, we can rewind to earliest buffered offset
@@ -407,8 +427,15 @@ class NormStreamObject : public NormObject
         NormBlockId GetNextBlockId() const
             {return (server ? read_index.block : write_index.block);}
         NormSegmentId GetNextSegmentId() const
-            {return (server ? read_index.segment : write_index.segment);}   
+            {return (server ? read_index.segment : write_index.segment);}  
+        
+        UINT32 GetBlockPoolCount() {return block_pool.GetCount();}
+        void SetBlockPoolThreshold(UINT32 value) 
+            {block_pool_threshold = value;}
+         
     private:
+        
+        
         class Index
         {
             public:
@@ -427,12 +454,16 @@ class NormStreamObject : public NormObject
         NormBlockBuffer             stream_buffer;
         Index                       write_index;
         UINT32                      write_offset;
+        bool                        read_init;
         Index                       read_index;
         UINT32                      read_offset;
         bool                        flush_pending;
         bool                        msg_start;
         FlushMode                   flush_mode;
         bool                        push_mode;
+        
+        // For threaded API purposes
+        UINT32                      block_pool_threshold;
 };  // end class NormStreamObject
 
 #ifdef SIMULATE
@@ -457,11 +488,19 @@ class NormSimObject : public NormObject
         
         virtual bool WriteSegment(NormBlockId   blockId, 
                                   NormSegmentId segmentId, 
-                                  const char*   buffer) {return true;}
+                                  const char*   buffer,
+                                  bool          msgStart) {return true;}
         
         virtual UINT16 ReadSegment(NormBlockId    blockId, 
                                    NormSegmentId  segmentId,
-                                   char*          buffer);
+                                   char*          buffer,
+                                   bool*          msgStart = NULL);
+        
+        virtual char* RetrieveSegment(NormBlockId   blockId,
+                                      NormSegmentId segmentId)
+        {
+            return server ? server->GetRetrievalSegment() : NULL;   
+        }
 };  // end class NormSimObject
 #endif // SIMULATE
 

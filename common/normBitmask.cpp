@@ -201,8 +201,6 @@ void NormBitmask::Destroy()
 
 bool NormBitmask::GetNextSet(UINT32& index) const
 {   
-    //TRACE("NormBitmask::GetNextSet(%lu) first_set:%lu num_bits:%lu\n",
-    //        index, first_set, num_bits);
     if (index >= num_bits) return false;
     if (index < first_set) return GetFirstSet(index);
     UINT32 maskIndex = index >> 3;

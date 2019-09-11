@@ -541,7 +541,7 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
                 {
                     if (0 == nack.PackRepairRequest(req))
                     {
-                        DMSG(0, "NormBlock::AppendRepairRequest() warning: full NACK msg\n");
+                        DMSG(3, "NormBlock::AppendRepairRequest() warning: full NACK msg\n");
                         break;   
                     }
                 }
@@ -573,13 +573,13 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
     if (NormRepairRequest::INVALID != prevForm) 
     {
         if (0 == nack.PackRepairRequest(req))
-            DMSG(0, "NormBlock::AppendRepairRequest() warning: full NACK msg\n");
+            DMSG(3, "NormBlock::AppendRepairRequest() warning: full NACK msg\n");
     }
     return true;
 }  // end NormBlock::AppendRepairRequest()
          
 NormBlockPool::NormBlockPool()
- : head((NormBlock*)NULL), overruns(0), overrun_flag(false)
+ : head((NormBlock*)NULL), count(0), overruns(0), overrun_flag(false)
 {
 }
 
@@ -588,7 +588,7 @@ NormBlockPool::~NormBlockPool()
     Destroy();
 }
 
-bool NormBlockPool::Init(UINT32 numBlocks, UINT16 totalSize)
+bool NormBlockPool::Init(UINT32 numBlocks, UINT16 segsPerBlock)
 {
     if (head) Destroy();
     for (UINT32 i = 0; i < numBlocks; i++)
@@ -596,7 +596,7 @@ bool NormBlockPool::Init(UINT32 numBlocks, UINT16 totalSize)
         NormBlock* b = new NormBlock();
         if (b)
         {
-            if (!b->Init(totalSize))
+            if (!b->Init(segsPerBlock))
             {
                 DMSG(0, "NormBlockPool::Init() block init error\n");
                 delete b;
@@ -613,6 +613,7 @@ bool NormBlockPool::Init(UINT32 numBlocks, UINT16 totalSize)
             return false; 
         } 
     }
+    count = numBlocks;
     return true;
 }  // end NormBlockPool::Init()
 
@@ -624,6 +625,7 @@ void NormBlockPool::Destroy()
         head = next->next;
         delete next;   
     }
+    count = 0;
 }  // end NormBlockPool::Destroy()
 
 NormBlockBuffer::NormBlockBuffer()

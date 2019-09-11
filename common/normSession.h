@@ -339,7 +339,8 @@ class NormSession
         NormNodeId                      local_node_id;
         ProtoAddress                    address;  // session destination address & port
         UINT8                           ttl;      // session multicast ttl   
-        bool                            loopback; // to receive own traffic    
+        bool                            loopback; // to receive own traffic
+        char                            interface_name[32];    
         double                          tx_rate;  // bytes per second
         double                          backoff_factor;
         

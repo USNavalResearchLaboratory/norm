@@ -35,6 +35,7 @@ class NormApp : public NormController, public ProtoApp
                                  const void*                 userData);
         
     private:
+        void ShowHelp();
         void OnInputReady();
             
         enum CmdType {CMD_INVALID, CMD_NOARG, CMD_ARG};
@@ -184,6 +185,7 @@ NormApp::~NormApp()
 
 const char* const NormApp::cmd_list[] = 
 {
+    "-help",         // show this help"
     "+debug",        // debug level
     "+log",          // log file name
     "+trace",        // message tracing on
@@ -224,6 +226,56 @@ const char* const NormApp::cmd_list[] =
     "+instance",     // specify norm instance name for remote control commands
     NULL         
 };
+
+// Thanks to Marinho Barcellos taking initiative with this help function
+// (Someday a "norm" user's guide will be completed!"
+void NormApp::ShowHelp() 
+{
+      // TBD: this should be taken automatically from the cmd array
+    fprintf(stderr, 
+        "List of commands taken by \"norm\" (+ indicates that an argument is required):\n"
+        "   -help,         // show this help\n"
+        "   +debug,        // debug level\n"
+        "   +log,          // log file name\n"
+        "   +trace,        // message tracing on\n"
+        "   +txloss,       // tx packet loss percent (for testing)\n"
+        "   +rxloss,       // rx packet loss percent (for testing)\n"
+        "   +address,      // session destination address\n"
+        "   +ttl,          // multicast hop count scope\n"
+        "   +loopback,     // 'on' or 'off' to recv our own packets (default = 'off')\n"
+        "   +interface,    // multicast interface name to use\n"
+        "   +cc,           // congestion control 'on' or 'off'\n"
+        "   +rate,         // tx date rate (bps)\n"
+        "   -push,         // push stream writes for real-time messaging\n"
+        "   +flush,        // message flushing mode ('none', 'passive', or 'active')\n"
+        "   +input,        // send stream input\n"
+        "   +output,       // recv stream output\n"
+        "   +minput,       // sender message stream input\n"
+        "   +moutput,      // receiver message stream output\n"
+        "   +sendfile,     // file/directory list to transmit\n"
+        "   +interval,     // delay time (sec) between files (0.0 sec default)\n"
+        "   +repeatcount,  // How many times to repeat the file/directory list tx\n"
+        "   +rinterval,    // Interval (sec) between file/directory list repeats\n"
+        "   -updatesOnly,  // only send updated files on repeat transmission\n"
+        "   +rxcachedir,   // recv file cache directory\n"
+        "   +segment,      // payload segment size (bytes)\n"
+        "   +block,        // User data packets per FEC coding block (blockSize)\n"
+        "   +parity,       // FEC packets calculated per coding block (nparity)\n"
+        "   +auto,         // Number of FEC packets to proactively send (<= nparity)\n"
+        "   +extra,        // Number of extra FEC packets sent in response to repair requests\n"
+        "   +backoff,      // Backoff factor to use\n"
+        "   +grtt,         // Set sender's initial GRTT estimate\n"
+        "   +gsize,        // Set sender's group size estimate\n"
+        "   +txbuffer,     // Size of sender's buffer\n"
+        "   +rxbuffer,     // Size receiver allocates for buffering each sender\n"
+        "   +rxsockbuffer, // Optional recv socket buffer size.\n"
+        "   -unicastNacks, // unicast instead of multicast feedback messages\n"
+        "   -silentClient, // silent (non-nacking) receiver (EMCON mode)\n"
+        "   +processor,    // receive file post processing command\n"
+        "   +instance,     // specify norm instance name for remote control commands\n"
+        "\n");
+}  // end NormApp::ShowHelp() 
+
 
 void NormApp::OnControlEvent(ProtoSocket& /*theSocket*/, ProtoSocket::Event theEvent)
 {
@@ -273,6 +325,12 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     {
         DMSG(0, "NormApp::OnCommand(%s) missing argument\n", cmd);
         return false;        
+    }
+    
+    if (!strncmp("help", cmd, len))
+    {   
+        ShowHelp();
+        return false;
     }
     
     if (control_remote)
@@ -1391,7 +1449,12 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
 
 bool NormApp::OnStartup(int argc, const char*const* argv)
 {
-    
+    if (argc < 3) 
+    {
+        ShowHelp();
+        return false; 
+    }
+       
     if (!(post_processor = NormPostProcessor::Create()))
     {
         DMSG(0, "NormApp::OnStartup() error creating post processor\n");

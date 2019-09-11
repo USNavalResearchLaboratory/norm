@@ -1,5 +1,18 @@
 			           NORM Version History
 
+Version 1.2b4
+=============
+    - Finally remembered to update this file!
+    - Added "help" command to "norm" demo app (Thanks Marinho Barcellos)
+    - New rxbuffer mgmnt scheme to better use limited buffer space.
+    - Removed explicit rate limit on receiver feedback messages
+    - API more complete and established better API naming conventions
+      (documentation soon to follow, I promise!)
+    - There have been some "cc" tweaks and bug fixes.  
+    - NORM RFC 3940 was released and this version is in compliance.
+    - Added optional positive acknowledgements for sender-defined
+      "watermarks".
+    
 Version 1.1b9
 =============
     - There have been a number of bug fixes since 1.1b3.  This release
