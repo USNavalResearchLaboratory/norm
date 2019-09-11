@@ -1,0 +1,81 @@
+#########################################################################
+# COMMON MDP MAKEFILE STUFF
+#
+
+SHELL=/bin/sh
+
+.SUFFIXES: .cpp $(.SUFFIXES)
+
+PROTOLIB = ../protolib
+COMMON = ../common
+UNIX = ./
+NS = ../ns
+
+INCLUDES = $(TCL_INCL_PATH) $(SYSTEM_INCLUDES) -I$(UNIX) -I$(COMMON) -I$(PROTOLIB)/common
+
+CFLAGS = -g -DPROTO_DEBUG -DUNIX -Wall -O -fPIC $(SYSTEM_HAVES) $(INCLUDES)
+
+LDFLAGS = $(SYSTEM_LDFLAGS)
+
+# Note: Even command line app needs X11 for Netscape post-processing
+LIBS = $(SYSTEM_LIBS) -lm
+XLIBS = -lXmu -lXt -lX11
+
+#NOTE: TK_LIB must come before TCL_LIB for some reason
+TKLIBS = $(TK_LIB) $(TCL_LIB)
+
+TCL_SCRIPTS =   ${TCL_SCRIPT_PATH}/init.tcl \
+                ${TK_SCRIPT_PATH}/tk.tcl \
+                ${TK_SCRIPT_PATH}/bgerror.tcl \
+                ${TK_SCRIPT_PATH}/button.tcl \
+                ${TK_SCRIPT_PATH}/dialog.tcl \
+                ${TK_SCRIPT_PATH}/entry.tcl \
+                ${TK_SCRIPT_PATH}/focus.tcl \
+                ${TK_SCRIPT_PATH}/listbox.tcl \
+                ${TK_SCRIPT_PATH}/menu.tcl \
+                ${TK_SCRIPT_PATH}/palette.tcl \
+                ${TK_SCRIPT_PATH}/scale.tcl \
+                ${TK_SCRIPT_PATH}/scrlbar.tcl \
+                ${TK_SCRIPT_PATH}/tearoff.tcl \
+                ${TK_SCRIPT_PATH}/text.tcl \
+                ${TK_SCRIPT_PATH}/optMenu.tcl
+
+TARGETS = mdp tkMdp
+
+# Rule for C++ .cpp extension
+.cpp.o:
+	$(CC) -c $(CFLAGS) -o $*.o $*.cpp
+    
+# MDP depends upon the NRL Protean Group's development library
+LIBPROTO = $(PROTOLIB)/unix/libProto.a
+$(PROTOLIB)/unix/libProto.a: 
+	make -C $(PROTOLIB)/unix -f Makefile.common libProto.a
+
+NORM_SRC = $(COMMON)/normMessage.cpp $(COMMON)/normSession.cpp \
+           $(COMMON)/normNode.cpp $(COMMON)/normObject.cpp \
+           $(COMMON)/normSegment.cpp $(COMMON)/normBitmask.cpp \
+           $(COMMON)/normEncoder.cpp $(COMMON)/galois.cpp
+          
+NORM_OBJ = $(NORM_SRC:.cpp=.o)
+
+LIB_SRC = $(NORM_SRC)
+LIB_OBJ = $(LIB_SRC:.cpp=.o)
+
+libNorm.a:    $(LIB_OBJ)
+	ar rcv $@ $(LIB_OBJ)
+	ranlib $@
+    
+# (mdp) command-line file broadcaster/receiver
+APP_SRC = $(COMMON)/normApp.cpp
+APP_OBJ = $(APP_SRC:.cpp=.o)
+
+norm:    $(APP_OBJ) libNorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) $(LIBS) libNorm.a $(LIBPROTO) 
+    	    
+clean:	
+	rm -f $(COMMON)/*.o  $(UNIX)/*.o $(UNIX)/libNorm.a $(UNIX)/norm;
+	make -C $(PROTOLIB)/unix -f Makefile.common clean
+
+# DO NOT DELETE THIS LINE -- mkdep uses it.
+# DO NOT PUT ANYTHING AFTER THIS LINE, IT WILL GO AWAY.
+

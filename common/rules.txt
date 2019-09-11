@@ -1,0 +1,85 @@
+NORM Rules
+
+This file contains descriptions of rules used in the NRL
+NORM implementation for various aspects of protocol
+operation.  These rules are related to the nature of the
+NORM protocol and how this particular implementation
+maintains protocol state.
+
+Norm Receive Object Status Rules
+====================================
+
+When a message for a transport object is received from a
+remote NORM server node, the "status" (based on the object's
+transport identifier - NormObjectId)of the object is
+determined so that appropriate actions may be taken by the
+receiver.  The possible status types include:
+
+INVALID - the NormObjectId is out-of-range with respect
+          to the current state for the sender.  Out-of-
+          range is defined as an objectId which is
+          excessively ordinally less than the range of
+          currently pending objects (or last object
+          successfully complete if none are pending)
+          Note that if the object is the _first_ object
+          received for the sender, it is always considered
+          "valid", thus establishing an initial 
+          synchronization point for the sender (sync_id):
+          
+          sender->Synchronized AND
+          
+          objectId < sync_id OR 
+          objectId > first_pending + bufferRange
+          (first_pending = sender->IsPending ? 
+            first_pending : next_pending)
+          
+NEW     - The objectId is greater than the range of 
+          currently pending objects (but not too
+          much greater) and acceptable for reception.
+          Note that is the object is the _first_
+          received from the sender, this status
+          always results:
+          
+            !sender->Synchronized OR
+            
+            objectId >= next_pending AND
+            object_id - first_pending < bufferRange
+            (first_pending = sender->IsPending ? 
+            first_pending : next_pending)
+            
+PENDING - The objectId corresponds to an object _within_
+          the range of currently pending objects for
+          the sender and has is marked as still pending:
+          
+          sender->Synchronized AND
+          sender->IsPending() AND
+          first_pending <= objectId < next_pending AND
+             sender->IsPending(objectId)
+          
+COMPLETE - The objectId is within range of objects which
+           have been detected and is not marked as pending:
+           
+           sender->Synchronized AND
+           sync_id <= objectId < next_pending  AND
+           !sender->IsPending(objectId)
+           
+Note since the sequence of objectId's received from a sender
+is circular, the "sync_id" will eventually need to be
+updated as the sequence of objects progresses.  Also note
+that the "sync_id" might be adjusted depending upon the
+receiver synchronisation policy.  For example, if the
+synchronization policy is strict, the "sync_id" will be
+fixed to no less than the first object the receiver accepts
+for reception (according to policies)  But for a looser
+policy the receiver might permit the sync_id to be
+decremented to  fit within the current "bufferRange".  An
+even looser policy would be to allow the receiver's buffer
+range to grow as needed.  However, for some applications,
+the sender has a finite range of objects for which it
+will maintain repair state.
+
+The "bufferRange" is the range (sequential count) of objects
+for which the receiver is maintaining state.  That range may
+be application specific and senders/receivers are anticipated
+to use relatively compatible buffer ranges/sizes based on
+application needs.
