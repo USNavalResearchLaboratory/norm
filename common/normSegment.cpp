@@ -856,7 +856,8 @@ bool NormBlockBuffer::Remove(const NormBlock* theBlock)
                     offset++;
                     if ((entry = table[i]))
                     {
-                        NormBlockId id = (UINT32)index + offset;
+                        //NormBlockId id = (UINT32)index + offset;
+                        NormBlockId id = (UINT32)blockId + offset;
                         while(entry && (entry->GetId() != id)) 
                         {
                             if ((entry->GetId() > blockId) && 
@@ -892,7 +893,8 @@ bool NormBlockBuffer::Remove(const NormBlock* theBlock)
                     offset++;
                     if ((entry = table[i]))
                     {
-                        NormBlockId id = (UINT32)index - offset;
+                        //NormBlockId id = (UINT32)index - offset;
+                        NormBlockId id = (UINT32)blockId - offset;
                         //printf("Looking for id:%lu at index:%lu\n", (UINT32)id, i);
                         while(entry && (entry->GetId() != id)) 
                         {

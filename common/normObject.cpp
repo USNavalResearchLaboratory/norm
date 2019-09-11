@@ -2524,7 +2524,7 @@ bool NormObjectTable::Remove(const NormObject* theObject)
                     offset++;
                     if ((entry = table[i]))
                     {
-                        NormObjectId id = (UINT16)index + offset;
+                        NormObjectId id = (UINT16)objectId + offset;
                         while(entry && (entry->GetId() != id)) 
                         {
                             if ((entry->GetId() > objectId) && 
@@ -2560,7 +2560,7 @@ bool NormObjectTable::Remove(const NormObject* theObject)
                     offset++;
                     if ((entry = table[i]))
                     {
-                        NormObjectId id = (UINT16)index - offset;
+                        NormObjectId id = (UINT16)objectId - offset;
                         //printf("Looking for id:%lu at index:%lu\n", (UINT16)transport_id, i);
                         while(entry && (entry->GetId() != id)) 
                         {

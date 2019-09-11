@@ -1,5 +1,11 @@
 			           NORM Version History
 
+Version 1.1b9
+=============
+    - There have been a number of bug fixes since 1.1b3.  This release
+      fixes a bug in NormBlockBuffer::Remove() and 
+      NormObjectBuffer::Remove(). (Thanks Thava!)
+      
 Version 1.1b3
 =============
     - Started keeping version history.  This release includes
