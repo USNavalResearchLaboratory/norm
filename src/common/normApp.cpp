@@ -76,7 +76,7 @@ class NormApp : public NormController, public ProtoApp
         virtual void Notify(NormController::Event event,
                         class NormSessionMgr* sessionMgr,
                         class NormSession*    session,
-                        class NormSenderNode* sender,
+                        class NormNode*       node,
                         class NormObject*     object);
         
         bool OnIntervalTimeout(ProtoTimer& theTimer);
@@ -490,8 +490,9 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         len = strlen(buffer);
         len = (len > 8191) ? 8191 : len;
         buffer[len++] = '\0';
-        if (!control_pipe.Send(buffer, (unsigned int&)len))
-        {
+        unsigned int numBytes = (unsigned int)len;
+        if (!control_pipe.Send(buffer, numBytes))
+		{
             PLOG(PL_FATAL, "NormApp::OnCommand() error sending command to remote instance\n");
             return false;
         }     
@@ -1494,7 +1495,7 @@ void NormApp::OnInputReady()
 void NormApp::Notify(NormController::Event event,
                      class NormSessionMgr* sessionMgr,
                      class NormSession*    session,
-                     class NormSenderNode* sender,
+                     class NormNode*       sender,
                      class NormObject*     object)
 {
     switch (event)
@@ -1558,7 +1559,8 @@ void NormApp::Notify(NormController::Event event,
         
         case REMOTE_SENDER_INACTIVE:
             PLOG(PL_DEBUG, "NormApp::Notify(REMOTE_SENDER_INACTIVE) ...\n");
-            if (!rx_persistent) sender->FreeBuffers();
+            if (!rx_persistent) 
+                static_cast<NormSenderNode*>(sender)->FreeBuffers();
             break;
            
            

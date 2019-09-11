@@ -49,7 +49,10 @@ class Session(object):
 
     def setMulticastInterface(self, iface):
         libnorm.NormSetMulticastInterface(self, iface)
-
+    
+    def setSSM(self, srcAddr):
+        libnorm.NormSetSSM(self, srcAddr)
+        
     def setTTL(self, ttl):
         libnorm.NormSetTTL(self, ttl)
 

@@ -95,6 +95,26 @@ JNIEXPORT void JNICALL PKGNAME(NormSession_setMulticastInterface)
   env->ReleaseStringUTFChars(interfaceName, str);
 }
 
+
+JNIEXPORT void JNICALL PKGNAME(NormSession_setSSM)
+    (JNIEnv *env, jobject obj, jstring sourceAddr) {
+  NormSessionHandle session;
+  const char *str;
+
+  session = (NormSessionHandle)env->GetLongField(obj, fid_NormSession_handle);
+
+  str = env->GetStringUTFChars(sourceAddr, NULL);
+
+  if (!NormSetSSM(session, str)) {
+    env->ReleaseStringUTFChars(sourceAddr, str);
+    env->ThrowNew((jclass)env->NewLocalRef(jw_IOException), "Failed to set SSM source address");
+    return;
+  }
+
+  env->ReleaseStringUTFChars(sourceAddr, str);
+}
+
+
 JNIEXPORT void JNICALL PKGNAME(NormSession_setTTL)
     (JNIEnv *env, jobject obj, jbyte ttl) {
   NormSessionHandle session;

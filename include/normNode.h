@@ -14,12 +14,27 @@ class NormNode
     friend class NormNodeListIterator;
     
     public:
-        NormNode(class NormSession& theSession, NormNodeId nodeId);
+        enum Type
+        {
+            ACKER,
+            SENDER,
+            CC_NODE
+        };        
+            
+        NormNode(Type theType, class NormSession& theSession, NormNodeId nodeId);
         virtual ~NormNode();
+        
+        Type GetType() const
+            {return node_type;}
         
         NormSession& GetSession() const {return session;}
         void Retain();
         void Release();
+        
+        void SetUserData(const void* userData)
+            {user_data = userData;}
+        const void* GetUserData() const
+            {return user_data;}
         
         const ProtoAddress& GetAddress() const {return addr;} 
         void SetAddress(const ProtoAddress& address) {addr = address;}
@@ -52,9 +67,11 @@ class NormNode
         class NormSession&  session;
         
     private:
+        Type                node_type;
         NormNodeId          id;
         ProtoAddress        addr;
         unsigned int        reference_count;
+        const void*         user_data;
         // We keep NormNodes in a binary tree (TBD) make this a ProtoTree
         NormNode*           parent;
         NormNode*           right;
@@ -544,6 +561,7 @@ class NormSenderNode : public NormNode
         
         // Watermark acknowledgement
         ProtoTimer              ack_timer;
+	bool			ack_pending;
         NormObjectId            watermark_object_id;
         NormBlockId             watermark_block_id;
         NormSegmentId           watermark_segment_id;

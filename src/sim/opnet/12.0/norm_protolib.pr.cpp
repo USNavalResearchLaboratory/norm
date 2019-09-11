@@ -1,8 +1,6 @@
 /* Process model C++ form file: norm_protolib.pr.cpp */
 /* Portions of this file copyright 1992-2006 by OPNET Technologies, Inc. */
 
-
-
 /* This variable carries the header into the object file */
 const char norm_protolib_pr_cpp [] = "MIL_3_Tfile_Hdr_ 120A 30A modeler 7 464DEF85 464DEF85 1 wn12jh Jim@Hauser 0 0 none none 0 0 none 0 0 0 0 0 0 0 0 10de 3                                                                                                                                                                                                                                                                                                                                                                                                        ";
 #include <string.h>

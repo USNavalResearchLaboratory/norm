@@ -120,12 +120,12 @@ class NormObjectSize
         NormObjectSize(UINT16 msb, UINT32 lsb)
         {
             size = (Offset)lsb;
-#if _FILE_OFFSET_BITS > 32                     
+#if (_FILE_OFFSET_BITS > 32) && !defined(ANDROID)                     
             size |=  ((Offset)msb) << 32;
 #endif   
         }
         Offset GetOffset() const {return size;}
-#if _FILE_OFFSET_BITS > 32
+#if (_FILE_OFFSET_BITS > 32) && !defined(ANDROID)
 	    UINT16 MSB() const {return ((UINT16)((size >> 32) & 0x0000ffff));}
 #else
 	    UINT16 MSB() const {return 0;} 

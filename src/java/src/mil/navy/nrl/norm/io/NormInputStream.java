@@ -1,7 +1,3 @@
-/*
- * Copyright (c) 2010 by General Dynamics Advanced Information Systems
- * Classification: UNCLASSIFIED
- */
 package mil.navy.nrl.norm.io;
 
 import java.io.IOException;
@@ -33,6 +29,7 @@ public class NormInputStream extends InputStream {
   private Object closeLock;
 
   private boolean bufferIsEmpty;
+  private boolean receivedEof;
 
   public NormInputStream(String address, int port) throws IOException {
     // Create the NORM instance
@@ -50,6 +47,7 @@ public class NormInputStream extends InputStream {
     closeLock = new Object();
 
     bufferIsEmpty = true;
+    receivedEof = false;
   }
 
   public synchronized void openDebugLog(String filename) throws IOException {
@@ -59,11 +57,11 @@ public class NormInputStream extends InputStream {
   public synchronized void closeDebugLog() {
     normInstance.closeDebugLog();
   }
-  
+
   public synchronized void setDebugLevel(int level) {
     normInstance.setDebugLevel(level);
   }
-  
+
   public synchronized void setMessageTrace(boolean messageTrace) {
     normSession.setMessageTrace(messageTrace);
   }
@@ -198,12 +196,12 @@ public class NormInputStream extends InputStream {
     }
 
     do {
-      while (normInstance.hasNextEvent(0, 0)) {
+      while (bufferIsEmpty || normInstance.hasNextEvent(0, 0)) {
         processEvent();
-      }
 
-      while (bufferIsEmpty) {
-        processEvent();
+        if (receivedEof) {
+          return -1;
+        }
       }
 
       if (normStream == null) {
@@ -254,6 +252,9 @@ public class NormInputStream extends InputStream {
         case NORM_RX_OBJECT_ABORTED:
         case NORM_RX_OBJECT_COMPLETED:
           normStream = null;
+
+          // Signal that the stream has ended
+          receivedEof = true;
           break;
 
         default:

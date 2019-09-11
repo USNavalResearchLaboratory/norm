@@ -32,7 +32,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
  : session_mgr(sessionMgr), notify_pending(false), tx_port(0), tx_port_reuse(false),
    tx_socket_actual(ProtoSocket::UDP), tx_socket(&tx_socket_actual), 
    rx_socket(ProtoSocket::UDP), rx_cap(NULL), rx_port_reuse(false), local_node_id(localNodeId), 
-   ttl(DEFAULT_TTL), tos(0), loopback(false), fragmentation(false), ecn_enabled(false), 
+   ttl(DEFAULT_TTL), tos(0), loopback(false), mcast_loopback(false), fragmentation(false), ecn_enabled(false), 
    tx_rate(DEFAULT_TRANSMIT_RATE/8.0), tx_rate_min(-1.0), tx_rate_max(-1.0),
    backoff_factor(DEFAULT_BACKOFF_FACTOR), is_sender(false), 
    tx_robust_factor(DEFAULT_ROBUST_FACTOR), instance_id(0),
@@ -66,8 +66,8 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    user_data(NULL), next(NULL)
 {
     interface_name[0] = '\0';
-    tx_socket->SetNotifier(&sessionMgr.GetSocketNotifier());
-    tx_socket->SetListener(this, &NormSession::TxSocketRecvHandler);
+    tx_socket_actual.SetNotifier(&sessionMgr.GetSocketNotifier());
+    tx_socket_actual.SetListener(this, &NormSession::TxSocketRecvHandler);
     tx_address.Invalidate();
     
     rx_socket.SetNotifier(&sessionMgr.GetSocketNotifier());
@@ -112,10 +112,15 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
     report_timer.SetListener(this, &NormSession::OnReportTimeout);
     report_timer.SetInterval(10.0);
     report_timer.SetRepeat(-1);
+    
+    user_timer.SetListener(this, &NormSession::OnUserTimeout);
+    user_timer.SetInterval(0.0);
+    user_timer.SetRepeat(0);
 }
 
 NormSession::~NormSession()
 {
+    if (user_timer.IsActive()) user_timer.Deactivate();
     if (NULL != preset_sender)
     {
         delete preset_sender;
@@ -170,7 +175,6 @@ bool NormSession::Open()
         {
             tx_socket = &rx_socket;   
         }
-        
     }
     if (!rx_socket.IsOpen() && (!tx_only || (&rx_socket == tx_socket)))
     {
@@ -180,6 +184,7 @@ bool NormSession::Open()
             Close();
             return false;   
         }
+        rx_socket.EnableRecvDstAddr();
         if (rx_port_reuse)
         {
             // Enable port/addr reuse and bind socket to destination address 
@@ -204,7 +209,7 @@ bool NormSession::Open()
             Close();
             return false;
         }
-        if (rx_connect_addr.IsValid())
+        if (rx_connect_addr.IsValid() && (0 != rx_connect_addr.GetPort()))
         {
             // For unicast, we use the "connect()" call to effectively
             // uniquely "bind" our rx_socket to the remote addr.
@@ -243,7 +248,7 @@ bool NormSession::Open()
             Close();
             return false;
         }
-        if (!tx_socket->SetLoopback(loopback))
+        if (!tx_socket->SetLoopback(mcast_loopback))
         {
             // TBD - Should this be set on the rx_socket instead???
             PLOG(PL_FATAL, "NormSession::Open() tx_socket.SetLoopback() error\n");
@@ -265,7 +270,7 @@ bool NormSession::Open()
         }
         if (!tx_only)
         {
-            if (!rx_socket.JoinGroup(address, interfaceName)) 
+            if (!rx_socket.JoinGroup(address, interfaceName, ssm_source_addr.IsValid() ? &ssm_source_addr : NULL)) 
             {
                 PLOG(PL_FATAL, "NormSession::Open() rx_socket.JoinGroup error\n");
                 Close();
@@ -371,7 +376,7 @@ void NormSession::Close()
         {
             const char* interfaceName = ('\0' != interface_name[0]) ?
                                             interface_name : NULL;
-            rx_socket.LeaveGroup(address, interfaceName);
+            rx_socket.LeaveGroup(address, interfaceName, ssm_source_addr.IsValid() ? &ssm_source_addr : NULL);
         }
         rx_socket.Close();
     }
@@ -406,6 +411,27 @@ bool NormSession::SetMulticastInterface(const char* interfaceName)
     }
 }  // end NormSession::SetMulticastInterface()
 
+bool NormSession::SetSSM(const char* sourceAddress)
+{
+    if (NULL != sourceAddress)
+    {
+        if (ssm_source_addr.ResolveFromString(sourceAddress))
+        {
+            return true;
+        }
+        else
+        {
+            PLOG(PL_ERROR, "NormSession::SetSSM() error: invalid source address\n");
+            return false;
+        }        
+    }
+    else
+    {
+        ssm_source_addr.Invalidate();
+        return true;
+    }
+}  // end NormSession::SetSSM()
+
 bool NormSession::SetRxPortReuse(bool           enableReuse, 
                                  const char*    rxBindAddress, // bind() to <rxBindAddress>/<sessionPort>
                                  const char*    senderAddress, // connect() to <senderAddress>/<senderPort>
@@ -424,6 +450,7 @@ bool NormSession::SetRxPortReuse(bool           enableReuse,
     }
     if (NULL != senderAddress)
     {
+        // TBD - if open, connect() to sender?
         if (rx_connect_addr.ResolveFromString(senderAddress))
         {
             rx_connect_addr.SetPort(senderPort);
@@ -491,18 +518,21 @@ void NormSession::SetTxOnly(bool txOnly, bool connectToSessionAddress)
 {
     tx_only = txOnly;
     tx_connect = connectToSessionAddress;
-    if (txOnly && IsOpen())
+    if (IsOpen())
     {
-        if (IsReceiver()) StopReceiver();
-        if (rx_socket.IsOpen()) rx_socket.Close();
-#ifdef ECN_SUPPORT
-        if (NULL != rx_cap)
+        if (txOnly)
         {
-            rx_cap->Close();
-            delete rx_cap;
-            rx_cap = NULL;
-        }
+            if (IsReceiver()) StopReceiver();
+            if (rx_socket.IsOpen()) rx_socket.Close();
+#ifdef ECN_SUPPORT
+            if (NULL != rx_cap)
+            {
+                rx_cap->Close();
+                delete rx_cap;
+                rx_cap = NULL;
+            }
 #endif // ECN_SUPPORT
+        }
         // We connect tx_only session sockets when tx port
         // reuse is set _and_ it is a unicast session
         // (This makes sure unicast NACKs get back to the right tx_socket!)
@@ -530,13 +560,14 @@ double NormSession::GetTxRate()
 }  // end NormSession::GetTxRate()
 
 
+/*
+// This hack can be uncommented give us a tx rate interval that is POISSON instead of PERIODIC
 static double PoissonRand(double mean)
 {
     return(-log(((double)rand())/((double)RAND_MAX))*mean);
 }
-
+*/
         
-// This hack can give us a tx rate interval that is POISSON instead of PERIODIC
 static inline double GetTxInterval(unsigned int msgSize, double txRate)
 {
     double interval = (double)msgSize / txRate;
@@ -652,6 +683,17 @@ void NormSession::SetTxRateBounds(double rateMin, double rateMax)
     }
 }  // end NormSession::SetTxRateBounds()
         
+
+void NormSession::SetUserTimer(double seconds)
+{
+    if (user_timer.IsActive()) user_timer.Deactivate();
+    if (seconds >= 0.0)
+    {
+        user_timer.SetInterval(seconds);
+        ActivateTimer(user_timer);
+    }
+}  // end NormSession::SetUserTimer()
+
 
 bool NormSession::StartSender(UINT16        instanceId,
                               UINT32        bufferSpace,
@@ -797,7 +839,7 @@ bool NormSession::StartSender(UINT16        instanceId,
         }
         else
         {
-            // Don't let txRate below MIN(one segment per grtt, one segment per seconds)
+            // Don't let txRate below MIN(one segment per grtt, one segment per second)
             txRate = ((double)segment_size) / grtt_measured;
             if (txRate > ((double)(segment_size)))
                 txRate = (double)(segment_size);
@@ -898,7 +940,7 @@ void NormSession::StopReceiver()
     // Iterate sender_tree and close/release sender nodes
     NormSenderNode* senderNode = 
         static_cast<NormSenderNode*>(sender_tree.GetRoot());
-    while (senderNode)
+    while (NULL != senderNode)
     {
         sender_tree.DetachNode(senderNode);
         senderNode->Close();
@@ -916,7 +958,7 @@ void NormSession::DeleteRemoteSender(NormSenderNode& senderNode)
     sender_tree.DetachNode(&senderNode);
     senderNode.Close();
     senderNode.Release();
-}  // end NormSession::DeleteSender()
+}  // end NormSession::DeleteRemoteSender()
 
 bool NormSession::PreallocateRemoteSender(UINT16 segmentSize, 
                                           UINT16 numData, 
@@ -1153,7 +1195,7 @@ void NormSession::Serve()
                             {
                                 SenderQueueFlush();
                             }
-                            else if (GetTxRobustFactor() == flush_count)  //xxx
+                            else if (GetTxRobustFactor() == flush_count)  
                             {
                                 
                                 PLOG(PL_TRACE, "NormSession::Serve() node>%lu sender stream flush complete ...\n",
@@ -1270,7 +1312,7 @@ void NormSession::SenderCancelWatermark()
     watermark_pending = false;
 }  // end NormSession::SenderCancelWatermark()
 
-bool NormSession::SenderAddAckingNode(NormNodeId nodeId)
+NormAckingNode* NormSession::SenderAddAckingNode(NormNodeId nodeId, const ProtoAddress* srcAddress)
 {
     NormAckingNode* theNode = static_cast<NormAckingNode*>(acking_node_tree.FindNodeById(nodeId));
     if (NULL == theNode)
@@ -1281,18 +1323,19 @@ bool NormSession::SenderAddAckingNode(NormNodeId nodeId)
             theNode->Reset(GetTxRobustFactor());
             acking_node_tree.AttachNode(theNode);
             acking_node_count++;
-            return true;
         }
         else
         {
             PLOG(PL_ERROR, "NormSession::SenderAddAckingNode() new NormAckingNode error: %s\n", GetErrorString());
+            return NULL;
         }                
     }
     else
     {
-        PLOG(PL_ERROR, "NormSession::SenderAddAckingNode() warning: node already in list!?\n");
+        PLOG(PL_WARN, "NormSession::SenderAddAckingNode() warning: node already in list!?\n");
     }
-    return true;
+    if (NULL != srcAddress) theNode->SetAddress(*srcAddress);
+    return theNode;
 }  // end NormSession::AddAckingNode(NormNodeId nodeId)
 
 void NormSession::SenderRemoveAckingNode(NormNodeId nodeId)
@@ -1967,33 +2010,45 @@ char* NormSession::SenderGetFreeSegment(NormObjectId objectId,
     return segment_pool.Get();
 }  // end NormSession::SenderGetFreeSegment()
 
-void NormSession::TxSocketRecvHandler(ProtoSocket&       /*theSocket*/,
+void NormSession::TxSocketRecvHandler(ProtoSocket&       theSocket,
                                       ProtoSocket::Event theEvent)
 {
     if (ProtoSocket::RECV == theEvent)
     {
         NormMsg msg;
         unsigned int msgLength = NormMsg::MAX_SIZE;
-        while (tx_socket->RecvFrom(msg.AccessBuffer(),
+        while (true)
+        {
+            
+            if (theSocket.RecvFrom(msg.AccessBuffer(),
                                    msgLength, 
                                    msg.AccessAddress()))
-        {
-            if (0 == msgLength) break;  // no more data to read
-            if (msg.InitFromBuffer(msgLength))
             {
-                HandleReceiveMessage(msg, true);
-                msgLength = NormMsg::MAX_SIZE;
+                if (0 == msgLength) break;  // no more data to read
+                if (msg.InitFromBuffer(msgLength))
+                {
+                    // Since it arrived on the tx_socket, we know it was unicast
+                    HandleReceiveMessage(msg, true);
+                    msgLength = NormMsg::MAX_SIZE;
+                }
+                else
+                {
+                    PLOG(PL_ERROR, "NormSession::TxSocketRecvHandler() warning: received bad message\n");   
+                }
             }
             else
             {
-                PLOG(PL_ERROR, "NormSession::TxSocketRecvHandler() warning: received bad message\n");   
+                // Probably an ICMP "port unreachable" error
+                if (Address().IsUnicast())
+                    Notify(NormController::SEND_ERROR, NULL, NULL);
+                break;
             }
         }
     }
     else if (ProtoSocket::SEND == theEvent)
     {
         // This is a little cheesy, but ...
-        tx_socket->StopOutputNotification();
+        theSocket.StopOutputNotification();
         if (tx_timer.IsActive()) tx_timer.Deactivate();
         if (OnTxTimeout(tx_timer))
         {
@@ -2014,80 +2069,110 @@ int rxMeasureGapMax = 0;
 #endif // RX_MEASURE_ONLY
 
 void NormSession::RxSocketRecvHandler(ProtoSocket&       theSocket,
-                                      ProtoSocket::Event /*theEvent*/)
+                                      ProtoSocket::Event theEvent)
 {
-    unsigned int recvCount = 0;
-    NormMsg msg;
-    unsigned int msgLength = NormMsg::MAX_SIZE;
-    while (theSocket.RecvFrom(msg.AccessBuffer(),
-                              msgLength, 
-                              msg.AccessAddress()))
+    if (ProtoSocket::RECV == theEvent)
     {
-        if (0 == msgLength) break;
-        if (msg.InitFromBuffer(msgLength))
+        unsigned int recvCount = 0;
+        NormMsg msg;
+        unsigned int msgLength = NormMsg::MAX_SIZE;
+        while (true)
         {
+            ProtoAddress destAddr;  // we get the pkt destAddr to determine unicast/multicast
+            if (theSocket.RecvFrom(msg.AccessBuffer(),
+                                      msgLength, 
+                                      msg.AccessAddress(),
+                                      destAddr))
+            {
+                if (0 == msgLength) break;
+                if (msg.InitFromBuffer(msgLength))
+                {
 #ifdef RX_MEASURE_ONLY
-            // Measure rx rate / loss stats only
-            struct timeval currentTime;
-            ProtoSystemTime(currentTime);
-            UINT16 seq = msg.GetSequence();
-            if (rxMeasureInit)
-            {
-                rxMeasureRefTime = currentTime;
-                rxMeasureSeqPrev = seq;
-                rxMeasurePktCount = rxMeasurePktTotal = 1;
-                rxMeasureByteTotal = msgLength;
-                rxMeasureInit = false;
-                return;   
-            }
-            int seqDelta = (int)seq - (int)rxMeasureSeqPrev;
-            ASSERT(seqDelta > 0);
-            
-            rxMeasurePktTotal += seqDelta;   // total should have received.
-            rxMeasurePktCount++;             // total actually received
-            rxMeasureByteTotal += msgLength;
-            
-            if (seqDelta > rxMeasureGapMax)
-                rxMeasureGapMax = seqDelta;
-            
-            int deltaSec = currentTime.tv_sec - rxMeasureRefTime.tv_sec;
-            if (deltaSec >= 10)
-            {
-                if (currentTime.tv_usec > rxMeasureRefTime.tv_usec)
-                    deltaSec += 1.0e-06 * (double)(currentTime.tv_usec - rxMeasureRefTime.tv_usec);
-                else
-                    deltaSec -= 1.0e-06 * (double)(rxMeasureRefTime.tv_usec - currentTime.tv_usec);
-                double rxRate = (8.0/1000.0) * (double)rxMeasureByteTotal / (double)deltaSec;   
-                double rxLoss = 100.0 * (1.0 - (double)rxMeasurePktCount / (double)rxMeasurePktTotal);
-                
-                rxMeasureRefTime = currentTime;
-                rxMeasureByteTotal = rxMeasurePktCount = rxMeasurePktTotal = rxMeasureGapMax = 0;
-            }
-            rxMeasureSeqPrev = seq;
-            return;
+                    // Measure rx rate / loss stats only
+                    struct timeval currentTime;
+                    ProtoSystemTime(currentTime);
+                    UINT16 seq = msg.GetSequence();
+                    if (rxMeasureInit)
+                    {
+                        rxMeasureRefTime = currentTime;
+                        rxMeasureSeqPrev = seq;
+                        rxMeasurePktCount = rxMeasurePktTotal = 1;
+                        rxMeasureByteTotal = msgLength;
+                        rxMeasureInit = false;
+                        return;   
+                    }
+                    int seqDelta = (int)seq - (int)rxMeasureSeqPrev;
+                    ASSERT(seqDelta > 0);
+
+                    rxMeasurePktTotal += seqDelta;   // total should have received.
+                    rxMeasurePktCount++;             // total actually received
+                    rxMeasureByteTotal += msgLength;
+
+                    if (seqDelta > rxMeasureGapMax)
+                        rxMeasureGapMax = seqDelta;
+
+                    int deltaSec = currentTime.tv_sec - rxMeasureRefTime.tv_sec;
+                    if (deltaSec >= 10)
+                    {
+                        if (currentTime.tv_usec > rxMeasureRefTime.tv_usec)
+                            deltaSec += 1.0e-06 * (double)(currentTime.tv_usec - rxMeasureRefTime.tv_usec);
+                        else
+                            deltaSec -= 1.0e-06 * (double)(rxMeasureRefTime.tv_usec - currentTime.tv_usec);
+                        double rxRate = (8.0/1000.0) * (double)rxMeasureByteTotal / (double)deltaSec;   
+                        double rxLoss = 100.0 * (1.0 - (double)rxMeasurePktCount / (double)rxMeasurePktTotal);
+
+                        rxMeasureRefTime = currentTime;
+                        rxMeasureByteTotal = rxMeasurePktCount = rxMeasurePktTotal = rxMeasureGapMax = 0;
+                    }
+                    rxMeasureSeqPrev = seq;
+                    return;
 #endif // RX_MEASURE_ONLY 
-            bool ecnStatus = false;
+                    bool ecnStatus = false;
 #ifdef SIMULATE
-            ecnStatus = theSocket.GetEcnStatus();
-            //if (ecnStatus) TRACE("NORM RECEIVED PACKET W/ ECN BIT SET!!!!!\n");
+                    ecnStatus = theSocket.GetEcnStatus();
+                    //if (ecnStatus) TRACE("NORM RECEIVED PACKET W/ ECN BIT SET!!!!!\n");
 #endif // SIMULATE            
-            HandleReceiveMessage(msg, false, ecnStatus);
-            msgLength = NormMsg::MAX_SIZE;
-        }
-        else
-        {
-            PLOG(PL_ERROR, "NormSession::RxSocketRecvHandler() warning: received bad message\n");   
-        }
-        // If our system gets very busy reading sockets, we should occasionally
-        // execute any timeouts to keep protocol operation smooth (i.e., sending feedback)
-        // TBD - perhaps this should be time based
-        if (++recvCount >= 100)
-        {
-            break;
-            //session_mgr.DoSystemTimeout();
-            //recvCount = 0;
+                    bool wasUnicast;
+                    if (destAddr.IsValid())
+                        wasUnicast = destAddr.IsUnicast();
+                    else
+                        wasUnicast = false;
+                    HandleReceiveMessage(msg, wasUnicast, ecnStatus);
+                    msgLength = NormMsg::MAX_SIZE;
+                }
+                else
+                {
+                    PLOG(PL_ERROR, "NormSession::RxSocketRecvHandler() warning: received bad message\n");   
+                }
+                // If our system gets very busy reading sockets, we should occasionally
+                // execute any timeouts to keep protocol operation smooth (i.e., sending feedback)
+                // TBD - perhaps this should be time based
+                if (++recvCount >= 100)
+                {
+                    break;
+                    //session_mgr.DoSystemTimeout();
+                    //recvCount = 0;
+                }
+            }
+            else
+            {   
+                // Probably an ICMP "port unreachable" error
+                if (Address().IsUnicast())
+                    Notify(NormController::SEND_ERROR, NULL, NULL);
+                break;
+            }
         }
     }
+    else if (ProtoSocket::SEND == theEvent)
+    {
+        // This is a little cheesy, but ...
+        theSocket.StopOutputNotification();
+        if (tx_timer.IsActive()) tx_timer.Deactivate();
+        if (OnTxTimeout(tx_timer))
+        {
+            if (!tx_timer.IsActive()) ActivateTimer(tx_timer);
+        }
+    }  // end if/else (theEvent == RECV/SEND)
 }  // end NormSession::RxSocketRecvHandler()
 
 
@@ -2176,8 +2261,24 @@ void NormSession::OnPktCapture(ProtoChannel&              theChannel,
             continue;  // not a UDP packet for our session, go read next packet
         // If our rx_socket is "connected", make sure source addr/port matches
         srcIp.SetPort(udpPkt.GetSrcPort());
-        if (rx_connect_addr.IsValid() && !rx_connect_addr.IsEqual(srcIp))
-            continue; // not from the remote tx_socket to which we are "connected"
+        // if socket is connected, validate that the packet's from the specified source addr
+        if (rx_connect_addr.IsValid())
+        {
+            if (0 != rx_connect_addr.GetPort())
+            {
+                // check host addr component only for match 
+                if (!rx_connect_addr.HostIsEqual(srcIp)) continue;
+                
+                    
+            }
+            else
+            {
+                // check for addr _and_ port match
+                if (!rx_connect_addr.IsEqual(srcIp)) continue;
+            }
+        }
+        // if we are using SSM multicast make sure it's the right source addr
+        if (ssm_source_addr.IsValid() && !ssm_source_addr.HostIsEqual(srcIp)) continue; 
         
         // IMPORTANT NOTE:  We ignore the checksum for OUTBOUND packets since these
         // are often computed by the Ethernet hardware these days
@@ -2194,7 +2295,7 @@ void NormSession::OnPktCapture(ProtoChannel&              theChannel,
         {
             
             msg.AccessAddress() = srcIp;
-            HandleReceiveMessage(msg, !dstIp.IsMulticast(), (ProtoSocket::ECN_CE == ecnStatus));
+            HandleReceiveMessage(msg, dstIp.IsUnicast(), (ProtoSocket::ECN_CE == ecnStatus));
         }
         else
         {
@@ -2209,7 +2310,8 @@ void NormTrace(const struct timeval&    currentTime,
                NormNodeId               localId, 
                const NormMsg&           msg, 
                bool                     sent,
-               UINT8                    fecM)
+               UINT8                    fecM,
+	           UINT16			        instId)
 {
     static const char* MSG_NAME[] =
     {
@@ -2270,7 +2372,7 @@ void NormTrace(const struct timeval&    currentTime,
         {
             const NormInfoMsg& info = (const NormInfoMsg&)msg;
             PLOG(PL_ALWAYS, "inst>%hu seq>%hu INFO obj>%hu ", 
-                    info.GetInstanceId(), seq, (UINT16)info.GetObjectId());
+                             info.GetInstanceId(), seq, (UINT16)info.GetObjectId());
             break;
         }
         case NormMsg::DATA:
@@ -2367,6 +2469,7 @@ void NormTrace(const struct timeval&    currentTime,
         case NormMsg::ACK:
         case NormMsg::NACK:
         {
+	    PLOG(PL_ALWAYS, "inst>%hu ", instId);
             // look for NormCCFeedback extension
             NormHeaderExtension ext;
             while (msg.GetNextExtension(ext))
@@ -2394,7 +2497,7 @@ void NormTrace(const struct timeval&    currentTime,
                 }
                 else
                 {
-                    PLOG(PL_ALWAYS, "ACK(XXX) ");
+                    PLOG(PL_ALWAYS, "ACK(ZZZ) ");
                 }
             }
             else
@@ -2425,7 +2528,42 @@ void NormSession::HandleReceiveMessage(NormMsg& msg, bool wasUnicast, bool ecnSt
     struct timeval currentTime;
     ::ProtoSystemTime(currentTime);
     
-    if (trace) NormTrace(currentTime, LocalNodeId(), msg, false, 16);  // TBD don't assume m == 16 (i.e. for fec_id == 2)
+    if (trace) 
+    {
+    	// Initially assume it's a message we generated (or similarly configured sender)
+    UINT8 fecM = fec_m;
+	UINT16 instId = instance_id;
+	NormNodeId senderId;
+	switch (msg.GetType())
+	{
+	    case NormMsg::ACK:
+	    	senderId = static_cast<NormAckMsg&>(msg).GetSenderId();
+		break;
+	    case NormMsg::NACK:
+	    	senderId = static_cast<NormAckMsg&>(msg).GetSenderId();
+		break;
+	    default:
+	    	senderId = msg.GetSourceId();
+		break;
+	}
+	if (IsReceiver() && (senderId != LocalNodeId()))
+	{
+	   // Use our receiver state to look up sender if possible
+	   NormSenderNode* sender = static_cast<NormSenderNode*>(sender_tree.FindNodeById(senderId));
+	   if (NULL != sender)
+	   {
+	       fecM = sender->GetFecFieldSize();
+	       instId = sender->GetInstanceId();
+	   }
+	   else
+	   {
+	   	fecM = 16; // reasonable assumption
+		instId = 0;
+	   }
+	}
+	
+    	NormTrace(currentTime, LocalNodeId(), msg, false, fecM, instId);  // TBD don't assume m == 16 (i.e. for fec_id == 2)
+    }
     
     NormMsg::Type msgType = msg.GetType();
     
@@ -2454,6 +2592,8 @@ void NormSession::HandleReceiveMessage(NormMsg& msg, bool wasUnicast, bool ecnSt
             {
                 if (!SenderAddAckingNode(msg.GetSourceId()))
                     PLOG(PL_ERROR, "NormSession::HandleReceiveMessage() error: unable to add acking node!\n");
+                NormAckingNode* acker = (NormAckingNode*)acking_node_tree.FindNodeById(sourceId);
+                Notify(NormController::ACKING_NODE_NEW, acker, NULL);
             }
         }
     }
@@ -2512,7 +2652,8 @@ void NormSession::ReceiverHandleObjectMessage(const struct timeval&   currentTim
         {
             PLOG(PL_INFO, "NormSession::ReceiverHandleObjectMessage() node>%lu sender>%lu instanceId change - resyncing.\n",
                          LocalNodeId(), theSender->GetId());
-            theSender->Close();   
+            theSender->Close();
+            Notify(NormController::REMOTE_SENDER_RESET, theSender, NULL);
             if (!theSender->Open(msg.GetInstanceId()))
             {
                 PLOG(PL_ERROR, "NormSession::ReceiverHandleObjectMessage() node>%lu error re-opening NormSenderNode\n");
@@ -2528,6 +2669,7 @@ void NormSession::ReceiverHandleObjectMessage(const struct timeval&   currentTim
             theSender = preset_sender;
             preset_sender = NULL;
             theSender->SetId(msg.GetSourceId());
+            theSender->SetAddress(msg.GetSource());
             theSender->SetInstanceId(msg.GetInstanceId());
             sender_tree.AttachNode(theSender);
             PLOG(PL_DEBUG, "NormSession::ReceiverHandleObjectMessage() node>%lu new remote sender:%lu ...\n",
@@ -2535,6 +2677,7 @@ void NormSession::ReceiverHandleObjectMessage(const struct timeval&   currentTim
         }
         else if (NULL != (theSender = new NormSenderNode(*this, msg.GetSourceId())))
         {
+            theSender->SetAddress(msg.GetSource());
             Notify(NormController::REMOTE_SENDER_NEW, theSender, NULL);
             if (theSender->Open(msg.GetInstanceId()))
             {
@@ -2558,7 +2701,12 @@ void NormSession::ReceiverHandleObjectMessage(const struct timeval&   currentTim
         }   
     }
     theSender->Activate(true);
-    theSender->SetAddress(msg.GetSource());
+    if (!theSender->GetAddress().IsEqual(msg.GetSource()))
+    {
+        // sender source address has changed
+        theSender->SetAddress(msg.GetSource());
+        Notify(NormController::REMOTE_SENDER_ADDRESS, theSender, NULL);
+    }
     theSender->UpdateRecvRate(currentTime, msg.GetLength());
     //if (ecnStatus) TRACE("UPDATING LOSS EST w/ ECN pkt\n");
     theSender->UpdateLossEstimate(currentTime, msg.GetSequence(), ecnStatus); 
@@ -2576,13 +2724,14 @@ void NormSession::ReceiverHandleCommand(const struct timeval& currentTime,
     // Do common updates for senders we already know.
     NormNodeId sourceId = cmd.GetSourceId();
     NormSenderNode* theSender = (NormSenderNode*)sender_tree.FindNodeById(sourceId);
-    if (theSender)
+    if (NULL != theSender)
     {
         if (cmd.GetInstanceId() != theSender->GetInstanceId())
         {
             PLOG(PL_INFO, "NormSession::ReceiverHandleCommand() node>%lu sender>%lu instanceId change - resyncing.\n",
                          LocalNodeId(), theSender->GetId());
             theSender->Close();   
+            Notify(NormController::REMOTE_SENDER_RESET, theSender, NULL);
             if (!theSender->Open(cmd.GetInstanceId()))
             {
                 PLOG(PL_ERROR, "NormSession::ReceiverHandleCommand() node>%lu error re-opening NormSenderNode\n");
@@ -2600,6 +2749,7 @@ void NormSession::ReceiverHandleCommand(const struct timeval& currentTime,
             theSender = preset_sender;
             preset_sender = NULL;
             theSender->SetId(cmd.GetSourceId());
+            theSender->SetAddress(cmd.GetSource());
             theSender->SetInstanceId(cmd.GetInstanceId());
             sender_tree.AttachNode(theSender);
             PLOG(PL_DEBUG, "NormSession::ReceiverHandleObjectMessage() node>%lu new remote sender:%lu ...\n",
@@ -2608,6 +2758,7 @@ void NormSession::ReceiverHandleCommand(const struct timeval& currentTime,
         else if ((theSender = new NormSenderNode(*this, cmd.GetSourceId())))
         {
             Notify(NormController::REMOTE_SENDER_NEW, theSender, NULL);
+            theSender->SetAddress(cmd.GetSource());
             if (theSender->Open(cmd.GetInstanceId()))
             {
                 sender_tree.AttachNode(theSender);
@@ -2634,7 +2785,12 @@ void NormSession::ReceiverHandleCommand(const struct timeval& currentTime,
         theSender->Activate(true);
     else
         theSender->Activate(false);
-    theSender->SetAddress(cmd.GetSource());
+    if (!theSender->GetAddress().IsEqual(cmd.GetSource()))
+    {
+        // sender source address has changed
+        theSender->SetAddress(cmd.GetSource());
+        Notify(NormController::REMOTE_SENDER_ADDRESS, theSender, NULL);
+    }
     theSender->UpdateRecvRate(currentTime, cmd.GetLength());
     theSender->UpdateLossEstimate(currentTime, cmd.GetSequence(), ecnStatus); 
     theSender->IncrementRecvTotal(cmd.GetLength()); // for statistics only (TBD) #ifdef NORM_DEBUG
@@ -3076,14 +3232,14 @@ void NormSession::SenderHandleNackMessage(const struct timeval& currentTime, Nor
     
     if (GetDebugLevel() >=  PL_DEBUG)
     {
-        PLOG(PL_ALWAYS, "node>%lu sender (tactive:%d)received NACK message with content:\n", 
+        PLOG(PL_ALWAYS, "node>%lu sender (tactive:%d) received NACK message with content:\n", 
                 LocalNodeId(), repair_timer.IsActive());
         LogRepairContent(nack.GetRepairContent(), nack.GetRepairContentLength(), fec_id, fec_m);
         PLOG(PL_ALWAYS, "\n");
     }
     
     // (TBD) maintain average of "numErasures" for SEGMENT repair requests
-    //       to use as input to a an automatic "auto parity" adjustor
+    //       to use as input to a future automatic "auto parity" adjustor???
     // Update GRTT estimate
     struct timeval grttResponse;
     nack.GetGrttResponse(grttResponse);
@@ -3660,8 +3816,8 @@ void NormSession::ReceiverHandleAckMessage(const NormAckMsg& ack)
     }
     else
     {
-        PLOG(PL_DEBUG, "NormSession::ReceiverHandleAckMessage() node>%lu heard ACK for unknown sender.\n",
-                LocalNodeId()); 
+        PLOG(PL_DEBUG, "NormSession::ReceiverHandleAckMessage() node>%lu heard ACK for unknown sender>%lu.\n",
+                LocalNodeId(), ack.GetSenderId()); 
     }
 }  // end NormSession::ReceiverHandleAckMessage()
 
@@ -4239,16 +4395,17 @@ bool NormSession::SendMessage(NormMsg& msg)
     // (TBD) fill in InstanceId fields on all messages as needed
     // We need "fec_m" for the message for NormTrace() purposes
     UINT8 fecM = fec_m;  // assume it's a sender message (will be overridden otherwise)
+    UINT16 instId = instance_id;   // assume it's a sender message (will be overridden otherwise)
     switch (msg.GetType())
     {
         case NormMsg::INFO:
         case NormMsg::DATA:
-            ((NormObjectMsg&)msg).SetInstanceId(instance_id);
+            ((NormObjectMsg&)msg).SetInstanceId(instId);
             msg.SetSequence(tx_sequence++);  // (TBD) set for session dst msgs
             break;
         case NormMsg::CMD:
         {
-            ((NormCmdMsg&)msg).SetInstanceId(instance_id);
+            ((NormCmdMsg&)msg).SetInstanceId(instId);
             switch (((NormCmdMsg&)msg).GetFlavor())
             {
                 case NormCmdMsg::CC:
@@ -4276,6 +4433,7 @@ bool NormSession::SendMessage(NormMsg& msg)
                 (NormSenderNode*)sender_tree.FindNodeById(nack.GetSenderId());
             ASSERT(NULL != theSender);
             fecM = theSender->GetFecFieldSize();
+	        instId = theSender->GetInstanceId();
             struct timeval currentTime;
             ProtoSystemTime(currentTime); 
             struct timeval grttResponse;
@@ -4292,6 +4450,7 @@ bool NormSession::SendMessage(NormMsg& msg)
                 (NormSenderNode*)sender_tree.FindNodeById(ack.GetSenderId());
             ASSERT(NULL != theSender);
             fecM = theSender->GetFecFieldSize();
+	        instId = theSender->GetInstanceId();
             struct timeval grttResponse;
             struct timeval currentTime;
             ProtoSystemTime(currentTime); 
@@ -4325,7 +4484,7 @@ bool NormSession::SendMessage(NormMsg& msg)
         {
             struct timeval currentTime;
             ProtoSystemTime(currentTime); 
-            NormTrace(currentTime, LocalNodeId(), msg, true, fecM);
+            NormTrace(currentTime, LocalNodeId(), msg, true, fecM, instId);
         }
         // Update sent rate tracker even if dropped (for testing/debugging)
         sent_accumulator.Increment(msgSize);
@@ -4340,7 +4499,7 @@ bool NormSession::SendMessage(NormMsg& msg)
             {
                 struct timeval currentTime;
                 ProtoSystemTime(currentTime); 
-                NormTrace(currentTime, LocalNodeId(), msg, true, fecM);
+                NormTrace(currentTime, LocalNodeId(), msg, true, fecM, instId);
             }
             // To keep track of _actual_ sent rate 
             sent_accumulator.Increment(msgSize);
@@ -4349,7 +4508,8 @@ bool NormSession::SendMessage(NormMsg& msg)
         }
         else
         {
-            PLOG(PL_DETAIL, "NormSession::SendMessage() sendto() error: %s\n", GetErrorString());
+            PLOG(PL_ERROR, "NormSession::SendMessage() sendto(%s/%hu) error: %s\n",
+                    msg.GetDestination().GetHostString(), msg.GetDestination().GetPort(), GetErrorString());
             tx_sequence--;
             return false;
         }
@@ -4876,10 +5036,19 @@ bool NormSession::OnReportTimeout(ProtoTimer& /*theTimer*/)
     struct tm* ct = &timeStruct;
 #else            
     time_t secs = (time_t)currentTime.tv_sec;
-    struct tm* ct = gmtime(&secs);
+    struct tm timeStruct;
+    //struct tm* ct = gmtime(&secs);
+#ifdef WIN32
+	gmtime_s(&timeStruct, &secs);
+	struct tm* ct = &timeStruct;
+#else
+    struct tm* ct = gmtime_r(&secs, &timeStruct);
+#endif
+    
 #endif // if/else _WIN32_WCE
+    ASSERT(NULL != ct);
     PLOG(PL_INFO, "REPORT time>%02d:%02d:%02d.%06lu node>%lu ***************************************\n", 
-            ct->tm_hour, ct->tm_min, ct->tm_sec, currentTime.tv_usec, LocalNodeId());
+                  ct->tm_hour, ct->tm_min, ct->tm_sec, currentTime.tv_usec, LocalNodeId());
     if (IsSender())
     {
         PLOG(PL_INFO, "Local status:\n");
@@ -4924,6 +5093,14 @@ bool NormSession::OnReportTimeout(ProtoTimer& /*theTimer*/)
     PLOG(PL_INFO, "***************************************************************************\n");
     return true;
 }  // end NormSession::OnReportTimeout()
+
+bool NormSession::OnUserTimeout(ProtoTimer& /*theTimer*/)
+{
+    Notify(NormController::USER_TIMEOUT, (NormSenderNode*)NULL, (NormObject*)NULL);
+    return true;
+}  // end NormSession::OnUserTimeout(
+
+
 
 NormSessionMgr::NormSessionMgr(ProtoTimerMgr&           timerMgr, 
                                ProtoSocket::Notifier&   socketNotifier,

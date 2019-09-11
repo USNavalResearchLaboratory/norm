@@ -5,8 +5,8 @@
 #include "normEncoderRS8.h"  // 8-bit Reed-Solomon encoder of RFC 5510
 #include "normEncoderRS16.h"  // 16-bit Reed-Solomon encoder of RFC 5510
 
-NormNode::NormNode(class NormSession& theSession, NormNodeId nodeId)
- : session(theSession), id(nodeId), reference_count(1),
+NormNode::NormNode(Type nodeType, class NormSession& theSession, NormNodeId nodeId)
+ : session(theSession), node_type(nodeType), id(nodeId), reference_count(1), user_data(NULL),
    parent(NULL), right(NULL), left(NULL)
 {
     
@@ -14,7 +14,9 @@ NormNode::NormNode(class NormSession& theSession, NormNodeId nodeId)
 
 NormNode::~NormNode()
 {
+    //TRACE("NormNode %lu dtor ...\n", (unsigned long)id);
 }
+
 
 void NormNode::Retain()
 {
@@ -40,9 +42,8 @@ NormNode::Accumulator::Accumulator()
 }
 
 
-
 NormCCNode::NormCCNode(class NormSession& theSession, NormNodeId nodeId)
- : NormNode(theSession, nodeId)
+ : NormNode(CC_NODE, theSession, nodeId)
 {
     
 }
@@ -65,11 +66,11 @@ const double NormSenderNode::DEFAULT_NOMINAL_INTERVAL = 2*NormSession::DEFAULT_G
 const double NormSenderNode::ACTIVITY_INTERVAL_MIN = 1.0;  // 1 second min activity timeout
         
 NormSenderNode::NormSenderNode(class NormSession& theSession, NormNodeId nodeId)
- : NormNode(theSession, nodeId), instance_id(0), robust_factor(session.GetRxRobustFactor()),
+ : NormNode(SENDER, theSession, nodeId), instance_id(0), robust_factor(session.GetRxRobustFactor()),
    synchronized(false), sync_id(0),
    is_open(false), segment_size(0), fec_m(0), ndata(0), nparity(0), 
    repair_boundary(BLOCK_BOUNDARY), decoder(NULL), erasure_loc(NULL),
-   retrieval_loc(NULL), retrieval_pool(NULL),
+   retrieval_loc(NULL), retrieval_pool(NULL), ack_pending(false),
    cc_sequence(0), cc_enable(false), cc_feedback_needed(false), cc_rate(0.0), 
    rtt_confirmed(false), is_clr(false), is_plr(false),
    slow_start(true), send_rate(0.0), recv_rate(0.0), recv_rate_prev(0.0),
@@ -160,6 +161,7 @@ void NormSenderNode::Close()
     if (activity_timer.IsActive()) activity_timer.Deactivate();
     if (repair_timer.IsActive()) repair_timer.Deactivate();
     if (cc_timer.IsActive()) cc_timer.Deactivate();   
+    if (ack_timer.IsActive()) ack_timer.Deactivate();
     FreeBuffers(); 
     
     // Delete any command buffers from cmd_buffer queue
@@ -566,7 +568,7 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
             }
             // 1) Sync to squelch (discards all objects prior to squelch objectId)
             NormObjectId objectId = squelch.GetObjectId();
-			Sync(objectId);
+	        Sync(objectId);
             // 2) Prune stream object if applicable
             NormObject* obj = rx_table.Find(objectId);
             if ((NULL != obj) && (NormObject::STREAM == obj->GetType()))
@@ -638,7 +640,6 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
                         is_clr = is_plr = false;
                     }
                     double maxBackoff;
-                    
                     if (is_clr || is_plr || !session.Address().IsMulticast())
                     {
                         // Respond immediately (i.e., no backoff, holdoff etc)
@@ -757,6 +758,7 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
                        {
                             double ackBackoff = session.Address().IsMulticast() ? UniformRand(grtt_estimate) : 0.0;
                             ack_timer.SetInterval(ackBackoff);
+                            ack_pending = true;
                             session.ActivateTimer(ack_timer); 
                        }
                        break;  // no pending repairs, skip regular "RepairCheck"   
@@ -1546,9 +1548,7 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
             break;
     }  // end switch(status)  
     
-     
-    
-    if (obj)
+    if (NULL != obj)
     {
         obj->HandleObjectMessage(msg, msgType, blockId, segmentId);
         
@@ -1742,11 +1742,9 @@ NormSenderNode::ObjectStatus NormSenderNode::UpdateSyncStatus(const NormObjectId
             {
                 NormObjectId lastPending(65535);
                 GetLastPending(lastPending);
-                TRACE("lp:%hu\n", (UINT16)lastPending);
                 if (syncId > lastPending)
                 {
                     UINT16 delta = syncId - lastPending;
-                    TRACE("SYNC DELTA = %d\n", delta);
                     if (delta < max_pending_range)
                     {
                         syncId -= (max_pending_range - 1);
@@ -2179,7 +2177,6 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                 default:
                                     break;  
                             }
-                            
                             if (NULL != obj)
                             {
                                 if (obj->IsPending(nextId != max_pending_object))
@@ -2401,8 +2398,8 @@ bool NormSenderNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
     }
     else if (0 == activity_timer.GetRepeatCount())
     {
-        // Serve completely inactive?
-        PLOG(PL_ERROR, "NormSenderNode::OnActivityTimeout() node>%lu sender>%lu gone inactive?\n",
+        // Remote sender completely inactive?
+        PLOG(PL_INFO, "NormSenderNode::OnActivityTimeout() node>%lu sender>%lu gone inactive?\n",
                 LocalNodeId(), GetId());
         //FreeBuffers();  This now needs to be done by the app as of norm version 1.4b3
         session.Notify(NormController::REMOTE_SENDER_INACTIVE, this, NULL);
@@ -2419,7 +2416,7 @@ bool NormSenderNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
             NormObject* objMax = rx_table.Find(max_pending_object);
             if (NULL != objMax)
             {
-                /*NormSegmentId segMax = objMax->GetMaxPendingSegmentId();
+                NormSegmentId segMax = objMax->GetMaxPendingSegmentId();
                 if (0 != segMax)
                     RepairCheck(NormObject::THRU_SEGMENT, 
                                 max_pending_object,
@@ -2429,10 +2426,14 @@ bool NormSenderNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
                     RepairCheck(NormObject::TO_BLOCK, 
                                 max_pending_object,
                                 objMax->GetMaxPendingBlockId(), 
-                                0);*/
-                // Let's try this instead
-                RepairCheck(NormObject::THRU_OBJECT,   // (TBD) thru object???
-                            max_pending_object, 0, 0);
+                                0);
+                
+                // The above has been reinstated because the alternative "THRU_OBJECT" here
+                // causes gratuitous NACKing when the sender goes IDLE ..
+                
+                // Or we could do this instead (possibly some unnecessary NACKing for NORM_OBJECT_STREAM will occur here)
+                //RepairCheck(NormObject::THRU_OBJECT,   // (TBD) thru object???
+                //            max_pending_object, 0, 0);
                 
                 // (TBD) What should we really do here?  Our current NormNode::RepairCheck() and
                 //       NormObject::ReceiverRepairCheck() methods update the "max_pending" indices
@@ -2445,7 +2446,12 @@ bool NormSenderNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
                 //       I guess the activity timeout NACK isn't perfect ... but could help some
                 //       so we leave it as it is for the moment ("THRU_OBJECT") ... perhaps we could
                 //       add a parameter so NormObject::ReceiverRepairCheck() doesn't update its
-                //       "max_pending" indices - or would this break NACK building
+                //       "max_pending" indices - or would this break NACK building?
+                
+                // Maybe we should do THRU_OBJECT when the remote sender is fully inactive as
+                // opposed to this inactivity timeout that only pays attend to NORM_DATA.  I.e., 
+                // do the above refined RepairCheck() when we still have NORM_CMD activity but
+                // no NORM_DATA activity???  We'd still have potentially a lot of EOT NACKing
             }
             else
             {
@@ -2455,7 +2461,7 @@ bool NormSenderNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
                 //            max_pending_object, 0, 0);
             }
         }
-        // We manually managed the "repeat_count" here to avoid the
+        // We manually manage the "repeat_count" here to avoid the
         // case where "bursty" receiver scheduling may lead to false
         // inactivity indication
         int repeatCount = activity_timer.GetRepeatCount();
@@ -2572,6 +2578,14 @@ void NormSenderNode::AttachCCFeedback(NormAckMsg& ack)
 bool NormSenderNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
 {
     // Build and send NORM_ACK(CC)
+    if (ack_pending && (1 == cc_timer.GetRepeatCount()))
+    {
+        // Send ACK flush right away (CC feedback is included
+        if (ack_timer.IsActive()) ack_timer.Deactivate();
+        if (cc_timer.IsActive()) cc_timer.Deactivate();  // will be reactivated if needed
+        OnAckTimeout(ack_timer);
+        return false;
+    }
     switch (cc_timer.GetRepeatCount())
     {
         case 0:
@@ -2601,23 +2615,31 @@ bool NormSenderNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
                 ack->SetDestination(GetAddress());
             else
                 ack->SetDestination(session.Address());
-            session.SendMessage(*ack);
+            bool success = session.SendMessage(*ack);
             session.ReturnMessageToPool(ack);
-            cc_feedback_needed = false;
-            
-            // Begin cc_timer "holdoff" phase
-            if (!is_clr && !is_plr && session.Address().IsMulticast())
+            if (success)
             {
-                cc_timer.SetInterval(grtt_estimate*backoff_factor);
-                return true;
+                cc_feedback_needed = false;
+                // Begin cc_timer "holdoff" phase
+                if (!is_clr && !is_plr && session.Address().IsMulticast())
+                {
+                    cc_timer.SetInterval(grtt_estimate*backoff_factor);
+                }
+                else if (cc_timer.IsActive()) 
+                {
+                    cc_timer.Deactivate();
+		            return false;
+                }
             }
-            else if (cc_timer.IsActive()) 
+            else
             {
-                cc_timer.Deactivate();
+                // TBD - queue ack so it gets send retry?
+                PLOG(PL_ERROR, "NormSenderNode::OnCCTimeout() error: SendMessage(ack) failure\n");
+                if (cc_timer.IsActive()) cc_timer.Deactivate();
+                return false; 
             }
             break;
         }
-        
         default:
             // Should never occur
             ASSERT(0);
@@ -2630,7 +2652,7 @@ bool NormSenderNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
 {
     // Build and send NORM_ACK(FLUSH)
     NormAckFlushMsg* ack = (NormAckFlushMsg*)session.GetMessageFromPool();
-    if (ack)
+    if (NULL != ack)
     {
         ack->Init();
         ack->SetSenderId(GetId());
@@ -2657,24 +2679,31 @@ bool NormSenderNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
             ack->SetDestination(session.Address());
         
         // Don't rate limit feedback messages
-        session.SendMessage(*ack);
-        session.ReturnMessageToPool(ack);
-        cc_feedback_needed = false;
-        if (cc_enable && !is_clr && !is_plr && session.Address().IsMulticast())
+	    if (session.SendMessage(*ack))
+	    {
+            ack_pending = false;
+            cc_feedback_needed = false;
+            if (cc_enable && !is_clr && !is_plr && session.Address().IsMulticast())
+            {
+                // Install cc feedback holdoff
+                cc_timer.SetInterval(grtt_estimate*backoff_factor);
+                if (cc_timer.IsActive())
+                    cc_timer.Reschedule();
+                else
+                    session.ActivateTimer(cc_timer);
+                cc_timer.DecrementRepeatCount();  // put timer into "holdoff" phase
+            } 
+            else if (cc_timer.IsActive())
+            {
+                cc_timer.Deactivate(); 
+            }
+	    }
+        else
         {
-            // Install cc feedback holdoff
-            cc_timer.SetInterval(grtt_estimate*backoff_factor);
-            if (cc_timer.IsActive())
-                cc_timer.Reschedule();
-            else
-                session.ActivateTimer(cc_timer);
-            cc_timer.DecrementRepeatCount();  // put timer into "holdoff" phase
-        } 
-        else if (cc_timer.IsActive())
-        {
-            cc_timer.Deactivate();
-            return false;
+            // TBD - should we queue the message so it can get a send retry?
+            PLOG(PL_ERROR, "NormSenderNode::OnAckTimeout() error: SendMessage(ack) failure\n");
         }
+	    session.ReturnMessageToPool(ack);
     }
     else
     {
@@ -2685,7 +2714,7 @@ bool NormSenderNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
 
 
 NormAckingNode::NormAckingNode(class NormSession& theSession, NormNodeId nodeId)
- : NormNode(theSession, nodeId), ack_received(false), req_count(theSession.GetTxRobustFactor())
+ : NormNode(ACKER, theSession, nodeId), ack_received(false), req_count(theSession.GetTxRobustFactor())
 {
     
 }

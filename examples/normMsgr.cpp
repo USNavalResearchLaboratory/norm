@@ -1,6 +1,8 @@
 
 #include "normApi.h"
 
+#include "protoCheck.h"
+
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for srand()
 #include <string.h>      // for strrchr(), memset(), etc
@@ -49,8 +51,8 @@ class NormMsgr
                 char* AccessBuffer()
                     {return msg_buffer;}
                 
-                void ResetIndex()
-                    {msg_index = 0;}
+                void ResetIndex(unsigned int index = 0)
+                    {msg_index = index;}
                 void IncrementIndex(unsigned int count)
                     {msg_index += count;}
                 unsigned int GetIndex() const
@@ -150,6 +152,15 @@ class NormMsgr
         bool OutputPending() const
             {return output_pending;}
         bool WriteOutput();
+        
+        void OmitHeader(bool state) 
+            {omit_header = state;}
+        
+        // These can only be called post-OpenNormSession
+        void SetSilentReceiver(bool state)
+            {NormSetSilentReceiver(norm_session, true);}
+        void SetTxLoss(double txloss)
+            {NormSetTxLoss(norm_session, txloss);}
             
     private:
         bool                is_running;                                                  
@@ -159,6 +170,7 @@ class NormMsgr
         MessageQueue        input_msg_list;  // list of enqueued messages (in norm sender cache)
             
         NormSessionHandle   norm_session;
+        bool                is_multicast;
         unsigned int        norm_tx_queue_max;   // max number of objects that can be enqueued at once 
         unsigned int        norm_tx_queue_count; // count of unacknowledged enqueued objects (TBD - optionally track size too)
         bool                norm_tx_watermark_pending;
@@ -170,14 +182,19 @@ class NormMsgr
         bool                output_pending;
         Message*            output_msg;
         MessageQueue        output_msg_queue;
+        // These are some options mainly for testing purposes
+        bool                omit_header;  // if "true", receive message length header is _not_ written to output
+        bool                rx_silent;
+        double              tx_loss;
             
 };  // end class NormMsgr
 
 NormMsgr::NormMsgr()
- : input_file(stdin), input_needed(true), input_msg(NULL),
-   norm_session(NORM_SESSION_INVALID), norm_tx_queue_max(2048), norm_tx_queue_count(0), 
+ : input_file(stdin), input_needed(false), input_msg(NULL),
+   norm_session(NORM_SESSION_INVALID), is_multicast(false), norm_tx_queue_max(2048), norm_tx_queue_count(0), 
    norm_tx_watermark_pending(false), norm_tx_vacancy(true), norm_acking(false),
-   output_file(stdout), output_ready(true), output_pending(false), output_msg(NULL)
+   output_file(stdout), output_ready(true), output_pending(false), output_msg(NULL), 
+   omit_header(false), rx_silent(false), tx_loss(0.0)
 {
 }
 
@@ -191,12 +208,25 @@ NormMsgr::~NormMsgr()
 
 bool NormMsgr::OpenNormSession(NormInstanceHandle instance, const char* addr, unsigned short port, NormNodeId nodeId)
 {
+    if (NormIsUnicastAddress(addr))
+        is_multicast = false;
+    else
+        is_multicast = true;
     norm_session = NormCreateSession(instance, addr, port, nodeId);
     if (NORM_SESSION_INVALID == norm_session)
     {
         fprintf(stderr, "normMsgr error: unable to create NORM session\n");
         return false;
     }
+    
+    if (is_multicast)
+    {
+        NormSetRxPortReuse(norm_session, true);
+        // TBD - make full loopback a command line option?
+        NormSetMulticastLoopback(norm_session, true);
+    }
+    
+    
     // Set some default parameters (maybe we should put parameter setting in Start())
     NormSetRxCacheLimit(norm_session, norm_tx_queue_max);
     NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_ALL);
@@ -205,6 +235,9 @@ bool NormMsgr::OpenNormSession(NormInstanceHandle instance, const char* addr, un
     NormSetTxCacheBounds(norm_session, 10*1024*1024, norm_tx_queue_max, norm_tx_queue_max);
     
     //NormSetMessageTrace(norm_session, true);
+    
+    NormSetTxRobustFactor(norm_session, 2);
+    
     return true;
 }  // end NormMsgr::OpenNormSession()
 
@@ -268,6 +301,7 @@ bool NormMsgr::Start(bool sender, bool receiver)
             if (receiver) NormStopReceiver(norm_session);
             return false;
         }
+        input_needed = true;
     }
     is_running = true;
     return true;
@@ -379,6 +413,7 @@ bool NormMsgr::WriteOutput()
             bufferPtr = output_msg->GetBuffer() + offset;
         }
         size_t result = fwrite(bufferPtr, 1, writeLength, output_file);
+        
         output_msg->IncrementIndex(result);
         if (result < writeLength)
         {
@@ -389,6 +424,7 @@ bool NormMsgr::WriteOutput()
             }
             else if (ferror(input_file))
             {
+                fprintf(stderr, "normMsgr: output error detected ...\n");
                 switch (errno)
                 {
                     case EINTR:
@@ -406,12 +442,20 @@ bool NormMsgr::WriteOutput()
         }
         if (output_msg->IsComplete())
         {
+            fflush(output_file);
             delete output_msg;
             output_msg = output_msg_queue.RemoveHead();
             if (NULL != output_msg)
-                output_msg->ResetIndex();
+            {
+                if (omit_header)
+                    output_msg->ResetIndex(MSG_HEADER_SIZE);
+                else
+                    output_msg->ResetIndex();
+            }
             else
+            {
                 output_pending = false;
+            }
             break;
         }
     }
@@ -490,6 +534,7 @@ bool NormMsgr::EnqueueMessageObject()
 
 void NormMsgr::HandleNormEvent(const NormEvent& event)
 {
+    bool logAllocs = false;
     switch (event.type)
     {
         case NORM_TX_QUEUE_EMPTY:
@@ -528,6 +573,18 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
             }
             break;
         }   
+        
+        case NORM_REMOTE_SENDER_INACTIVE:
+            //fprintf(stderr, "REMOTE SENDER INACTIVE node: %u\n", NormNodeGetId(event.sender));
+            //NormNodeDelete(event.sender);
+            //logAllocs = true;
+            break;
+        
+        case NORM_RX_OBJECT_ABORTED:
+            //fprintf(stderr, "NORM_RX_OBJECT_ABORTED\n");// %hu\n", NormObjectGetTransportId(event.object));
+            logAllocs = true;
+            break;
+            
         case NORM_RX_OBJECT_COMPLETED:
         {   
             char* data = NormDataDetachData(event.object);
@@ -536,7 +593,7 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
                 Message* msg = new Message(data, NormObjectGetSize(event.object));
                 if (NULL == msg)
                 {
-                    perror("normMsgr new receive Message error");
+                    perror("normMsgr: new Message() error");
                     delete[] data;  // TBD - may need to finally implement NormDelete() function!
                     // TBD Stop() as a fatal out of memory error?
                     break;
@@ -544,7 +601,10 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
                 if (NULL == output_msg)
                 {
                     output_msg = msg;
-                    output_msg->ResetIndex();
+                    if (omit_header)
+                        output_msg->ResetIndex(MSG_HEADER_SIZE);
+                    else
+                        output_msg->ResetIndex();
                     output_pending = true;
                 }
                 else
@@ -559,13 +619,23 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
         default:
             break;     
     }
+    //NormReleasePreviousEvent(NormGetInstance(norm_session));
+
+    if (logAllocs) 
+    {
+#ifdef USE_PROTO_CHECK
+        ProtoCheckLogAllocations(stderr);
+#endif // USE_PROTO_CHECK
+    }
+            
 }  // end NormMsgr::HandleNormEvent()
 
 
 void Usage()
 {
     fprintf(stderr, "Usage: normMsgr id <nodeId> {send &| recv} [addr <addr>[/<port>]][ack <node1>[,<node2>,...]\n"
-                    "                [cc|cce|ccl|rate <bitsPerSecond>][interface <name>][debug <level>][trace]\n");
+                    "                [cc|cce|ccl|rate <bitsPerSecond>][interface <name>][debug <level>][trace]\n"
+                    "                [omit][silent][txloss <lossFraction>]\n");
 }
 int main(int argc, char* argv[])
 {
@@ -587,6 +657,9 @@ int main(int argc, char* argv[])
     
     int debugLevel = 0;
     bool trace = false;
+    bool omitHeaderOnOutput = false;
+    bool silentReceiver = false;
+    double txloss = 0.0;
     
     // Parse command-line
     int i = 1;
@@ -700,6 +773,23 @@ int main(int argc, char* argv[])
             }
             mcastIface = argv[i++];
         }
+        else if (0 == strncmp(cmd, "omit", len))
+        {
+            omitHeaderOnOutput = true;
+        }
+        else if (0 == strncmp(cmd, "silent", len))
+        {
+            silentReceiver = true;
+        }
+        else if (0 == strncmp(cmd, "txloss", len))
+        {
+            if (1 != sscanf(argv[i++], "%lf", &txloss))
+            {
+                fprintf(stderr, "nodeMsgr error: invalid 'txloss' value!\n");
+                Usage();
+                return -1;
+            }
+        }
         else if (0 == strncmp(cmd, "debug", len))
         {
             if (i >= argc)
@@ -746,12 +836,18 @@ int main(int argc, char* argv[])
     
     NormMsgr normMsgr;
     
+    if (omitHeaderOnOutput) normMsgr.OmitHeader(true);
+    
     if (!normMsgr.OpenNormSession(normInstance, sessionAddr, sessionPort, (NormNodeId)nodeId))
     {
         fprintf(stderr, "normMsgr error: unable to open NORM session\n");
         NormDestroyInstance(normInstance);
         return false;
     }
+    
+    
+    if (silentReceiver) normMsgr.SetSilentReceiver(true);
+    if (txloss > 0.0) normMsgr.SetTxLoss(txloss);
     
     for (unsigned int i = 0; i < ackingNodeCount; i++)
         normMsgr.AddAckingNode(ackingNodeList[i]);
@@ -848,6 +944,9 @@ int main(int argc, char* argv[])
             normMsgr.WriteOutput();  // TBD - implement output async i/o notification as needed
             
     }  // end while(normMsgr.IsRunning()
+    
+    fprintf(stderr, "normMsgr exiting ...\n");
+    
     NormDestroyInstance(normInstance);
 }  // end main()
 
@@ -865,6 +964,8 @@ NormMsgr::Message::Message(char* buffer, unsigned int size)
     uint16_t msgSize = size + MSG_HEADER_SIZE;
     msgSize = htons(msgSize);
     memcpy(msg_header, &msgSize, MSG_HEADER_SIZE);
+    
+    fprintf(stderr, "output msg ctor data = %.20s\n", buffer);
 } 
 
 NormMsgr::Message::~Message()

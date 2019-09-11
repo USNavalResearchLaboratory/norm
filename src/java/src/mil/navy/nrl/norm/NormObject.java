@@ -11,7 +11,7 @@ import mil.navy.nrl.norm.enums.NormObjectType;
  * @author Jason Rush
  */
 public class NormObject {
-  private long handle; // The pointer to the native NormInstanceHandle
+  private long handle; // The pointer to the native NormObjectHandle
 
   NormObject(long handle) {
     this.handle = handle;

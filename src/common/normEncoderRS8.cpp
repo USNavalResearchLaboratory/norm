@@ -37,7 +37,7 @@
 #include "protoDebug.h"
 
 #ifdef SIMULATE
-#include "normMessage.h"
+#include "normMessage.h" 
 #endif // SIMULATE
 
 /*
@@ -52,7 +52,7 @@
  */
  
 #define GF_BITS  8	                    // 8-bit RS code
-#if (GF_BITS < 2  && GF_BITS > 16)
+#if (GF_BITS < 2)  || (GF_BITS > 16)
 #error "GF_BITS must be 2 .. 16"
 #endif
 #if (GF_BITS <= 8)
@@ -766,13 +766,13 @@ int NormDecoderRS8::Decode(char** vectorList, unsigned int numData,  unsigned in
 bool NormDecoderRS8::InvertDecodingMatrix()
 {
     gf* src = (gf*)dec_matrix;
-    int k = ndata;
+    unsigned int k = ndata;
     
     memset(inv_id_row, 0, k*sizeof(gf));
     // inv_pivt marks elements already used as pivots.
     memset(inv_pivt, 0, k*sizeof(unsigned int));
 
-    for (int col = 0; col < k ; col++) 
+    for (unsigned int col = 0; col < k ; col++) 
     {
 	    /*
 	     * Zeroing column 'col', look for a non-zero element.
@@ -786,11 +786,11 @@ bool NormDecoderRS8::InvertDecodingMatrix()
 	        icol = col ;
 	        goto found_piv ;
 	    }
-	    for (int row = 0 ; row < k ; row++) 
+	    for (unsigned int row = 0 ; row < k ; row++) 
         {
 	        if (inv_pivt[row] != 1) 
             {
-		        for (int ix = 0 ; ix < k ; ix++) 
+		        for (unsigned int ix = 0 ; ix < k ; ix++) 
                 {
 		            if (inv_pivt[ix] == 0) 
                     {
@@ -823,7 +823,7 @@ bool NormDecoderRS8::InvertDecodingMatrix()
 	    */
 	    if (irow != icol) 
         {
-	        for (int ix = 0 ; ix < k ; ix++ ) 
+	        for (unsigned int ix = 0 ; ix < k ; ix++ ) 
 		        SWAP(src[irow*k + ix], src[icol*k + ix], gf);
 	    }
 	    inv_ndxr[col] = irow ;
@@ -843,7 +843,7 @@ bool NormDecoderRS8::InvertDecodingMatrix()
 	         */
 	        c = inverse[ c ] ;
 	        pivotRow[icol] = 1 ;
-	        for (int ix = 0 ; ix < k ; ix++ )
+	        for (unsigned int ix = 0 ; ix < k ; ix++ )
 		        pivotRow[ix] = gf_mul(c, pivotRow[ix] );
 	    }
 	    /*
@@ -871,17 +871,17 @@ bool NormDecoderRS8::InvertDecodingMatrix()
     
     for (int col = k - 1 ; col >= 0 ; col-- ) 
     {
-	    if (inv_ndxr[col] < 0 || inv_ndxr[col] >= (unsigned int)k)
+	    if (inv_ndxr[col] >= k)
         {
 	        PLOG(PL_ERROR, "NormDecoderRS8::InvertDecodingMatrix() error: AARGH, inv_ndxr[col] %d\n", inv_ndxr[col]);
         }
-	    else if (inv_ndxc[col] <0 || inv_ndxc[col] >= (unsigned int)k)
+	    else if (inv_ndxc[col] >= k)
         {
 	        PLOG(PL_ERROR, "NormDecoderRS8::InvertDecodingMatrix() error: AARGH, indxc[col] %d\n", inv_ndxc[col]);
         }
 	    else if (inv_ndxr[col] != inv_ndxc[col] ) 
         {
-	        for (int row = 0 ; row < k ; row++ ) 
+	        for (unsigned int row = 0 ; row < k ; row++ ) 
 		        SWAP( src[row*k + inv_ndxr[col]], src[row*k + inv_ndxc[col]], gf) ;
 	    }
     }

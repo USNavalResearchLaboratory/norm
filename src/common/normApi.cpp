@@ -40,7 +40,7 @@ class NormInstance : public NormController
         void Notify(NormController::Event   event,
                     class NormSessionMgr*   sessionMgr,
                     class NormSession*      session,
-                    class NormSenderNode*   sender,
+                    class NormNode*         node,
                     class NormObject*       object);
         
         bool Startup(bool priorityBoost = false);
@@ -68,10 +68,13 @@ class NormInstance : public NormController
         bool GetNextEvent(NormEvent* theEvent);
         bool SetCacheDirectory(const char* cachePath);
         
+        void ReleasePreviousEvent();
+        
         bool NotifyQueueIsEmpty() const 
             {return notify_queue.IsEmpty();}
         
         void PurgeSessionNotifications(NormSessionHandle sessionHandle);
+        void PurgeNodeNotifications(NormNodeHandle nodeHandle);
         void PurgeObjectNotifications(NormObjectHandle objectHandle);
         void PurgeNotifications(NormSessionHandle sessionHandle, NormEventType eventType);
         
@@ -96,7 +99,7 @@ class NormInstance : public NormController
         static NormInstance* GetInstanceFromNode(NormNodeHandle nodeHandle)
         {
             if (NORM_NODE_INVALID == nodeHandle) return ((NormInstance*)NULL);
-            NormSession& session = ((NormSenderNode*)nodeHandle)->GetSession();
+            NormSession& session = ((NormNode*)nodeHandle)->GetSession();
             return static_cast<NormInstance*>(session.GetSessionMgr().GetController());   
         }
         static NormInstance* GetInstanceFromObject(NormObjectHandle objectHandle)
@@ -158,6 +161,17 @@ class NormInstance : public NormController
         NormSessionMgr              session_mgr;    
         
     private:
+        void ResetNotificationEvent()
+        {
+#ifdef WIN32
+            if (0 == ResetEvent(notify_event))
+                PLOG(PL_ERROR, "NormInstance::GetNextEvent() ResetEvent error: %s\n", GetErrorString());
+#else
+           char byte[32];
+           while (read(notify_fd[0], byte, 32) > 0);  // TBD - error check
+#endif // if/else WIN32/UNIX
+        }  
+         
         Notification::Queue         notify_pool;
         Notification::Queue         notify_queue; 
         Notification*               previous_notification;
@@ -248,7 +262,7 @@ bool NormInstance::SetCacheDirectory(const char* cachePath)
 void NormInstance::Notify(NormController::Event   event,
                           class NormSessionMgr*   sessionMgr,
                           class NormSession*      session,
-                          class NormSenderNode*   sender,
+                          class NormNode*         node,
                           class NormObject*       object)
 {
     // (TBD) set a limit on how many pending notifications
@@ -389,13 +403,13 @@ void NormInstance::Notify(NormController::Event   event,
     // "Retain" any valid "object" or "sender" handles for API access
     if (NORM_OBJECT_INVALID != object)
         ((NormObject*)object)->Retain();
-    else if (NORM_NODE_INVALID != sender)
-        ((NormSenderNode*)sender)->Retain();
+    else if (NORM_NODE_INVALID != node)
+        ((NormNode*)node)->Retain();
     
     bool doNotify = notify_queue.IsEmpty();
     n->event.type = (NormEventType)event;
     n->event.session = session;
-    n->event.sender = sender;
+    n->event.sender = node;
     n->event.object = object;
     notify_queue.Append(n);
     
@@ -422,6 +436,7 @@ void NormInstance::Notify(NormController::Event   event,
     }  
 }  // end NormInstance::Notify()
 
+// Purge any notifications associated with a specific object
 void NormInstance::PurgeObjectNotifications(NormObjectHandle objectHandle)
 {
     if (NORM_OBJECT_INVALID == objectHandle) return;
@@ -449,17 +464,28 @@ void NormInstance::PurgeObjectNotifications(NormObjectHandle objectHandle)
             next = next->GetNext();
         }
     }
+    if ((NULL != previous_notification) && (objectHandle == previous_notification->event.object))
+    {
+        // "Release" any previously-retained object or node handle
+        ((NormObject*)(previous_notification->event.object))->Release();
+        notify_pool.Append(previous_notification);   
+        previous_notification = NULL;   
+    }
     // TBD - check if event queue is emptied and reset event/fd
 }  // end NormInstance::PurgeObjectNotifications()
 
-void NormInstance::PurgeSessionNotifications(NormSessionHandle sessionHandle)
+// Purge any notifications associated with a specific object
+void NormInstance::PurgeNodeNotifications(NormNodeHandle nodeHandle)
 {
+    if (NORM_NODE_INVALID == nodeHandle) return;
     Notification* prev = NULL;
     Notification* next = notify_queue.GetHead();
-    while (NULL != next)
+    while (next)
     {
-        if (next->event.session == sessionHandle)
+        if (nodeHandle == next->event.sender)
         {
+            // "Release" the previously-retained object handle
+            ((NormNode*)nodeHandle)->Release();
             // Remove this notification from queue and return to pool
             Notification* current = next;
             next = next->GetNext();
@@ -474,13 +500,67 @@ void NormInstance::PurgeSessionNotifications(NormSessionHandle sessionHandle)
         {
             prev = next;
             next = next->GetNext();
+        }
+    }
+    if ((NULL != previous_notification) && (nodeHandle == previous_notification->event.sender))
+    {
+        // "Release" any previously-retained object or node handle
+        if (NORM_OBJECT_INVALID != previous_notification->event.object)
+            ((NormObject*)(previous_notification->event.object))->Release();
+        else if (NORM_NODE_INVALID != previous_notification->event.sender)
+            ((NormNode*)(previous_notification->event.sender))->Release();
+        notify_pool.Append(previous_notification);   
+        previous_notification = NULL;   
+    }
+    if (notify_queue.IsEmpty()) ResetNotificationEvent();
+}  // end NormInstance::PurgeNodeNotifications()
+
+void NormInstance::PurgeSessionNotifications(NormSessionHandle sessionHandle)
+{
+    if (NORM_SESSION_INVALID == sessionHandle) return;
+    Notification* prev = NULL;
+    Notification* next = notify_queue.GetHead();
+    while (NULL != next)
+    {
+        if (next->event.session == sessionHandle)
+        {
+            // Remove this notification from queue and return to pool
+            Notification* current = next;
+            next = next->GetNext();
+            if (NULL != prev) 
+                prev->Append(next);
+            else
+                notify_queue.RemoveHead();
+            if (NULL == next) notify_queue.SetTail(prev);
+            if (NORM_OBJECT_INVALID != current->event.object)
+                ((NormObject*)current->event.object)->Release();
+            else if (NORM_NODE_INVALID != current->event.sender)
+                ((NormNode*)current->event.sender)->Release();
+            notify_pool.Append(current);
+        }
+        else
+        {
+            prev = next;
+            next = next->GetNext();
         }     
     }
-    // TBD - check if event queue is emptied and reset event/fd
+    if ((NULL != previous_notification) && (sessionHandle == previous_notification->event.session))
+    {
+        // "Release" any previously-retained object or node handle
+        if (NORM_OBJECT_INVALID != previous_notification->event.object)
+            ((NormObject*)(previous_notification->event.object))->Release();
+        else if (NORM_NODE_INVALID != previous_notification->event.sender)
+            ((NormNode*)(previous_notification->event.sender))->Release();
+        notify_pool.Append(previous_notification);   
+        previous_notification = NULL;   
+    }
+    if (notify_queue.IsEmpty()) ResetNotificationEvent();
 }  // end NormInstance::PurgeSessionNotifications()
 
+// Purges notifications of a specific type for a specific session
 void NormInstance::PurgeNotifications(NormSessionHandle sessionHandle, NormEventType eventType)
 {
+    if (NORM_SESSION_INVALID == sessionHandle) return;
     Notification* prev = NULL;
     Notification* next = notify_queue.GetHead();
     while (next)
@@ -496,6 +576,10 @@ void NormInstance::PurgeNotifications(NormSessionHandle sessionHandle, NormEvent
             else
                 notify_queue.RemoveHead();
             if (NULL == next) notify_queue.SetTail(prev);
+            if (NORM_OBJECT_INVALID != current->event.object)
+                ((NormObject*)current->event.object)->Release();
+            else if (NORM_NODE_INVALID != current->event.sender)
+                ((NormNode*)current->event.sender)->Release();
             notify_pool.Append(current);
         }
         else
@@ -504,7 +588,7 @@ void NormInstance::PurgeNotifications(NormSessionHandle sessionHandle, NormEvent
             next = next->GetNext();
         }     
     }
-    // TBD - check if event queue is emptied and reset event/fd
+    if (notify_queue.IsEmpty()) ResetNotificationEvent();
 }  // end NormInstance::PurgeNotifications()
 
 // NormInstance::dispatcher MUST be suspended _before_ calling this
@@ -517,7 +601,7 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
         if (NORM_OBJECT_INVALID != previous_notification->event.object)
             ((NormObject*)(previous_notification->event.object))->Release();
         else if (NORM_NODE_INVALID != previous_notification->event.sender)
-            ((NormSenderNode*)(previous_notification->event.sender))->Release();
+            ((NormNode*)(previous_notification->event.sender))->Release();
         notify_pool.Append(previous_notification);   
         previous_notification = NULL;   
     }
@@ -556,22 +640,16 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
     else if (NULL != theEvent)
     {
     	theEvent->type = NORM_EVENT_INVALID;
-	theEvent->session = NORM_SESSION_INVALID;
-	theEvent->sender = NORM_SESSION_INVALID;
-	theEvent->object = NORM_SESSION_INVALID;
+	    theEvent->session = NORM_SESSION_INVALID;
+	    theEvent->sender = NORM_NODE_INVALID;
+	    theEvent->object = NORM_OBJECT_INVALID;
     }
-    if (notify_queue.IsEmpty())
-    {
-#ifdef WIN32
-        if (0 == ResetEvent(notify_event))
-            PLOG(PL_ERROR, "NormInstance::GetNextEvent() ResetEvent error: %s\n", GetErrorString());
-#else
-       char byte[32];
-       while (read(notify_fd[0], byte, 32) > 0);  // TBD - error check
-#endif // if/else WIN32/UNIX
-    }
+    if (notify_queue.IsEmpty()) 
+            ResetNotificationEvent();
     return (NULL != n); 
 }  // end NormInstance::GetNextEvent()
+
+
 
 bool NormInstance::WaitForEvent()
 {
@@ -640,6 +718,35 @@ bool NormInstance::Startup(bool priorityBoost)
     return dispatcher.StartThread(priorityBoost);
 }  // end NormInstance::Startup()
 
+
+
+void NormInstance::ReleasePreviousEvent()
+{
+    // Garbage collect our "previous_notification"
+    if (NULL != previous_notification)
+    {
+        // Release any previously-retained object or node handles
+        if (NORM_OBJECT_INVALID != previous_notification->event.object)
+            ((NormObject*)(previous_notification->event.object))->Release();
+        else if (NORM_NODE_INVALID != previous_notification->event.sender)
+            ((NormNode*)(previous_notification->event.sender))->Release();
+        notify_pool.Append(previous_notification);   
+        previous_notification = NULL;   
+    }
+}  // end NormInstance::ReleasePreviousEvent()
+
+NORM_API_LINKAGE
+void NormReleasePreviousEvent(NormInstanceHandle instanceHandle)
+{
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        instance->ReleasePreviousEvent();
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormReleasePreviousEvent()
+
+
 void NormInstance::Shutdown()
 {
     dispatcher.Stop();
@@ -670,7 +777,7 @@ void NormInstance::Shutdown()
         if (NORM_OBJECT_INVALID != previous_notification->event.object)
             ((NormObject*)(previous_notification->event.object))->Release();
         else if (NORM_NODE_INVALID != previous_notification->event.sender)
-            ((NormSenderNode*)(previous_notification->event.sender))->Release();
+            ((NormNode*)(previous_notification->event.sender))->Release();
         notify_pool.Append(previous_notification);   
         previous_notification = NULL;   
     }
@@ -699,7 +806,7 @@ void NormInstance::Shutdown()
         if (NORM_OBJECT_INVALID != n->event.object)
             ((NormObject*)(n->event.object))->Release();
         else if (NORM_NODE_INVALID != n->event.sender)
-            ((NormSenderNode*)(n->event.sender))->Release();
+            ((NormNode*)(n->event.sender))->Release();
         delete n;        
     }
     notify_pool.Destroy();
@@ -838,8 +945,8 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent, bo
                     if (!instance->WaitForEvent())
                     {
                         // Indication that NormInstance is dead
-			// TBD - how do we inform app although this shouldn't
-			// happen unless the app destroys the "instance"
+			            // TBD - how do we inform app although this shouldn't
+			            // happen unless the app destroys the "instance"
                         return false;
                     }
                     // re-suspend thread after wait
@@ -857,6 +964,7 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent, bo
 NORM_API_LINKAGE
 bool NormIsUnicastAddress(const char* address)
 {
+    // TBD - is this really a thread-safe thing to do?
     ProtoAddress addr;
     if ((NULL != address) && addr.ResolveFromString(address))
         return addr.IsUnicast();
@@ -873,11 +981,13 @@ NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
 {
     // (TBD) wrap this with SuspendThread/ResumeThread ???
     NormInstance* instance = (NormInstance*)instanceHandle;
-    if (instance)
+    if (instance && instance->dispatcher.SuspendThread())
     {
         NormSession* session = 
             instance->session_mgr.NewSession(sessionAddr, sessionPort, localNodeId);
-        if (session) return ((NormSessionHandle)session);
+        instance->dispatcher.ResumeThread();
+        if (session) 
+            return ((NormSessionHandle)session);
     }
     return NORM_SESSION_INVALID;
 }  // end NormCreateSession()
@@ -886,34 +996,35 @@ NORM_API_LINKAGE
 void NormDestroySession(NormSessionHandle sessionHandle)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
-    if (instance)
-    {
-        if (instance->dispatcher.SuspendThread())
-        {    
-            NormSession* session = (NormSession*)sessionHandle;
-            if (NULL != session)
-            {
-	    	session->Close();
-		session->GetSessionMgr().DeleteSession(session);
-		instance->PurgeSessionNotifications(sessionHandle);
-            }
-            instance->dispatcher.ResumeThread();
+    if (instance && instance->dispatcher.SuspendThread())
+    {    
+        NormSession* session = (NormSession*)sessionHandle;
+        if (NULL != session)
+        {
+            session->Close();
+            session->GetSessionMgr().DeleteSession(session);
+            instance->PurgeSessionNotifications(sessionHandle);
         }
+        instance->dispatcher.ResumeThread();
     }
 }  // end NormDestroySession()
+
+NORM_API_LINKAGE 
+NormInstanceHandle NormGetInstance(NormSessionHandle sessionHandle)
+{
+    
+    return (NormInstanceHandle)NormInstance::GetInstanceFromSession(sessionHandle);
+}  // end NormGetIntance()
 
 NORM_API_LINKAGE
 void NormSetUserData(NormSessionHandle sessionHandle, const void* userData)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
-    if (instance)
-    {
-        if (instance->dispatcher.SuspendThread())
-        {    
-            NormSession* session = (NormSession*)sessionHandle;
-            if (session) session->SetUserData(userData);
-            instance->dispatcher.ResumeThread();
-        }
+    if (instance && instance->dispatcher.SuspendThread())
+    {    
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) session->SetUserData(userData);
+        instance->dispatcher.ResumeThread();
     }
 }  // end NormSetUserData()
 
@@ -935,6 +1046,40 @@ const void* NormGetUserData(NormSessionHandle sessionHandle)
     return userData;
 }  // end NormGetUserData()
 
+
+NORM_API_LINKAGE 
+void NormSetUserTimer(NormSessionHandle sessionHandle, double seconds)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {    
+            NormSession* session = (NormSession*)sessionHandle;
+            if (session) session->SetUserTimer(seconds);
+            instance->PurgeNotifications(sessionHandle, NORM_USER_TIMEOUT);
+            instance->dispatcher.ResumeThread();
+        }
+    }
+}   // end NormSetUserTimer()
+
+NORM_API_LINKAGE 
+void NormCancelUserTimer(NormSessionHandle sessionHandle)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {    
+            NormSession* session = (NormSession*)sessionHandle;
+            if (session) session->SetUserTimer(-1.0);  // interval less than zero cancels timer
+            instance->PurgeNotifications(sessionHandle, NORM_USER_TIMEOUT);
+            instance->dispatcher.ResumeThread();
+        }
+    }
+}  // end NormCancelUserTimer()
+
+
 NORM_API_LINKAGE
 NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle)
 {
@@ -944,6 +1089,17 @@ NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle)
     else
         return NORM_NODE_NONE;      
 }  // end NormGetLocalNodeId()
+
+NORM_API_LINKAGE
+UINT16 NormGetRxPort(NormSessionHandle sessionHandle)
+{
+    NormSession* session = (NormSession*)sessionHandle;
+    if (NULL != session)
+        return session->GetRxPort();
+    else
+        return 0;      
+}  // end NormGetRxPort()
+
 
 NORM_API_LINKAGE
 bool NormSetTxPort(NormSessionHandle sessionHandle,
@@ -993,7 +1149,8 @@ void NormSetTxOnly(NormSessionHandle sessionHandle,
 NORM_API_LINKAGE
 bool NormChangeDestination(NormSessionHandle sessionHandle,
                            const char*       sessionAddress,
-                           UINT16            sessionPort)
+                           UINT16            sessionPort,
+                           bool              connectToSessionAddress)
 {
     // First, see if we can make a valid ProtoAddress
     ProtoAddress dest;
@@ -1004,7 +1161,12 @@ bool NormChangeDestination(NormSessionHandle sessionHandle,
     if (instance && instance->dispatcher.SuspendThread())
     {
         NormSession* session = (NormSession*)sessionHandle;
-        if (session) session->SetAddress(dest);
+        if (session) 
+        {
+            session->SetAddress(dest);
+            if (connectToSessionAddress)
+                session->SetTxOnly(session->GetTxOnly(), true);
+        }
         instance->dispatcher.ResumeThread();
     }
     return true;
@@ -1028,16 +1190,6 @@ void NormSetRxPortReuse(NormSessionHandle sessionHandle,
         }
     } 
 }  // end NormSetRxPortReuse()
-
-NORM_API_LINKAGE
-UINT16 NormGetRxPort(NormSessionHandle sessionHandle)
-{
-    NormSession* session = (NormSession*)sessionHandle;
-    if (NULL != session)
-        return session->GetRxPort();
-    else
-        return 0;
-}  // end NormGetRxPort()
 
 
 NORM_API_LINKAGE
@@ -1073,6 +1225,25 @@ bool NormSetMulticastInterface(NormSessionHandle sessionHandle,
     }
     return result;     
 }  // end NormSetMulticastInterface()
+
+NORM_API_LINKAGE 
+bool NormSetSSM(NormSessionHandle sessionHandle,
+                const char*       sourceAddress)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (NULL != instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {    
+            NormSession* session = (NormSession*)sessionHandle;
+            if (session)
+                result = session->SetSSM(sourceAddress);
+            instance->dispatcher.ResumeThread();
+        }
+    }
+    return result;     
+}  // end NormSetSSM()
 
 NORM_API_LINKAGE
 bool NormSetTTL(NormSessionHandle sessionHandle,
@@ -1124,6 +1295,16 @@ bool NormSetLoopback(NormSessionHandle sessionHandle, bool state)
         return false;  
 }  // end NormSetLoopback()
 
+
+NORM_API_LINKAGE
+bool NormSetMulticastLoopback(NormSessionHandle sessionHandle, bool state)
+{
+    NormSession* session = (NormSession*)sessionHandle;
+    if (session)
+        return session->SetMulticastLoopback(state);
+    else
+        return false;  
+}  // end NormSetLoopback()
 
 NORM_API_LINKAGE
 bool NormSetFragmentation(NormSessionHandle sessionHandle, bool state)
@@ -1263,10 +1444,10 @@ NormSessionId NormGetRandomSessionId()
 NORM_API_LINKAGE
 bool NormStartSender(NormSessionHandle  sessionHandle,
                      NormSessionId      sessionId,
-                     UINT32      bufferSpace,
-                     UINT16     segmentSize,
-                     unsigned char      numData,
-                     unsigned char      numParity)
+                     UINT32             bufferSpace,
+                     UINT16             segmentSize,
+                     UINT16             numData,
+                     UINT16             numParity)
 {
     bool result = false;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -1727,6 +1908,8 @@ bool NormSetWatermark(NormSessionHandle  sessionHandle,
         NormObject* obj = (NormObject*)objectHandle;
         if (session && obj)
         {
+            // Purge any existing to NORM_TX_WATERMARK_COMPLETED notification to be safe
+            instance->PurgeNotifications(sessionHandle, NORM_TX_WATERMARK_COMPLETED);
             // (segmentId doesn't matter for non-stream)
             if (obj->IsStream())
             {
@@ -1791,7 +1974,7 @@ bool NormAddAckingNode(NormSessionHandle  sessionHandle,
     {
         NormSession* session = (NormSession*)sessionHandle;
         if (session)
-            result = session->SenderAddAckingNode(nodeId);
+            result = (NULL != session->SenderAddAckingNode(nodeId));
         instance->dispatcher.ResumeThread();
     }
     return result;
@@ -1809,6 +1992,20 @@ void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
         instance->dispatcher.ResumeThread();
     }
 }  // end NormRemoveAckingNode()
+
+NORM_API_LINKAGE
+NormNodeHandle NormGetAckingNodeHandle(NormSessionHandle  sessionHandle,
+                                       NormNodeId         nodeId)
+{
+    if (NORM_SESSION_INVALID != sessionHandle)
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        NormAckingNode* acker = session->SenderFindAckingNode(nodeId);
+        if (NULL != acker)
+            return ((NormNodeHandle)static_cast<NormNode*>(acker));
+    }
+    return NORM_NODE_INVALID;
+}  // end NormGetAckingNodeHandle()
 
 NORM_API_LINKAGE
 void NormSetAutoAckingNodes(NormSessionHandle   sessionHandle,
@@ -1994,8 +2191,12 @@ void NormNodeSetUnicastNack(NormNodeHandle   nodeHandle,
                             bool             unicastNacks)
 {
     
-    NormSenderNode* node = (NormSenderNode*)nodeHandle;
-    if (node) node->SetUnicastNacks(unicastNacks);
+    NormNode* node = (NormNode*)nodeHandle;
+    if ((NULL != node) && (NormNode::SENDER == node->GetType()))
+    {
+        NormSenderNode* sender = static_cast<NormSenderNode*>(node);
+        sender->SetUnicastNacks(unicastNacks);
+    }
 }  // end NormNodeSetUnicastNack()
 
 NORM_API_LINKAGE 
@@ -2018,8 +2219,12 @@ NORM_API_LINKAGE
 void NormNodeSetNackingMode(NormNodeHandle   nodeHandle,
                             NormNackingMode  nackingMode)
 {
-     NormSenderNode* node = (NormSenderNode*)nodeHandle;
-    if (node) node->SetDefaultNackingMode((NormObject::NackingMode)nackingMode);
+     NormNode* node = (NormNode*)nodeHandle;
+    if ((NULL != node) && (NormNode::SENDER == node->GetType()))
+    {
+        NormSenderNode* sender = static_cast<NormSenderNode*>(node);
+        sender->SetDefaultNackingMode((NormObject::NackingMode)nackingMode);
+    }
 }  // end NormNodeSetNackingMode()
 
 NORM_API_LINKAGE
@@ -2043,9 +2248,12 @@ NORM_API_LINKAGE
 void NormNodeSetRepairBoundary(NormNodeHandle     nodeHandle,
                                NormRepairBoundary repairBoundary)
 {
-    NormSenderNode* node = static_cast<NormSenderNode*>((NormSenderNode*)nodeHandle);
-    if (node) 
-        node->SetRepairBoundary((NormSenderNode::RepairBoundary)repairBoundary);
+    NormNode* node = (NormNode*)nodeHandle;
+    if ((NULL != node) && (NormNode::SENDER == node->GetType()))
+    {
+        NormSenderNode* sender = static_cast<NormSenderNode*>(node);
+        sender->SetRepairBoundary((NormSenderNode::RepairBoundary)repairBoundary);
+    }
 }  // end NormNodeSetRepairBoundary()
 
 
@@ -2071,8 +2279,12 @@ void NormNodeSetRxRobustFactor(NormNodeHandle   nodeHandle,
         NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            NormSenderNode* node = (NormSenderNode*)nodeHandle;
-            node->SetRobustFactor(robustFactor);
+            NormNode* node = (NormNode*)nodeHandle;
+            if (NormNode::SENDER == node->GetType())
+            {
+                NormSenderNode* sender = static_cast<NormSenderNode*>(node);        
+                sender->SetRobustFactor(robustFactor);
+            }
             instance->dispatcher.ResumeThread();
         }
     }
@@ -2322,9 +2534,15 @@ const char* NormDataAccessData(NormObjectHandle dataHandle)
 NORM_API_LINKAGE
 char* NormDataDetachData(NormObjectHandle dataHandle) 
 {
-    NormDataObject* dataObj = 
-            static_cast<NormDataObject*>((NormObject*)dataHandle);
-    return dataObj->DetachData();
+    char* ptr = NULL;
+    NormInstance* instance = NormInstance::GetInstanceFromObject(dataHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormDataObject* dataObj = static_cast<NormDataObject*>((NormObject*)dataHandle);
+        ptr = dataObj->DetachData();
+        instance->dispatcher.ResumeThread();
+    }
+    return ptr;
 }  // end NormDataDetachData()
 
 NORM_API_LINKAGE
@@ -2339,7 +2557,7 @@ NormNodeHandle NormObjectGetSender(NormObjectHandle objectHandle)
 NORM_API_LINKAGE
 NormNodeId NormNodeGetId(NormNodeHandle nodeHandle)
 {
-    NormSenderNode* node = (NormSenderNode*)nodeHandle;
+    NormNode* node = (NormNode*)nodeHandle;
     if (NULL != node) 
         return node->GetId();
     else
@@ -2355,10 +2573,10 @@ bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
     bool result = false;
     if (NORM_NODE_INVALID != nodeHandle)
     {
-        NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
-        if (instance && instance->dispatcher.SuspendThread())
+        //NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
+        //if (instance && instance->dispatcher.SuspendThread())
         {
-            NormSenderNode* node = (NormSenderNode*)nodeHandle;
+            NormNode* node = (NormSenderNode*)nodeHandle;
             const ProtoAddress& nodeAddr = node->GetAddress();
             unsigned int addrLen = nodeAddr.GetLength();
             if (addrBuffer && bufferLen && (addrLen <= *bufferLen))
@@ -2372,20 +2590,45 @@ bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
             }      
             if (bufferLen) *bufferLen = addrLen;
             if (port) *port = nodeAddr.GetPort();
-            instance->dispatcher.ResumeThread();  
+            //instance->dispatcher.ResumeThread();  
         }
     }
     return result;
-}  // end NormNodeGetId()
+}  // end NormNodeGetAddress()
+
+NORM_API_LINKAGE 
+void NormNodeSetUserData(NormNodeHandle nodeHandle, const void* userData)
+{
+    if (NORM_NODE_INVALID != nodeHandle)
+    {
+        NormNode* node = (NormNode*)nodeHandle;
+        return node->SetUserData(userData);
+    }
+}
+
+NORM_API_LINKAGE 
+const void* NormNodeGetUserData(NormNodeHandle nodeHandle)
+{
+    NormNode* node = (NormNode*)nodeHandle;
+    if (NULL != node) 
+        return node->GetUserData();
+    else
+        return NULL;
+}  // end NormNodeGetUserData()
 
 NORM_API_LINKAGE
 double NormNodeGetGrtt(NormNodeHandle nodeHandle)
 {
-    NormSenderNode* node = (NormSenderNode*)nodeHandle;
-    if (NULL != node)
-        return node->GetGrttEstimate();
+    NormNode* node = (NormNode*)nodeHandle;
+    if ((NULL != node) && (NormNode::SENDER == node->GetType()))
+    {
+        NormSenderNode* sender = static_cast<NormSenderNode*>(node);
+        return sender->GetGrttEstimate();
+    }
     else
+    {
         return -1.0;
+    }
 }  // end NormNodeGetGrtt()
 
 NORM_API_LINKAGE
@@ -2399,8 +2642,12 @@ bool NormNodeGetCommand(NormNodeHandle nodeHandle,
         NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            NormSenderNode* node = (NormSenderNode*)nodeHandle;
-            result = node->ReadNextCmd(cmdBuffer, cmdLength);
+            NormNode* node = (NormNode*)nodeHandle;
+            if (NormNode::SENDER == node->GetType())
+            {
+                NormSenderNode* sender = static_cast<NormSenderNode*>(node);
+                result = sender->ReadNextCmd(cmdBuffer, cmdLength);
+            }
             instance->dispatcher.ResumeThread();  
         }
     }
@@ -2415,8 +2662,14 @@ void NormNodeFreeBuffers(NormNodeHandle nodeHandle)
         NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            NormSenderNode* node = (NormSenderNode*)nodeHandle;
-            node->FreeBuffers();
+            NormNode* node = (NormNode*)nodeHandle;
+            if (NormNode::SENDER == node->GetType())
+            {
+                NormSenderNode* sender = static_cast<NormSenderNode*>(node);
+                sender->FreeBuffers();
+                // Since this results in aborted objects, should we purge those object notifications?
+                // or let the be delivered since the app may have associate state
+            }
             instance->dispatcher.ResumeThread(); 
         }
     }
@@ -2430,8 +2683,14 @@ void NormNodeDelete(NormNodeHandle nodeHandle)
         NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            NormSenderNode* node = (NormSenderNode*)nodeHandle;
-            node->GetSession().DeleteRemoteSender(*node);
+            NormNode* node = (NormNode*)nodeHandle;
+            if (NormNode::SENDER == node->GetType())
+            {
+                NormSenderNode* sender = static_cast<NormSenderNode*>(node);
+                sender->GetSession().DeleteRemoteSender(*sender);
+            }
+            // else if NormNode::ACKER, should we remove from acking node list???
+            instance->PurgeNodeNotifications(nodeHandle);
             instance->dispatcher.ResumeThread(); 
         }
     }
@@ -2445,7 +2704,7 @@ void NormNodeRetain(NormNodeHandle nodeHandle)
         NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            ((NormSenderNode*)nodeHandle)->Retain();
+            ((NormNode*)nodeHandle)->Retain();
             instance->dispatcher.ResumeThread();
         }
     }
@@ -2459,7 +2718,7 @@ void NormNodeRelease(NormNodeHandle nodeHandle)
         NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            ((NormSenderNode*)nodeHandle)->Release();
+            ((NormNode*)nodeHandle)->Release();
             instance->dispatcher.ResumeThread();
         }
     }

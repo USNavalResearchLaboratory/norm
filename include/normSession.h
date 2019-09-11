@@ -40,6 +40,8 @@ class NormController
             TX_RATE_CHANGED,
             LOCAL_SENDER_CLOSED,
             REMOTE_SENDER_NEW,
+            REMOTE_SENDER_RESET,
+            REMOTE_SENDER_ADDRESS,
             REMOTE_SENDER_ACTIVE,
             REMOTE_SENDER_INACTIVE,
             REMOTE_SENDER_PURGED,
@@ -51,13 +53,16 @@ class NormController
             RX_OBJECT_ABORTED,
             GRTT_UPDATED,
             CC_ACTIVE,              // posted when cc feedback is detected
-            CC_INACTIVE             // posted when no cc feedback and min rate reached 
+            CC_INACTIVE,            // posted when no cc feedback and min rate reached 
+            ACKING_NODE_NEW,
+            SEND_ERROR,
+            USER_TIMEOUT
         };
                   
         virtual void Notify(NormController::Event event,
                             class NormSessionMgr* sessionMgr,
                             class NormSession*    session,
-                            class NormSenderNode* sender,
+                            class NormNode*       node,
                             class NormObject*     object) = 0;
                     
 };  // end class NormController
@@ -81,11 +86,11 @@ class NormSessionMgr
         
         void Notify(NormController::Event event,
                     class NormSession*    session,
-                    class NormSenderNode* sender,
+                    class NormNode*       node,
                     class NormObject*     object)
         {
             if (controller)
-                controller->Notify(event, this, session, sender, object);   
+                controller->Notify(event, this, session, node, object);   
         }
                
         void ActivateTimer(ProtoTimer& timer) {timer_mgr.ActivateTimer(timer);}
@@ -163,6 +168,7 @@ class NormSession
         const ProtoAddress& Address() {return address;}
         void SetAddress(const ProtoAddress& addr) {address = addr;}
         bool SetMulticastInterface(const char* interfaceName);
+        bool SetSSM(const char* sourceAddress);
         bool SetTTL(UINT8 theTTL) 
         {
             bool result = tx_socket->IsOpen() ? tx_socket->SetTTL(theTTL) : true;
@@ -179,8 +185,15 @@ class NormSession
         }
         bool SetLoopback(bool state) 
         {
-            bool result = tx_socket->IsOpen() ? tx_socket->SetLoopback(state) : true;
+            bool result = state ? SetMulticastLoopback(true) : true;
             loopback = result ? state : loopback;
+            return result; 
+        }
+        
+        bool SetMulticastLoopback(bool state)
+        {
+            bool result = tx_socket->IsOpen() ? tx_socket->SetLoopback(state) : true;
+            mcast_loopback = result ? state : mcast_loopback;
             return result; 
         }
         
@@ -289,11 +302,11 @@ class NormSession
                               unsigned long  countMin,
                               unsigned long  countMax);
         void Notify(NormController::Event event,
-                    class NormSenderNode* sender,
+                    class NormNode*       node,
                     class NormObject*     object)
         {
             notify_pending = true;
-            session_mgr.Notify(event, this, sender, object);  
+            session_mgr.Notify(event, this, node, object);  
             notify_pending = false;
         }
         
@@ -307,6 +320,8 @@ class NormSession
             {user_data = userData;}
         const void* GetUserData() const
             {return user_data;}
+        
+        void SetUserTimer(double seconds);  // set to value less than zero to cancel
         
         // Sender methods
         void SenderSetBaseObjectId(NormObjectId baseId)
@@ -322,6 +337,8 @@ class NormSession
                          UINT16         numParity);
         void StopSender();
         void SetTxOnly(bool txOnly, bool connectToSessionAddress = false);
+        bool GetTxOnly() const
+            {return tx_only;}
         
         NormStreamObject* QueueTxStream(UINT32      bufferSize, 
                                         bool        doubleBuffer = false,
@@ -353,11 +370,16 @@ class NormSession
         
         void SenderSetAutoAckingNodes(TrackingStatus trackingStatus)
             {acking_auto_populate = trackingStatus;}
-        bool SenderAddAckingNode(NormNodeId nodeId);
+        NormAckingNode* SenderAddAckingNode(NormNodeId nodeId, const ProtoAddress* srcAddr = NULL);
         void SenderRemoveAckingNode(NormNodeId nodeId);
         AckingStatus SenderGetAckingStatus(NormNodeId nodeId);
         // Set "prevNodeId = NORM_NODE_NONE" to init this iteration (returns "false" when done)
         bool SenderGetNextAckingNode(NormNodeId& prevNodeId, AckingStatus* ackingStatus = NULL);
+        
+        NormAckingNode* SenderFindAckingNode(NormNodeId nodeId) const
+        {
+            return static_cast<NormAckingNode*>(acking_node_tree.FindNodeById(nodeId));
+        }        
             
         // App-defined command support methods
         bool SenderSendCmd(const char* cmdBuffer, unsigned int cmdLength, bool robust);
@@ -557,6 +579,7 @@ class NormSession
         bool OnReportTimeout(ProtoTimer& theTimer);
         bool OnCmdTimeout(ProtoTimer& theTimer);
         bool OnFlowControlTimeout(ProtoTimer& theTimer);
+        bool OnUserTimeout(ProtoTimer& theTimer);
         
         void TxSocketRecvHandler(ProtoSocket& theSocket, ProtoSocket::Event theEvent);
         void RxSocketRecvHandler(ProtoSocket& theSocket, ProtoSocket::Event theEvent);        
@@ -624,12 +647,14 @@ class NormSession
         
         // General session parameters
         NormNodeId                      local_node_id;
-        ProtoAddress                    address;        // session destination address/port
-        UINT8                           ttl;            // session multicast ttl   
-        UINT8                           tos;            // session IPv4 TOS (or IPv6 traffic class - TBD)
-        bool                            loopback;       // receive own traffic it true
-        bool                            fragmentation;  // enable UDP/IP fragmentation (i.e. clear DF bit) if true
-        bool                            ecn_enabled;    // set true to get raw packets and check for ECN status
+        ProtoAddress                    address;         // session destination address/port
+        ProtoAddress                    ssm_source_addr; // optional SSM source address
+        UINT8                           ttl;             // session multicast ttl   
+        UINT8                           tos;             // session IPv4 TOS (or IPv6 traffic class - TBD)
+        bool                            loopback;        // receive own traffic it true
+        bool                            mcast_loopback;  // enable socket multicast loopback if true
+        bool                            fragmentation;   // enable UDP/IP fragmentation (i.e. clear DF bit) if true
+        bool                            ecn_enabled;     // set true to get raw packets and check for ECN status
         
         char                            interface_name[IFACE_NAME_MAX+1];    
         double                          tx_rate;  // bytes per second
@@ -763,6 +788,7 @@ class NormSession
         double                          rx_loss_rate;  // for uncorrelated loss
         double                          report_timer_interval;
 
+        ProtoTimer                      user_timer;
         const void*                     user_data;
         
         // Linkers
@@ -774,6 +800,7 @@ void NormTrace(const struct timeval&    currentTime,
                NormNodeId               localId, 
                const NormMsg&           msg, 
                bool                     sent,
-               UINT8                    fecM);
+               UINT8                    fecM,
+	           UINT16			instId = 0);  // this might not always be available to caller
 
 #endif  // _NORM_SESSION

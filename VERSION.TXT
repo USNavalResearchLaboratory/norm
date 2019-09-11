@@ -1,5 +1,20 @@
 			           NORM Version History
 
+Version 1.5r5
+=============
+    - Added NORM_REMOTE_SENDER_RESET event to notify app when the sender
+      has been reset due to instance id, etc change
+    - Fixed possibly critical issue in Protolib ProtoDispatcher where
+      threaded dispatcher use (as the NORM API uses) could possibly result 
+      in timers not being serviced properly.  Most likely the issue could
+      only occur under certain, heavier NORM API usage patterns.  Nonetheless,
+      this is an important fix. (Thanks to Michael Savisko of Arris).
+    - Fixed FreeBSD build (Thanks to Hans Duedal)
+    - Changed from 'b' (build)  numbering schema to 'r' (release) to reduce
+      confusion with respect to "beta" versus "stable" releases.
+    - Note there are some "in-progress" API extensions in this release that
+      are not yet described in the developer's guide documentation. 
+     
 Version 1.5b4
 =============
     - Corrected change in behavior of non-blocking version of 
@@ -24,7 +39,7 @@ Version 1.5b2
       notification check acking status).  Acknowledged, graceful shutdown streams,
       are automatically closed.
     - Fixed issue with compilation for NormObjectSize constructor, MSB(), and LSB()
-      methods on 32-bit systems.  Thanks to Bill Skiba.
+      methods on 32-bit systems.  (Thanks to Bill Skiba).
 
 Version 1.5b1
 =============

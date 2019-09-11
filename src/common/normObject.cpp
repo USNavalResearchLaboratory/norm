@@ -47,6 +47,10 @@ void NormObject::Retain()
 
 void NormObject::Release()
 {
+    
+    //if ((NULL != sender) && (reference_count == 1))
+    //   TRACE("NormObject final release node>%lu object>%hu\n", (unsigned long)sender->GetId(), (unsigned short)transport_id);
+    
     if (sender) sender->Release();
     if (reference_count)
     {
@@ -235,7 +239,7 @@ void NormObject::Close()
 NormObjectSize NormObject::GetBytesPending() const
 {
     NormBlockId nextId;
-    if (GetFirstPending(nextId))
+    if (!IsStream() && GetFirstPending(nextId))
     {
         NormObjectSize largeBlockBytes = NormObjectSize(large_block_size) * 
                                          NormObjectSize(segment_size);
@@ -264,7 +268,7 @@ NormObjectSize NormObject::GetBytesPending() const
     {
         return NormObjectSize(0);   
     }    
-}  // end NormObject::GetBytesCompleted()
+}  // end NormObject::GetBytesPending()
 
 // Used by sender
 bool NormObject::HandleInfoRequest(bool holdoff)
@@ -824,7 +828,7 @@ bool NormObject::ReceiverRepairCheck(CheckLevel    level,
                 if (segmentId >= max_pending_segment) 
                     max_pending_segment = segmentId + 1;  
             }
-            if (blockId == final_block_id)
+            if (!IsStream() && (blockId == final_block_id))
             {
                 unsigned int finalSegment = GetBlockSize(blockId) - 1;
                 if (finalSegment <= segmentId)
@@ -858,7 +862,6 @@ bool NormObject::ReceiverRepairCheck(CheckLevel    level,
                 }
                 else
                 {
-                    
                     NormBlockId firstPending;
                     if (GetFirstPending(firstPending))
                     {
@@ -901,7 +904,7 @@ bool NormObject::ReceiverRepairCheck(CheckLevel    level,
                 max_pending_block = blockId;
                 max_pending_segment = GetBlockSize(blockId);
             }
-            if (blockId == final_block_id)
+            if (!IsStream() && (blockId == final_block_id))
                 thruObject = true;
             if (timerActive)
             {
@@ -1178,7 +1181,7 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
                             return requestAppended;   
                         }
                     }
-                    if (flush || (nextId != max_pending_block))
+		    if (flush || (nextId != max_pending_block))
                     {
                         block->AppendRepairRequest(nack, fec_id, fec_m, numData, nparity, transport_id, 
                                                    pending_info, segment_size); // (TBD) error check
@@ -1192,10 +1195,10 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
                             block->AppendRepairRequest(nack, fec_id, fec_m, numData, nparity, transport_id, 
                                                        pending_info, segment_size); // (TBD) error check
                     }
-                    requestAppended = true;
+		    requestAppended = true;
+		    prevForm = NormRepairRequest::INVALID;
                 }
                 consecutiveCount = 0;
-                prevForm = NormRepairRequest::INVALID;
             }
             else if (iterating)
             {
@@ -2832,7 +2835,7 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
             {
                 // This is a fresh rx stream, so init the read indices
                 read_init = false;
-                read_index.block = blockId;
+                read_index.block = blockId;  // for initial SYNC_STREAM sync, this will be zero (stream beginning)
                 read_index.segment = 0;   
                 read_offset = 0;
             }
@@ -3940,6 +3943,7 @@ void NormObjectTable::Destroy()
         {
             // TBD - should we issue PURGED/ABORTED notifications here???
             // (We haven't since this is destroyed only when session is terminated)
+            // or when a NormSenderNode is deleted
             Remove(obj);
             obj->Release();
         }

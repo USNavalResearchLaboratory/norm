@@ -31,7 +31,7 @@ public class NormEvent {
   }
 
   /**
-   * @return Returns the node.
+   * @return Returns the session.
    */
   public NormSession getSession() {
     if (sessionHandle == 0) {
@@ -51,6 +51,9 @@ public class NormEvent {
     return new NormNode(nodeHandle);
   }
 
+  /**
+   * @return Returns the object.
+   */
   public native NormObject getObject();
 
   /**

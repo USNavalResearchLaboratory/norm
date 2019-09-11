@@ -6,8 +6,7 @@ JNIEXPORT jobject JNICALL PKGNAME(NormEvent_getObject)
   NormObjectHandle objectHandle;
   jobject object = NULL;
 
-  objectHandle = (NormObjectHandle)env->GetLongField(obj,
-    fid_NormEvent_objectHandle);
+  objectHandle = (NormObjectHandle)env->GetLongField(obj, fid_NormEvent_objectHandle);
 
   switch (NormObjectGetType(objectHandle)) {
     case NORM_OBJECT_DATA: 

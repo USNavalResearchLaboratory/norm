@@ -154,10 +154,13 @@ def get_libnorm():
             ctypes.c_bool, ctypes.c_bool]
 
     libnorm.NormSetMulticastInterface.restype = ctypes.c_bool
-    libnorm.NormSetMulticastInterface.argtypes = [ctypes.c_void_p,
-            ctypes.c_char_p]
+    libnorm.NormSetMulticastInterface.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
     libnorm.NormSetMulticastInterface.errcheck = errcheck_bool
-
+    
+    libnorm.NormSetSSM.restype = ctypes.c_bool
+    libnorm.NormSetSSM.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    libnorm.NormSetSSM.errcheck = errcheck_bool
+    
     libnorm.NormSetTTL.restype = ctypes.c_bool
     libnorm.NormSetTTL.argtypes = [ctypes.c_void_p, ctypes.c_uint8]
     libnorm.NormSetTTL.errcheck = errcheck_bool

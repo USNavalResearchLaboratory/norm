@@ -63,6 +63,10 @@ class Event(object):
             return "NORM_LOCAL_SENDER_CLOSED"
         elif self.type == c.NORM_REMOTE_SENDER_NEW:
             return "NORM_REMOTE_SENDER_NEW"
+        elif self.type == c.NORM_REMOTE_SENDER_RESET:
+            return "NORM_REMOTE_SENDER_RESET"
+        elif self.type == c.NORM_REMOTE_SENDER_ADDRESS:
+            return "NORM_REMOTE_SENDER_ADDRESS"
         elif self.type == c.NORM_REMOTE_SENDER_ACTIVE:
             return "NORM_REMOTE_SENDER_ACTIVE"
         elif self.type == c.NORM_REMOTE_SENDER_INACTIVE:

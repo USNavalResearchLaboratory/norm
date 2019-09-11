@@ -15,6 +15,7 @@ NS = ../src/sim/ns
 INCLUDES = $(SYSTEM_INCLUDES) -I$(UNIX) -I../include -I$(PROTOLIB)/include
 
 CFLAGS = -g -DPROTO_DEBUG -DUNIX -D_FILE_OFFSET_BITS=64 -O $(SYSTEM_CFLAGS) $(SYSTEM_HAVES) $(INCLUDES)
+#CFLAGS = -g -DPROTO_DEBUG -DUNIX -D_FILE_OFFSET_BITS=64 $(SYSTEM_CFLAGS) $(SYSTEM_HAVES) $(INCLUDES)
 
 LDFLAGS = $(SYSTEM_LDFLAGS)
 
@@ -239,7 +240,7 @@ gtf:    $(GTF_OBJ)
 	cp $@ ../bin/$@        
     	    
 clean:	
-	rm -f $(COMMON)/*.o  $(UNIX)/*.o $(NS)/*.o \
+	rm -f $(COMMON)/*.o  $(UNIX)/*.o $(NS)/*.o $(EXAMPLE)/*.o \
           libnorm.a libnorm.$(SYSTEM_SOEXT) ../lib/libnorm.a ../lib/libnorm.$(SYSTEM_SOEXT) \
           norm raft normTest normTest2 normThreadTest normThreadTest2 ../bin/*;
 	$(MAKE) -C $(PROTOLIB)/makefiles -f Makefile.$(SYSTEM) clean

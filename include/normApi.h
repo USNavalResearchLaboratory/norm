@@ -173,6 +173,8 @@ typedef enum NormEventType
     NORM_TX_RATE_CHANGED,
     NORM_LOCAL_SENDER_CLOSED,
     NORM_REMOTE_SENDER_NEW,
+    NORM_REMOTE_SENDER_RESET,     // remote sender instanceId or FEC params changed
+    NORM_REMOTE_SENDER_ADDRESS,   // remote sender src addr and/or port changed
     NORM_REMOTE_SENDER_ACTIVE,
     NORM_REMOTE_SENDER_INACTIVE,
     NORM_REMOTE_SENDER_PURGED,    // not yet implemented
@@ -184,7 +186,10 @@ typedef enum NormEventType
     NORM_RX_OBJECT_ABORTED,
     NORM_GRTT_UPDATED,
     NORM_CC_ACTIVE,
-    NORM_CC_INACTIVE
+    NORM_CC_INACTIVE,
+    NORM_ACKING_NODE_NEW,        // whe NormSetAutoAcking xxx
+    NORM_SEND_ERROR,             // ICMP error (e.g. destination unreachable)
+    NORM_USER_TIMEOUT            // issues when timeout set by NormSetUserTimer() expires
 } NormEventType;
 
 typedef struct
@@ -220,7 +225,6 @@ bool NormSuspendInstance(NormInstanceHandle instanceHandle);
 
 NORM_API_LINKAGE 
 void NormResumeInstance(NormInstanceHandle instanceHandle);
-
 
 
 // This MUST be set to enable NORM_OBJECT_FILE reception!
@@ -263,6 +267,9 @@ NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
 NORM_API_LINKAGE 
 void NormDestroySession(NormSessionHandle sessionHandle);
 
+NORM_API_LINKAGE 
+NormInstanceHandle NormGetInstance(NormSessionHandle sessionHandle);
+
 NORM_API_LINKAGE
 bool NormIsUnicastAddress(const char* address);
 
@@ -273,8 +280,17 @@ NORM_API_LINKAGE
 const void* NormGetUserData(NormSessionHandle sessionHandle);
 
 NORM_API_LINKAGE 
+void NormSetUserTimer(NormSessionHandle sessionHandle, double seconds);
+
+NORM_API_LINKAGE 
+void NormCancelUserTimer(NormSessionHandle sessionHandle);
+
+NORM_API_LINKAGE 
 NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle);
 
+
+NORM_API_LINKAGE
+UINT16 NormGetRxPort(NormSessionHandle sessionHandle);
 
 NORM_API_LINKAGE 
 bool NormSetTxPort(NormSessionHandle sessionHandle,
@@ -291,12 +307,13 @@ void NormSetTxOnly(NormSessionHandle sessionHandle,
                    bool              connectToSessionAddress DEFAULT(false));
 
 
-// This does not affect the rx_socket binding if already bound
+// This does not affect the rx_socket binding if already bound (sender or receiver already started)
 // (i.e., just affects where NORM packets are sent)
 NORM_API_LINKAGE
 bool NormChangeDestination(NormSessionHandle sessionHandle,
                            const char*       sessionAddress,
-                           UINT16            sessionPort);
+                           UINT16            sessionPort,
+                           bool              connectToSessionAddress DEFAULT(false));
 
 NORM_API_LINKAGE 
 void NormSetRxPortReuse(NormSessionHandle sessionHandle,
@@ -320,6 +337,10 @@ bool NormSetMulticastInterface(NormSessionHandle sessionHandle,
                                const char*       interfaceName);
 
 NORM_API_LINKAGE 
+bool NormSetSSM(NormSessionHandle sessionHandle,
+                const char*       sourceAddress);
+
+NORM_API_LINKAGE 
 bool NormSetTTL(NormSessionHandle sessionHandle,
                 unsigned char     ttl);
 
@@ -330,6 +351,10 @@ bool NormSetTOS(NormSessionHandle sessionHandle,
 NORM_API_LINKAGE 
 bool NormSetLoopback(NormSessionHandle sessionHandle,
                      bool              loopback);
+
+NORM_API_LINKAGE 
+bool NormSetMulticastLoopback(NormSessionHandle sessionHandle,
+                              bool              loopback);
 
 
 NORM_API_LINKAGE
@@ -375,13 +400,17 @@ double NormGetReportInterval(NormSessionHandle sessionHandle);
 NORM_API_LINKAGE
 NormSessionId NormGetRandomSessionId();
 
+
+// This function has been updated so that 16-bit Reed-Solomon
+// codecs can be accessed.  This may cause an issue for linking
+// to older versions of the NORM library
 NORM_API_LINKAGE 
 bool NormStartSender(NormSessionHandle  sessionHandle,
                      NormSessionId      instanceId,
                      UINT32             bufferSpace,
                      UINT16             segmentSize,
-                     unsigned char      numData,
-                     unsigned char      numParity);
+                     UINT16             numData,
+                     UINT16             numParity);
 
 NORM_API_LINKAGE 
 void NormStopSender(NormSessionHandle sessionHandle);
@@ -530,6 +559,10 @@ void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
                           NormNodeId         nodeId);
 
 NORM_API_LINKAGE
+NormNodeHandle NormGetAckingNodeHandle(NormSessionHandle  sessionHandle,
+                                       NormNodeId         nodeId);
+
+NORM_API_LINKAGE
 void NormSetAutoAckingNodes(NormSessionHandle   sessionHandle,
                             NormTrackingStatus  trackingStatus);
 
@@ -540,7 +573,7 @@ NormAckingStatus NormGetAckingStatus(NormSessionHandle sessionHandle,
 NORM_API_LINKAGE 
 bool NormGetNextAckingNode(NormSessionHandle    sessionHandle,
                            NormNodeId*          nodeId,   
-                           NormAckingStatus*    ackingStatus);
+                           NormAckingStatus*    ackingStatus DEFAULT(0));
 
 NORM_API_LINKAGE 
 bool NormSendCommand(NormSessionHandle  sessionHandle,
@@ -687,6 +720,12 @@ bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
                         unsigned int*   bufferLen,
                         UINT16*         port DEFAULT((UINT16*)0));
 
+NORM_API_LINKAGE 
+void NormNodeSetUserData(NormNodeHandle nodeHandle, const void* userData);
+
+NORM_API_LINKAGE 
+const void* NormNodeGetUserData(NormNodeHandle nodeHandle);
+
 NORM_API_LINKAGE
 double NormNodeGetGrtt(NormNodeHandle remoteSender);
 
@@ -702,7 +741,22 @@ void NormNodeFreeBuffers(NormNodeHandle remoteSender);
 NORM_API_LINKAGE
 void NormNodeDelete(NormNodeHandle remoteSender);
 
-// The next 4 functions have not yet been implemented
+NORM_API_LINKAGE 
+void NormNodeRetain(NormNodeHandle nodeHandle);
+
+NORM_API_LINKAGE 
+void NormNodeRelease(NormNodeHandle nodeHandle);
+
+/** Some experimental functions */
+
+NORM_API_LINKAGE
+void NormReleasePreviousEvent(NormInstanceHandle instanceHandle);
+
+NORM_API_LINKAGE 
+UINT32 NormCountCompletedObjects(NormSessionHandle sessionHandle);
+
+
+// The next functions have _not_ yet been implemented
 // (work in progress)
 NORM_API_LINKAGE
 void NormNodeSetAutoDelete(NormNodeHandle remoteSender,
@@ -712,19 +766,7 @@ NORM_API_LINKAGE
 bool NormNodeAllowSender(NormNodeId senderId);
 
 NORM_API_LINKAGE
-bool NormNodeDenySender(NormNodeId senderId);        
-
-
-NORM_API_LINKAGE 
-void NormNodeRetain(NormNodeHandle nodeHandle);
-
-NORM_API_LINKAGE 
-void NormNodeRelease(NormNodeHandle nodeHandle);
-
-/** Some experimental functions */
-
-NORM_API_LINKAGE 
-UINT32 NormCountCompletedObjects(NormSessionHandle sessionHandle);
+bool NormNodeDenySender(NormNodeId senderId);     
 
 #ifdef __cplusplus
 } // end extern "C"

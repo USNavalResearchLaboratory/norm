@@ -19,7 +19,7 @@ import mil.navy.nrl.norm.enums.NormSyncPolicy;
 public class NormSession {
   private static Map<Long, NormSession> normSessions = new HashMap<Long, NormSession>();
 
-  private long handle; // The pointer to the native NormInstanceHandle
+  private long handle; // The pointer to the native NormSessionHandle
 
   /**
    * Package protected constructor is invoked by NormInstance
@@ -38,7 +38,6 @@ public class NormSession {
 
   public void destroySession() {
     normSessions.remove(handle);
-
     destroySessionNative();
   }
 
@@ -63,7 +62,10 @@ public class NormSession {
 
   public native void setMulticastInterface(String interfaceName)
       throws IOException;
-
+  
+  public native void setSSM(String sourceAddr)
+      throws IOException;
+      
   public native void setTTL(byte ttl) throws IOException;
 
   public native void setTOS(byte tos) throws IOException;

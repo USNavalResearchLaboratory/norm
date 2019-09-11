@@ -40,9 +40,10 @@ SYSTEM_HAVES =  -DHAVE_IPV6 -DHAVE_ASSERT -DHAVE_GETLOGIN -DHAVE_FLOCK -DHAVE_DI
 SYSTEM_SRC = 
 
 SYSTEM = freebsd
-CC = g++
+CC = c++
 SYSTEM_CFLAGS = -fPIC -Wall -pedantic -Wcast-align
-SYSTEM_SOFLAGS = -shared 
+SYSTEM_SOFLAGS = -shared
+SYSTEM_SOEXT = so 
 RANLIB = ranlib
 AR = ar
 

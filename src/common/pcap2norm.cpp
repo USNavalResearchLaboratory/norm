@@ -342,7 +342,8 @@ void NormTrace2(const struct timeval&    currentTime,
                     clrFlag = ((NormCCFeedbackExtension&)ext).CCFlagIsSet(NormCC::CLR);
                     // Print ccRtt (only valid if pcap file is from sender node)
                     double ccRtt = NormUnquantizeRtt(((NormCCFeedbackExtension&)ext).GetCCRtt());
-                    PLOG(PL_ALWAYS, "ccRtt:%lf ", ccRtt);
+                    double ccLoss = NormUnquantizeLoss32(((NormCCFeedbackExtension&)ext).GetCCLoss32());
+                    PLOG(PL_ALWAYS, "ccRtt:%lf ccLoss:%lf ", ccRtt, ccLoss);
                     break;
                 }
             }

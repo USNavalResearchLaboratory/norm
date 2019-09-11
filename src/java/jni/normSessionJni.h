@@ -42,7 +42,7 @@ JNIEXPORT void JNICALL Java_mil_navy_nrl_norm_NormSession_setRxPortReuse
 /*
  * Class:     mil_navy_nrl_norm_NormSession
  * Method:    setEcnSupport
- * Signature: (ZZ)V
+ * Signature: (ZZZ)V
  */
 JNIEXPORT void JNICALL Java_mil_navy_nrl_norm_NormSession_setEcnSupport
   (JNIEnv *, jobject, jboolean, jboolean, jboolean);
@@ -53,6 +53,14 @@ JNIEXPORT void JNICALL Java_mil_navy_nrl_norm_NormSession_setEcnSupport
  * Signature: (Ljava/lang/String;)V
  */
 JNIEXPORT void JNICALL Java_mil_navy_nrl_norm_NormSession_setMulticastInterface
+  (JNIEnv *, jobject, jstring);
+
+/*
+ * Class:     mil_navy_nrl_norm_NormSession
+ * Method:    setSSM
+ * Signature: (Ljava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_mil_navy_nrl_norm_NormSession_setSSM
   (JNIEnv *, jobject, jstring);
 
 /*
@@ -321,7 +329,7 @@ JNIEXPORT void JNICALL Java_mil_navy_nrl_norm_NormSession_cancelWatermark
 
 /*
  * Class:     mil_navy_nrl_norm_NormSession
- * Method:    cancelWatermark
+ * Method:    resetWatermark
  * Signature: ()V
  */
 JNIEXPORT void JNICALL Java_mil_navy_nrl_norm_NormSession_resetWatermark

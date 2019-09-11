@@ -5,9 +5,9 @@
   <articleinfo>
     <title><inlinemediaobject>
         <imageobject>
-          <imagedata align="center" fileref="NormLogo.gif" scale="50" />
+          <imagedata align="center" fileref="NormLogo.gif" scale="50"/>
         </imageobject>
-      </inlinemediaobject> NORM Developer's Guide (version 1.4b4)</title>
+      </inlinemediaobject> NORM Developer's Guide (version 1.5b5)</title>
 
     <titleabbrev>NORM Developer's Guide</titleabbrev>
 
@@ -1234,9 +1234,9 @@ bool <link linkend="NormGetNextEvent"><literal>NormGetNextEvent</literal></link>
 
           <informaltable frame="all">
             <tgroup cols="2">
-              <colspec colnum="1" colwidth="1*" />
+              <colspec colnum="1" colwidth="1*"/>
 
-              <colspec colnum="2" colwidth="2.5*" />
+              <colspec colnum="2" colwidth="2.5*"/>
 
               <tbody>
                 <row>
@@ -1430,8 +1430,8 @@ bool <link linkend="NormGetNextEvent"><literal>NormGetNextEvent</literal></link>
                   <entry><para><literal>NORM_REMOTE_SENDER_ACTIVE</literal></para></entry>
 
                   <entry><para>This event is posted when a previously inactive
-                  (or new) remote <anchor id="OLE_LINK5" /> <anchor
-                  id="OLE_LINK4" />sender is detected operating as an active
+                  (or new) remote <anchor id="OLE_LINK5"/> <anchor
+                  id="OLE_LINK4"/>sender is detected operating as an active
                   sender within the session.</para></entry>
                 </row>
 
@@ -1675,9 +1675,9 @@ NormSessionHandle</literal></link> <link linkend="NormCreateSession"><literal>No
 
           <informaltable frame="all">
             <tgroup cols="2">
-              <colspec colnum="1" colwidth="1*" />
+              <colspec colnum="1" colwidth="1*"/>
 
-              <colspec colnum="2" colwidth="5*" />
+              <colspec colnum="2" colwidth="5*"/>
 
               <tbody>
                 <row>
@@ -1886,7 +1886,7 @@ const void* <link linkend="NormGetUserData"><literal>NormGetUserData</literal></
         </sect4>
 
         <sect4>
-          <title>Return Values</title>
+          <title>Return Valuess</title>
 
           <para>The returned value indicates the <emphasis>NormNode</emphasis>
           identifier used by the NORM protocol engine for the local
@@ -2185,13 +2185,57 @@ NormSetMulticastInterface</literal></link>(session, "interface2");</programlisti
 
           <para>A return value of <constant>true</constant> indicates success
           while a return value of <constant>false</constant> indicates that
-          the specified interface was valid. This function will always return
-          <constant>true</constant> if made before calls to <link
+          the specified interface was invalid. This function will always
+          return <constant>true</constant> if made before calls to <link
           linkend="NormStartSender"><literal>NormStartSender()</literal></link>
           or <link
           linkend="NormStartReceiver"><literal>NormStartReceiver()</literal></link>.
           However, those calls may fail if an invalid interface was specified
           with the call described here.</para>
+        </sect4>
+      </sect3>
+
+      <sect3 id="NormSetMulticastInterface">
+        <title>NormSetSSM()</title>
+
+        <sect4>
+          <title>Synopsis</title>
+
+          <programlisting>#include &lt;normApi.h&gt;
+
+bool <link linkend="NormSetMulticastInterface"><literal>NormSetSSM</literal></link>(<link
+              linkend="NormSessionHandle"><literal>NormSessionHandle</literal></link> session,
+                const char*       sourceAddress);</programlisting>
+        </sect4>
+
+        <sect4>
+          <title>Description</title>
+
+          <para>This function sets the source address for Source-Specific
+          Multicast (SSM) operation. This should be called
+          <emphasis>before</emphasis> any call to <link
+          linkend="NormStartSender"><literal>NormStartSender()</literal></link>
+          or <link
+          linkend="NormStartReceiver"><literal>NormStartReceiver()</literal></link>
+          is made so that the proper group join is done. The receiver
+          application MUST also use the <link
+          linkend="NormSetDefaultUnicastNack"><literal>NormSetDefaultUnicastNack()</literal></link>
+          call so that feedback traffic is directed back to appropriate
+          sender.</para>
+        </sect4>
+
+        <sect4>
+          <title>Return Values</title>
+
+          <para>A return value of <constant>true</constant> indicates success
+          while a return value of <constant>false</constant> indicates that
+          the specified source address was invalid. Note that if a valid IP
+          address is specified but is improper for SSM (e.g., an IP multicast
+          address) the later calls to <link
+          linkend="NormStartSender"><literal>NormStartSender()</literal></link>
+          or <link
+          linkend="NormStartReceiver"><literal>NormStartReceiver()</literal></link>
+          may fail.</para>
         </sect4>
       </sect3>
 
@@ -2352,8 +2396,7 @@ bool <link linkend="NormSetFragmentation"><literal>NormSetFragmentation</literal
           Multicast destinations, some operating systems may always set the DF
           bit of transmitted packets, regardless of the setting here and the
           underlying socket option status. Typically, the DF bit is set (i.e.,
-          fragmentation disabled) by default on most operating systems.
-          </para>
+          fragmentation disabled) by default on most operating systems.</para>
 
           <para>This call is not currently functional on the Mac OSX system
           that does not support the needed
@@ -2371,7 +2414,7 @@ bool <link linkend="NormSetFragmentation"><literal>NormSetFragmentation</literal
     </sect2>
 
     <sect2>
-      <title><anchor id="_NORM_Sender_Functions" />NORM Sender
+      <title><anchor id="_NORM_Sender_Functions"/>NORM Sender
       Functions</title>
 
       <para>The functions described in this section apply only to NORM sender
@@ -2412,9 +2455,9 @@ bool <link linkend="NormStartSender"><literal>NormStartSender</literal></link>(<
 
           <informaltable frame="all">
             <tgroup cols="2">
-              <colspec colnum="1" colwidth="1*" />
+              <colspec colnum="1" colwidth="1*"/>
 
-              <colspec colnum="2" colwidth="5*" />
+              <colspec colnum="2" colwidth="5*"/>
 
               <tbody>
                 <row>

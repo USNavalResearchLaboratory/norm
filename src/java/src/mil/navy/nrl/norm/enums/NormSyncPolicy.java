@@ -1,7 +1,4 @@
-/*
- * Copyright (c) 2010 by General Dynamics Advanced Information Systems
- * Classification: UNCLASSIFIED
- */
+
 package mil.navy.nrl.norm.enums;
 
 /**
@@ -11,6 +8,7 @@ package mil.navy.nrl.norm.enums;
  *
  * @author Jason Rush
  */
+ 
 public enum NormSyncPolicy {
   NORM_SYNC_CURRENT,
   NORM_SYNC_STREAM,
