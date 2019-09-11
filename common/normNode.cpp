@@ -4,8 +4,8 @@
 
 #include <errno.h>
 
-NormNode::NormNode(class NormSession* theSession, NormNodeId nodeId)
- : session(theSession), id(nodeId),
+NormNode::NormNode(class NormSession& theSession, NormNodeId nodeId)
+ : session(theSession), id(nodeId), reference_count(0),
    parent(NULL), right(NULL), left(NULL)
 {
     
@@ -15,10 +15,25 @@ NormNode::~NormNode()
 {
 }
 
-const NormNodeId& NormNode::LocalNodeId() const {return session->LocalNodeId();}
+void NormNode::Retain()
+{
+    reference_count++;
+}  // end NormNode::Retain()
+
+void NormNode::Release()
+{
+    if (reference_count)
+        reference_count--;
+    else
+        DMSG(0, "NormNode::Release() releasing non-retained node?!\n");
+    if (0 == reference_count) delete this;   
+}  // end NormNode::Release()
 
 
-NormCCNode::NormCCNode(class NormSession* theSession, NormNodeId nodeId)
+const NormNodeId& NormNode::LocalNodeId() const {return session.LocalNodeId();}
+
+
+NormCCNode::NormCCNode(class NormSession& theSession, NormNodeId nodeId)
  : NormNode(theSession, nodeId)
 {
     
@@ -29,14 +44,23 @@ NormCCNode::~NormCCNode()
 }
 
 
-NormServerNode::NormServerNode(class NormSession* theSession, NormNodeId nodeId)
- : NormNode(theSession, nodeId), session_id(0), synchronized(false),
-   is_open(false), segment_size(0), ndata(0), nparity(0), erasure_loc(NULL),
-   cc_sequence(0), cc_enable(false), cc_rate(0.0), rtt_confirmed(false), is_clr(false), is_plr(false),
+NormServerNode::NormServerNode(class NormSession& theSession, NormNodeId nodeId)
+ : NormNode(theSession, nodeId), session_id(0), synchronized(false), sync_id(0),
+   max_pending_range(256), is_open(false), segment_size(0), ndata(0), nparity(0), 
+   repair_boundary(BLOCK_BOUNDARY), erasure_loc(NULL),
+   cc_sequence(0), cc_enable(false), cc_rate(0.0), 
+   rtt_confirmed(false), is_clr(false), is_plr(false),
    slow_start(true), send_rate(0.0), recv_rate(0.0), recv_accumulator(0),
    recv_total(0), recv_goodput(0), resync_count(0),
    nack_count(0), suppress_count(0), completion_count(0), failure_count(0)
 {
+    
+    
+    repair_boundary = session.ClientGetDefaultRepairBoundary();
+    default_nacking_mode = session.ClientGetDefaultNackingMode();
+    unicast_nacks = session.UnicastNacks();
+    // (TBD) get "max_pending_range" value from NormSession parameter
+            
     repair_timer.SetListener(this, &NormServerNode::OnRepairTimeout);
     repair_timer.SetInterval(0.0);
     repair_timer.SetRepeat(1);
@@ -48,6 +72,10 @@ NormServerNode::NormServerNode(class NormSession* theSession, NormNodeId nodeId)
     cc_timer.SetListener(this, &NormServerNode::OnCCTimeout);
     cc_timer.SetInterval(0.0);
     cc_timer.SetRepeat(1);
+    
+    ack_timer.SetListener(this, &NormServerNode::OnAckTimeout);
+    ack_timer.SetInterval(0.0);
+    ack_timer.SetRepeat(0);
     
     grtt_send_time.tv_sec = 0;
     grtt_send_time.tv_usec = 0;
@@ -73,27 +101,48 @@ NormServerNode::~NormServerNode()
     Close();
 }
 
-bool NormServerNode::Open(UINT16 sessionId, UINT16 segmentSize, UINT16 numData, UINT16 numParity)
+bool NormServerNode::Open(UINT16 sessionId)
 {
     session_id = sessionId;
-    if (!rx_table.Init(256))
+    if (!rx_table.Init(max_pending_range))
     {
         DMSG(0, "NormServerNode::Open() rx_table init error\n");
         Close();
         return false;
     }
-    if (!rx_pending_mask.Init(256, 0x0000ffff))
+    if (!rx_pending_mask.Init(max_pending_range, 0x0000ffff))
     {
         DMSG(0, "NormServerNode::Open() rx_pending_mask init error\n");
         Close();
         return false;
     }
-    if (!rx_repair_mask.Init(256, 0x0000ffff))
+    if (!rx_repair_mask.Init(max_pending_range, 0x0000ffff))
     {
         DMSG(0, "NormServerNode::Open() rx_repair_mask init error\n");
         Close();
         return false;
     }    
+    is_open = true;
+    synchronized = false;
+    return true;
+}  // end NormServerNode::Open()
+
+void NormServerNode::Close()
+{
+    if (activity_timer.IsActive()) activity_timer.Deactivate();
+    if (repair_timer.IsActive()) repair_timer.Deactivate();
+    if (cc_timer.IsActive()) cc_timer.Deactivate();   
+    FreeBuffers(); 
+    rx_repair_mask.Destroy();
+    rx_pending_mask.Destroy();
+    rx_table.Destroy();
+    synchronized = false;
+    is_open = false;
+}  // end NormServerNode::Close()
+
+bool NormServerNode::AllocateBuffers(UINT16 segmentSize, UINT16 numData, UINT16 numParity)
+{    
+    ASSERT(IsOpen());
     // Calculate how much memory each buffered block will require
     UINT16 blockSize = numData + numParity;
     unsigned long maskSize = blockSize >> 3;
@@ -102,7 +151,7 @@ bool NormServerNode::Open(UINT16 sessionId, UINT16 segmentSize, UINT16 numData, 
                                blockSize * sizeof(char*) + 
                                2*maskSize  +
                                numData * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());  
-    unsigned long bufferSpace = session->RemoteServerBufferSize();
+    unsigned long bufferSpace = session.RemoteServerBufferSize();
     unsigned long numBlocks = bufferSpace / blockSpace;
     if (bufferSpace > (numBlocks*blockSpace)) numBlocks++;
     if (numBlocks < 2) numBlocks = 2;
@@ -143,14 +192,11 @@ bool NormServerNode::Open(UINT16 sessionId, UINT16 segmentSize, UINT16 numData, 
     nominal_packet_size = (double)segmentSize;
     ndata = numData;
     nparity = numParity;
-    is_open= true;
-    Activate();
     return true;
-}  // end NormServerNode::Open()
+}  // end NormServerNode::AllocateBuffers()
 
-void NormServerNode::Close()
+void NormServerNode::FreeBuffers()
 {
-    if (activity_timer.IsActive()) activity_timer.Deactivate();
     decoder.Destroy();
     if (erasure_loc)
     {
@@ -158,16 +204,15 @@ void NormServerNode::Close()
         erasure_loc = NULL;
     }
     NormObject* obj;
-    while ((obj = rx_table.Find(rx_table.RangeLo()))) DeleteObject(obj);
+    while ((obj = rx_table.Find(rx_table.RangeLo()))) 
+    {
+        session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
+        DeleteObject(obj, 6);
+    }
     segment_pool.Destroy();
     block_pool.Destroy();
-    rx_repair_mask.Destroy();
-    rx_pending_mask.Destroy();
-    rx_table.Destroy();
-    segment_size = ndata = nparity = 0;    
-    is_open = false;
-    synchronized = false;
-}  // end NormServerNode::Close()
+    segment_size = ndata = nparity = 0; 
+}  // end NormServerNode::FreeBuffers()
 
 
 void NormServerNode::HandleCommand(const struct timeval& currentTime, 
@@ -197,22 +242,21 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
     switch (flavor)
     {
         case NormCmdMsg::SQUELCH:
-            if (IsOpen())
+        {
+            const NormCmdSquelchMsg& squelch = (const NormCmdSquelchMsg&)cmd;
+            // 1) Sync to squelch
+            NormObjectId objectId = squelch.GetObjectId();
+            Sync(objectId);
+            // 2) Prune stream object if applicable
+            NormObject* obj = rx_table.Find(objectId);
+            if (obj && (NormObject::STREAM == obj->GetType()))
             {
-                const NormCmdSquelchMsg& squelch = (const NormCmdSquelchMsg&)cmd;
-                // 1) Sync to squelch
-                NormObjectId objectId = squelch.GetObjectId();
-                Sync(objectId);
-                // 2) Prune stream object if applicable
-                NormObject* obj = rx_table.Find(objectId);
-                if (obj && (NormObject::STREAM == obj->GetType()))
-                {
-                    NormBlockId blockId = squelch.GetFecBlockId();
-                    ((NormStreamObject*)obj)->Prune(blockId);   
-                }
-                // 3) (TBD) Discard any invalidated objects 
+                NormBlockId blockId = squelch.GetFecBlockId();
+                ((NormStreamObject*)obj)->Prune(blockId);   
             }
+            // 3) (TBD) Discard any invalidated objects
             break;
+        }
             
         case NormCmdMsg::ACK_REQ:
             // (TBD) handle ack requests
@@ -263,7 +307,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                         is_clr = is_plr = false;
                     }
                     double maxBackoff;
-                    if (is_clr || is_plr || !session->Address().IsMulticast())
+                    if (is_clr || is_plr || !session.Address().IsMulticast())
                     {
                         // Respond immediately
                         maxBackoff = 0.0;
@@ -306,15 +350,60 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                     cc_timer.SetInterval(backoffTime);
                     DMSG(6, "NormServerNode::HandleCommand() node>%lu begin CC back-off: %lf sec)...\n",
                             LocalNodeId(), backoffTime);
-                    session->ActivateTimer(cc_timer);
+                    session.ActivateTimer(cc_timer);
                 }  // end if (CC_RATE == ext.GetType())
             }  // end while (GetNextExtension())
             break;
         }    
         case NormCmdMsg::FLUSH:
+        {
             // (TBD) should we force synchronize if we're expected
             // to positively acknowledge the FLUSH
-            
+            const NormCmdFlushMsg& flush = (const NormCmdFlushMsg&)cmd;
+            bool doAck = false;
+            UINT16 nodeCount = flush.GetAckingNodeCount();
+            NormNodeId localId = LocalNodeId();
+            for (UINT16 i = 0; i < nodeCount; i++)
+            {
+                if (flush.GetAckingNodeId(i) == localId)
+                {
+                    doAck = true;
+                    break;   
+                }
+            } 
+            if (!synchronized)
+            {
+                if (doAck)
+                {
+                    // Force sync since we're expected to ACK 
+                    Sync(flush.GetObjectId());   
+                }
+                else
+                {
+                    // (TBD) optionally sync on any flush ?
+                }            
+            }
+            if (0 != nodeCount) // this was a watermark flush
+            {
+                if (!PassiveRepairCheck(flush.GetObjectId(), 
+                                        flush.GetFecBlockId(), 
+                                        flush.GetFecSymbolId()))
+                {
+                    if (doAck)
+                    {
+                       watermark_object_id = flush.GetObjectId();
+                       watermark_block_id = flush.GetFecBlockId();
+                       watermark_segment_id = flush.GetFecSymbolId();
+                       if (!ack_timer.IsActive())
+                       {
+                            double ackBackoff = UniformRand(grtt_estimate);  
+                            ack_timer.SetInterval(ackBackoff);
+                            session.ActivateTimer(ack_timer); 
+                       }
+                    }
+                    break;  // no pending repairs, skip regular "RepairCheck"   
+                }
+            }
             if (synchronized) 
             {
                 const NormCmdFlushMsg& flush = (const NormCmdFlushMsg&)cmd;
@@ -325,7 +414,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                             flush.GetFecSymbolId());
             }
             break;
-            
+        }   
         case NormCmdMsg::REPAIR_ADV:
         {
             const NormCmdRepairAdvMsg& repairAdv = (const NormCmdRepairAdvMsg&)cmd;
@@ -401,7 +490,7 @@ void NormServerNode::HandleCCFeedback(UINT8 ccFlags, double ccRate)
         {
             if (cc_timer.IsActive()) cc_timer.Deactivate();
             cc_timer.SetInterval(grtt_estimate*backoff_factor);  // (TBD) ???
-            session->ActivateTimer(cc_timer);
+            session.ActivateTimer(cc_timer);
             cc_timer.DecrementRepeatCount();
         }
     }
@@ -596,13 +685,12 @@ void NormServerNode::CalculateGrttResponse(const struct timeval&    currentTime,
     }
 }  // end NormServerNode::CalculateGrttResponse()
 
-void NormServerNode::DeleteObject(NormObject* obj)
+void NormServerNode::DeleteObject(NormObject* obj, int which)
 {
-    // (TBD) Notify app of object's closing/demise?
+    if (rx_table.Remove(obj))
+        rx_pending_mask.Unset(obj->GetId());
     obj->Close();
-    rx_table.Remove(obj);
-    rx_pending_mask.Unset(obj->GetId());
-    delete obj;
+    obj->Release();
 }  // end NormServerNode::DeleteObject()
 
 NormBlock* NormServerNode::GetFreeBlock(NormObjectId objectId, NormBlockId blockId)
@@ -610,7 +698,7 @@ NormBlock* NormServerNode::GetFreeBlock(NormObjectId objectId, NormBlockId block
     NormBlock* b = block_pool.Get();
     if (!b)
     {
-        if (session->ClientIsSilent())
+        if (session.ClientIsSilent())
         //if (1)
         {
             // forward iteration to find oldest older object with resources
@@ -700,53 +788,6 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
     }
     backoff_factor = (double)msg.GetBackoffFactor();
     
-    
-    if (IsOpen())
-    {
-        if (msg.GetSessionId() != session_id)
-        {
-            DMSG(2, "NormServerNode::HandleObjectMessage() node>%lu server>%lu sessionId change - resyncing.\n",
-                     LocalNodeId(), GetId());
-            Close();
-            resync_count++;
-        }
-    }
-    
-    if (!IsOpen())
-    {
-        DMSG(4, "NormServerNode::HandleObjectMessage() node>%lu opening server>%lu ...\n",
-                LocalNodeId(), GetId());
-        // Currently,, our implementation requires the FEC Object Transmission Information
-        // to properly allocate resources
-        NormFtiExtension fti;
-        while (msg.GetNextExtension(fti))
-        {
-            if (NormHeaderExtension::FTI == fti.GetType())
-            {
-                // (TBD) pass "fec_id" to Open() method too
-                if (!Open(msg.GetSessionId(),
-                          fti.GetSegmentSize(), 
-                          fti.GetFecMaxBlockLen(),
-                          fti.GetFecNumParity()))
-                {
-                    DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu open error\n",
-                            LocalNodeId(), GetId());
-                    // (TBD) notify app of error ??
-                    return;
-                }  
-                break;
-            }
-        }
-        if (!IsOpen())
-        {
-            DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu - no FTI provided!\n",
-                     LocalNodeId(), GetId());
-            // (TBD) notify app of error ??
-            return;  
-        }             
-    }
-    
-    
     NormMsg::Type msgType = msg.GetType();
     NormObjectId objectId = msg.GetObjectId();
     NormBlockId blockId;
@@ -761,7 +802,52 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
         const NormDataMsg& data = (const NormDataMsg&)msg;
         // (TBD) verify source block length per new spec
         blockId = data.GetFecBlockId();
-        segmentId = data.GetFecSymbolId();   
+        segmentId = data.GetFecSymbolId();  
+        
+        // The current NORM implementation assumes senders maintain a fixed, common
+        // set of FEC coding parameters for its transmissions.  The buffers (on a
+        // "per-remote-server basis") for receiver FEC processing are allocated here
+        //  when:
+        //    1) A NORM_DATA message is received and the buffers have not
+        //       been previously allocated, or
+        //    2) When the FEC parameters have changed (TBD)
+        //
+        if (!BuffersAllocated())
+        {
+            DMSG(4, "NormServerNode::HandleObjectMessage() node>%lu allocating server>%lu buffers ...\n",
+                    LocalNodeId(), GetId());
+            // Currently,, our implementation requires the FEC Object Transmission Information
+            // to properly allocate resources
+            NormFtiExtension fti;
+            while (msg.GetNextExtension(fti))
+            {
+                if (NormHeaderExtension::FTI == fti.GetType())
+                {
+                    // (TBD) pass "fec_id" to Open() method too
+                    if (!AllocateBuffers(fti.GetSegmentSize(), 
+                                         fti.GetFecMaxBlockLen(),
+                                         fti.GetFecNumParity()))
+                    {
+                        DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu buffer allocation error\n",
+                                LocalNodeId(), GetId());
+                        // (TBD) notify app of error ??
+                        return;
+                    }  
+                    break;
+                }
+            }
+            if (!BuffersAllocated())
+            {
+                DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu - no FTI provided!\n",
+                         LocalNodeId(), GetId());
+                // (TBD) notify app of error ??
+                return;  
+            }             
+        }
+        else
+        {
+            // (TBD) make sure FEC parameters are still the same.    
+        }        
     }
     
     ObjectStatus status;
@@ -780,7 +866,11 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
         }
         else
         {
-            DMSG(0, "NormServerNode::HandleObjectMessage() waiting to sync ...\n");
+            if (0 == sync_id)
+            {
+                DMSG(0, "NormServerNode::HandleObjectMessage() waiting to sync ...\n");
+                sync_id = 1;
+            }
             return;   
         }
     }    
@@ -815,8 +905,11 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
             }
             else
             {
-                obj = NULL;
-                DMSG(0, "NormServerNode::HandleObjectMessage() NORM_OBJECT_DATA not yet supported!\n");
+                if (!(obj = new NormDataObject(session, this, objectId)))
+                {
+                    DMSG(0, "NormServerNode::HandleObjectMessage() new NORM_OBJECT_DATA error: %s\n",
+                            strerror(errno));
+                }
             }
             
             if (obj)
@@ -826,27 +919,33 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                 {
                     if (NormHeaderExtension::FTI == fti.GetType())
                     {
-                        // Open receive object and notify app for accept.
-                        if (obj->Open(fti.GetObjectSize(), msg.FlagIsSet(NormObjectMsg::FLAG_INFO)))
+                        // Pre-open receive object and notify app for accept.
+                        if (obj->Open(fti.GetObjectSize(), 
+                                      msg.FlagIsSet(NormObjectMsg::FLAG_INFO),
+                                      fti.GetSegmentSize(), 
+                                      fti.GetFecMaxBlockLen(),
+                                      fti.GetFecNumParity()))
                         {
-                            session->Notify(NormController::RX_OBJECT_NEW, this, obj);
+                            session.Notify(NormController::RX_OBJECT_NEW, this, obj);
                             if (obj->Accepted())
                             {
-                                if (obj->IsStream()) 
-                                    ((NormStreamObject*)obj)->StreamUpdateStatus(blockId);
                                 rx_table.Insert(obj);
+                                obj->Retain();
+                                // (TBD) Do I _need_ to call "StreamUpdateStatus()" here?
+                                if (obj->IsStream()) 
+                                    (static_cast<NormStreamObject*>(obj))->StreamUpdateStatus(blockId);
                                 DMSG(8, "NormServerNode::HandleObjectMessage() node>%lu server>%lu new obj>%hu\n", 
                                     LocalNodeId(), GetId(), (UINT16)objectId);
                             }
                             else
                             {
-                                DeleteObject(obj);
+                                DeleteObject(obj, 7);
                                 obj = NULL;    
                             }
                         }
                         else        
                         {
-                            DeleteObject(obj);
+                            DeleteObject(obj, 1);
                             obj = NULL;   
                         }
                         break;
@@ -856,7 +955,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                 {
                     DMSG(0, "NormServerNode::HandleObjectMessage() node>%lu server>%lu "
                             "new obj>%hu - no FTI provided!\n", LocalNodeId(), GetId(), (UINT16)objectId);
-                    DeleteObject(obj);
+                    DeleteObject(obj, 2);
                     obj = NULL;
                 }
             }
@@ -884,14 +983,31 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
 #endif // !SIMULATE
             if (NormObject::STREAM != obj->GetType())
             {
-                // Streams neveer complete
-                session->Notify(NormController::RX_OBJECT_COMPLETE, this, obj);
-                DeleteObject(obj);
+                // Streams never complete
+                session.Notify(NormController::RX_OBJECT_COMPLETED, this, obj);
+                DeleteObject(obj, 3);
                 completion_count++;
             }
         } 
     }  
-    RepairCheck(NormObject::TO_BLOCK, objectId, blockId, segmentId);
+    
+    switch (repair_boundary)
+    {
+        case BLOCK_BOUNDARY:
+            // Normal FEC "block boundary" repair check
+            // (checks for repair needs for objects/blocks _prior_ to current objectId::blockId)
+            RepairCheck(NormObject::TO_BLOCK, objectId, blockId, segmentId);
+            break;
+        case OBJECT_BOUNDARY:
+            // Optional "object boundary repair check (non-streams only!)
+            // (checks for repair needs for objects _prior_ to current objectId)
+            // (also requests "info" for current objectId)
+            if (obj && (NormObject::STREAM == obj->GetType()))
+                RepairCheck(NormObject::TO_BLOCK, objectId, blockId, segmentId);
+            else
+                RepairCheck(NormObject::THRU_INFO, objectId, blockId, segmentId);
+            break;
+    }
 }  // end NormServerNode::HandleObjectMessage()
 
 bool NormServerNode::SyncTest(const NormObjectMsg& msg) const
@@ -910,6 +1026,23 @@ bool NormServerNode::SyncTest(const NormObjectMsg& msg) const
     
 }  // end NormServerNode::SyncTest()
 
+
+// This method establishes the sync point "sync_id"
+// objectId.  The sync point is the first ordinal
+// object id for which the receiver is maintaining
+// reliability.  Objects prior to the "sync point"
+// are ignored.
+// The related member variables and their purpose:
+// "sync_id" - sync point object id, gets rolled upward
+//             in NormServerNode::SetPending() to deal with wrap
+//
+// "next_id" - id of next expected pending object
+//             (set in NormServerNode::SetPending())
+//
+// "max_pending_object" - max object id heard from sender
+//             (inited in NormServerNode::Sync() on 
+//              initial sync, update in NormServerNode::RepairCheck()
+//
 void NormServerNode::Sync(NormObjectId objectId)
 {
     if (synchronized)
@@ -919,12 +1052,13 @@ void NormServerNode::Sync(NormObjectId objectId)
         {
             NormObjectId lastPending;
             GetLastPending(lastPending);
-            if ((objectId > lastPending) || ((next_id - objectId) > 256))
+            if ((objectId > lastPending) || ((next_id - objectId) > max_pending_range))
             {
                 NormObject* obj;
                 while ((obj = rx_table.Find(rx_table.RangeLo()))) 
                 {
-                    DeleteObject(obj);
+                    session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
+                    DeleteObject(obj, 4);
                     failure_count++;
                 }
                 rx_pending_mask.Clear(); 
@@ -935,14 +1069,15 @@ void NormServerNode::Sync(NormObjectId objectId)
                while ((obj = rx_table.Find(rx_table.RangeLo())) &&
                       (obj->GetId() < objectId)) 
                {
-                   DeleteObject(obj);
+                   session.Notify(NormController::RX_OBJECT_ABORTED, this, obj);
+                   DeleteObject(obj, 5);
                    failure_count++;
                }
                unsigned long numBits = (UINT16)(objectId - firstPending) + 1;
                rx_pending_mask.UnsetBits(firstPending, numBits); 
             }
         }  
-        if ((next_id < objectId) || ((next_id - objectId) > 256))
+        if ((next_id < objectId) || ((next_id - objectId) > max_pending_range))
         {
             max_pending_object = next_id = objectId;
         }
@@ -1005,7 +1140,7 @@ NormServerNode::ObjectStatus NormServerNode::GetObjectStatus(const NormObjectId&
    {
        if (objectId < sync_id) 
        {
-           if ((sync_id - objectId) > 256)
+           if ((sync_id - objectId) > max_pending_range)
            {
                 return OBJ_INVALID;
            }
@@ -1061,7 +1196,32 @@ NormServerNode::ObjectStatus NormServerNode::GetObjectStatus(const NormObjectId&
    } 
 }  // end NormServerNode::ObjectStatus()
 
-// (TBD) mod repair check to do full server flush?
+// This is a "passive" THRU_SEGMENT repair check
+// (used to for watermark ack check)
+bool NormServerNode::PassiveRepairCheck(NormObjectId           objectId,  
+                                        NormBlockId            blockId,
+                                        NormSegmentId          segmentId)
+{
+    NormObjectId nextId;
+    if (GetFirstPending(nextId))
+    {
+        if (nextId < objectId)
+        {
+            return true;
+        }
+        else if (nextId == objectId)
+        {
+            NormObject* obj = rx_table.Find(nextId);
+            if (obj)
+                return obj->PassiveRepairCheck(blockId, segmentId);
+            else
+                return true;  // entire object pending
+        }
+    }
+    return false;  
+}  // end NormServerNode::PassiveRepairCheck()
+
+// This is the "active" repair check, which may activate NACKing
 void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
                                  NormObjectId           objectId,  
                                  NormBlockId            blockId,
@@ -1071,6 +1231,7 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
     if (objectId > max_pending_object) max_pending_object = objectId;
     if (!repair_timer.IsActive())
     {
+        // repair timer inactive
         bool startTimer = false;
         NormObjectId nextId;
         if (GetFirstPending(nextId))
@@ -1084,9 +1245,13 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
                 {
                     NormObject::CheckLevel level;
                     if (nextId < objectId)
+                    {
                         level = NormObject::THRU_OBJECT;
+                    }
                     else
+                    {
                         level = checkLevel;
+                    }
                     startTimer |= 
                         obj->ClientRepairCheck(level, blockId, segmentId, false);
                 }
@@ -1101,13 +1266,13 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
             {
                 // BACKOFF related code
                 double backoffInterval = 
-                    (session->Address().IsMulticast() && (backoff_factor > 0.0)) ?
+                    (session.Address().IsMulticast() && (backoff_factor > 0.0)) ?
                         ExponentialRand(grtt_estimate*backoff_factor, gsize_estimate) : 
                         0.0;
                 repair_timer.SetInterval(backoffInterval);
                 DMSG(4, "NormServerNode::RepairCheck() node>%lu begin NACK back-off: %lf sec)...\n",
                         LocalNodeId(), backoffInterval);
-                session->ActivateTimer(repair_timer);  
+                session.ActivateTimer(repair_timer);  
             }
         }
     }
@@ -1180,7 +1345,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                 if (repairPending)
                 {
                     // We weren't completely suppressed, so build NACK
-                    NormNackMsg* nack = (NormNackMsg*)session->GetMessageFromPool();
+                    NormNackMsg* nack = (NormNackMsg*)session.GetMessageFromPool();
                     if (!nack)
                     {
                         DMSG(0, "NormServerNode::OnRepairTimeout() node>%lu Warning! "
@@ -1189,6 +1354,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         return false;   
                     }
                     nack->Init();
+                    bool nackAppended = false;
                     
                     if (cc_enable)
                     {
@@ -1225,12 +1391,13 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         {
                             cc_timer.Deactivate();
                             cc_timer.SetInterval(grtt_estimate*backoff_factor);
-                            session->ActivateTimer(cc_timer);
+                            session.ActivateTimer(cc_timer);
                             cc_timer.DecrementRepeatCount();   
                         }
-                    }
+                    }  // end if (cc_enable)
                     
-                    // Iterate through rx pending object list, appending repair requests as needed
+                    // Iterate through rx pending object list, 
+                    // appending repair requests as needed
                     NormRepairRequest req;
                     NormRepairRequest::Form prevForm = NormRepairRequest::INVALID;
                     bool iterating = GetFirstPending(nextId);
@@ -1266,15 +1433,27 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                             }  
                             if (prevForm != nextForm)
                             {
-                                if (NormRepairRequest::INVALID != prevForm)
-                                    nack->PackRepairRequest(req); // (TBD) error check
+                                if ((NormRepairRequest::INVALID != prevForm) &&
+                                    (NormObject::NACK_NONE != default_nacking_mode))
+                                {
+                                    if (0 == nack->PackRepairRequest(req))
+                                    {
+                                        DMSG(0, "NormServerNode::OnRepairTimeout() warning: full NACK msg\n");
+                                        break;
+                                    } 
+                                    nackAppended = true;
+                                }
                                 if (NormRepairRequest::INVALID != nextForm)
                                 {
                                     nack->AttachRepairRequest(req, segment_size); // (TBD) error check
                                     req.SetForm(nextForm);
                                     req.ResetFlags();
-                                    // (TBD) An "INFO-ONLY" repair policy would be enforced here
-                                    req.SetFlag(NormRepairRequest::OBJECT);
+                                    // Set flags for missing objects according to
+                                    // default "nacking mode"
+                                    if (NormObject::NACK_INFO_ONLY == default_nacking_mode)
+                                        req.SetFlag(NormRepairRequest::INFO);
+                                    else
+                                        req.SetFlag(NormRepairRequest::OBJECT);
                                 }
                                 prevForm = nextForm;
                             }
@@ -1297,11 +1476,19 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                             {
                                 if (obj->IsPending(nextId != max_pending_object))
                                 {
-                                    if (NormRepairRequest::INVALID != prevForm)
-                                        nack->PackRepairRequest(req);  // (TBD) error check
+                                    if ((NormRepairRequest::INVALID != prevForm) &&
+                                        (NormObject::NACK_NONE != default_nacking_mode))
+                                    {
+                                        if (0 == nack->PackRepairRequest(req))
+                                        {
+                                            DMSG(0, "NormServerNode::OnRepairTimeout() warning: full NACK msg\n");
+                                            break;
+                                        } 
+                                        nackAppended = true;
+                                    }
                                     prevForm = NormRepairRequest::INVALID; 
                                     bool flush = (nextId != max_pending_object);
-                                    obj->AppendRepairRequest(*nack, flush);  // (TBD) error check
+                                    nackAppended |= obj->AppendRepairRequest(*nack, flush); 
                                 }
                                 consecutiveCount = 0;
                             }
@@ -1317,22 +1504,41 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         }  // end if (appendRequest)
                         nextId++;
                         iterating = GetNextPending(nextId);
-                    } while (iterating || (0 != consecutiveCount));
-                    // Now that all repair requests have been appended, pack the nack
-                    if (NormRepairRequest::INVALID != prevForm)
-                        nack->PackRepairRequest(req);  // (TBD) error check 
+                    } // end while (iterating || (0 != consecutiveCount))
+                    // Pack in repair request "req" if it's outstanding
+                    if ((NormRepairRequest::INVALID != prevForm) &&
+                        (NormObject::NACK_NONE != default_nacking_mode))
+                    {
+                        if (0 != nack->PackRepairRequest(req))
+                            nackAppended = true;
+                        else
+                            DMSG(0, "NormServerNode::OnRepairTimeout() warning: full NACK msg\n");
+                    }
                     // Queue NACK for transmission
                     nack->SetServerId(GetId());
                     nack->SetSessionId(session_id);
                     // GRTT response is deferred until transmit time
                     
-                    // (TBD) support unicast nacking 
-                    if (session->UnicastNacks())
+                    if (unicast_nacks)
                         nack->SetDestination(GetAddress());
                     else
-                        nack->SetDestination(session->Address());
-                    session->QueueMessage(nack);
-                    nack_count++;
+                        nack->SetDestination(session.Address());
+                    // Debug check to make sure NACK has content
+                    if (nackAppended)
+                    {
+                        ASSERT(nack->GetRepairContentLength() > 0);
+                        session.QueueMessage(nack);
+                        nack_count++;
+                    }
+                    else
+                    {
+                        // The nack had no repair request content,
+                        // perhaps because of our "nacking mode"
+                        // even though there were pending objects
+                        DMSG(4, "NormServerNode::OnRepairTimeout() node>%lu zero content nack ...\n",
+                            LocalNodeId());
+                        session.ReturnMessageToPool(nack);
+                    }
                 }
                 else
                 {
@@ -1342,7 +1548,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                 }  // end if/else(repairPending)
                 // BACKOFF related code
                 double holdoffInterval = 
-                    session->Address().IsMulticast() ? grtt_estimate*(backoff_factor + 2.0) : 
+                    session.Address().IsMulticast() ? grtt_estimate*(backoff_factor + 2.0) : 
                                                        grtt_estimate;
                 holdoffInterval = (backoff_factor > 0.0) ? holdoffInterval : 1.01*grtt_estimate;
                 
@@ -1402,20 +1608,33 @@ void NormServerNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
 
 void NormServerNode::Activate()
 {
-    if (activity_timer.IsActive())
+    if (!activity_timer.IsActive())
     {
-        activity_timer.ResetRepeat();
+        activity_timer.SetInterval(grtt_estimate*NORM_ROBUST_FACTOR);
+        session.ActivateTimer(activity_timer);
+        server_active = false;
     }
     else
     {
-        activity_timer.SetInterval(grtt_estimate*NORM_ROBUST_FACTOR);
-        session->ActivateTimer(activity_timer);
+        server_active = true;
     }
 }  // end NormServerNode::Activate()
 
 bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
 {
-    if ((activity_timer.GetRepeat() - activity_timer.GetRepeatCount()) > 1)
+    if (server_active)
+    {
+        activity_timer.ResetRepeat();
+    }
+    else if (0 == activity_timer.GetRepeatCount())
+    {
+        // Serve completely inactive?
+        DMSG(0, "NormServerNode::OnActivityTimeout() node>%lu server>%lu gone inactive?\n",
+                LocalNodeId(), GetId());
+        FreeBuffers();
+        // (TBD) Notify application
+    }
+    else
     {
         DMSG(4, "NormServerNode::OnActivityTimeout() node>%lu for server>%lu\n",
             LocalNodeId(), GetId());
@@ -1426,23 +1645,26 @@ bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
         {
             NormObject* objMax = rx_table.Find(max_pending_object);
             if (NULL != objMax)
-                RepairCheck(NormObject::THRU_SEGMENT, 
-                            max_pending_object,
-                            objMax->GetMaxPendingBlockId(), 
-                            objMax->GetMaxPendingSegmentId());
+            {
+                NormSegmentId segMax = objMax->GetMaxPendingSegmentId();
+                if (0 != segMax)
+                    RepairCheck(NormObject::THRU_SEGMENT, 
+                                max_pending_object,
+                                objMax->GetMaxPendingBlockId(), 
+                                objMax->GetMaxPendingSegmentId() - 1);
+                else
+                    RepairCheck(NormObject::TO_BLOCK, 
+                                max_pending_object,
+                                objMax->GetMaxPendingBlockId(), 
+                                0);
+            }
             else
-                RepairCheck(NormObject::THRU_SEGMENT,   // (TBD) thru object???
+                RepairCheck(NormObject::TO_BLOCK,   // (TBD) thru object???
                             max_pending_object, 0, 0);
         }
-        
     }
-    if (0 == activity_timer.GetRepeatCount())
-    {
-        DMSG(0, "NormServerNode::OnActivityTimeout() node>%lu server>%lu gone inactive?\n",
-                LocalNodeId(), GetId());
-        Close();
-    }
-    return true;       
+    server_active = false;
+    return true;     
 }  // end NormServerNode::OnActivityTimeout()
   
 bool NormServerNode::UpdateLossEstimate(const struct timeval& currentTime, 
@@ -1463,6 +1685,40 @@ bool NormServerNode::UpdateLossEstimate(const struct timeval& currentTime,
     return result;
 }
 
+void NormServerNode::AttachCCFeedback(NormAckMsg& ack)
+{
+    // GRTT response is deferred until transmit time
+    NormCCFeedbackExtension ext;
+    ack.AttachExtension(ext);
+    if (is_clr) 
+    {
+        ext.SetCCFlag(NormCC::CLR);
+    }
+    else if (is_plr)
+        ext.SetCCFlag(NormCC::PLR);
+    if (rtt_confirmed)
+        ext.SetCCFlag(NormCC::RTT);
+    ext.SetCCRtt(rtt_quantized);
+    double ccLoss = LossEstimate();
+    UINT16 lossQuantized = NormQuantizeLoss(ccLoss);
+    ext.SetCCLoss(lossQuantized);
+    if (slow_start)
+    {
+        ext.SetCCFlag(NormCC::START);
+        ext.SetCCRate(NormQuantizeRate(2.0 * recv_rate));
+    }
+    else
+    {
+        double ccRate = NormSession::CalculateRate(nominal_packet_size, 
+                                                   rtt_estimate, ccLoss);
+        ext.SetCCRate(NormQuantizeRate(ccRate));
+    }
+    //DMSG(0, "NormServerNode::OnCCTimeout() node>%lu sending ACK rate:%lf kbps (rtt:%lf loss:%lf s:%lf recvRate:%lf) slow_start:%d\n",
+    //               LocalNodeId(), NormUnquantizeRate(ext.GetCCRate()) * (8.0/1000.0), 
+    //               rtt_estimate, ccLoss, nominal_packet_size, recv_rate*(8.0/1000.), slow_start);
+    ext.SetCCSequence(cc_sequence);
+}  // end 
+
 bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
 {
     // Build and queue ACK()   
@@ -1475,7 +1731,7 @@ bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
         case 1:
         {
             // We weren't suppressed, so build an ACK(RTT) and send
-            NormAckMsg* ack = (NormAckMsg*)session->GetMessageFromPool();
+            NormAckMsg* ack = (NormAckMsg*)session.GetMessageFromPool();
             if (!ack)
             {
                 DMSG(0, "NormServerNode::OnCCTimeout() node>%lu Warning! "
@@ -1489,48 +1745,21 @@ bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
             ack->SetAckType(NormAck::CC);
             ack->SetAckId(0);
             
-            // GRTT response is deferred until transmit time
-            NormCCFeedbackExtension ext;
-            ack->AttachExtension(ext);
-            if (is_clr) 
-            {
-                ext.SetCCFlag(NormCC::CLR);
-            }
-            else if (is_plr)
-                ext.SetCCFlag(NormCC::PLR);
-            if (rtt_confirmed)
-                ext.SetCCFlag(NormCC::RTT);
-            ext.SetCCRtt(rtt_quantized);
-            double ccLoss = LossEstimate();
-            UINT16 lossQuantized = NormQuantizeLoss(ccLoss);
-            ext.SetCCLoss(lossQuantized);
-            if (slow_start)
-            {
-                ext.SetCCFlag(NormCC::START);
-                ext.SetCCRate(NormQuantizeRate(2.0 * recv_rate));
-            }
-            else
-            {
-                double ccRate = NormSession::CalculateRate(nominal_packet_size, 
-                                                           rtt_estimate, ccLoss);
-                ext.SetCCRate(NormQuantizeRate(ccRate));
-            }
-            //DMSG(0, "NormServerNode::OnCCTimeout() node>%lu sending ACK rate:%lf kbps (rtt:%lf loss:%lf s:%lf recvRate:%lf) slow_start:%d\n",
-            //               LocalNodeId(), NormUnquantizeRate(ext.GetCCRate()) * (8.0/1000.0), 
-            //               rtt_estimate, ccLoss, nominal_packet_size, recv_rate*(8.0/1000.), slow_start);
-            ext.SetCCSequence(cc_sequence);
-            if (session->UnicastNacks())
+            AttachCCFeedback(*ack);  // cc feedback extension
+            
+            if (unicast_nacks)
                 ack->SetDestination(GetAddress());
             else
-                ack->SetDestination(session->Address());
+                ack->SetDestination(session.Address());
             if (is_clr || is_plr)
             {
-                session->SendMessage(*ack);
-                session->ReturnMessageToPool(ack);
+                // Don't rate limit clr or plr reps.
+                session.SendMessage(*ack);
+                session.ReturnMessageToPool(ack);
             }
             else
             {
-                session->QueueMessage(ack);
+                session.QueueMessage(ack);
             }
             
             // Begin cc_timer "holdoff" phase
@@ -1545,6 +1774,59 @@ bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
     }
     return true;
 }  // end NormServerNode::OnCCTimeout()
+
+bool NormServerNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
+{
+    NormAckFlushMsg* ack = (NormAckFlushMsg*)session.GetMessageFromPool();
+    if (ack)
+    {
+        ack->Init();
+        ack->SetServerId(GetId());
+        ack->SetSessionId(session_id);
+        ack->SetAckId(0);
+        AttachCCFeedback(*ack);
+        ack->SetObjectId(watermark_object_id);
+        ack->SetFecBlockId(watermark_block_id);
+        ack->SetFecBlockLen(ndata); // yuk
+        ack->SetFecSymbolId(watermark_segment_id);
+        if (unicast_nacks)
+            ack->SetDestination(GetAddress());
+        else
+            ack->SetDestination(session.Address());
+        
+        if (is_clr || is_plr)
+        {
+            // Don't rate limit clr or plr reps.
+            session.SendMessage(*ack);
+            session.ReturnMessageToPool(ack);
+        }
+        else
+        {
+            session.QueueMessage(ack);
+            // Install cc feedback holdoff
+            if (cc_timer.IsActive()) cc_timer.Deactivate();
+            cc_timer.SetInterval(grtt_estimate*backoff_factor);
+            session.ActivateTimer(cc_timer);
+            cc_timer.DecrementRepeatCount();
+        } 
+    }
+    else
+    {
+        DMSG(0, "NormServerNode::OnAckTimeout() warning: message pool exhausted!\n");
+    }
+    return true;
+}  // end NormServerNode::OnAckTimeout()
+
+
+NormAckingNode::NormAckingNode(class NormSession& theSession, NormNodeId nodeId)
+ : NormNode(theSession, nodeId), ack_received(false), req_count(NORM_ROBUST_FACTOR)
+{
+    
+}
+
+NormAckingNode::~NormAckingNode()
+{
+}
 
 NormNodeTree::NormNodeTree()
  : root(NULL)

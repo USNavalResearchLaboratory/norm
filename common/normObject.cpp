@@ -4,23 +4,23 @@
 #include <errno.h>
 
 NormObject::NormObject(NormObject::Type      theType, 
-                       class NormSession*    theSession, 
+                       class NormSession&    theSession, 
                        class NormServerNode* theServer,
                        const NormObjectId&   transportId)
- : type(theType), session(theSession), server(theServer),
+ : type(theType), session(theSession), server(theServer), reference_count(0),
    transport_id(transportId), segment_size(0), pending_info(false), repair_info(false),
    current_block_id(0), next_segment_id(0), 
    max_pending_block(0), max_pending_segment(0),
-   info(NULL), info_len(0), accepted(false)
+   info(NULL), info_len(0), accepted(false), notify_on_update(true)
 {
+    if (theServer)
+        nacking_mode = theServer->GetDefaultNackingMode();
+    else 
+        nacking_mode = NACK_NORMAL; // it doesn't really matter if !theServer
 }
 
 NormObject::~NormObject()
 {
-    /*if (server)
-        server->DeleteObject(true); 
-    else
-        session->DeleteTxObject(true);*/
     Close();
     if (info) 
     {
@@ -29,26 +29,46 @@ NormObject::~NormObject()
     }
 }
 
+void NormObject::Retain()
+{
+    reference_count++;
+    if (server) server->Retain();
+}  // end NormObject::Retain()
+
+void NormObject::Release()
+{
+    if (server) server->Release();
+    if (reference_count)
+        reference_count--;
+    else
+        DMSG(0, "NormObject::Release() releasing non-retained object?!\n");
+    if (0 == reference_count) delete this;      
+}  // end NormObject::Release()
+
 // This is mainly used for debug messages
 NormNodeId NormObject::LocalNodeId() const
 {
-    return session->LocalNodeId();    
-}
+    return session.LocalNodeId();    
+}  // end NormObject::LocalNodeId()
+
+NormNodeId NormObject::GetServerNodeId() const
+{
+    return server ? server->GetId() : NORM_NODE_NONE;   
+}  // end NormObject::GetServerNodeId()
 
 bool NormObject::Open(const NormObjectSize& objectSize, 
                       const char*           infoPtr, 
-                      UINT16                infoLen)
+                      UINT16                infoLen,
+                      UINT16                segmentSize,
+                      UINT16                numData,
+                      UINT16                numParity)
 {
     // Note "objectSize" represents actual total object size for
     // DATA or FILE objects, buffer size for STREAM objects
     // In either case, we need our sliding bit masks to be of 
     // appropriate size.
-    UINT16 segmentSize, numData, numParity;
     if (server)
     {
-        segmentSize = server->SegmentSize();
-        numData = server->BlockSize();   // max source symbols per FEC block
-        numParity = server->NumParity(); // max parity symbols per FEC block
         if (infoLen > 0) 
         {
             pending_info = true;
@@ -62,9 +82,6 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     }
     else
     {
-        segmentSize = session->ServerSegmentSize();
-        numData = session->ServerBlockSize();   // max source symbols per FEC block
-        numParity = session->ServerNumParity(); // max parity symbols per FEC block
         if (infoPtr)
         {
             if (info) delete []info;
@@ -178,7 +195,7 @@ void NormObject::Close()
         if (server)
             server->PutFreeBlock(block);
         else
-            session->ServerPutFreeBlock(block);
+            session.ServerPutFreeBlock(block);
     }
     repair_mask.Destroy();
     pending_mask.Destroy();
@@ -186,14 +203,15 @@ void NormObject::Close()
     segment_size = 0;
 }  // end NormObject::Close();
 
+// Used by server
 bool NormObject::HandleInfoRequest()
 {
-    // (TBD) immediately make info pending?
     bool increasedRepair = false;
     if (info)
     {
         if (!repair_info)
         {
+            pending_info = true;
             repair_info = true;
             increasedRepair = true;
         }   
@@ -251,7 +269,7 @@ bool NormObject::TxReset(NormBlockId firstBlock)
         {
             increasedRepair |= block->TxReset(GetBlockSize(blockId), 
                                               nparity, 
-                                              session->ServerAutoParity(), 
+                                              session.ServerAutoParity(), 
                                               segment_size);
         }
     }
@@ -261,7 +279,7 @@ bool NormObject::TxReset(NormBlockId firstBlock)
 bool NormObject::TxResetBlocks(NormBlockId nextId, NormBlockId lastId)
 {
     bool increasedRepair = false;
-    UINT16 autoParity = session->ServerAutoParity();
+    UINT16 autoParity = session.ServerAutoParity();
     lastId++;
     while (nextId != lastId)
     {
@@ -294,10 +312,10 @@ bool NormObject::ActivateRepairs()
     {
         NormBlockId lastId;
         ASSERT(GetLastRepair(lastId));
-        DMSG(6, "NormObject::ActivateRepairs() node>%lu obj>%hu activating blk>%lu->%lu repairs\n",
+        DMSG(6, "NormObject::ActivateRepairs() node>%lu obj>%hu activating blk>%lu->%lu block repairs ...\n",
                 LocalNodeId(), (UINT16)transport_id, (UINT32)nextId, (UINT32)lastId);
         repairsActivated = true;
-        UINT16 autoParity = session->ServerAutoParity();
+        UINT16 autoParity = session.ServerAutoParity();
         do
         {
             NormBlock* block = block_buffer.Find(nextId);
@@ -332,9 +350,9 @@ bool NormObject::ActivateRepairs()
 bool NormObject::AppendRepairAdv(NormCmdRepairAdvMsg& cmd)
 {
     // Determine range of blocks possibly pending repair
-    NormBlockId nextId;
+    NormBlockId nextId = 0;
     GetFirstRepair(nextId);
-    NormBlockId endId;
+    NormBlockId endId = 0;
     GetLastRepair(endId);
     if (block_buffer.IsEmpty())
     {
@@ -356,10 +374,12 @@ bool NormObject::AppendRepairAdv(NormCmdRepairAdvMsg& cmd)
         }
         endId++;
     }
+    
     // Instantiate a repair request for BLOCK level repairs
     NormRepairRequest req;
+    bool requestAppended = false;
     req.SetFlag(NormRepairRequest::BLOCK);
-    if (repair_info) req.SetFlag(NormRepairRequest::INFO);
+    if (repair_info) req.SetFlag(NormRepairRequest::INFO);  
     NormRepairRequest::Form prevForm = NormRepairRequest::INVALID;
     // Iterate through the range of blocks possibly pending repair
     NormBlockId firstId;
@@ -396,7 +416,14 @@ bool NormObject::AppendRepairAdv(NormCmdRepairAdvMsg& cmd)
             if (form != prevForm)
             {
                 if (NormRepairRequest::INVALID != prevForm)
-                    cmd.PackRepairRequest(req);             // (TBD) error check 
+                {
+                    if (0 == cmd.PackRepairRequest(req))
+                    {
+                        DMSG(0, "NormObject::AppendRepairAdv() warning: full msg\n");
+                        return requestAppended;
+                    } 
+                    requestAppended = true;
+                }
                 cmd.AttachRepairRequest(req, segment_size); // (TBD) error check 
                 req.SetForm(form);
                 prevForm = form;
@@ -428,17 +455,78 @@ bool NormObject::AppendRepairAdv(NormCmdRepairAdvMsg& cmd)
             {
                 if (NormRepairRequest::INVALID != prevForm) 
                 {
-                    cmd.PackRepairRequest(req); // (TBD) error check 
+                    if (0 == cmd.PackRepairRequest(req))
+                    {
+                        DMSG(0, "NormObject::AppendRepairAdv() warning: full msg\n");
+                        return requestAppended;
+                    }  
                     prevForm = NormRepairRequest::INVALID;
                 }
                 block->AppendRepairAdv(cmd, transport_id, repair_info, GetBlockSize(currentId), segment_size);  // (TBD) error check        
+                requestAppended = true;
             }
         }
     }  // end while(nextId < endId)
     if (NormRepairRequest::INVALID != prevForm) 
-        cmd.PackRepairRequest(req); // (TBD) error check 
+    {
+        if (0 == cmd.PackRepairRequest(req))
+        {
+            DMSG(0, "NormObject::AppendRepairAdv() warning: full msg\n");
+            return requestAppended;
+        } 
+        requestAppended = true;
+    }
+    else if (repair_info && !requestAppended)
+    {
+        // make the "req" an INFO-only request
+        req.ClearFlag(NormRepairRequest::BLOCK);   
+        req.SetForm(NormRepairRequest::ITEMS);
+        req.AppendRepairItem(transport_id, 0, 0, 0);
+        if (0 == cmd.PackRepairRequest(req))
+        {
+            DMSG(0, "NormObject::AppendRepairAdv() warning: full msg\n");
+            return requestAppended;
+        }    
+    }
     return true;
 }  //  end NormObject::AppendRepairAdv()
+
+// This is used by server for watermark check
+bool NormObject::FindRepairIndex(NormBlockId& blockId, NormSegmentId& segmentId) const
+{
+    if (repair_info)
+    {
+        blockId = 0;
+        segmentId = 0;
+        return true;   
+    }
+    NormBlockBuffer::Iterator iterator(block_buffer);
+    NormBlock* block;
+    while ((block = iterator.GetNextBlock()))
+        if (block->IsRepairPending()) break;
+    if (GetFirstRepair(blockId))
+    {
+        if (!block || (blockId <= block->GetId()))
+        {
+            segmentId = 0;
+            return true;      
+        }    
+    } 
+    if (block)
+    {
+#ifdef PROTO_DEBUG
+        ASSERT(block->GetFirstRepair(segmentId));
+#else
+        block->GetFirstRepair(segmentId);
+#endif  // if/else PROTO_DEBUG
+        // The segmentId must < block length for watermarks
+        if (segmentId >= GetBlockSize(block->GetId()))
+            segmentId = GetBlockSize(block->GetId()) - 1;
+        return true;   
+    }   
+    return false;
+}  // end NormObject::FindRepairIndex()
+        
 
 // Called by server only
 bool NormObject::IsRepairPending() const
@@ -509,6 +597,46 @@ bool NormObject::IsPending(bool flush) const
     }
 }  // end NormObject::IsPending()
 
+// This is a "passive" THRU_SEGMENT repair check
+// (used to for watermark ack check)
+bool NormObject::PassiveRepairCheck(NormBlockId   blockId,
+                                    NormSegmentId segmentId)
+{
+    if (pending_info) return true;
+    NormBlockId firstPendingBlock;
+    if (GetFirstPending(firstPendingBlock))
+    {
+        if (firstPendingBlock < blockId)
+        {
+            return true;
+        }
+        else if (firstPendingBlock == blockId)
+        {
+        
+            NormBlock* block = block_buffer.Find(firstPendingBlock);
+            if (block)
+            {
+                NormSegmentId firstPendingSegment;
+                if (block->GetFirstPending(firstPendingSegment))
+                {
+                    if (segmentId > firstPendingSegment)
+                        return true;
+                    else
+                        return false;
+                }
+                else
+                {
+                    ASSERT(0);    
+                }            
+            }
+            else
+            {
+                return true;  // entire block was pending
+            }    
+        }    
+    }
+    return false;
+}  // end NormObject::PassiveRepairCheck()
 
 bool NormObject::ClientRepairCheck(CheckLevel    level,
                                    NormBlockId   blockId,
@@ -520,6 +648,8 @@ bool NormObject::ClientRepairCheck(CheckLevel    level,
     //       and "next_segment_id" to be > blockSize
     switch (level)
     {
+        case TO_OBJECT:
+            return false;
         case THRU_INFO:
             break;
         case TO_BLOCK:
@@ -676,7 +806,8 @@ bool NormObject::ClientRepairCheck(CheckLevel    level,
     return needRepair;
 }  // end NormObject::ClientRepairCheck()
 
-// Note this clears "repair_mask" state (called on client repair_timer timeout)
+// Note this clears "repair_mask" state 
+// (called on client repair_timer timeout)
 bool NormObject::IsRepairPending(bool flush)
 {
     ASSERT(server);
@@ -722,150 +853,179 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
 { 
     // If !flush, we request only up _to_ max_pending_block::max_pending_segment.
     NormRepairRequest req;
+    bool requestAppended = false;  // is set to true when content added to "nack"
     NormRepairRequest::Form prevForm = NormRepairRequest::INVALID;
+    // First iterate over any pending blocks, appending any requests
     NormBlockId nextId;
     bool iterating = GetFirstPending(nextId);
-    if (iterating)
+    NormBlockId prevId = nextId;
+    iterating = iterating && (flush || (nextId <= max_pending_block));  
+    UINT32 consecutiveCount = 0;
+    while (iterating || (0 != consecutiveCount))
     {
-        iterating = iterating && (flush || (nextId <= max_pending_block));
-        NormBlockId prevId = nextId;
-        UINT32 consecutiveCount = 0;
-        while (iterating || (0 != consecutiveCount))
+        NormBlockId lastId;
+        ASSERT(GetLastPending(lastId));
+        DMSG(6, "NormObject::AppendRepairRequest() node>%lu obj>%hu, blk>%lu->%lu (maxPending:%lu)\n",
+               LocalNodeId(), (UINT16)transport_id,
+               (UINT32)nextId, (UINT32)lastId, (UINT32)max_pending_block);
+        bool appendRequest = false;
+        NormBlock* block = iterating ? block_buffer.Find(nextId) : NULL;
+        if (block)
+            appendRequest = true;
+        else if (iterating && ((UINT32)(nextId - prevId) == consecutiveCount))
+            consecutiveCount++;
+        else
+            appendRequest = true;
+        if (appendRequest)
         {
-            NormBlockId lastId;
-            ASSERT(GetLastPending(lastId));
-            DMSG(6, "NormObject::AppendRepairRequest() node>%lu obj>%hu, blk>%lu->%lu (maxPending:%lu)\n",
-                   LocalNodeId(), (UINT16)transport_id,
-                   (UINT32)nextId, (UINT32)lastId, (UINT32)max_pending_block);
-            bool appendRequest = false;
-            NormBlock* block = iterating ? block_buffer.Find(nextId) : NULL;
-            if (block)
-                appendRequest = true;
-            else if (iterating && ((UINT32)(nextId - prevId) == consecutiveCount))
+            NormRepairRequest::Form nextForm;
+            switch(consecutiveCount)
             {
-                consecutiveCount++;
-            }
-            else
-                appendRequest = true;
-            if (appendRequest)
+                case 0:
+                    nextForm = NormRepairRequest::INVALID;
+                    break;
+                case 1:
+                case 2:
+                    nextForm = NormRepairRequest::ITEMS;
+                    break;
+                default:
+                    nextForm = NormRepairRequest::RANGES;
+                    break;
+            }  // end switch(reqCount)
+            if (prevForm != nextForm)
             {
-                NormRepairRequest::Form nextForm;
-                switch(consecutiveCount)
+                if ((NormRepairRequest::INVALID != prevForm) &&
+                    (NACK_NONE != nacking_mode))
                 {
-                    case 0:
-                        nextForm = NormRepairRequest::INVALID;
-                        break;
-                    case 1:
-                    case 2:
-                        nextForm = NormRepairRequest::ITEMS;
-                        break;
-                    default:
-                        nextForm = NormRepairRequest::RANGES;
-                        break;
-                }  // end switch(reqCount)
-                if (prevForm != nextForm)
-                {
-                    if (NormRepairRequest::INVALID != prevForm)
-                        nack.PackRepairRequest(req);  // (TBD) error check
-                    if (NormRepairRequest::INVALID != nextForm)
+                    if (0 == nack.PackRepairRequest(req)) 
                     {
-                        nack.AttachRepairRequest(req, segment_size);
-                        req.SetForm(nextForm);
-                        req.ResetFlags();
-                        req.SetFlag(NormRepairRequest::BLOCK);
-                        if (pending_info) req.SetFlag(NormRepairRequest::INFO);
+                        DMSG(0, "NormObject::AppendRepairRequest() warning: full NACK msg\n");
+                        return requestAppended;
                     }
-                    prevForm = nextForm;
+                    requestAppended = true;
                 }
                 if (NormRepairRequest::INVALID != nextForm)
-                    DMSG(6, "NormObject::AppendRepairRequest() BLOCK request\n");
-                switch (nextForm)
                 {
-                    case NormRepairRequest::ITEMS:
-                        req.AppendRepairItem(transport_id, prevId, GetBlockSize(prevId), 0);  // (TBD) error check
-                        if (2 == consecutiveCount)
-                        {
-                            prevId++;
-                            req.AppendRepairItem(transport_id, prevId, GetBlockSize(prevId), 0); // (TBD) error check
-                        }
-                        break;
-                    case NormRepairRequest::RANGES:
-                    {
-                        NormBlockId lastId = prevId+consecutiveCount-1;
-                        req.AppendRepairRange(transport_id, prevId, GetBlockSize(prevId), 0, 
-                                              transport_id, lastId, GetBlockSize(lastId), 0); // (TBD) error check
-                        break;
-                    }
-                    default:
-                        break;
-                }  // end switch(nextForm)
-                if (block)
-                {
-                    bool blockPending = false;
-                    if (nextId == max_pending_block)
-                    {
-                        NormSymbolId firstPending = 0;
-                        if (!block->GetFirstPending(firstPending)) ASSERT(0);
-                        if (firstPending < max_pending_segment) blockPending = true;
-                    }
-                    else
-                    {
-                        blockPending = true;   
-                    }
-                    if (blockPending)
-                    {
-                        UINT16 numData = GetBlockSize(nextId);
-                        if (NormRepairRequest::INVALID != prevForm)
-                            nack.PackRepairRequest(req);  // (TBD) error check
-                        if (flush || (nextId != max_pending_block))
-                        {
-                            block->AppendRepairRequest(nack, numData, nparity, transport_id, 
-                                                       pending_info, segment_size); // (TBD) error check
-                        }
-                        else
-                        {
-                            if (max_pending_segment < numData)
-                                block->AppendRepairRequest(nack, max_pending_segment, 0, transport_id,
-                                                            pending_info, segment_size); // (TBD) error check
-                            else
-                                block->AppendRepairRequest(nack, numData, nparity, transport_id, 
-                                                           pending_info, segment_size); // (TBD) error check
-                        }
-                    }
-                    consecutiveCount = 0;
-                    prevForm = NormRepairRequest::INVALID;
+                    nack.AttachRepairRequest(req, segment_size);
+                    req.SetForm(nextForm);
+                    req.ResetFlags();
+                    if (NACK_NORMAL == nacking_mode)
+                        req.SetFlag(NormRepairRequest::BLOCK);
+                    if (pending_info)
+                        req.SetFlag(NormRepairRequest::INFO);
                 }
-                else if (iterating)
+                prevForm = nextForm;
+            }
+            if (NormRepairRequest::INVALID != nextForm)
+                DMSG(6, "NormObject::AppendRepairRequest() BLOCK request\n");
+            switch (nextForm)
+            {
+                case NormRepairRequest::ITEMS:
+                    req.AppendRepairItem(transport_id, prevId, GetBlockSize(prevId), 0);  // (TBD) error check
+                    if (2 == consecutiveCount)
+                    {
+                        prevId++;
+                        req.AppendRepairItem(transport_id, prevId, GetBlockSize(prevId), 0); // (TBD) error check
+                    }
+                    break;
+                case NormRepairRequest::RANGES:
                 {
-                    consecutiveCount = 1;
+                    NormBlockId lastId = prevId+consecutiveCount-1;
+                    req.AppendRepairRange(transport_id, prevId, GetBlockSize(prevId), 0, 
+                                          transport_id, lastId, GetBlockSize(lastId), 0); // (TBD) error check
+                    break;
+                }
+                default:
+                    break;
+            }  // end switch(nextForm)
+            if (block)
+            {
+                bool blockIsPending = false;
+                if (nextId == max_pending_block)
+                {
+                    NormSymbolId firstPending = 0;
+                    if (!block->GetFirstPending(firstPending)) ASSERT(0);
+                    if (firstPending < max_pending_segment) blockIsPending = true;
                 }
                 else
                 {
-                    consecutiveCount = 0;  // we're all done
+                    blockIsPending = true;   
                 }
-                prevId = nextId;
-            }  // end if (appendRequest)
-            nextId++;
-            iterating = GetNextPending(nextId);
-            //DMSG(0, "got next pending>%lu result:%d\n", (UINT32)nextId, iterating);
-            iterating = iterating && (flush || (nextId <= max_pending_block));
-        }  // end while (iterating || (0 != consecutiveCount))
-        //DMSG(0, "bailed ...\n");
-    } 
-    else
+                if (blockIsPending && (NACK_NONE != nacking_mode))
+                {
+                    UINT16 numData = GetBlockSize(nextId);
+                    if (NormRepairRequest::INVALID != prevForm)
+                    {
+                        if (0 == nack.PackRepairRequest(req))
+                        {
+                            DMSG(0, "NormObject::AppendRepairRequest() warning: full NACK msg\n");
+                            return requestAppended;   
+                        }
+                    }
+                    if (flush || (nextId != max_pending_block))
+                    {
+                        block->AppendRepairRequest(nack, numData, nparity, transport_id, 
+                                                   pending_info, segment_size); // (TBD) error check
+                    }
+                    else
+                    {
+                        if (max_pending_segment < numData)
+                            block->AppendRepairRequest(nack, max_pending_segment, 0, transport_id,
+                                                        pending_info, segment_size); // (TBD) error check
+                        else
+                            block->AppendRepairRequest(nack, numData, nparity, transport_id, 
+                                                       pending_info, segment_size); // (TBD) error check
+                    }
+                    requestAppended = true;
+                }
+                consecutiveCount = 0;
+                prevForm = NormRepairRequest::INVALID;
+            }
+            else if (iterating)
+            {
+                consecutiveCount = 1;
+            }
+            else
+            {
+                consecutiveCount = 0;  // we're all done
+            }
+            prevId = nextId;
+        }  // end if (appendRequest)
+        nextId++;
+        iterating = GetNextPending(nextId);
+        //DMSG(0, "got next pending>%lu result:%d\n", (UINT32)nextId, iterating);
+        iterating = iterating && (flush || (nextId <= max_pending_block));
+    }  // end while (iterating || (0 != consecutiveCount))
+    
+    // This conditional makes sure any outstanding requests constructed
+    // are packed into the nack message.
+    if ((NormRepairRequest::INVALID != prevForm) &&
+        (NACK_NONE != nacking_mode))
+    {
+        if (0 == nack.PackRepairRequest(req))
+        {
+            DMSG(0, "NormObject::AppendRepairRequest() warning: full NACK msg\n");
+            return requestAppended;
+        } 
+        requestAppended = true;
+        prevForm = NormRepairRequest::INVALID;
+    }  
+    if (!requestAppended && pending_info && (NACK_NONE != nacking_mode))
     {
         // INFO_ONLY repair request
-        ASSERT(pending_info);
         nack.AttachRepairRequest(req, segment_size);
-        prevForm = NormRepairRequest::ITEMS;
         req.SetForm(NormRepairRequest::ITEMS);
         req.ResetFlags();
         req.SetFlag(NormRepairRequest::INFO); 
         req.AppendRepairItem(transport_id, 0, 0, 0);  // (TBD) error check
-    }   // end if/else (iterating)     
-    if (NormRepairRequest::INVALID != prevForm)
-        nack.PackRepairRequest(req);  // (TBD) error check     
-    return true;
+        if (0 == nack.PackRepairRequest(req))
+        {
+            DMSG(0, "NormObject::AppendRepairRequest() warning: full NACK msg\n");
+            return requestAppended;
+        }  
+        requestAppended = true;
+    }  
+    return requestAppended;
 }  // end NormObject::AppendRepairRequest()
 
 
@@ -889,7 +1049,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             }
             memcpy(info, infoMsg.GetInfo(), info_len);
             pending_info = false;
-            session->Notify(NormController::RX_OBJECT_INFO, server, this);
+            session.Notify(NormController::RX_OBJECT_INFO, server, this);
         }
         else
         {
@@ -902,6 +1062,8 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
     else  // NORM_MSG_DATA
     {
         const NormDataMsg& data = (const NormDataMsg&)msg;
+        UINT16 numData = GetBlockSize(blockId);
+        
         // For stream objects, a little extra mgmt is required
         if (STREAM == type)
         {
@@ -915,7 +1077,6 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 // ??? Ignore this new packet and try to fix stream ???
                 //return;
                 server->IncrementResyncCount();
-            
                 while (!stream->StreamUpdateStatus(blockId))
                 {
                     // Server is too far ahead of me ...
@@ -937,7 +1098,6 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 }
             }
         }
-        UINT16 numData = GetBlockSize(blockId);
         if (pending_mask.Test(blockId))
         {
             NormBlock* block = block_buffer.Find(blockId);
@@ -993,12 +1153,17 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                     segment[payloadMax] = 0;
                 block->AttachSegment(segmentId, segment);
                 block->UnsetPending(segmentId);
+                bool objectUpdated = false;
                 // 2) Write segment to object (if it's data)
                 if (segmentId < numData) 
                 {
                     block->DecrementErasureCount();
                     if (WriteSegment(blockId, segmentId, segment))
+                    {
+                        objectUpdated = true;
+                        // For statistics only (TBD) #ifdef NORM_DEBUG
                         server->IncrementRecvGoodput(segmentLength);
+                    }
                 }
                 else
                 {
@@ -1052,6 +1217,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                             {
                                 if (WriteSegment(blockId, sid, block->Segment(sid)))
                                 {
+                                    objectUpdated = true;
                                     // For statistics only (TBD) #ifdef NORM_DEBUG
                                     server->IncrementRecvGoodput(segmentLength);
                                 }
@@ -1070,7 +1236,11 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 // Notify application of new data available
                 // (TBD) this could be improved for stream objects
                 //        so it's not called unnecessarily
-                session->Notify(NormController::RX_OBJECT_UPDATE, server, this);
+                if (objectUpdated && notify_on_update)
+                {
+                    notify_on_update = false;
+                    session.Notify(NormController::RX_OBJECT_UPDATE, server, this);
+                }   
             }
             else
             {
@@ -1215,24 +1385,29 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         return true;
     }
     NormBlockId blockId;
-    if (!GetFirstPending(blockId)) return false;
+    if (!GetFirstPending(blockId)) 
+    {
+        if (!IsStream())
+            DMSG(0, "NormObject::NextServerMsg() pending object w/ no pending blocks?\n");
+        return false;
+    }
     
     NormDataMsg* data = (NormDataMsg*)msg;
     UINT16 numData = GetBlockSize(blockId);
     NormBlock* block = block_buffer.Find(blockId);
     if (!block)
     {
-       if (!(block = session->ServerGetFreeBlock(transport_id, blockId)))
+       if (!(block = session.ServerGetFreeBlock(transport_id, blockId)))
        {
-            //DMSG(2, "NormObject::NextServerMsg() node>%lu Warning! server resource " 
-            //        "constrained (no free blocks).\n", LocalNodeId());
+            DMSG(2, "NormObject::NextServerMsg() node>%lu Warning! server resource " 
+                    "constrained (no free blocks).\n", LocalNodeId());
             return false; 
        }
        // Load block with zero initialized parity segments
        UINT16 totalBlockLen = numData + nparity;
        for (UINT16 i = numData; i < totalBlockLen; i++)
        {
-            char* s = session->ServerGetFreeSegment(transport_id, blockId);
+            char* s = session.ServerGetFreeSegment(transport_id, blockId);
             if (s)
             {
                 UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
@@ -1244,28 +1419,42 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
             }
             else
             {
-                //DMSG(2, "NormObject::NextServerMsg() node>%lu Warning! server resource " 
-                //        "constrained (no free segments).\n", LocalNodeId());
-                session->ServerPutFreeBlock(block);
+                DMSG(12, "NormObject::NextServerMsg() node>%lu Warning! server resource " 
+                        "constrained (no free segments).\n", LocalNodeId());
+                session.ServerPutFreeBlock(block);
                 return false;
             }
        }      
        
-       block->TxInit(blockId, numData, session->ServerAutoParity());  
+       block->TxInit(blockId, numData, session.ServerAutoParity());  
        if (!block_buffer.Insert(block))
        {
            ASSERT(STREAM == type);
            ASSERT(blockId > block_buffer.RangeLo());
-           NormBlock* b = block_buffer.Find(block_buffer.RangeLo());
-           ASSERT(b);
-           block_buffer.Remove(b);
-           session->ServerPutFreeBlock(b);
-           bool success = block_buffer.Insert(block);
-           ASSERT(success);
+           //if (blockId > block_buffer.RangeLo())
+           {
+               NormBlock* b = block_buffer.Find(block_buffer.RangeLo());
+               ASSERT(b);
+               block_buffer.Remove(b);
+               session.ServerPutFreeBlock(b);
+               bool success = block_buffer.Insert(block);
+               ASSERT(success);
+           }
+           /*else
+           {
+                DMSG(0, "NormObject::NextServerMsg() node>%lu Warning! can't repair old block\n", LocalNodeId());
+                session.ServerPutFreeBlock(block);
+                pending_mask.Unset(blockId);
+                return false;
+           }*/
        }
     }
     NormSegmentId segmentId = 0;
-    if (!block->GetFirstPending(segmentId)) ASSERT(0);
+    if (!block->GetFirstPending(segmentId)) 
+    {
+        DMSG(0, "NormObject::NextServerMsg() nothing pending!?\n");
+        ASSERT(0);
+    }
     
     // Try to read segment 
     if (segmentId < numData)
@@ -1277,7 +1466,8 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         {
             // (TBD) deal with read error 
             //(for streams, it currently means the stream is non-pending)
-            if (!IsStream()) DMSG(0, "NormObject::NextServerMsg() ReadSegment() error\n");          
+            if (!IsStream()) 
+                DMSG(0, "NormObject::NextServerMsg() ReadSegment() error\n");          
             return false;  
         }
         data->SetPayloadLength(payloadLength);
@@ -1314,7 +1504,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
             if (payloadLength < payloadMax)
                 memset(buffer+payloadLength, 0, payloadMax-payloadLength);
             // (TBD) the encode routine could update the block's parity readiness
-            session->ServerEncode(data->AccessPayload(), block->SegmentList(numData)); 
+            session.ServerEncode(data->AccessPayload(), block->SegmentList(numData)); 
             block->IncreaseParityReadiness();     
         }
     }
@@ -1377,14 +1567,14 @@ void NormStreamObject::StreamAdvance()
             }
             else
             {
-               DMSG(4, "NormStreamObject::StreamAdvance() node>%lu Pending segment repairs (blk>%lu) "
+               DMSG(0, "NormStreamObject::StreamAdvance() node>%lu Pending segment repairs (blk>%lu) "
                        "delaying stream advance ...\n", LocalNodeId(), (UINT32)block->GetId());
             } 
         }
     }
     else
     {
-        DMSG(0, "NormStreamObject::StreamAdvance() Pending block repair delaying stream advance ...\n");   
+        DMSG(0, "NormStreamObject::StreamAdvance() pending block repair delaying stream advance ...\n");   
     }
 }  // end NormStreamObject::StreamAdvance()
 
@@ -1402,8 +1592,8 @@ bool NormObject::CalculateBlockParity(NormBlock* block)
             payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
 #endif // SIMULATE
             if (payloadLength < payloadMax)
-                memset(buffer+payloadLength, 0, payloadMax-payloadLength);
-            session->ServerEncode(buffer, block->SegmentList(numData));
+                memset(buffer+payloadLength, 0, payloadMax-payloadLength+1);
+            session.ServerEncode(buffer, block->SegmentList(numData));
         }
         else
         {
@@ -1416,7 +1606,7 @@ bool NormObject::CalculateBlockParity(NormBlock* block)
 
 NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
 {
-    NormBlock* block = session->ServerGetFreeBlock(transport_id, blockId);
+    NormBlock* block = session.ServerGetFreeBlock(transport_id, blockId);
     if (block)
     {
         UINT16 numData = GetBlockSize(blockId);  
@@ -1426,7 +1616,7 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
         UINT16 totalBlockLen = numData + nparity;
         for (UINT16 i = numData; i < totalBlockLen; i++)
         {
-            char* s = session->ServerGetFreeSegment(transport_id, blockId);
+            char* s = session.ServerGetFreeSegment(transport_id, blockId);
             if (s)
             {
                 UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();                
@@ -1440,7 +1630,7 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
             {
                 //DMSG(2, "NormObject::ServerRecoverBlock() node>%lu Warning! server resource " 
                 //        "constrained (no free segments).\n", LocalNodeId());
-                session->ServerPutFreeBlock(block);
+                session.ServerPutFreeBlock(block);
                 return (NormBlock*)NULL;
             }
         }      
@@ -1449,7 +1639,7 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
         {
             if (!block_buffer.Insert(block))
             {
-                session->ServerPutFreeBlock(block);
+                session.ServerPutFreeBlock(block);
                 DMSG(4, "NormObject::ServerRecoverBlock() node>%lu couldn't buffer recovered block\n");
                 return NULL;   
             }
@@ -1457,7 +1647,7 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
         }
         else
         {
-            session->ServerPutFreeBlock(block);
+            session.ServerPutFreeBlock(block);
             return (NormBlock*)NULL;
         }
     }
@@ -1473,7 +1663,7 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
 //
 // NormFileObject Implementation
 //
-NormFileObject::NormFileObject(class NormSession*       theSession, 
+NormFileObject::NormFileObject(class NormSession&       theSession, 
                                class NormServerNode*    theServer,
                                const NormObjectId&      objectId)
  : NormObject(FILE, theSession, theServer, objectId), 
@@ -1520,10 +1710,16 @@ bool NormFileObject::Open(const char* thePath,
         // We're sending this file
         if (file.Open(thePath, O_RDONLY))
         {
-            UINT32 size = file.GetSize(); 
+            off_t size = file.GetSize(); 
             if (size)
             {
-                if (!NormObject::Open(size, infoPtr, infoLen))
+                NormObjectSize osize((off_t)size);
+                if (!NormObject::Open(NormObjectSize(size), 
+                                      infoPtr, 
+                                      infoLen,
+                                      session.ServerSegmentSize(),
+                                      session.ServerBlockSize(),
+                                      session.ServerNumParity()))
                 {
                     DMSG(0, "NormFileObject::Open() send object open error\n");
                     Close();
@@ -1590,9 +1786,9 @@ bool NormFileObject::WriteSegment(NormBlockId   blockId,
     // Determine segment offset from blockId::segmentId
     NormObjectSize segmentOffset;
     NormObjectSize segmentSize = NormObjectSize(segment_size);
-    if ((UINT32)blockId < large_block_count)
+    if (((UINT32)blockId) < large_block_count)
     {
-        segmentOffset = large_block_length*(UINT32)blockId + segmentSize*segmentId;
+        segmentOffset = (large_block_length*(UINT32)blockId) + (segmentSize*segmentId);
     }
     else
     {
@@ -1601,8 +1797,7 @@ bool NormFileObject::WriteSegment(NormBlockId   blockId,
         segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
                                         segmentSize*segmentId;
     }
-    off_t offsetScaleMSB = 0xffffffff + 1;  // yuk! can't we do better?
-    off_t offset = (off_t)segmentOffset.LSB() + ((off_t)segmentOffset.MSB() * offsetScaleMSB);
+    off_t offset = segmentOffset.GetOffset();
     if (offset != file.GetOffset())
     {
         if (!file.Seek(offset)) return false; 
@@ -1644,8 +1839,9 @@ UINT16 NormFileObject::ReadSegment(NormBlockId      blockId,
         segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
                                         segmentSize*segmentId;
     }
-    off_t offsetScaleMSB = 0xffffffff + 1;  // yuk! can't we do better
-    off_t offset = (off_t)segmentOffset.LSB() + ((off_t)segmentOffset.MSB() * offsetScaleMSB);
+    //off_t offsetScaleMSB = 0xffffffff + 1;  // yuk! can't we do better
+    //off_t offset = (off_t)segmentOffset.LSB() + ((off_t)segmentOffset.MSB() * offsetScaleMSB);
+    off_t offset = segmentOffset.GetOffset();
     if (offset != file.GetOffset())
     {
         if (!file.Seek(offset)) 
@@ -1655,17 +1851,168 @@ UINT16 NormFileObject::ReadSegment(NormBlockId      blockId,
     return (len == nbytes) ? len : 0;
 }  // end NormFileObject::ReadSegment()
 
+/////////////////////////////////////////////////////////////////
+//
+// NormDataObject Implementation
+//
+NormDataObject::NormDataObject(class NormSession&       theSession, 
+                               class NormServerNode*    theServer,
+                               const NormObjectId&      objectId)
+ : NormObject(DATA, theSession, theServer, objectId), 
+   large_block_length(0,0), small_block_length(0,0),
+   data_ptr(NULL), data_max(0)
+{
+    
+}
+
+NormDataObject::~NormDataObject()
+{
+    Close();
+}
+
+// Assign data object to data ptr
+bool NormDataObject::Open(char*       dataPtr,
+                          UINT32      dataLen,
+                          const char* infoPtr,
+                          UINT16      infoLen)
+{
+    if (server)  
+    {
+        // We're receiving this data object 
+        ASSERT(NULL == infoPtr);
+    }
+    else
+    {
+        // We're sending this data object
+        if (!NormObject::Open(dataLen, 
+                              infoPtr, 
+                              infoLen,
+                              session.ServerSegmentSize(),
+                              session.ServerBlockSize(),
+                              session.ServerNumParity()))
+        {
+            DMSG(0, "NormDataObject::Open() send object open error\n");
+            Close();
+            return false;
+        }
+    }
+    data_ptr = dataPtr;
+    data_max = dataLen;
+    large_block_length = NormObjectSize(large_block_size) * segment_size;
+    small_block_length = NormObjectSize(small_block_size) * segment_size;
+    return true;
+}  // end NormDataObject::Open()
+                
+bool NormDataObject::Accept(char* dataPtr, UINT32 dataMax)
+{
+    ASSERT(NULL == server);
+    if (Open(dataPtr, dataMax))
+    {
+        NormObject::Accept(); 
+        return true;  
+    }
+    else
+    {
+        return false;
+    }
+}  // end NormDataObject::Accept()
+
+void NormDataObject::Close()
+{
+    NormObject::Close();
+}  // end NormDataObject::Close()
+
+bool NormDataObject::WriteSegment(NormBlockId   blockId, 
+                                  NormSegmentId segmentId, 
+                                  const char*   buffer)
+{
+    UINT16 len;  
+    if (blockId == final_block_id)
+    { 
+        if (segmentId == (GetBlockSize(blockId)-1))
+            len = final_segment_size;
+        else
+            len = segment_size;
+    }
+    else
+    {
+        len = segment_size;
+    }
+    // Determine segment offset from blockId::segmentId
+    NormObjectSize segmentOffset;
+    NormObjectSize segmentSize = NormObjectSize(segment_size);
+    if ((UINT32)blockId < large_block_count)
+    {
+        segmentOffset = large_block_length*(UINT32)blockId + segmentSize*segmentId;
+    }
+    else
+    {
+        segmentOffset = large_block_length*large_block_count;  // (TBD) pre-calc this 
+        UINT32 smallBlockIndex = (UINT32)blockId - large_block_count;
+        segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
+                                        segmentSize*segmentId;
+    }
+    ASSERT(0 == segmentOffset.MSB());
+    if (data_max <= segmentOffset.LSB())
+        return true;
+    else if (data_max <= (segmentOffset.LSB() + len))
+        len -= (segmentOffset.LSB() + len - data_max);
+    memcpy(data_ptr + segmentOffset.LSB(), buffer, len);
+    return true;
+}  // end NormDataObject::WriteSegment()
+
+
+UINT16 NormDataObject::ReadSegment(NormBlockId      blockId, 
+                                   NormSegmentId    segmentId,
+                                   char*            buffer)            
+{
+    // Determine segment length from blockId::segmentId
+    UINT16 len;
+    if (blockId == final_block_id)
+    {
+        if (segmentId == (GetBlockSize(blockId)-1))
+            len = final_segment_size;
+        else
+            len = segment_size;
+    }
+    else
+    {
+        len = segment_size;
+    }
+    
+    // Determine segment offset from blockId::segmentId
+    NormObjectSize segmentOffset;
+    NormObjectSize segmentSize = NormObjectSize(segment_size);
+    if ((UINT32)blockId < large_block_count)
+    {
+        segmentOffset = large_block_length*(UINT32)blockId + segmentSize*segmentId;
+    }
+    else
+    {
+        segmentOffset = large_block_length*large_block_count;  // (TBD) pre-calc this  
+        UINT32 smallBlockIndex = (UINT32)blockId - large_block_count;
+        segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
+                                        segmentSize*segmentId;
+    }
+    ASSERT(0 == segmentOffset.MSB());
+    ASSERT(data_max >= (segmentOffset.LSB() + len));
+    memcpy(buffer, data_ptr + segmentOffset.LSB(), len);
+    return true;
+}  // end NormDataObject::ReadSegment()
+
 
 /////////////////////////////////////////////////////////////////
 //
 // NormStreamObject Implementation
 //
 
-NormStreamObject::NormStreamObject(class NormSession*       theSession, 
+NormStreamObject::NormStreamObject(class NormSession&       theSession, 
                                    class NormServerNode*    theServer,
                                    const NormObjectId&      objectId)
  : NormObject(STREAM, theSession, theServer, objectId), 
-   stream_sync(false), flush_pending(false), msg_start(true)
+   stream_sync(false), sync_offset_valid(false), 
+   flush_pending(false), msg_start(true),
+   flush_mode(FLUSH_NONE), push_mode(false)
 {
 }
 
@@ -1674,9 +2021,9 @@ NormStreamObject::~NormStreamObject()
     Close();
 }  
 
-bool NormStreamObject::Open(UINT32   bufferSize, 
-                            const char*     infoPtr, 
-                            UINT16          infoLen)
+bool NormStreamObject::Open(UINT32      bufferSize, 
+                            const char* infoPtr, 
+                            UINT16      infoLen)
 {
     if (!bufferSize) 
     {
@@ -1687,13 +2034,14 @@ bool NormStreamObject::Open(UINT32   bufferSize,
     UINT16 segmentSize, numData;
     if (server)
     {
-        segmentSize = server->SegmentSize();
-        numData = server->BlockSize();
+        // receive streams have already be pre-opened
+        segmentSize = segment_size;
+        numData = ndata;
     }
     else
     {
-        segmentSize = session->ServerSegmentSize();
-        numData = session->ServerBlockSize();
+        segmentSize = session.ServerSegmentSize();
+        numData = session.ServerBlockSize();
     }
     
     NormObjectSize blockSize((UINT32)segmentSize * (UINT32)numData);
@@ -1730,13 +2078,22 @@ bool NormStreamObject::Open(UINT32   bufferSize,
     write_offset = read_offset = 0;    
     if (!server)
     {
-        if (!NormObject::Open(NormObjectSize((UINT32)bufferSize), infoPtr, infoLen))
+        if (!NormObject::Open(NormObjectSize((UINT32)bufferSize), 
+                              infoPtr, 
+                              infoLen,
+                              session.ServerSegmentSize(),
+                              session.ServerBlockSize(),
+                              session.ServerNumParity()))
         {
             DMSG(0, "NormStreamObject::Open() object open error\n");
             Close();
             return false;
         }
+        stream_next_id = pending_mask.Size();
     }
+    
+    stream_sync = false;
+    sync_offset_valid = false;
     flush_pending = false;
     msg_start = true;
     return true;
@@ -1771,8 +2128,17 @@ void NormStreamObject::Close()
     block_pool.Destroy();
 }  // end NormStreamObject::Close()
 
-bool NormStreamObject::LockBlocks(NormBlockId nextId, NormBlockId lastId)
+bool NormStreamObject::LockBlocks(NormBlockId firstId, NormBlockId lastId)
 {
+    NormBlockId nextId = firstId;
+    // First check that we _can_ lock them all
+    while (nextId <= lastId)
+    {
+        NormBlock* block = stream_buffer.Find(nextId);
+        if (NULL == block) return false;
+        nextId++;
+    }
+    nextId = firstId;
     while (nextId <= lastId)
     {
         NormBlock* block = stream_buffer.Find(nextId);
@@ -1861,8 +2227,7 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
                         if (delta > NormBlockId(2*pending_mask.Size()))
                             stream_sync_id = blockId;
                         return true;
-                    }   
-                    
+                    }  
                 }
             }   
         }
@@ -1876,6 +2241,7 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
         stream_sync_id = blockId;
         stream_next_id = blockId + pending_mask.Size(); 
         read_index.block = blockId;
+        read_index.segment = 0;
         return true;  
     }
 }  // end NormStreamObject::StreamUpdateStatus()
@@ -1895,7 +2261,8 @@ UINT16 NormStreamObject::ReadSegment(NormBlockId      blockId,
     if ((blockId == write_index.block) &&
         (segmentId >= write_index.segment))
     {
-        //DMSG(0, "NormStreamObject::ReadSegment() stream starved (2)\n");
+        //DMSG(0, "NormStreamObject::ReadSegment(blk>%lu seg>%hu) stream starved (2) (write_index>%lu:%hu)\n",
+        //        (UINT32)blockId, (UINT16)segmentId, (UINT32)write_index.block, (UINT16)write_index.segment);
         return false;   
     }   
     block->UnsetPending(segmentId);    
@@ -1920,20 +2287,20 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
                                     NormSegmentId segmentId, 
                                     const char*   segment)
 {
-    /*if ((blockId < read_index.block) ||
+    if ((blockId < read_index.block) ||
         ((blockId == read_index.block) &&
          (segmentId < read_index.segment))) 
     {
-        //DMSG(0, "NormStreamObject::WriteSegment() block/segment < read_index!?\n");
+        DMSG(4, "NormStreamObject::WriteSegment() block/segment < read_index!?\n");
         return false;
-    }*/   
+    }  
             
     UINT32 segmentOffset = NormDataMsg::ReadStreamPayloadOffset(segment);
     // if (segmentOffset < read_offset)
     UINT32 diff = segmentOffset - read_offset;
     if ((diff > 0x80000000) || ((0x80000000 == diff) && (segmentOffset > read_offset)))
     {
-        DMSG(0, "NormStreamObject::WriteSegment() diff:%lu segmentOffset:%lu < read_offset:%lu \n",
+        DMSG(4, "NormStreamObject::WriteSegment() diff:%lu segmentOffset:%lu < read_offset:%lu \n",
                  diff, segmentOffset, read_offset);
         return false;
     }
@@ -1956,14 +2323,15 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
                 block->GetFirstPending(read_index.segment);
                 NormBlock* tempBlock = block;
                 UINT32 tempOffset = read_offset;
-                session->Notify(NormController::RX_OBJECT_UPDATE, server, this);
+                session.Notify(NormController::RX_OBJECT_UPDATE, server, this);
                 block = stream_buffer.Find(stream_buffer.RangeLo());
                 if (tempBlock == block)
                 {
                     if (tempOffset == read_offset)
                     {
                         // App didn't want any data here, purge segment
-                        DMSG(0, "NormStreamObject::WriteSegment() app didn't want data ?!\n");
+                        DMSG(0, "NormStreamObject::WriteSegment() app didn't want data ?!, blockId:%lu\n",
+                                (UINT32)block->GetId());
                         ASSERT(0);
                         char* s = block->DetachSegment(read_index.segment);
                         segment_pool.Put(s);
@@ -2020,6 +2388,12 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
         block->SetPending(segmentId);
         ASSERT(block->Segment(segmentId) == s);
     }
+    if (!sync_offset_valid)
+    {
+        // Set "sync_offset" on first received data buffered.
+        sync_offset = segmentOffset;
+        sync_offset_valid = true;   
+    }
     return true;
 }  // end NormStreamObject::WriteSegment()
 
@@ -2058,14 +2432,16 @@ void NormStreamObject::Prune(NormBlockId blockId)
 // Sequential (in order) read/write routines (TBD) Add a "Seek()" method
 bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStart)
 {
+    SetNotifyOnUpdate(true);  // reset notification when streams are read
     unsigned int bytesRead = 0;
     unsigned int bytesToRead = *buflen;
-    while (bytesToRead > 0)
+    //while (bytesToRead > 0)
+    do
     {
         NormBlock* block = stream_buffer.Find(read_index.block);
         if (!block)
         {
-            //DMSG(0, "NormStreamObject::Read() stream buffer empty (1)\n");
+           // DMSG(0, "NormStreamObject::Read() stream buffer empty (1) (sbEmpty:%d)\n", stream_buffer.IsEmpty());
             *buflen = bytesRead;
             return true;   
         }
@@ -2083,7 +2459,8 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
         UINT32 diff = read_offset - segmentOffset;
         if ((diff > 0x80000000) || ((0x80000000 == diff) && (read_offset > segmentOffset)))
         {
-            DMSG(0, "NormStreamObject::Read() node>%lu broken stream!\n", LocalNodeId());
+            DMSG(4, "NormStreamObject::Read() node>%lu obj>%hu blk>%lu seg>%hu broken stream! (read_offset>%lu segmentOffset>%lu)\n", 
+                    LocalNodeId(), (UINT16)transport_id, (UINT32)read_index.block, read_index.segment, read_offset, segmentOffset);
             read_offset = segmentOffset;
             *buflen = bytesRead;
             return false;
@@ -2093,8 +2470,9 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
         UINT16 length = NormDataMsg::ReadStreamPayloadLength(segment);
 	    if (index >= length)
         {
-            DMSG(0, "NormStreamObject::Read() node>%lu mangled stream! index:%hu length:%hu\n",
-                    LocalNodeId(), index, length);
+            DMSG(0, "NormStreamObject::Read() node>%lu obj>%hu blk>%lu seg>%hu mangled stream! index:%hu length:%hu "
+                    "read_offset:%lu segmentOffset:%lu\n",
+                    LocalNodeId(), (UINT16)transport_id, (UINT32)read_index.block, read_index.segment, index, length, read_offset, segmentOffset);
             read_offset = segmentOffset;
             *buflen = bytesRead;
             ASSERT(0);
@@ -2163,13 +2541,12 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
                 read_index.segment = 0;
             }
         } 
-    }  // end while (len > 0)
+    }  while (bytesToRead > 0); // end while (len > 0)
     *buflen = bytesRead;
     return true;
 }  // end NormStreamObject::Read()
 
-UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, 
-                                      FlushType flushType, bool eom, bool push)
+UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
 {
     UINT32 nBytes = 0;
     do
@@ -2181,7 +2558,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len,
             {
                 block = stream_buffer.Find(stream_buffer.RangeLo());
                 ASSERT(block);
-                if (push)
+                if (push_mode)
                 {
                     NormBlockId blockId = block->GetId();
                     pending_mask.Unset(blockId);
@@ -2190,8 +2567,13 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len,
                     if (b)
                     {
                         block_buffer.Remove(b);
-                        session->ServerPutFreeBlock(b); 
-                    }     
+                        session.ServerPutFreeBlock(b); 
+                    }   
+                    if (!pending_mask.IsSet()) 
+                    {
+                        pending_mask.Set(write_index.block);  
+                        stream_next_id = write_index.block + 1;
+                    }
                 }
                 else if (block->IsPending())
                 {
@@ -2205,6 +2587,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len,
             block->ClearPending();
             bool success = stream_buffer.Insert(block);
             ASSERT(success);
+            
         }
         char* segment = block->Segment(write_index.segment);
         if (!segment)
@@ -2213,16 +2596,21 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len,
             {
                 NormBlock* b = stream_buffer.Find(stream_buffer.RangeLo());
                 ASSERT(b != block);
-                if (push)
+                if (push_mode)
                 {
-                    NormBlockId blockId = block->GetId();
+                    NormBlockId blockId = b->GetId();
                     pending_mask.Unset(blockId);
                     repair_mask.Unset(blockId);
                     NormBlock* c = FindBlock(blockId);
                     if (c)
                     {
                         block_buffer.Remove(c);
-                        session->ServerPutFreeBlock(c);
+                        session.ServerPutFreeBlock(c);
+                    }  
+                    if (!pending_mask.IsSet()) 
+                    {
+                        pending_mask.Set(write_index.block);  
+                        stream_next_id = write_index.block + 1;
                     }  
                 }
                 else if (b->IsPending())
@@ -2278,7 +2666,9 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len,
         nBytes += count;
         write_offset += count;
         // Is the segment full? or flushing
-        if ((count == space) || ((FLUSH_NONE != flushType) && (0 != index) && (nBytes == len)))
+        //if ((count == space) || ((FLUSH_NONE != flush_mode) && (0 != index) && (nBytes == len)))
+        if ((count == space) || 
+            ((FLUSH_NONE != flush_mode) && (nBytes == len) && ((0 != index) || (0 != len))))
         {   
             block->SetPending(write_index.segment);
             if (++write_index.segment >= ndata) 
@@ -2294,16 +2684,18 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len,
     {
         if (eom) 
             msg_start = true;
-        if (FLUSH_ACTIVE == flushType) 
+        if (FLUSH_ACTIVE == flush_mode) 
             flush_pending = true;
         else
             flush_pending = false;
+        if ((0 != nBytes) || (FLUSH_NONE != flush_mode))
+            session.TouchServer();
     }
     else
     {
-        flushType = FLUSH_NONE;   
+        if (0 != nBytes) 
+            session.TouchServer();  
     }
-    if (nBytes || (FLUSH_NONE != flushType)) session->TouchServer();
     return nBytes;
 }  // end NormStreamObject::Write()
 
@@ -2313,7 +2705,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len,
 // NormSimObject Implementation (dummy NORM_OBJECT_FILE or NORM_OBJECT_DATA)
 //
 
-NormSimObject::NormSimObject(class NormSession*       theSession,
+NormSimObject::NormSimObject(class NormSession&       theSession,
                              class NormServerNode*    theServer,
                              const NormObjectId&      objectId)
  : NormObject(FILE, theSession, theServer, objectId)
@@ -2404,7 +2796,8 @@ NormObject* NormObjectTable::Find(const NormObjectId& objectId) const
     {
         if ((objectId < range_lo)  || (objectId > range_hi)) return (NormObject*)NULL;
         NormObject* theObject = table[((UINT16)objectId) & hash_mask];
-        while (theObject && (objectId != theObject->GetId())) theObject = theObject->next;
+        while (theObject && (objectId != theObject->GetId())) 
+            theObject = theObject->next;
         return theObject;
     }
     else

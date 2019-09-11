@@ -56,7 +56,6 @@ void NormPostProcessor::GetCommand(char* buffer, unsigned int buflen)
 
 bool NormPostProcessor::SetCommand(const char* cmd)
 {
-    
     // 1) Delete old command resources
     if (process_argv)
     {
@@ -81,9 +80,9 @@ bool NormPostProcessor::SetCommand(const char* cmd)
     {
         argCount++;
         while (!isspace(*ptr) && ('\0' != *ptr)) ptr++;
+        while (isspace(*ptr) && ('\0' != *ptr)) ptr++;
     }
     if (!argCount) return true;   // post processing disabled
-    
     
     // 3) Allocate new process_argv array (2 extra slots, one for "target",
     //    and one for terminating NULL pointer.
@@ -115,7 +114,8 @@ bool NormPostProcessor::SetCommand(const char* cmd)
         }
         strncpy(arg, argStart, argLength);
         arg[argLength] = '\0';
-        process_argv[index] = arg;
+        process_argv[index++] = arg;
+        while (isspace(*ptr) && ('\0' != *ptr)) ptr++;
     }
     return true;
 }  // end NormPostProcessor::SetCommand()

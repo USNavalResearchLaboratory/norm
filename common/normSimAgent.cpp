@@ -831,7 +831,7 @@ void NormSimAgent::Notify(NormController::Event event,
                     break;
             }  // end switch (object->GetType())
             break;
-        case RX_OBJECT_COMPLETE:
+        case RX_OBJECT_COMPLETED:
         {
             switch(object->GetType())
             {

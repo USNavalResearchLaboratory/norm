@@ -5,8 +5,8 @@
 # 1) System specific additional libraries, include paths, etc
 #    (Where to find X11 libraries, etc)
 #
-SYSTEM_INCLUDES = -I/usr/openwin/include 
-SYSTEM_LDFLAGS = -L/usr/openwin/lib -R/usr/openwin/lib 
+SYSTEM_INCLUDES = 
+SYSTEM_LDFLAGS = 
 SYSTEM_LIBS = -ldl -lnsl -lsocket -lresolv
 
 # 2) System specific capabilities
@@ -35,7 +35,8 @@ SYSTEM_LIBS = -ldl -lnsl -lsocket -lresolv
 # (We export these for other Makefiles as needed)
 #
 
-SYSTEM_HAVES =  -DHAVE_IPV6 -DHAVE_ASSERT -DHAVE_CUSERID -DHAVE_LOCKF $(NETSEC) -DSOLARIS 
+SYSTEM_HAVES =  -DHAVE_IPV6 -DHAVE_ASSERT -DHAVE_CUSERID -DHAVE_LOCKF \
+-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -DSOLARIS 
 
 SYSTEM = solaris
 

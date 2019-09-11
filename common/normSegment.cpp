@@ -257,6 +257,7 @@ bool NormBlock::ActivateRepairs(UINT16 numParity)
     if (repair_mask.IsSet())
     {
         pending_mask.Add(repair_mask);
+        ASSERT(pending_mask.IsSet());
         repair_mask.Clear();   
         return true;
     }
@@ -390,7 +391,7 @@ bool NormBlock::HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
     return increasedRepair;
 }  // end NormBlock::HandleSegmentRequest()
 
-
+// (TBD) this should return true is something is appending, false otherwise
 bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd, 
                                 NormObjectId         objectId,
                                 bool                 repairInfo,
@@ -433,7 +434,13 @@ bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd,
                 if (form != prevForm)
                 {
                     if (NormRepairRequest::INVALID != prevForm) 
-                        cmd.PackRepairRequest(req);            // (TBD) error check
+                    {
+                        if (0 == cmd.PackRepairRequest(req))
+                        {
+                            DMSG(0, "NormBlock::AppendRepairAdv() warning: full msg\n");
+                            break;
+                        }
+                    }
                     req.SetForm(form);
                     cmd.AttachRepairRequest(req, segmentSize); // (TBD) error check
                     prevForm = form;
@@ -460,12 +467,16 @@ bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd,
             }
         }  // end while (nextId < totalSize)
         if (NormRepairRequest::INVALID != prevForm) 
-            cmd.PackRepairRequest(req); // (TBD) error check
+        {
+            if (0 == cmd.PackRepairRequest(req))
+                DMSG(0, "NormBlock::AppendRepairAdv() warning: full msg\n");
+        }
     }
     return true;
 }  // end NormBlock::AppendRepairAdv()
 
 // Called by client
+// (TBD) this should return true iff something appended, false otherwise
 bool NormBlock::AppendRepairRequest(NormNackMsg&    nack, 
                                     UINT16          numData, 
                                     UINT16          numParity,
@@ -527,7 +538,13 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
             if (form != prevForm)
             {
                 if (NormRepairRequest::INVALID != prevForm) 
-                    nack.PackRepairRequest(req);                       // (TBD) error check
+                {
+                    if (0 == nack.PackRepairRequest(req))
+                    {
+                        DMSG(0, "NormBlock::AppendRepairRequest() warning: full NACK msg\n");
+                        break;   
+                    }
+                }
                 nack.AttachRepairRequest(req, segmentSize);            // (TBD) error check
                 req.SetForm(form);
                 prevForm = form;
@@ -554,76 +571,10 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
         }       
     }  // end while (nextId < lastId)
     if (NormRepairRequest::INVALID != prevForm) 
-        nack.PackRepairRequest(req);                                   // (TBD) error check
-    
-    /*
-    // old code begins here
-    NormSegmentId prevId = nextId;
-    while ((nextId <= lastId) || (segmentCount > 0))
     {
-        // force break of possible ending consec. series
-        if (nextId == lastId) nextId++; 
-        if (segmentCount && (segmentCount == (nextId - prevId)))
-        {
-            segmentCount++;  // consecutive series continues
-        }
-        else
-        {
-            NormRepairRequest::Form nextForm;
-            switch(segmentCount)
-            {
-                case 0:
-                    nextForm = NormRepairRequest::INVALID;
-                    break;
-                case 1:
-                case 2:
-                    nextForm = NormRepairRequest::ITEMS;
-                    break;
-                default:
-                    nextForm = NormRepairRequest::RANGES;
-                    break;
-            }  // end switch(reqCount)
-            if (prevForm != nextForm)
-            {
-                if (NormRepairRequest::INVALID != prevForm)
-                    nack.PackRepairRequest(req);  // (TBD) error check
-                if (NormRepairRequest::INVALID != nextForm)
-                {
-                    nack.AttachRepairRequest(req, segmentSize);
-                    req.SetForm(nextForm);
-                    req.SetFlag(NormRepairRequest::SEGMENT);
-                    if (pendingInfo) req.SetFlag(NormRepairRequest::INFO);
-                }
-                prevForm = nextForm;
-            }
-            if (NormRepairRequest::INVALID != nextForm)
-                DMSG(6, "NormBlock::AppendRepairRequest() SEGMENT request\n");
-            switch (nextForm)
-            {
-                case NormRepairRequest::ITEMS:
-                    req.AppendRepairItem(objectId, id, prevId);  // (TBD) error check
-                    if (2 == reqCount)
-                        req.AppendRepairItem(objectId, id, prevId+1); // (TBD) error check
-                    break;
-                case NormRepairRequest::RANGES:
-                    req.AppendRepairItem(objectId, id, prevId); // (TBD) error check
-                    req.AppendRepairItem(objectId, id, prevId+reqCount-1); // (TBD) error check
-                    break;
-                default:
-                    break;
-            }  // end switch(nextForm)
-            prevId = nextId;
-            if (nextId < lastId)
-                segmentCount = 1;
-            else
-                segmentCount = 0;
-        }  // end if/else (reqCount && (reqCount == (nextId - prevId)))
-        nextId++;
-        if (nextId <= lastId) nextId = pending_mask.NextSet(nextId);
-    }  // end while(nextId <= lastId)
-    if (NormRepairRequest::INVALID != prevForm)
-        nack.PackRepairRequest(req);  // (TBD) error check
-    */
+        if (0 == nack.PackRepairRequest(req))
+            DMSG(0, "NormBlock::AppendRepairRequest() warning: full NACK msg\n");
+    }
     return true;
 }  // end NormBlock::AppendRepairRequest()
          

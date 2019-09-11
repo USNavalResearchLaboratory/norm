@@ -61,7 +61,7 @@ class RaftApp : public ProtoApp
 const char* const RaftApp::CMD_LIST[] = 
 {
     "+debug",        // debug <level>
-    "+listen",         // recv [<mcastAddr>/]<port>
+    "+listen",       // recv [<mcastAddr>/]<port>
     "+dest",         // send <addr>/<port>
     "+rtspProxy",    // rtsp <rtspUrl>
     NULL        
@@ -467,7 +467,7 @@ void RaftApp::OnClientSocketEvent(ProtoSocket& /*theSocket*/,
             while (rtsp_client_socket.Recv(buffer, buflen))
             {
                 buffer[buflen] = '\0';
-                TRACE("%s");
+                TRACE("%s", buffer);
             }
             TRACE("\n");
             break;   

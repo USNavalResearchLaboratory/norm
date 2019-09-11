@@ -234,6 +234,10 @@ bool UnixPostProcessor::ProcessFile(const char* path)
             // Restore signal handlers for parent
             signal(SIGTERM, sigtermHandler);
             signal(SIGINT, sigintHandler);
+            // The use of "waitpid()" here is a work-around
+            // for an IRIX SIGCHLD issue
+            int status;
+            while (waitpid(-1, &status, WNOHANG) > 0);
             signal(SIGCHLD, sigchldHandler);
             break;
     }

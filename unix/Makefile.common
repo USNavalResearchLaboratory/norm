@@ -13,7 +13,7 @@ NS = ../ns
 
 INCLUDES = $(TCL_INCL_PATH) $(SYSTEM_INCLUDES) -I$(UNIX) -I$(COMMON) -I$(PROTOLIB)/common
 
-CFLAGS = -DPROTO_DEBUG -DUNIX -O -fPIC $(SYSTEM_HAVES) $(INCLUDES)
+CFLAGS = -g -DPROTO_DEBUG -DUNIX -D_FILE_OFFSET_BITS=64 -O -fPIC $(SYSTEM_HAVES) $(INCLUDES)
 
 LDFLAGS = $(SYSTEM_LDFLAGS)
 
@@ -83,7 +83,15 @@ APP_OBJ = $(APP_SRC:.cpp=.o)
 
 norm:    $(APP_OBJ) libnorm.a $(LIBPROTO) 
 	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO)  $(LIBS)
-    
+
+
+# (normTest) test of NORM API
+TEST_SRC = $(COMMON)/normApi.cpp $(COMMON)/normTest.cpp
+TEST_OBJ = $(TEST_SRC:.cpp=.o)
+
+normTest:    $(TEST_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(TEST_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO)  $(LIBS)
+       
 # (raft) command-line reliable tunnel helper
 RAFT_SRC = $(COMMON)/raft.cpp
 RAFT_OBJ = $(RAFT_SRC:.cpp=.o)

@@ -378,7 +378,9 @@ bool NormBitmask::Add(const NormBitmask& b)
     if (b.num_bits > num_bits) return false;   
     for(unsigned int i = 0; i < b.mask_len; i++)
         mask[i] |= b.mask[i];
-    if (b.first_set < first_set) first_set = b.first_set;
+    if ((b.first_set < first_set) &&
+        (b.first_set < b.num_bits))
+        first_set = b.first_set;
     return true;
 }  // end NormBitmask::Add()
 
@@ -406,13 +408,14 @@ bool NormBitmask::XCopy(const NormBitmask& b)
     for (unsigned int i = begin; i < len; i++)
         mask[i] = b.mask[i] & ~mask[i];
     if (len < mask_len) memset(&mask[len], 0, mask_len - len);
-    if (b.first_set < first_set)
+    UINT32 theFirst = (b.first_set < b.num_bits) ? b.first_set : num_bits;
+    if (theFirst < first_set)
     {
         first_set = b.first_set;
     }
     else
     {
-        first_set = b.first_set;
+        first_set = theFirst;
         if (!GetNextSet(first_set)) first_set = num_bits;
     }
     return true;
@@ -425,6 +428,7 @@ bool NormBitmask::Multiply(const NormBitmask& b)
     for(unsigned int i = 0; i < len; i++)
         mask[i] |= b.mask[i];
     if (len < mask_len) memset(&mask[len], 0, mask_len - len);
+    
     if (b.first_set > first_set)
     {
         first_set = b.first_set;
@@ -557,7 +561,7 @@ bool NormSlidingMask::CanSet(UINT32 index) const
 
 bool NormSlidingMask::Set(UINT32 index)
 {
-    ASSERT(CanSet(index));
+    //ASSERT(CanSet(index));
     if (IsSet())
     {        
         // Determine position with respect to current start

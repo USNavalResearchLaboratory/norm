@@ -218,8 +218,8 @@ void NormEncoder::Encode(const char *data, char **pVec)
  */
 
 NormDecoder::NormDecoder()
-    : npar(0), vector_size(0), 
-      Lambda(NULL), sVec(NULL), oVec(NULL)
+    : npar(0), vector_size(0), Lambda(NULL), 
+      sVec(NULL), oVec(NULL), scratch(NULL)
 {
     
 }

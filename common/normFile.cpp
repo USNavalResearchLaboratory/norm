@@ -1,4 +1,3 @@
-
 #include "normFile.h"
 
 #include <string.h>  // for strerror()
@@ -63,7 +62,7 @@ bool NormFile::Open(const char* thePath, int theFlags)
             if (mkdir(tempPath, 0755))
 #endif // if/else WIN32/UNIX
             {
-                DMSG(0, "NormFile::Rename() mkdir(%s) error: %s\n",
+                DMSG(0, "NormFile::Open() mkdir(%s) error: %s\n",
                         tempPath, strerror(errno));
                 return false;  
             }
@@ -159,10 +158,21 @@ bool NormFile::Rename(const char* oldName, const char* newName)
     if (!strcmp(oldName, newName)) return true;  // no change required
     // Make sure the new file name isn't an existing "busy" file
     // (This also builds sub-directories as needed)
-    if (NormFile::IsLocked(newName)) return false;    
+    if (NormFile::IsLocked(newName)) 
+    {
+        DMSG(0, "NormFile::Rename() error: file is locked\n");
+        return false;    
+    }
 #ifdef WIN32
     // In Win32, the new file can't already exist
-	if (NormFile::Exists(newName)) _unlink(newName);
+	if (NormFile::Exists(newName)) 
+    {
+        if (0 != _unlink(newName))
+        {
+            DMSG(0, "NormFile::Rename() _unlink() error: %s\n", GetErrorString());
+            return false;
+        }
+    }
     // In Win32, the old file can't be open
 	int oldFlags = 0;
 	if (IsOpen())
@@ -171,7 +181,7 @@ bool NormFile::Rename(const char* oldName, const char* newName)
 		oldFlags &= ~(O_CREAT | O_TRUNC);  // unset these
 		Close();
 	}  
-#else
+#endif  // WIN32
     // Create sub-directories as needed.
     char tempPath[PATH_MAX];
     strncpy(tempPath, newName, PATH_MAX);
@@ -198,29 +208,44 @@ bool NormFile::Rename(const char* oldName, const char* newName)
     {
         ptr = strchr(ptr, PROTO_PATH_DELIMITER);
         if (ptr) *ptr = '\0';
+#ifdef WIN32
+        if (0 != _mkdir(tempPath))
+#else
         if (mkdir(tempPath, 0755))
+#endif // if/else WIN32/UNIX
         {
             DMSG(0, "NormFile::Rename() mkdir(%s) error: %s\n",
-                    tempPath, strerror(errno));
+                    tempPath, GetErrorString());
             return false;  
         }
         if (ptr) *ptr++ = PROTO_PATH_DELIMITER;
-    }   
-#endif // if/else WIN32 
+    }  
+    
     if (rename(oldName, newName))
     {
         DMSG(0, "NormFile::Rename() rename() error: %s\n", strerror(errno));		
 #ifdef WIN32
-        //if (oldFlags) Open(oldName, oldFlags);
+        if (oldFlags) 
+        {
+            if (Open(oldName, oldFlags))
+                offset = 0;
+            else
+                DMSG(0, "NormFile::Rename() error re-opening file w/ old name\n");
+        }
 #endif // WIN32        
         return false;
-        
     }
     else
     {
 #ifdef WIN32
         // (TBD) Is the file offset OK doing this???
-        //if (oldFlags) Open(newName, oldFlags);
+        if (oldFlags) 
+        {
+            if (Open(newName, oldFlags))
+                offset = 0;
+            else
+                DMSG(0, "NormFile::Rename() error opening file w/ new name\n");
+        }
 #endif // WIN32
         return true;
     }
@@ -234,7 +259,7 @@ int NormFile::Read(char* buffer, int len)
 #else
     int result = read(fd, buffer, len);
 #endif // if/else WIN32
-    if (result > 0) offset += result;
+    if (result > 0) offset += (off_t)result;
     return result;
 }  // end NormFile::Read()
 
@@ -246,7 +271,7 @@ int NormFile::Write(const char* buffer, int len)
 #else
     int result = write(fd, buffer, len);
 #endif // if/else WIN32
-    if (result > 0) offset += result;
+    if (result > 0) offset += (off_t)result;
     return result;
 }  // end NormFile::Write()
 

@@ -14,8 +14,10 @@ class NormNode
     friend class NormNodeListIterator;
     
     public:
-        NormNode(class NormSession* theSession, NormNodeId nodeId);
+        NormNode(class NormSession& theSession, NormNodeId nodeId);
         virtual ~NormNode();
+        void Retain();
+        void Release();
         
         const ProtoAddress& GetAddress() const {return addr;} 
         void SetAddress(const ProtoAddress& address) {addr = address;}
@@ -24,12 +26,13 @@ class NormNode
         inline const NormNodeId& LocalNodeId() const; 
     
     protected:
-        class NormSession*  session;
+        class NormSession&  session;
         
     private:
         NormNodeId          id;
         ProtoAddress        addr;
-        // We keep NormNodes in a binary tree
+        unsigned int        reference_count;
+        // We keep NormNodes in a binary tree (TBD) make this a ProtoTree
         NormNode*           parent;
         NormNode*           right;
         NormNode*           left;
@@ -99,24 +102,24 @@ class NormLossEstimator2
         unsigned int LastLossInterval() {return history[1];}
 
     private:
-            enum {DEPTH = 8};
+        enum {DEPTH = 8};
     // Members  
-        bool            init;
-        unsigned long   lag_mask;
-        unsigned int    lag_depth;
-        unsigned long   lag_test_bit;
-        unsigned short  lag_index;
+        bool                init;
+        unsigned long       lag_mask;
+        unsigned int        lag_depth;
+        unsigned long       lag_test_bit;
+        unsigned short      lag_index;
         
-        unsigned short  event_window;
-        unsigned short  event_index;
-        double          event_window_time;
-        double          event_index_time;
-        bool            seeking_loss_event;
+        unsigned short      event_window;
+        unsigned short      event_index;
+        double              event_window_time;
+        double              event_index_time;
+        bool                seeking_loss_event;
         
-        bool            no_loss;
-        double          initial_loss;
+        bool                no_loss;
+        double              initial_loss;
         
-        double          loss_interval;  // EWMA of loss event interval
+        double              loss_interval;  // EWMA of loss event interval
         
         unsigned long       history[9];  // loss interval history
         double              discount[9];
@@ -137,11 +140,33 @@ class NormLossEstimator2
     
 };  // end class NormLossEstimator2
 
+class NormAckingNode : public NormNode
+{
+    public:
+        NormAckingNode(class NormSession& theSession, NormNodeId nodeId);
+        ~NormAckingNode();
+        bool IsPending() const
+            {return (!ack_received &&( req_count > 0));}
+        void Reset(unsigned int maxAttempts = NORM_ROBUST_FACTOR)
+        {
+            ack_received = false;
+            req_count = maxAttempts;   
+        }
+        void DecrementReqCount() {if (req_count > 0) req_count--;}
+        unsigned int GetReqCount() const {return req_count;}
+        bool AckReceived() const {return ack_received;}
+        void MarkAckReceived() {ack_received = true;}
+                
+    private:
+        bool            ack_received; // was ack received?
+        unsigned int    req_count;    // remaining request attempts
+        
+};  // end NormAckingNode
 
 class NormCCNode : public NormNode
 {
     public:
-       NormCCNode(class NormSession* theSession, NormNodeId nodeId);
+       NormCCNode(class NormSession& theSession, NormNodeId nodeId);
        ~NormCCNode();
        
        bool IsClr() const {return is_clr;}
@@ -182,8 +207,25 @@ class NormServerNode : public NormNode
     public:
         enum ObjectStatus {OBJ_INVALID, OBJ_NEW, OBJ_PENDING, OBJ_COMPLETE};
     
-        NormServerNode(class NormSession* theSession, NormNodeId nodeId);  
+        enum RepairBoundary {BLOCK_BOUNDARY, OBJECT_BOUNDARY};
+    
+        NormServerNode(class NormSession& theSession, NormNodeId nodeId);  
         ~NormServerNode();
+        
+        // Parameters
+        NormObject::NackingMode GetDefaultNackingMode() const 
+            {return default_nacking_mode;}
+        void SetDefaultNackingMode(NormObject::NackingMode nackingMode)
+            {default_nacking_mode = nackingMode;}
+        
+        NormServerNode::RepairBoundary GetRepairBoundary() const 
+            {return repair_boundary;}
+        // (TBD) force an appropriate RepairCheck on boundary change???
+        void SetRepairBoundary(RepairBoundary repairBoundary)
+            {repair_boundary = repairBoundary;}
+        
+        bool UnicastNacks() {return unicast_nacks;}
+        void SetUnicastNacks(bool state) {unicast_nacks = state;}
         
         bool UpdateLossEstimate(const struct timeval&   currentTime,
                                 unsigned short          theSequence, 
@@ -201,10 +243,15 @@ class NormServerNode : public NormNode
         void HandleNackMessage(const NormNackMsg& nack);
         void HandleAckMessage(const NormAckMsg& ack);
         
-        bool Open(UINT16 sessionId, UINT16 segmentSize, UINT16 numData, UINT16 numParity);
-        void Activate();
+        bool Open(UINT16 sessionId);
+        UINT16 GetSessionId() {return session_id;}
+        bool IsOpen() const {return is_open;} 
         void Close();
-        bool IsOpen() const {return is_open;}        
+        bool AllocateBuffers(UINT16 segmentSize, UINT16 numData, UINT16 numParity);
+        bool BuffersAllocated() {return (0 != segment_size);}
+        void FreeBuffers();
+        void Activate();
+               
         
         bool SyncTest(const NormObjectMsg& msg) const;
         void Sync(NormObjectId objectId);
@@ -234,7 +281,7 @@ class NormServerNode : public NormNode
         }
         void SetPending(NormObjectId objectId);
         
-        void DeleteObject(NormObject* obj);
+        void DeleteObject(NormObject* obj, int which);
         
         UINT16 SegmentSize() {return segment_size;}
         UINT16 BlockSize() {return ndata;}
@@ -287,6 +334,9 @@ class NormServerNode : public NormNode
         
         
     private:
+        bool PassiveRepairCheck(NormObjectId    objectId,  
+                                NormBlockId     blockId,
+                                NormSegmentId   segmentId);
         void RepairCheck(NormObject::CheckLevel checkLevel,
                          NormObjectId           objectId,  
                          NormBlockId            blockId,
@@ -295,66 +345,80 @@ class NormServerNode : public NormNode
         bool OnActivityTimeout(ProtoTimer& theTimer);
         bool OnRepairTimeout(ProtoTimer& theTimer);
         bool OnCCTimeout(ProtoTimer& theTimer);
+        bool OnAckTimeout(ProtoTimer& theTimer);
+        
+        void AttachCCFeedback(NormAckMsg& ack);
         void HandleRepairContent(const char* buffer, UINT16 bufferLen);
             
-        UINT16              session_id;
-        bool                synchronized;
-        NormObjectId        sync_id;  // only valid if(synchronized)
-        NormObjectId        next_id;  // only valid if(synchronized)
+        UINT16                  session_id;
+        bool                    synchronized;
+        NormObjectId            sync_id;  // only valid if(synchronized)
+        NormObjectId            next_id;  // only valid if(synchronized)
+        NormObjectId            max_pending_object; // index for NACK construction
+        NormObjectId            current_object_id;  // index for suppression
+        UINT16                  max_pending_range;  // max range of pending objs allowed
         
-        bool                is_open;
-        UINT16              segment_size;
-        UINT16              ndata;
-        UINT16              nparity;
+        bool                    is_open;
+        UINT16                  segment_size;
+        UINT16                  ndata;
+        UINT16                  nparity;
         
-        NormObjectTable     rx_table;
-        NormSlidingMask     rx_pending_mask;
-        NormSlidingMask     rx_repair_mask;
-        NormBlockPool       block_pool;
-        NormSegmentPool     segment_pool;
-        NormDecoder         decoder;
-        UINT16*             erasure_loc;
+        NormObjectTable         rx_table;
+        NormSlidingMask         rx_pending_mask;
+        NormSlidingMask         rx_repair_mask;
+        RepairBoundary          repair_boundary;
+        NormObject::NackingMode default_nacking_mode;
+        bool                    unicast_nacks;
+        NormBlockPool           block_pool;
+        NormSegmentPool         segment_pool;
+        NormDecoder             decoder;
+        UINT16*                 erasure_loc;
         
-        ProtoTimer          activity_timer;
-        ProtoTimer          repair_timer;
-        NormObjectId        current_object_id;  // index for suppression
-        NormObjectId        max_pending_object; // index for NACK construction
+        bool                    server_active;
+        ProtoTimer              activity_timer;
+        ProtoTimer              repair_timer;
+        
+        // Watermark acknowledgement
+        ProtoTimer              ack_timer;
+        NormObjectId            watermark_object_id;
+        NormBlockId             watermark_block_id;
+        NormSegmentId           watermark_segment_id;
         
         // Remote server grtt measurement state       
-        double              grtt_estimate;
-        UINT8               grtt_quantized;
-        struct timeval      grtt_send_time;
-        struct timeval      grtt_recv_time;
-        double              gsize_estimate;
-        UINT8               gsize_quantized;
-        double              backoff_factor;
+        double                  grtt_estimate;
+        UINT8                   grtt_quantized;
+        struct timeval          grtt_send_time;
+        struct timeval          grtt_recv_time;
+        double                  gsize_estimate;
+        UINT8                   gsize_quantized;
+        double                  backoff_factor;
         
         // Remote server congestion control state
-        NormLossEstimator2  loss_estimator;
-        UINT16              cc_sequence;
-        bool                cc_enable;
-        double              cc_rate;           // ccRate at start of cc_timer
-        ProtoTimer          cc_timer;
-        double              rtt_estimate;
-        UINT8               rtt_quantized;
-        bool                rtt_confirmed;
-        bool                is_clr;
-        bool                is_plr;
-        bool                slow_start;        
-        double              send_rate;         // sender advertised rate
-        double              recv_rate;         // measured recv rate
-        struct timeval      prev_update_time;  // for recv_rate measurement
-        unsigned long       recv_accumulator;  // for recv_rate measurement
-        double              nominal_packet_size;
+        NormLossEstimator2      loss_estimator;
+        UINT16                  cc_sequence;
+        bool                    cc_enable;
+        double                  cc_rate;           // ccRate at start of cc_timer
+        ProtoTimer              cc_timer;
+        double                  rtt_estimate;
+        UINT8                   rtt_quantized;
+        bool                    rtt_confirmed;
+        bool                    is_clr;
+        bool                    is_plr;
+        bool                    slow_start;        
+        double                  send_rate;         // sender advertised rate
+        double                  recv_rate;         // measured recv rate
+        struct timeval          prev_update_time;  // for recv_rate measurement
+        unsigned long           recv_accumulator;  // for recv_rate measurement
+        double                  nominal_packet_size;
         
         // For statistics tracking
-        unsigned long       recv_total;        // total recvd accumulator
-        unsigned long       recv_goodput;      // goodput recvd accumulator
-        unsigned long       resync_count;
-        unsigned long       nack_count;
-        unsigned long       suppress_count;
-        unsigned long       completion_count;
-        unsigned long       failure_count;     // usually due to re-syncs
+        unsigned long           recv_total;        // total recvd accumulator
+        unsigned long           recv_goodput;      // goodput recvd accumulator
+        unsigned long           resync_count;
+        unsigned long           nack_count;
+        unsigned long           suppress_count;
+        unsigned long           completion_count;
+        unsigned long           failure_count;     // usually due to re-syncs
         
 };  // end class NormServerNode
     

@@ -20,7 +20,6 @@ const UINT8 NORM_PROTOCOL_VERSION = 1;
 
 const int NORM_ROBUST_FACTOR = 20;  // default robust factor
 
-
 // Pick a random number from 0..max
 inline double UniformRand(double max)
 {
@@ -46,7 +45,7 @@ const double NORM_RTT_MAX = 1000.0;
 inline double NormUnquantizeRtt(unsigned char qrtt)
 {
 	return ((qrtt < 31) ? 
-			(((double)(qrtt+1))/(double)NORM_RTT_MIN) :
+			(((double)(qrtt+1))*(double)NORM_RTT_MIN) :
 		    (NORM_RTT_MAX/exp(((double)(255-qrtt))/(double)13.0)));
 }
 unsigned char NormQuantizeRtt(double rtt);
@@ -95,6 +94,7 @@ inline double NormUnquantizeRate(unsigned short rate)
 }
 
 // This class is used to describe object "size" and/or "offset"
+// (TBD) This hokey implementation should use "off_t"
 class NormObjectSize
 {
     public:
@@ -103,6 +103,13 @@ class NormObjectSize
         NormObjectSize(UINT32 size) : msb(0), lsb(size) {}
         NormObjectSize(UINT16 size) : msb(0), lsb(size) {}
         NormObjectSize(const NormObjectSize& size) : msb(size.msb), lsb(size.lsb) {}
+        NormObjectSize(off_t size) 
+        {
+            lsb = size & 0x00000000ffffffff;
+            size >>= 32;
+            ASSERT(0 == (size & 0xffff0000));   
+            msb = size & 0x0000ffff;
+        }
         
         UINT16 MSB() const {return msb;}
         UINT32 LSB() const {return lsb;}
@@ -150,15 +157,24 @@ class NormObjectSize
         }
         NormObjectSize operator*(const NormObjectSize& b) const;
         NormObjectSize operator/(const NormObjectSize& b) const;
+        off_t GetOffset() const
+        {
+           off_t offset = msb;
+           offset <<= 32;
+           offset += lsb;
+           return offset;   
+        }
         
     private:
         UINT16  msb;
         UINT32  lsb;  
 };  // end class NormObjectSize
 
-typedef UINT32 NormNodeId;
-const NormNodeId NORM_NODE_INVALID  = 0x00000000;
-const NormNodeId NORM_NODE_ANY      = 0xffffffff;
+#ifndef _NORM_API
+typedef unsigned long NormNodeId;
+const NormNodeId NORM_NODE_NONE = 0x00000000;
+const NormNodeId NORM_NODE_ANY  = 0xffffffff;
+#endif // !_NORM_API
 
 class NormObjectId
 {
@@ -167,18 +183,12 @@ class NormObjectId
         NormObjectId(UINT16 id) {value = id;}
         NormObjectId(const NormObjectId& id) {value = id.value;}
         operator UINT16() const {return value;}
-        int operator-(const NormObjectId& id) const
-        {
-            int result = value - id.value;
-            return ((0 == (result & 0x00008000)) ? 
-                        (result & 0x0000ffff) :
-                        (((result != 0x00008000) || (value < id.value)) ? 
-                            result | 0xffff0000 : result));
-        }
+        INT16 operator-(const NormObjectId& id) const
+            {return ((INT16)(value - id.value));}
         bool operator<(const NormObjectId& id) const
-            {return ((*this - id) < 0);}
+            {return (((short)(value - id.value)) < 0);}
         bool operator>(const NormObjectId& id) const
-            {return ((*this - id) > 0);}
+            {return (((INT16)(value - id.value)) > 0);}
         bool operator<=(const NormObjectId& id) const
             {return ((value == id.value) || (*this<id));}
         bool operator>=(const NormObjectId& id) const
@@ -187,7 +197,7 @@ class NormObjectId
             {return (value == id.value);}
         bool operator!=(const NormObjectId& id) const
             {return (value != id.value);}
-        NormObjectId& operator++(int ) {value++; return *this;}
+        NormObjectId& operator++(int) {value++; return *this;}
         
     private:
         UINT16  value;  
@@ -204,17 +214,17 @@ class NormBlockId
             {return (value == (UINT32)id);}
         bool operator!=(const NormBlockId& id) const
             {return (value != (UINT32)id);}
-        long operator-(const NormBlockId& id) const
-            {return ((long)value - id.value);}
+        INT32 operator-(const NormBlockId& id) const
+            {return ((INT32)value - id.value);}
         bool operator<(const NormBlockId& id) const
-            {return ((*this - id) < 0);}
+            {return (((INT32)(value-id.value)) < 0);}
         bool operator>(const NormBlockId& id) const
-            {return ((*this - id) > 0);}
+            {return (((INT32)(value-id.value)) > 0);}
         NormBlockId& operator++(int ) {value++; return *this;}
         
     private:
         UINT32  value;  
-};  // end class NormObjectId
+};  // end class NormBlockId
 
 typedef UINT16 NormSymbolId;
 typedef NormSymbolId NormSegmentId;
@@ -361,7 +371,7 @@ class NormMsg
         void ExtendHeaderLength(UINT16 len) 
         {
             header_length += len;
-            length = header_length;
+            length += len;
             buffer[HDR_LEN_OFFSET] = header_length >> 2;
         }
            
@@ -623,6 +633,7 @@ class NormDataMsg : public NormObjectMsg
             UINT16 dataIndex = IsStream() ? header_length+PAYLOAD_DATA_OFFSET : header_length;
             return (length - dataIndex);
         }
+        
         
         // These routines are only applicable to messages containing NORM_OBJECT_STREAM content
         // Some static helper routines for reading/writing embedded payload length/offsets
@@ -1049,7 +1060,7 @@ class NormRepairRequest
         void SetForm(NormRepairRequest::Form theForm) {form = theForm;}
         void ResetFlags() {flags = 0;}
         void SetFlag(NormRepairRequest::Flag theFlag) {flags |= theFlag;} 
-        void UnsetFlag(NormRepairRequest::Flag theFlag) {flags &= ~theFlag;}       
+        void ClearFlag(NormRepairRequest::Flag theFlag) {flags &= ~theFlag;}       
         
         // Returns length (each repair item requires 8 bytes of space)
         bool AppendRepairItem(const NormObjectId& objectId, 
@@ -1417,6 +1428,7 @@ class NormAckMsg : public NormMsg
         {
             UINT16 len = MIN(payloadLen, segmentSize);
             memcpy(buffer+header_length, payload, len);
+            length += len;
             return (payloadLen <= segmentSize);   
         }
         
@@ -1439,7 +1451,7 @@ class NormAckMsg : public NormMsg
         UINT16 GetPayloadLength() const {return (length - header_length);}
         const char* GetPayload() const {return (buffer + header_length);}
         
-    private:
+    protected:
         enum
         {
             SERVER_ID_OFFSET        = MSG_OFFSET,
@@ -1450,6 +1462,75 @@ class NormAckMsg : public NormMsg
             ACK_HEADER_LEN          = GRTT_RESPONSE_OFFSET + 8
         };
 };  // end class NormAckMsg
+
+class NormAckFlushMsg : public NormAckMsg
+{
+    public:
+        void Init()
+        {
+            SetType(ACK);
+            SetBaseHeaderLength(ACK_HEADER_LEN);
+            SetAckType(NormAck::FLUSH);
+            SetFecId(129); // only one supported for the moment
+            buffer[RESERVED_OFFSET] = 0;
+            length = ACK_HEADER_LEN+PAYLOAD_LENGTH;
+        }
+        
+        // Note: must apply any header exts _before_ the payload is set
+        void SetFecId(UINT8 fecId) 
+            {buffer[header_length+FEC_ID_OFFSET] = fecId;}
+        void SetObjectId(NormObjectId objectId)
+            {*((UINT16*)(buffer+header_length+OBJ_ID_OFFSET)) = htons((UINT16)objectId);}
+        void SetFecBlockId(const NormBlockId& blockId)
+        {
+            UINT32 temp32 = htonl((UINT32)blockId);
+            memcpy(buffer+header_length+BLOCK_ID_OFFSET, &temp32, 4);
+        }
+        void SetFecBlockLen(UINT16 blockLen)
+        {
+            blockLen = htons(blockLen);
+            memcpy(buffer+header_length+BLOCK_LEN_OFFSET, &blockLen, 2);
+        }
+        void SetFecSymbolId(UINT16 symbolId)
+        {
+            symbolId = htons(symbolId);
+            memcpy(buffer+header_length+SYMBOL_ID_OFFSET, &symbolId, 2);
+        }
+        
+        // Message processing
+        UINT8 GetFecId() {return buffer[header_length+FEC_ID_OFFSET];}
+        NormObjectId GetObjectId() const
+        {
+            return (ntohs(*((UINT16*)(buffer+header_length+OBJ_ID_OFFSET))));
+        }        
+        NormBlockId GetFecBlockId() const
+        {
+            return (ntohl(*((UINT32*)(buffer+header_length+BLOCK_ID_OFFSET))));
+        }
+        UINT16 GetFecBlockLen() const
+        {
+            return (ntohs(*((UINT16*)(buffer+header_length+BLOCK_LEN_OFFSET))));
+        }
+        UINT16 GetFecSymbolId() const
+        {
+            return (ntohs(*((UINT16*)(buffer+header_length+SYMBOL_ID_OFFSET))));  
+        }
+        
+    private:
+        // These are the payload offsets for "fec_id" = 129 
+        // "fec_payload_id" field
+        enum
+        {
+            FEC_ID_OFFSET       = 0,
+            RESERVED_OFFSET     = FEC_ID_OFFSET + 1,
+            OBJ_ID_OFFSET       = RESERVED_OFFSET + 1,
+            BLOCK_ID_OFFSET     = OBJ_ID_OFFSET + 2,
+            BLOCK_LEN_OFFSET    = BLOCK_ID_OFFSET + 4,
+            SYMBOL_ID_OFFSET    = BLOCK_LEN_OFFSET + 2,
+            PAYLOAD_LENGTH      = SYMBOL_ID_OFFSET + 2
+        };
+            
+};  // end class NormAckFlushMsg
 
 class NormReportMsg : public NormMsg
 {

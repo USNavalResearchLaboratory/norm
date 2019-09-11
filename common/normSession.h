@@ -13,11 +13,20 @@ class NormController
     public:
         enum Event
         {
+            EVENT_INVALID = 0,
+            TX_QUEUE_VACANCY,
             TX_QUEUE_EMPTY,
+            TX_OBJECT_SENT,
+            TX_OBJECT_PURGED,
+            LOCAL_SERVER_CLOSED,
+            REMOTE_SERVER_NEW,
+            REMOTE_SERVER_INACTIVE,
+            REMOTE_SERVER_ACTIVE,
             RX_OBJECT_NEW,
             RX_OBJECT_INFO,
             RX_OBJECT_UPDATE,
-            RX_OBJECT_COMPLETE,
+            RX_OBJECT_COMPLETED,
+            RX_OBJECT_ABORTED
         };
                   
         virtual void Notify(NormController::Event event,
@@ -54,9 +63,10 @@ class NormSessionMgr
         }
                
         void ActivateTimer(ProtoTimer& timer) {timer_mgr.ActivateTimer(timer);}
-        ProtoTimerMgr& GetTimerMgr() {return timer_mgr;}        
-        ProtoSocket::Notifier& GetSocketNotifier() {return socket_notifier;}
+        ProtoTimerMgr& GetTimerMgr() const {return timer_mgr;}        
+        ProtoSocket::Notifier& GetSocketNotifier() const {return socket_notifier;}
     
+        NormController* GetController() const {return controller;}
     private:   
         ProtoTimerMgr&          timer_mgr;  
         ProtoSocket::Notifier&  socket_notifier;
@@ -86,26 +96,34 @@ class NormSession
         static const UINT16 DEFAULT_NPARITY;
                
         // General methods
-        const NormNodeId& LocalNodeId() {return local_node_id;}
+        const NormNodeId& LocalNodeId() const {return local_node_id;}
         bool Open(const char* interfaceName = NULL);
         void Close();
         bool IsOpen() {return (rx_socket.IsOpen() || tx_socket.IsOpen());}
         const ProtoAddress& Address() {return address;}
         void SetAddress(const ProtoAddress& addr) {address = addr;}
+        bool SetTTL(UINT8 theTTL) 
+        {
+            bool result = tx_socket.IsOpen() ? tx_socket.SetTTL(theTTL) : true;
+            ttl = result ? theTTL : ttl;
+            return result; 
+        }
+        bool SetLoopback(bool state) 
+        {
+            bool result = tx_socket.IsOpen() ? tx_socket.SetLoopback(state) : true;
+            loopback = result ? state : loopback;
+            return result; 
+        }
         static double CalculateRate(double size, double rtt, double loss);
         
+        NormSessionMgr& GetSessionMgr() {return session_mgr;}
         
         // Session parameters
         double TxRate() {return (tx_rate * 8.0);}
         // (TBD) watch timer scheduling and min/max bounds
-        void SetTxRate(double txRate) {tx_rate = txRate / 8.0;}
+        void SetTxRate(double txRate);
         double BackoffFactor() {return backoff_factor;}
         void SetBackoffFactor(double value) {backoff_factor = value;}
-        void SetLoopback(bool state)
-        {
-            rx_socket.SetLoopback(state);
-            tx_socket.SetLoopback(state);
-        }
         bool CongestionControl() {return cc_enable;}
         void SetCongestionControl(bool state) {cc_enable = state;}
         
@@ -130,11 +148,12 @@ class NormSession
             next_tx_object_id = IsServer() ? next_tx_object_id : baseId;   
             session_id = IsServer() ? session_id : (UINT16)baseId;
         }
-        bool StartServer(unsigned long bufferSpace,
-                         UINT16        segmentSize,
-                         UINT16        numData,
-                         UINT16        numParity,
-                         const char*   interfaceName = NULL);
+        bool IsServer() {return is_server;}
+        bool StartServer(UINT32         bufferSpace,
+                         UINT16         segmentSize,
+                         UINT16         numData,
+                         UINT16         numParity,
+                         const char*    interfaceName = NULL);
         void StopServer();
         NormStreamObject* QueueTxStream(UINT32      bufferSize, 
                                         const char* infoPtr = NULL, 
@@ -142,15 +161,27 @@ class NormSession
         NormFileObject* QueueTxFile(const char* path,
                                     const char* infoPtr = NULL,
                                     UINT16      infoLen = 0);
-                
-        bool IsServer() {return is_server;}
-        UINT16 ServerSegmentSize() {return segment_size;}
-        UINT16 ServerBlockSize() {return ndata;}
-        UINT16 ServerNumParity() {return nparity;}
-        UINT16 ServerAutoParity() {return auto_parity;}
+        NormDataObject* QueueTxData(const char* dataPtr,
+                                    UINT32      dataLen,
+                                    const char* infoPtr = NULL,
+                                    UINT16      infoLen = 0);
+        void DeleteTxObject(NormObject* obj); 
+        
+        // postive ack mgmnt
+        void ServerSetWatermark(NormObjectId  objectId,
+                                NormBlockId   blockId,
+                                NormSegmentId segmentId);
+        bool ServerAddAckingNode(NormNodeId nodeId);
+        void ServerRemoveAckingNode(NormNodeId nodeId);
+        
+        
+        UINT16 ServerSegmentSize() const {return segment_size;}
+        UINT16 ServerBlockSize() const {return ndata;}
+        UINT16 ServerNumParity() const {return nparity;}
+        UINT16 ServerAutoParity() const {return auto_parity;}
         void ServerSetAutoParity(UINT16 autoParity)
             {ASSERT(autoParity <= nparity); auto_parity = autoParity;}
-        UINT16 ServerExtraParity() {return extra_parity;}
+        UINT16 ServerExtraParity() const {return extra_parity;}
         void ServerSetExtraParity(UINT16 extraParity)
             {extra_parity = extraParity;}
         
@@ -158,6 +189,13 @@ class NormSession
         {
             UINT32 index;
             bool result = tx_pending_mask.GetFirstSet(index);
+            objectId = (UINT16)index;
+            return result;   
+        }
+        bool ServerGetFirstRepairPending(NormObjectId& objectId)
+        {
+            UINT32 index;
+            bool result = tx_repair_mask.GetFirstSet(index);
             objectId = (UINT16)index;
             return result;   
         }
@@ -192,15 +230,7 @@ class NormSession
         void ServerPutFreeSegment(char* segment) {segment_pool.Put(segment);}
         
         
-        void PromptServer()
-        {
-            if (!tx_timer.IsActive())
-            {
-                tx_timer.SetInterval(0.0);
-                ActivateTimer(tx_timer);    
-            }
-        }
-        
+        void PromptServer() {QueueMessage(NULL);}
         
         void TouchServer() 
         {
@@ -213,13 +243,23 @@ class NormSession
         bool StartClient(unsigned long bufferSpace, 
                          const char*   interfaceName = NULL);
         void StopClient();
-        bool IsClient() {return is_client;}
-        unsigned long RemoteServerBufferSize() 
+        bool IsClient() const {return is_client;}
+        unsigned long RemoteServerBufferSize() const
             {return remote_server_buffer_size;}
         void SetUnicastNacks(bool state) {unicast_nacks = state;}
-        bool UnicastNacks() {return unicast_nacks;}
+        bool UnicastNacks() const {return unicast_nacks;}
         void ClientSetSilent(bool state) {client_silent = state;}
-        bool ClientIsSilent() {return client_silent;}
+        bool ClientIsSilent() const {return client_silent;}
+        
+        NormObject::NackingMode ClientGetDefaultNackingMode() const
+            {return default_nacking_mode;}
+        void ClientSetDefaultNackingMode(NormObject::NackingMode nackingMode)
+            {default_nacking_mode = nackingMode;}
+        
+        NormServerNode::RepairBoundary ClientGetDefaultRepairBoundary() const
+            {return default_repair_boundary;}
+        void ClientSetDefaultRepairBoundary(NormServerNode::RepairBoundary repairBoundary)
+            {default_repair_boundary = repairBoundary;}
         
         // Debug settings
         void SetTrace(bool state) {trace = state;}
@@ -239,13 +279,12 @@ class NormSession
         ~NormSession();
         
         void Serve();
-        bool QueueTxObject(NormObject* obj, bool touchServer = true);
-        void DeleteTxObject(NormObject* obj);
+        bool QueueTxObject(NormObject* obj);
+        
         
         bool OnTxTimeout(ProtoTimer& theTimer);
         bool OnRepairTimeout(ProtoTimer& theTimer);
         bool OnFlushTimeout(ProtoTimer& theTimer);
-        bool OnWatermarkTimeout(ProtoTimer& theTimer);
         bool OnProbeTimeout(ProtoTimer& theTimer);
         bool OnReportTimeout(ProtoTimer& theTimer);
         
@@ -271,6 +310,7 @@ class NormSession
         void AdjustRate(bool onResponse);
         bool ServerQueueSquelch(NormObjectId objectId);
         void ServerQueueFlush();
+        bool ServerQueueWatermarkFlush();
         bool ServerBuildRepairAdv(NormCmdRepairAdvMsg& cmd);
         void ServerUpdateGroupSize();
         
@@ -282,102 +322,111 @@ class NormSession
         void ClientHandleNackMessage(const NormNackMsg& nack);
         void ClientHandleAckMessage(const NormAckMsg& ack);
         
-        NormSessionMgr&     session_mgr;
-        bool                notify_pending;
-        ProtoTimer          tx_timer;
-        ProtoSocket         tx_socket;
-        ProtoSocket         rx_socket;
-        NormMessageQueue    message_queue;
-        NormMessageQueue    message_pool;
-        ProtoTimer          report_timer;
-        UINT16              tx_sequence;
+        NormSessionMgr&                 session_mgr;
+        bool                            notify_pending;
+        ProtoTimer                      tx_timer;
+        ProtoSocket                     tx_socket;
+        ProtoSocket                     rx_socket;
+        NormMessageQueue                message_queue;
+        NormMessageQueue                message_pool;
+        ProtoTimer                      report_timer;
+        UINT16                          tx_sequence;
         
         // General session parameters
-        NormNodeId          local_node_id;
-        ProtoAddress        address;  // session destination address & port
-        UINT8               ttl;      // session multicast ttl       
-        double              tx_rate;  // bytes per second
-        double              backoff_factor;
+        NormNodeId                      local_node_id;
+        ProtoAddress                    address;  // session destination address & port
+        UINT8                           ttl;      // session multicast ttl   
+        bool                            loopback; // to receive own traffic    
+        double                          tx_rate;  // bytes per second
+        double                          backoff_factor;
         
         // Server parameters and state
-        bool                is_server;
-        UINT16              session_id;
-        UINT16              segment_size;
-        UINT16              ndata;
-        UINT16              nparity;
-        UINT16              auto_parity;
-        UINT16              extra_parity;
+        bool                            is_server;
+        UINT16                          session_id;
+        UINT16                          segment_size;
+        UINT16                          ndata;
+        UINT16                          nparity;
+        UINT16                          auto_parity;
+        UINT16                          extra_parity;
         
-        NormObjectTable     tx_table;
-        NormSlidingMask     tx_pending_mask;
-        NormSlidingMask     tx_repair_mask;
-        ProtoTimer          repair_timer;
-        NormBlockPool       block_pool;
-        NormSegmentPool     segment_pool;
-        NormEncoder         encoder;
+        NormObjectTable                 tx_table;
+        NormSlidingMask                 tx_pending_mask;
+        NormSlidingMask                 tx_repair_mask;
+        ProtoTimer                      repair_timer;
+        NormBlockPool                   block_pool;
+        NormSegmentPool                 segment_pool;
+        NormEncoder                     encoder;
         
-        NormObjectId        next_tx_object_id;
-        unsigned int        tx_cache_count_min;
-        unsigned int        tx_cache_count_max;
-        NormObjectSize      tx_cache_size_max;
-        ProtoTimer          flush_timer;
-        int                 flush_count;
-        bool                posted_tx_queue_empty;
-        ProtoTimer          watermark_timer;
-        int                 watermark_count;
-        // (TBD) watermark_object_id, watermark_block_id, watermark_symbol_id
+        NormObjectId                    next_tx_object_id;
+        unsigned int                    tx_cache_count_min;
+        unsigned int                    tx_cache_count_max;
+        NormObjectSize                  tx_cache_size_max;
+        ProtoTimer                      flush_timer;
+        int                             flush_count;
+        bool                            posted_tx_queue_empty;
+        
+        // For postive acknowledgement collection
+        NormNodeTree                    acking_node_tree;
+        unsigned int                    acking_node_count;
+        bool                            watermark_pending;
+        NormObjectId                    watermark_object_id;
+        NormBlockId                     watermark_block_id;
+        NormSegmentId                   watermark_segment_id;
+        unsigned int                    acks_collected;
         
         // for unicast nack/cc feedback suppression
-        bool                advertise_repairs;
-        bool                suppress_nonconfirmed;
-        double              suppress_rate;
-        double              suppress_rtt;
+        bool                            advertise_repairs;
+        bool                            suppress_nonconfirmed;
+        double                          suppress_rate;
+        double                          suppress_rtt;
         
-        ProtoTimer          probe_timer;  // GRTT/congestion control probes
-        bool                probe_proactive;
-        bool                probe_pending; // true while CMD(CC) enqueued
-        bool                probe_reset;   
+        ProtoTimer                      probe_timer;  // GRTT/congestion control probes
+        bool                            probe_proactive;
+        bool                            probe_pending; // true while CMD(CC) enqueued
+        bool                            probe_reset;   
         
-        double              grtt_interval;     // current GRTT update interval
-        double              grtt_interval_min; // minimum GRTT update interval
-        double              grtt_interval_max; // maximum GRTT update interval
+        double                          grtt_interval;     // current GRTT update interval
+        double                          grtt_interval_min; // minimum GRTT update interval
+        double                          grtt_interval_max; // maximum GRTT update interval
         
-        double              grtt_max;
-        unsigned int        grtt_decrease_delay_count;
-        bool                grtt_response;
-        double              grtt_current_peak;
-        double              grtt_measured;
-        double              grtt_age;
-        double              grtt_advertised;
-        UINT8               grtt_quantized;
-        double              gsize_measured;
-        double              gsize_advertised;
-        UINT8               gsize_quantized;
+        double                          grtt_max;
+        unsigned int                    grtt_decrease_delay_count;
+        bool                            grtt_response;
+        double                          grtt_current_peak;
+        double                          grtt_measured;
+        double                          grtt_age;
+        double                          grtt_advertised;
+        UINT8                           grtt_quantized;
+        double                          gsize_measured;
+        double                          gsize_advertised;
+        UINT8                           gsize_quantized;
         
         // Server congestion control parameters
-        bool                cc_enable;
-        UINT8               cc_sequence;
-        NormNodeList        cc_node_list;
-        bool                cc_slow_start;
-        double              sent_rate;         // measured sent rate
-        struct timeval      prev_update_time;  // for sent_rate measurement
-        unsigned long       sent_accumulator;  // for sent_rate measurement
-        double              nominal_packet_size;
+        bool                            cc_enable;
+        UINT8                           cc_sequence;
+        NormNodeList                    cc_node_list;
+        bool                            cc_slow_start;
+        double                          sent_rate;         // measured sent rate
+        struct timeval                  prev_update_time;  // for sent_rate measurement
+        unsigned long                   sent_accumulator;  // for sent_rate measurement
+        double                          nominal_packet_size;
         
         // Client parameters
-        bool                is_client;
-        NormNodeTree        server_tree;
-        unsigned long       remote_server_buffer_size;
-        bool                unicast_nacks;
-        bool                client_silent;
+        bool                            is_client;
+        NormNodeTree                    server_tree;
+        unsigned long                   remote_server_buffer_size;
+        bool                            unicast_nacks;
+        bool                            client_silent;
+        NormServerNode::RepairBoundary  default_repair_boundary;
+        NormObject::NackingMode         default_nacking_mode;    
         
         // Protocol test/debug parameters
-        bool                trace;
-        double              tx_loss_rate;  // for correlated loss
-        double              rx_loss_rate;  // for uncorrelated loss
+        bool                            trace;
+        double                          tx_loss_rate;  // for correlated loss
+        double                          rx_loss_rate;  // for uncorrelated loss
 
         // Linkers
-        NormSession*        next;
+        NormSession*                    next;
 };  // end class NormSession
 
 

@@ -11,6 +11,11 @@
 #include <stdlib.h>
 #include <ctype.h>  // for "isspace()"
 
+#ifdef UNIX
+#include <sys/types.h>
+#include <sys/wait.h>  // for "waitpid()"
+#endif // UNIX
+
 // Command-line application using Protolib EventDispatcher
 class NormApp : public NormController, public ProtoApp
 {
@@ -64,8 +69,8 @@ class NormApp : public NormController, public ProtoApp
         unsigned int        input_index;
         unsigned int        input_length;
         bool                input_active;
-        bool                push_stream;
-        NormStreamObject::FlushType msg_flush_mode;
+        bool                push_mode;
+        NormStreamObject::FlushMode msg_flush_mode;
         bool                input_messaging; // stream input mode   
         UINT16              input_msg_length;
         UINT16              input_msg_index;
@@ -79,6 +84,7 @@ class NormApp : public NormController, public ProtoApp
         char*               address;        // session address
         UINT16              port;           // session port number
         UINT8               ttl;
+        bool                loopback;
         char*               interface_name; // for multi-home hosts
         double              tx_rate;        // bits/sec
         bool                cc_enable;
@@ -90,6 +96,8 @@ class NormApp : public NormController, public ProtoApp
         UINT8               auto_parity;
         UINT8               extra_parity;
         double              backoff_factor;
+        double              grtt_estimate; // initial grtt estimate
+        double              group_size;
         unsigned long       tx_buffer_size; // bytes
         NormFileList        tx_file_list;
         double              tx_object_interval;
@@ -118,13 +126,15 @@ NormApp::NormApp()
    session_mgr(GetTimerMgr(), GetSocketNotifier()),
    session(NULL), tx_stream(NULL), rx_stream(NULL), input(NULL), output(NULL), 
    input_index(0), input_length(0), input_active(false),
-   push_stream(false), msg_flush_mode(NormStreamObject::FLUSH_PASSIVE),
+   push_mode(false), msg_flush_mode(NormStreamObject::FLUSH_PASSIVE),
    input_messaging(false), input_msg_length(0), input_msg_index(0),
    output_index(0), output_messaging(false), output_msg_length(0), output_msg_sync(false),
-   address(NULL), port(0), ttl(3), interface_name(NULL),
+   address(NULL), port(0), ttl(3), loopback(false), interface_name(NULL),
    tx_rate(64000.0), cc_enable(false),
    segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
    backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
+   grtt_estimate(NormSession::DEFAULT_GRTT_ESTIMATE),
+   group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
    tx_buffer_size(1024*1024), 
    tx_object_interval(0.0), tx_repeat_count(0), tx_repeat_interval(2.0), tx_repeat_clear(true),
    rx_buffer_size(1024*1024), rx_cache_path(NULL), unicast_nacks(false), silent_client(false),
@@ -153,16 +163,33 @@ NormApp::~NormApp()
     if (post_processor) delete post_processor;
 }
 
+// NOTE on message flushing mode:
+//
+// "none"    - messages are aggregated to make NORM_DATA
+//             payloads a full "segmentSize"
+//
+// "passive" - At the end-of-message, short NORM_DATA
+//             payloads are sent as needed so that
+//             the message is immediately sent
+//             (i.e. not held for aggregation)
+// "active"  - Same as "passive", plus NORM_CMD(FLUSH)
+//             messages are generated until new
+//             message is written to stream
+//             (This helps keep receivers in sync
+//              with sender when intermittent message
+//              traffic is sent)
+
 
 const char* const NormApp::cmd_list[] = 
 {
     "+debug",        // debug level
     "+log",          // log file name
-    "-trace",        // message tracing on
+    "+trace",        // message tracing on
     "+txloss",       // tx packet loss percent (for testing)
     "+rxloss",       // rx packet loss percent (for testing)
     "+address",      // session destination address
     "+ttl",          // multicast hop count scope
+    "+loopback",     // "off" or "on" to recv our own packets
     "+interface",    // multicast interface name to use
     "+cc",           // congestion control on/off
     "+rate",         // tx date rate (bps)
@@ -184,18 +211,19 @@ const char* const NormApp::cmd_list[] =
     "+auto",         // Number of FEC packets to proactively send (<= nparity)
     "+extra",        // Number of extra FEC packets sent in response to repair requests
     "+backoff",      // Backoff factor to use
+    "+grtt",         // Set sender's initial GRTT estimate
+    "+gsize",        // Set sender's group size estimate
     "+txbuffer",     // Size of sender's buffer
     "+rxbuffer",     // Size receiver allocates for buffering each sender
     "-unicastNacks", // unicast instead of multicast feedback messages
     "-silentClient", // "silent" (non-nacking) client (EMCON mode)
     "+processor",    // receive file post processing command
-    "+instance",     // specify norm instance name for commands
+    "+instance",     // specify norm instance name for remote control commands
     NULL         
 };
 
 void NormApp::OnControlEvent(ProtoSocket& /*theSocket*/, ProtoSocket::Event theEvent)
 {
-    TRACE("NormApp::OnControlEvent() ...\n");
     switch (theEvent)
     {
         case ProtoSocket::RECV:
@@ -205,7 +233,7 @@ void NormApp::OnControlEvent(ProtoSocket& /*theSocket*/, ProtoSocket::Event theE
             if (control_pipe.Recv(buffer, len))
             {
                 buffer[len] = '\0';
-                TRACE("norm: received command \"%s\"\n", buffer);
+                DMSG(0, "norm: received command \"%s\"\n", buffer);
                 char* cmd = buffer;
                 char* val = NULL;
                 for (unsigned int i = 0; i < len; i++)
@@ -214,6 +242,7 @@ void NormApp::OnControlEvent(ProtoSocket& /*theSocket*/, ProtoSocket::Event theE
                     {
                         buffer[i++] = '\0';   
                         val = buffer + i;
+                        break;
                     }
                 }
                 if (!OnCommand(cmd, val))
@@ -288,8 +317,16 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     }
     else if (!strncmp("trace", cmd, len))
     {
-        tracing = true;
-        if (session) session->SetTrace(true);
+        if (!strcmp("on", val))
+            tracing = true;
+        else if (!strcmp("off", val))
+            tracing = false;
+        else
+        {
+            DMSG(0, "NormApp::OnCommand(trace) invalid argument!\n");   
+            return false;
+        }
+        if (session) session->SetTrace(tracing);
     }
     else if (!strncmp("txloss", cmd, len))
     {
@@ -346,12 +383,38 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     else if (!strncmp("ttl", cmd, len))
     {
         int ttlTemp = atoi(val);
-        if ((ttlTemp < 1) || (ttlTemp > 255))
+        if ((ttlTemp < 0) || (ttlTemp > 255))
         {
             DMSG(0, "NormApp::OnCommand(ttl) invalid value!\n");   
             return false;
         }
-        ttl = ttlTemp;
+        bool result = session ? session->SetTTL((UINT8)ttlTemp) : true;
+        ttl = result ? ttlTemp : ttl;
+        if (!result)
+        {
+            DMSG(0, "NormApp::OnCommand(ttl) error setting socket ttl!\n");   
+            return false;
+        }
+    }
+    else if (!strncmp("loopback", cmd, len))
+    {
+        bool loopTemp = loopback;
+        if (!strcmp("on", val))
+            loopTemp = true;
+        else if (!strcmp("off", val))
+            loopTemp = false;
+        else
+        {
+            DMSG(0, "NormApp::OnCommand(loopback) invalid argument!\n");   
+            return false;
+        }
+        bool result = session ? session->SetLoopback(loopTemp) : true;
+        loopback = result ? loopTemp : loopback;
+        if (!result)
+        {
+            DMSG(0, "NormApp::OnCommand(loopback) error setting socket loopback!\n");   
+            return false;
+        }
     }
     else if (!strncmp("interface", cmd, len))
     {
@@ -580,11 +643,33 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         double backoffFactor = atof(val);
         if (backoffFactor < 0)
         {
-            DMSG(0, "NormSimAgent::OnCommand(backoff) invalid txRate!\n");   
+            DMSG(0, "NormApp::OnCommand(backoff) invalid value!\n");   
             return false;
         }
         backoff_factor = backoffFactor;
         if (session) session->SetBackoffFactor(backoffFactor);
+    }
+    else if (!strncmp("grtt", cmd, len))
+    {
+        double grttEstimate = atof(val);
+        if (grttEstimate < 0)
+        {
+            DMSG(0, "NormApp::OnCommand(grtt) invalid value!\n");   
+            return false;
+        }
+        grtt_estimate = grttEstimate;
+        if (session) session->ServerSetGrtt(grttEstimate);
+    }
+    else if (!strncmp("gsize", cmd, len))
+    {
+        double groupSize = atof(val);
+        if (groupSize < 0)
+        {
+            DMSG(0, "NormApp::OnCommand(gsize) invalid value!\n");   
+            return false;
+        }
+        group_size = groupSize;
+        if (session) session->ServerSetGroupSize(groupSize);
     }
     else if (!strncmp("txbuffer", cmd, len))
     {
@@ -614,7 +699,8 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     }
     else if (!strncmp("push", cmd, len))
     {
-        push_stream = true;
+        push_mode = true;
+        if (tx_stream) tx_stream->SetPushMode(push_mode);
     }
     else if (!strncmp("flush", cmd, len))
     {
@@ -630,6 +716,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
             DMSG(0, "NormApp::OnCommand(flush) invalid msg flush mode!\n");   
             return false;
         }
+        if (tx_stream) tx_stream->SetFlushMode(msg_flush_mode);
     }
     else if (!strncmp("processor", cmd, len))
     {
@@ -644,12 +731,10 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         // First, try to connect to see if instance is already running
         if (control_pipe.Connect(val))
         {
-            TRACE("connected to \"%s\"\n", val);
             control_remote = true;
         }
         else if (control_pipe.Listen(val))
         {
-            TRACE("listening as \"%s\"\n", val);
             control_remote = false;
         }
         else
@@ -740,7 +825,7 @@ void NormApp::OnInputReady()
 {
     
     //DMSG(0, "NormApp::OnInputReady() ...\n");
-    NormStreamObject::FlushType flushType = NormStreamObject::FLUSH_NONE;
+    bool endOfStream = false;
     // write to the stream while input is available _and_
     // the stream has buffer space for input
     while (input)
@@ -816,7 +901,8 @@ void NormApp::OnInputReady()
                     }
                     if (stdin != input) fclose(input);
                     input = NULL;
-                    flushType = NormStreamObject::FLUSH_ACTIVE;   
+                    endOfStream = true;   
+                    tx_stream->SetFlushMode(NormStreamObject::FLUSH_ACTIVE);
                 }
                 else if (ferror(input))
                 {
@@ -839,11 +925,10 @@ void NormApp::OnInputReady()
         
         unsigned int writeLength = input_length;// ? input_length - input_index : 0;
             
-        if (writeLength || (NormStreamObject::FLUSH_NONE != flushType))
+        if (writeLength || endOfStream)
         {
             unsigned int wroteLength = tx_stream->Write(input_buffer+input_index, 
-                                                        writeLength, flushType, false, 
-                                                        push_stream);
+                                                        writeLength, false);
             input_length -= wroteLength;
             if (0 == input_length)
                 input_index = 0;
@@ -857,7 +942,9 @@ void NormApp::OnInputReady()
                     input_msg_index = 0;
                     input_msg_length = 0;  
                     // Mark EOM _and_ flush
-                    tx_stream->Write(NULL, 0, msg_flush_mode, true, false); 
+                    tx_stream->Write(NULL, 0, true); 
+                    // No need to explicitly flush with "flush mode" set.
+                    //tx_stream->Flush();
                 }
             }
             if (wroteLength < writeLength) 
@@ -890,7 +977,7 @@ void NormApp::OnInputReady()
 #endif // if/else WIN32/UNIX
                     input_active = true;
                 else
-                    DMSG(0, "NormApp::Notify(TX_QUEUE_EMPTY) error adding input notification!\n");
+                    DMSG(0, "NormApp::OnInputReady() error adding input notification!\n");
             } 
             break; 
         }
@@ -992,6 +1079,9 @@ void NormApp::Notify(NormController::Event event,
                 case NormObject::DATA: 
                     DMSG(0, "NormApp::Notify() FILE/DATA objects not _yet_ supported...\n");      
                     break;
+                    
+                case NormObject::NONE:
+                    break;
             }   
             break;
         }
@@ -1032,6 +1122,7 @@ void NormApp::Notify(NormController::Event event,
                 }
                 case NormObject::DATA:
                 case NormObject::STREAM:
+                case NormObject::NONE:
                     break;
             }  // end switch(object->GetType())
             break;
@@ -1042,6 +1133,8 @@ void NormApp::Notify(NormController::Event event,
             {
                 case NormObject::FILE:
                     // (TBD) update reception progress display when applicable
+                    // Call object->SetNotifyOnUpdate(true) here to keep
+                    // the update notifications coming. Otherwise they stop!
                     break;
                 
                 case NormObject::STREAM:
@@ -1161,17 +1254,22 @@ void NormApp::Notify(NormController::Event event,
                 case NormObject::DATA: 
                     DMSG(0, "NormApp::Notify() DATA objects not _yet_ supported...\n");      
                     break;
+                case NormObject::NONE:
+                    break;
             }  // end switch (object->GetType())
             break;
             
-        case RX_OBJECT_COMPLETE:
+        case RX_OBJECT_COMPLETED:
         {
+            // (TBD) if we're not archiving files we should
+            //       manage our cache, deleting the cache
+            //       on shutdown ...
             //DMSG(0, "NormApp::Notify(RX_OBJECT_COMPLETE) ...\n");
             switch(object->GetType())
             {
                 case NormObject::FILE:
                 {
-                    const char* filePath = ((NormFileObject*)object)->Path();
+                    const char* filePath = ((NormFileObject*)object)->GetPath();
                     //DMSG(0, "norm: Completed rx file: %s\n", filePath);
                     if (post_processor->IsEnabled())
                     {
@@ -1189,8 +1287,14 @@ void NormApp::Notify(NormController::Event event,
                 case NormObject::DATA:
                     ASSERT(0);
                     break;
+                case NormObject::NONE:
+                    break;
             }
             break;
+        }
+        default:
+        {
+            DMSG(4, "NormApp::Notify() unhandled event: %d\n", event);
         }
     }  // end switch(event)
 }  // end NormApp::Notify()
@@ -1315,14 +1419,17 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
         session->SetTrace(tracing);
         session->SetTxLoss(tx_loss);
         session->SetRxLoss(rx_loss);
-        session->SetBackoffFactor(backoff_factor);         
-            
+        session->SetTTL(ttl);
+        session->SetLoopback(loopback); 
+           
         if (input || !tx_file_list.IsEmpty())
         {
             NormObjectId baseId = (unsigned short)(rand() * (65535.0/ (double)RAND_MAX));
             session->ServerSetBaseObjectId(baseId);
-            
             session->SetCongestionControl(cc_enable);
+            session->SetBackoffFactor(backoff_factor);
+            session->ServerSetGrtt(grtt_estimate);
+            session->ServerSetGroupSize(group_size);
             if (!session->StartServer(tx_buffer_size, segment_size, ndata, nparity, interface_name))
             {
                 DMSG(0, "NormApp::OnStartup() start server error!\n");
@@ -1341,6 +1448,8 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
                     session_mgr.Destroy();
                     return false;
                 }
+                tx_stream->SetFlushMode(msg_flush_mode);
+                tx_stream->SetPushMode(push_mode);
             }
         }
         
@@ -1407,6 +1516,10 @@ void NormApp::SignalHandler(int sigNum)
         {
             NormApp* app = static_cast<NormApp*>(ProtoApp::GetApp());
             if (app->post_processor) app->post_processor->OnDeath();
+            // The use of "waitpid()" here is a work-around for
+            // an IRIX SIGCHLD issue
+            int status;
+            while (waitpid(-1, &status, WNOHANG) > 0);
             signal(SIGCHLD, SignalHandler);
             break;
         }

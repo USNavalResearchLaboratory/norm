@@ -29,14 +29,14 @@ bool NormMsg::InitFromBuffer(UINT16 msgLength)
         case DATA:
             // (TBD) look at "fec_id" to determine "fec_payload_id" size 
             // (we _assume_ "fec_id" == 129 here
-            if ((unsigned char)buffer[NormDataMsg::FEC_ID_OFFSET] == 129)
+            if ((unsigned char)buffer[NormObjectMsg::FEC_ID_OFFSET] == 129)
             {
                 header_length_base = 24;
             }
             else
             {
                 DMSG(0, "NormMsg::InitFromBuffer(DATA) unknown fec_id value: %u\n",
-                         buffer[NormDataMsg::FEC_ID_OFFSET]);
+                         buffer[NormObjectMsg::FEC_ID_OFFSET]);
                 return false;
             }
             break;
@@ -54,7 +54,7 @@ bool NormMsg::InitFromBuffer(UINT16 msgLength)
                     else
                     {
                         DMSG(0, "NormMsg::InitFromBuffer(FLUSH|SQUELCH) unknown fec_id value: %u\n",
-                                 buffer[NormDataMsg::FEC_ID_OFFSET]);
+                                 buffer[NormCmdFlushMsg::FEC_ID_OFFSET]);
                         return false;
                     }
                     break;
@@ -420,7 +420,7 @@ unsigned char NormQuantizeRtt(double rtt)
     else if (rtt < NORM_RTT_MIN)
         rtt = NORM_RTT_MIN;
     if (rtt < 3.3e-05) 
-        return ((unsigned char)ceil((rtt*NORM_RTT_MIN)) - 1);
+        return ((unsigned char)((rtt/NORM_RTT_MIN)) - 1);
     else
         return ((unsigned char)(ceil(255.0 - (13.0*log(NORM_RTT_MAX/rtt)))));
 }  // end NormQuantizeRtt()

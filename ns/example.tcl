@@ -82,7 +82,7 @@ for {set i 2} {$i <= $numNodes} {incr i} {
 }
 $ns_ at 0.0 "$norm(1) sendFile 64000"
 
-$ns_ at 3000.0 "finish $ns_ $f $nf"
+$ns_ at 300.0 "finish $ns_ $f $nf"
 
 proc finish {ns_ f nf} {
     $ns_ flush-trace
