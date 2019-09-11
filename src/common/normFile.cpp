@@ -185,10 +185,16 @@ void NormFile::Unlock()
 {
 #ifndef WIN32
 #ifdef HAVE_FLOCK
-    flock(fd, LOCK_UN);
+    if (0 != flock(fd, LOCK_UN))
+    {
+        PLOG(PL_ERROR, "NormFile::Unlock() flock() error: %s\n", GetErrorString());
+    }
 #else
 #ifdef HAVE_LOCKF
-    lockf(fd, F_ULOCK, 0);
+    if (0 != lockf(fd, F_ULOCK, 0))
+    {
+        PLOG(PL_ERROR, "NormFile::Unlock() lockf() error: %s\n", GetErrorString());
+    }
 #endif // HAVE_LOCKF
 #endif // if/elseHAVE_FLOCK
     fchmod(fd, 0640);

@@ -33,7 +33,11 @@ typedef int32_t INT32;
 typedef uint8_t UINT8;
 typedef uint16_t UINT16;
 typedef uint32_t UINT32;
-#define NORM_API_LINKAGE 
+#if (defined __GNUC__ && __GNUC__ >= 4)
+#define NORM_API_LINKAGE __attribute__ ((visibility ("default")))
+#else
+#define NORM_API_LINKAGE
+#endif
 #endif // if/else WIN32/UNIX
 
 ////////////////////////////////////////////////////////////
@@ -324,6 +328,8 @@ void NormSetTxOnly(NormSessionHandle sessionHandle,
                    bool              txOnly,
                    bool              connectToSessionAddress DEFAULT(false));
 
+NORM_API_LINKAGE
+void NormSetId(NormSessionHandle sessionHandle, NormNodeId normId);
 
 // This does not affect the rx_socket binding if already bound (sender or receiver already started)
 // (i.e., just affects where NORM packets are sent)

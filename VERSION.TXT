@@ -1,5 +1,10 @@
 			           NORM Version History
 
+Version 1.5.8
+=============
+    - Corrections to eliminate compiler warnings and suport kfreebsd builds
+      (Thanks to Luca Buccassi)
+
 Version 1.5.7
 =============
     - Fixed issue with NormSession::SenderRemoveAckingNode() method where

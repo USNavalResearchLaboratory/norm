@@ -64,6 +64,10 @@ def configure(ctx):
     if system == 'windows':
         ctx.env.DEFINES_BUILD_NORM += ['NORM_USE_DLL']
 
+    if ctx.env.COMPILER_CXX == 'g++' or ctx.env.COMPILER_CXX == 'clang++':
+        ctx.env.CFLAGS += ['-fvisibility=hidden']
+        ctx.env.CXXFLAGS += ['-fvisibility=hidden']
+
 def build(ctx):
     ctx.recurse('protolib')
     
