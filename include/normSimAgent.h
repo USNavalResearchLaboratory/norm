@@ -31,6 +31,12 @@ class NormSimAgent : public NormController, public ProtoMessageSink
            NORM_CCE,   // strict ECN-based congestion control
            NORM_CCL    // "loss-tolerant" congestion control 
        };
+           
+       // These functions support ACK-based flow-controlled streaming using
+       // some additional state variables (stream_buffer_max, stream_buffer_count, etc)
+       static unsigned int ComputeStreamBufferSegmentCount(unsigned int bufferBytes, UINT16 segmentSize, UINT16 blockSize);
+       unsigned int WriteToStream(const char* buffer, unsigned int numBytes);
+       bool AddAckingNode(NormNodeId nodeId);
                
     protected:
         NormSimAgent(ProtoTimerMgr&         timerMgr,
@@ -49,7 +55,7 @@ class NormSimAgent : public NormController, public ProtoMessageSink
 
     private:
         void OnInputReady();
-        bool FlushStream();
+        bool FlushStream(bool eom);// = true);
         virtual void Notify(NormController::Event event,
                             class NormSessionMgr* sessionMgr,
                             class NormSession*    session,
@@ -107,6 +113,12 @@ class NormSimAgent : public NormController, public ProtoMessageSink
 
         NormStreamObject*           stream;
         bool                        auto_stream;
+        unsigned int                stream_buffer_max;
+        unsigned int                stream_buffer_count;
+        unsigned int                stream_bytes_remain;
+        bool                        watermark_pending;
+        bool                        flow_control;
+        
         bool                        push_mode;
         NormStreamObject::FlushMode flush_mode;
         char*                       tx_msg_buffer;

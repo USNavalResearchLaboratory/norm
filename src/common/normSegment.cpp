@@ -66,7 +66,7 @@ char* NormSegmentPool::Get()
     if (ptr)
     {
         //memcpy(&seg_list, ptr, sizeof(char*));
-        seg_list = *((char**)ptr);
+        seg_list = *((char**)((void*)ptr));
         seg_count--;
 //#ifdef NORM_DEBUG
         overrun_flag = false;

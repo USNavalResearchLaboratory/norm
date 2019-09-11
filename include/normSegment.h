@@ -19,7 +19,7 @@ class NormSegmentPool
         void Put(char* segment)
         {
             ASSERT(seg_count < seg_total);
-            *((char**)segment) = seg_list;  // this might make a warning on Solaris
+            *((char**)((void*)segment)) = seg_list;  // this might make a warning on Solaris
             seg_list = segment;
             seg_count++;
         }

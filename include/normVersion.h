@@ -30,8 +30,12 @@
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  ********************************************************************/
  
+// This defines the NORM source code version
+// The real code library version is given by NORM_VERSION
+// in "normApi.h"
+ 
 #ifndef _NORM_VERSION
 #define _NORM_VERSION
-#define VERSION "1.5b1"
+#define VERSION "1.5b2"
 #endif // _NORM_VERSION
         

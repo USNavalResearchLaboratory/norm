@@ -263,8 +263,9 @@ class NormSenderNode : public NormNode
         
         enum SyncPolicy
         {
-            SYNC_CURRENT,  // sync to detect transmit point, iff NORM_DATA from first FEC block
-            SYNC_ALL       // permiscuously sync as far back as possible 
+            SYNC_CURRENT,  // sync to detect transmit point, iff NORM_DATA from first FEC block unless stream
+            SYNC_STREAM,   // same as SYNC_CURRENT, but attempts to recover stream block zero
+            SYNC_ALL      // permiscuously sync as far back as possible given rx cache size
         };
     
         NormSenderNode(class NormSession& theSession, NormNodeId nodeId);  

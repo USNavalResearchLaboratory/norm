@@ -35,6 +35,7 @@ LIB_OBJ = $(LIB_SRC:.cpp=.o)
 LIB_DEP = $(LIB_SRC:.cpp=.d)
 
 all: libmil_navy_nrl_norm.$(SYSTEM_SOEXT)
+	
 
 # NORM JNI shared library
 libmil_navy_nrl_norm.$(SYSTEM_SOEXT): $(LIB_OBJ) $(LIBNORM) $(LIBPROTO)
@@ -51,7 +52,7 @@ $(LIBPROTO):
 -include $(LIB_DEP)
 
 %.d: %.cpp
-	$(CC) -MM -MT $(@:.d=.o) -MF $@ $(CPPFLAGS) $<
+	$(CC) -MM -MT $(@:.d=.o) -MF $@ $(CFLAGS) $<
 
 clean:
 	rm -f $(NORMJNI)/*.o \

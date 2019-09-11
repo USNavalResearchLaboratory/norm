@@ -42,7 +42,7 @@ int main(int argc, char* argv[])
     
     // 2) Create a NormSession using default "automatic" local node id
     NormSessionHandle session = NormCreateSession(instance,
-                                                  "127.0.0.1", 
+                                                  "224.1.2.3", 
                                                    6003,
                                                    NORM_NODE_ANY);
     
@@ -51,7 +51,7 @@ int main(int argc, char* argv[])
     // (Need to include "protolib/common/protoDebug.h" for this
     NormSetDebugLevel(3);
     // Uncomment to turn on debug NORM message tracing
-    //NormSetMessageTrace(session, true);
+    NormSetMessageTrace(session, true);
     // Uncomment to write debug output to file "normLog.txt"
     //NormOpenDebugLog(instance, "normLog.txt");
     
@@ -129,7 +129,6 @@ int main(int argc, char* argv[])
             }
             case NORM_RX_OBJECT_UPDATED:
             {
-                
                 //fprintf(stderr, "normStreamRecv: NORM_RX_OBJECT_UPDATED event ...\n");
                 if (theEvent.object != stream)
                 {
@@ -176,11 +175,12 @@ int main(int argc, char* argv[])
                         msgSync = false;
                         continue;  // try to re-sync and read again
                     }
+                    fprintf(stderr, "read %u bytes from stream ...\n", numBytes);
                     msgIndex += numBytes;
                     if (msgIndex == msgLen)
                     {
                         // Complete message read
-                        //fprintf(stderr, "normStreamRecv msg: %s\n", msgBuffer+2);
+                        fprintf(stderr, "normStreamRecv msg: %s\n", msgBuffer+2);
                         msgLen = msgIndex = 0; // reset state variables for next message
                     }
                     else

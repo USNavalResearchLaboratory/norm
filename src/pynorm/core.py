@@ -232,8 +232,13 @@ def get_libnorm():
     libnorm.NormSetFlowControl.argtypes = [ctypes.c_void_p, ctypes.c_double]
 
     libnorm.NormSetCongestionControl.restype = None
-    libnorm.NormSetCongestionControl.argtypes = [ctypes.c_void_p,
-            ctypes.c_bool, ctypes.c_bool]
+    libnorm.NormSetCongestionControl.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_bool]
+    
+    libnorm.NormSetEcnSupport.restype = None
+    libnorm.NormSetEcnSupport.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_bool, ctypes.c_bool]
+    
+    libnorm.NormSetFlowControl.restype = None
+    libnorm.NormSetFlowControl.argtypes = [ctypes.c_void_p, ctypes.c_double]
 
     libnorm.NormSetTxRateBounds.restype = None
     libnorm.NormSetTxRateBounds.argtypes = [
@@ -313,8 +318,7 @@ def get_libnorm():
     libnorm.NormStreamMarkEom.restype = None
     libnorm.NormStreamMarkEom.argtypes = [ctypes.c_void_p]
 
-    libnorm.NormSetWatermark.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
-            ctypes.c_bool]
+    libnorm.NormSetWatermark.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool]
     libnorm.NormSetWatermark.errcheck = errcheck_bool
 
     libnorm.NormResetWatermark.restype = ctypes.c_bool
@@ -348,6 +352,9 @@ def get_libnorm():
 
     libnorm.NormStopReceiver.restype = None
     libnorm.NormStopReceiver.argtypes = [ctypes.c_void_p]
+    
+    libnorm.NormSetDefaultSyncPolicy.restype = None
+    libnorm.NormSetDefaultSyncPolicy.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
     libnorm.NormSetRxCacheLimit.restype = None
     libnorm.NormSetRxCacheLimit.argtypes = [ctypes.c_void_p, ctypes.c_ushort]
@@ -357,19 +364,19 @@ def get_libnorm():
     libnorm.NormSetRxSocketBuffer.errcheck = errcheck_bool
 
     libnorm.NormSetSilentReceiver.restype = None
-    libnorm.NormSetSilentReceiver.argtypes = [ctypes.c_void_p, ctypes.c_bool,
-            ctypes.c_int]
-
+    libnorm.NormSetSilentReceiver.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_int]
+            
+    libnorm.NormSetMessageTrace.restype = None
+    libnorm.NormSetMessageTrace.argtypes = [ctypes.c_void_p, ctypes.c_bool]
+    
     libnorm.NormSetDefaultUnicastNack.restype = None
-    libnorm.NormSetDefaultUnicastNack.argtypes = [ctypes.c_void_p,
-            ctypes.c_bool]
+    libnorm.NormSetDefaultUnicastNack.argtypes = [ctypes.c_void_p, ctypes.c_bool]
 
     libnorm.NormNodeSetUnicastNack.restype = None
     libnorm.NormNodeSetUnicastNack.argtypes = [ctypes.c_void_p, ctypes.c_bool]
 
     libnorm.NormSetDefaultNackingMode.restype = None
-    libnorm.NormSetDefaultNackingMode.argtypes = [ctypes.c_void_p,
-            ctypes.c_int]
+    libnorm.NormSetDefaultNackingMode.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
     libnorm.NormNodeSetNackingMode.restype = None
     libnorm.NormNodeSetNackingMode.argtypes = [ctypes.c_void_p, ctypes.c_int]
@@ -378,24 +385,19 @@ def get_libnorm():
     libnorm.NormObjectSetNackingMode.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
     libnorm.NormSetDefaultRepairBoundary.restype = None
-    libnorm.NormSetDefaultRepairBoundary.argtypes = [ctypes.c_void_p,
-            ctypes.c_int]
+    libnorm.NormSetDefaultRepairBoundary.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
     libnorm.NormNodeSetRepairBoundary.restype = None
-    libnorm.NormNodeSetRepairBoundary.argtypes = [ctypes.c_void_p,
-            ctypes.c_int]
+    libnorm.NormNodeSetRepairBoundary.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
     libnorm.NormSetDefaultRxRobustFactor.restype = None
-    libnorm.NormSetDefaultRxRobustFactor.argtypes = [ctypes.c_void_p,
-            ctypes.c_int]
+    libnorm.NormSetDefaultRxRobustFactor.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
     libnorm.NormNodeSetRxRobustFactor.restype = None
-    libnorm.NormNodeSetRxRobustFactor.argtypes = [ctypes.c_void_p,
-            ctypes.c_int]
+    libnorm.NormNodeSetRxRobustFactor.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
     libnorm.NormStreamRead.restype = ctypes.c_bool
-    libnorm.NormStreamRead.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
-            ctypes.POINTER(ctypes.c_uint)]
+    libnorm.NormStreamRead.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint)]
     libnorm.NormStreamRead.errcheck = return_bool
 
     libnorm.NormStreamSeekMsgStart.restype = ctypes.c_bool
@@ -446,10 +448,10 @@ def get_libnorm():
     libnorm.NormFileRename.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
     libnorm.NormFileRename.errcheck = errcheck_bool
 
-    libnorm.NormDataAccessData.restype = ctypes.c_char_p
+    libnorm.NormDataAccessData.restype = ctypes.c_void_p
     libnorm.NormDataAccessData.argtypes = [ctypes.c_void_p]
 
-    libnorm.NormDataDetachData.restype = ctypes.c_char_p
+    libnorm.NormDataDetachData.restype = ctypes.c_void_p
     libnorm.NormDataDetachData.argtypes = [ctypes.c_void_p]
 
     libnorm.NormObjectGetSender.restype = ctypes.c_void_p

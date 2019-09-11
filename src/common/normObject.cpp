@@ -15,7 +15,8 @@ NormObject::NormObject(NormObject::Type      theType,
    transport_id(transportId), segment_size(0), pending_info(false), repair_info(false),
    current_block_id(0), next_segment_id(0), 
    max_pending_block(0), max_pending_segment(0),
-   info_ptr(NULL), info_len(0), first_pass(true), accepted(false), notify_on_update(true)
+   info_ptr(NULL), info_len(0), first_pass(true), accepted(false), notify_on_update(true),
+   user_data(NULL), next(NULL)
 {
     if (theSender)
     {
@@ -158,11 +159,14 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     {
         small_block_size = large_block_size = numData;
         small_block_count = large_block_count = numBlocks.LSB();
-        final_segment_size = segmentSize;
-        NormStreamObject* stream = static_cast<NormStreamObject*>(this);
-        // The call here to "StreamResync()" make us attempt to repair back to object start.
-        // TBD - we may only want to do this for the SYNC_ALL sync policy?
-        stream->StreamResync(NormBlockId(0));  
+        final_segment_size = segmentSize; 
+        if (NULL == sender)
+        {
+            // This inits sender stream state to set things tx pending
+            // (the receiver stream is sync'd according to sync policy)
+            NormStreamObject* stream = static_cast<NormStreamObject*>(this);
+            stream->StreamResync(NormBlockId(0));
+        }
     }
     else
     {
@@ -2594,7 +2598,7 @@ bool NormStreamObject::Open(UINT32      bufferSize,
     UINT16 segmentSize, numData;
     if (sender)
     {
-        // receive streams have already be pre-opened
+        // receive streams have already beeen pre-opened
         segmentSize = segment_size;
         numData = ndata;
     }
@@ -2634,6 +2638,7 @@ bool NormStreamObject::Open(UINT32      bufferSize,
     // (TBD) we really only need one set of indexes & offset
     // since our objects are exclusively read _or_ write
     read_init = true;
+    
     read_index.block = read_index.segment = 0; 
     write_index.block = write_index.segment = 0;
     tx_index.block = tx_index.segment = 0;
@@ -2682,7 +2687,6 @@ void NormStreamObject::Close(bool graceful)
 {
     if (graceful && (NULL == sender))
     {
-        stream_closing = true;
         Terminate();
         //SetFlushMode(FLUSH_ACTIVE);
         //Flush();
@@ -2818,6 +2822,19 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
         stream_sync = true;
         stream_sync_id = blockId;
         stream_next_id = blockId + pending_mask.GetSize(); 
+        
+        if (read_init) 
+        {
+            // This is a fresh rx stream, so init the read indices
+            // TBD - we may wish to do this here only for
+            // a "NORM_SYNC_STREAM" sync policy (beginning of current stream)
+            // This is a "fresh" stream
+            read_init = false;
+            read_index.block = blockId;
+            read_index.segment = 0;   
+            read_offset = 0;
+        }
+        
         // Since we're doing a resync including "read_init", dump any buffered data
         // (TBD) this may not be necessary??? and is thus currently commented-out code
         /*read_init = true;
@@ -3232,7 +3249,7 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                 else if (session.RcvrIsLowDelay())
                 {
                     // Has the sender moved forward to the next FEC blocks
-                    long delta = max_pending_block - read_index.block;
+                    INT32 delta = max_pending_block - read_index.block;
                     if (delta > session.RcvrGetMaxDelay())
                         forceForward = true;
                 }
@@ -3281,7 +3298,7 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                 else if (session.RcvrIsLowDelay())
                 {
                     // Has the sender moved forward to the next FEC blocks
-                    long delta = max_pending_block - read_index.block;
+                    INT32 delta = max_pending_block - read_index.block;
                     if (delta > session.RcvrGetMaxDelay())
                         forceForward = true;
                 }
@@ -3504,8 +3521,9 @@ void NormStreamObject::Terminate()
 {
     // Flush stream and create a ZERO length segment to send
     Flush();  // should eom be set for this call?
+    stream_closing = true;
     NormBlock* block = stream_buffer.Find(write_index.block);
-    if (!block)
+    if (NULL == block)
     {
         if (NULL == (block = block_pool.Get()))
         {
@@ -3572,9 +3590,9 @@ void NormStreamObject::Terminate()
     }
     else
     {
-        // Make sure the segment is not still referenced
-        ASSERT(0 == NormDataMsg::ReadStreamPayloadMsgStart(segment));
-        ASSERT(0 == NormDataMsg::ReadStreamPayloadLength(segment));
+        // Make sure the segment is not still referenced (TBD - why was I checking this???)
+        //ASSERT(0 == NormDataMsg::ReadStreamPayloadMsgStart(segment));
+        //ASSERT(0 == NormDataMsg::ReadStreamPayloadLength(segment));
     }
     NormDataMsg::WriteStreamPayloadOffset(segment, write_offset);  
     
@@ -3600,7 +3618,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
                 PLOG(PL_ERROR, "NormStreamObject::Write() error: stream is closing (len:%lu eom:%d)\n", len, eom);
                 len = 0;
             }
-            break;   
+            break;
         }
         // This old code detected buffer "fullness" by offset instead of segment index
         // but, the problem there was when apps wrote & flushed messages smaller than
@@ -3884,8 +3902,7 @@ void NormObjectTable::SetRangeMax(UINT16 rangeMax)
             NormSession& session = obj->GetSession();
             if (NULL == sender)
             {
-                session.Notify(NormController::TX_OBJECT_PURGED, (NormSenderNode*)NULL, obj);
-                session.DeleteTxObject(obj);
+                session.DeleteTxObject(obj, true);
             }
             else
             {

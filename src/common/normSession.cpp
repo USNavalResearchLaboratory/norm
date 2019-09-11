@@ -257,7 +257,7 @@ bool NormSession::Open()
             result &= tx_socket->SetMulticastInterface(interface_name);
             if (!result)
             {
-                PLOG(PL_FATAL, "NormSession::Open() t_socket::SetMulticastInterface() error\n");
+                PLOG(PL_FATAL, "NormSession::Open() tx_socket::SetMulticastInterface() error\n");
                 Close();
                 return false;
             }
@@ -529,12 +529,12 @@ double NormSession::GetTxRate()
     }
 }  // end NormSession::GetTxRate()
 
-/*
+
 static double PoissonRand(double mean)
 {
     return(-log(((double)rand())/((double)RAND_MAX))*mean);
 }
-*/
+
         
 // This hack can give us a tx rate interval that is POISSON instead of PERIODIC
 static inline double GetTxInterval(unsigned int msgSize, double txRate)
@@ -974,7 +974,8 @@ void NormSession::Serve()
         // If command is enqueued
         if (SenderQueueAppCmd()) return;
     }
-
+    
+    bool watermarkJustCompleted = false;
     if (watermark_pending && !flush_timer.IsActive())
     {
         // Determine next message (objectId::blockId::segmentId) to be sent
@@ -1072,12 +1073,14 @@ void NormSession::Serve()
                     if (watermark_flushes)
                         flush_count = GetTxRobustFactor();
                 }
+                watermarkJustCompleted = true;
             }
         }
         else
         {
             // The sender tx position is < watermark
             // Reset non-acked acking nodes since sender has rewound 
+            // TBD - notify application that watermark ack has been reset ???
             if (watermark_active)
             {
                 watermark_active = false;
@@ -1089,7 +1092,7 @@ void NormSession::Serve()
         }
     }  // end if (watermark_pending)
     
-    if (obj)
+    if (NULL != obj)
     {
         NormObjectMsg* msg = (NormObjectMsg*)GetMessageFromPool();
         if (msg)
@@ -1150,24 +1153,33 @@ void NormSession::Serve()
                             {
                                 SenderQueueFlush();
                             }
-                            else if (GetTxRobustFactor() == flush_count)
+                            else if (GetTxRobustFactor() == flush_count)  //xxx
                             {
-                                PLOG(PL_TRACE, "NormSession::Serve() node>%lu sender flush complete ...\n",
+                                
+                                PLOG(PL_TRACE, "NormSession::Serve() node>%lu sender stream flush complete ...\n",
                                          LocalNodeId());
+                                Notify(NormController::TX_FLUSH_COMPLETED, (NormSenderNode*)NULL, stream);
                                 flush_count++;
                                 data_active = false;  
                                 if (stream->IsClosing())
                                 {
-                                    stream->Close();
-                                    Notify(NormController::TX_OBJECT_PURGED, (NormSenderNode*)NULL, stream);
-                                    DeleteTxObject(stream);   
-                                    obj = NULL;
+                                    // If the stream just failed end-of-stream watermark flush, we don't
+                                    // close the stream yet, but instead give app chance to reset watermark
+                                    bool watermarkFailed = watermarkJustCompleted && (obj->GetId() == watermark_object_id) && 
+                                                           (ACK_FAILURE == SenderGetAckingStatus(NORM_NODE_ANY));
+                                    if (!watermarkFailed)
+                                    {
+                                        // end of stream was successfully acknowledged
+                                        stream->Close();
+                                        DeleteTxObject(stream, true);   
+                                        obj = NULL;
+                                    }
                                 }
                             }
                         }
                     }
                     //ASSERT(stream->IsPending() || stream->IsRepairPending() || stream->IsClosing());
-                    if (!posted_tx_queue_empty &&  !stream->IsClosing() && stream->IsPending())
+                    if (!posted_tx_queue_empty && !stream->IsClosing() && stream->IsPending())
                         // post if pending || !repair_timer.IsActive() || (repair_timer.GetRepeatCount() == 0) ???
                     {
                         //data_active = false;
@@ -1204,14 +1216,13 @@ void NormSession::Serve()
         }   
         else if (GetTxRobustFactor() == flush_count)
         {
-            PLOG(PL_TRACE, "NormSession::Serve() node>%lu sender flush complete ...\n",
-                    LocalNodeId());
+            PLOG(PL_TRACE, "NormSession::Serve() node>%lu sender flush complete ...\n", LocalNodeId());
             Notify(NormController::TX_FLUSH_COMPLETED,
                    (NormSenderNode*)NULL,
                    (NormObject*)NULL);
             flush_count++;   
             data_active = false;
-        }
+        }                 
     }
 }  // end NormSession::Serve()
 
@@ -1401,7 +1412,7 @@ bool NormSession::SenderQueueWatermarkFlush()
         watermark_pending = false;
         NormAckingNode* nodeNone = NULL;
         acking_success_count = 0;
-        while ((next = static_cast<NormAckingNode*>(iterator.GetNextNode())))
+        while (NULL != (next = static_cast<NormAckingNode*>(iterator.GetNextNode())))
         {
             // Save NORM_NODE_NONE for last
             if (NORM_NODE_NONE == next->GetId()) 
@@ -1447,7 +1458,7 @@ bool NormSession::SenderQueueWatermarkFlush()
         if (watermark_pending)
         {
             
-            // (TBD) we should increment the "flush_count" here only iff the watemark
+            // (TBD) we should increment the "flush_count" here only iff the watermark
             // corresponds to our "last_tx_object_id", etc
             //if ((GetTxRobustFactor() < 0) || (flush_count < GetTxRobustFactor()))
             //    flush_count++;
@@ -1524,8 +1535,7 @@ void NormSession::SenderQueueFlush()
         {
             PLOG(PL_ERROR, "NormSession::SenderQueueFlush() node>%lu message_pool exhausted! (couldn't flush)\n",
                     LocalNodeId()); 
-        } 
-        
+        }
     }
     else
     {
@@ -1769,8 +1779,8 @@ bool NormSession::QueueTxObject(NormObject* obj)
             double delay = GetFlowControlDelay() - oldest->GetNackAge();
             if (delay < 1.0e-06)
             {
-                Notify(NormController::TX_OBJECT_PURGED, (NormSenderNode*)NULL, oldest);
-                DeleteTxObject(oldest);
+                if (FlowControlIsActive()) DeactivateFlowControl();
+                DeleteTxObject(oldest, true);
             }
             else
             {
@@ -1828,11 +1838,12 @@ bool NormSession::RequeueTxObject(NormObject* obj)
     }
 }  // end NormSession::RequeueTxObject()
 
-void NormSession::DeleteTxObject(NormObject* obj)
+void NormSession::DeleteTxObject(NormObject* obj, bool notify)
 {
     ASSERT(NULL != obj);
     if (tx_table.Remove(obj))
     {
+        Notify(NormController::TX_OBJECT_PURGED, (NormSenderNode*)NULL, obj);
         NormObjectId objectId = obj->GetId();
         tx_pending_mask.Unset(objectId);
         tx_repair_mask.Unset(objectId);
@@ -1863,8 +1874,7 @@ bool NormSession::SetTxCacheBounds(NormObjectSize  sizeMax,
             // Remove oldest (hopefully non-pending ) object
             NormObject* oldest = tx_table.Find(tx_table.RangeLo());
             ASSERT(NULL != oldest);
-            Notify(NormController::TX_OBJECT_PURGED, (NormSenderNode*)NULL, oldest);
-            DeleteTxObject(oldest);
+            DeleteTxObject(oldest, true);
             count = tx_table.GetCount();
         }
         if (tx_cache_count_max < DEFAULT_TX_CACHE_MAX)
@@ -2110,7 +2120,7 @@ void NormSession::OnPktCapture(ProtoChannel&              theChannel,
 	    if (numBytes == 0) break;  // no more packets to receive
         
         // Map ProtoPktETH instance into buffer and init for processing
-        ProtoPktETH ethPkt((UINT32*)ethBuffer, BUFFER_MAX - 2);
+        ProtoPktETH ethPkt((UINT32*)((void*)ethBuffer), BUFFER_MAX - 2);
         if (!ethPkt.InitFromBuffer(numBytes))
         {
             PLOG(PL_ERROR, "NormSession::OnPktCapture() error: bad Ether frame\n");
@@ -2973,9 +2983,13 @@ void NormSession::SenderHandleAckMessage(const struct timeval& currentTime, cons
                                    ext.GetCCSequence());
             if (wasUnicast && probe_proactive && Address().IsMulticast()) 
             {
-                // for suppression of unicast cc feedback
-                advertise_repairs = true;
-                QueueMessage(NULL);
+                // if it's the CLR, it doesn't suppress anyone, don't advertise
+                if (!ext.CCFlagIsSet(NormCC::CLR))
+                {   
+                    // for suppression of unicast cc feedback
+                    advertise_repairs = true;
+                    QueueMessage(NULL);
+                }
             }
             break;
         }
@@ -3006,27 +3020,46 @@ void NormSession::SenderHandleAckMessage(const struct timeval& currentTime, cons
                                  (watermark_segment_id == flushAck.GetFecSymbolId(fec_m)))
                         {
                             acker->MarkAckReceived(); 
+                            /*  This code was an attempt to expedite delivery of the TX_WATERMARK_COMPLETED
+                                notification to the application, but breaks some other desired behavior.
+                            watermark_pending = false;
+                            acking_success_count = 0;
+                            NormNodeTreeIterator iterator(acking_node_tree);
+                            NormAckingNode* next;
+                            while (NULL != (next = static_cast<NormAckingNode*>(iterator.GetNextNode())))
+                            {
+                                if (next->IsPending())
+                                    watermark_pending = true;
+                                else if (next->AckReceived() || (NORM_NODE_NONE == next->GetId()))
+                                    acking_success_count++;
+                            }
+                            if (!watermark_pending)
+                            {
+                                PLOG(PL_DEBUG, "NormSession::SenderHandleAckMessage() node>%lu watermark ack finished.\n");
+                                Notify(NormController::TX_WATERMARK_COMPLETED, (NormSenderNode*)NULL, (NormObject*)NULL);
+                            }
+                            */
                         }
                         else
                         {
                             // This can happen when new watermarks are set when an old watermark is still
                             // pending (i.e. receivers may still be in the process of replying)
-                            PLOG(PL_ERROR, "NormSession::SenderHandleAckMessage() received wrong watermark ACK?!\n");    
+                            PLOG(PL_DEBUG, "NormSession::SenderHandleAckMessage() received wrong watermark ACK?!\n");    
                         }
                     }
                     else
                     {
-                        PLOG(PL_ERROR, "NormSession::SenderHandleAckMessage() received redundant watermark ACK?!\n");
+                        PLOG(PL_DEBUG, "NormSession::SenderHandleAckMessage() received redundant watermark ACK?!\n");
                     }
                 }
                 else
                 {
-                    PLOG(PL_ERROR, "NormSession::SenderHandleAckMessage() received watermark ACK from unknown acker?!\n");
+                    PLOG(PL_WARN, "NormSession::SenderHandleAckMessage() received watermark ACK from unknown acker?!\n");
                 }
             }
             else
             {
-                PLOG(PL_ERROR, "NormSession::SenderHandleAckMessage() received unsolicited watermark ACK?!\n");
+                PLOG(PL_DEBUG, "NormSession::SenderHandleAckMessage() received unsolicited watermark ACK?!\n");
             }
             break;
             
@@ -3953,7 +3986,7 @@ bool NormSession::SenderBuildRepairAdv(NormCmdRepairAdvMsg& cmd)
                 {
                     if (0 == cmd.PackRepairRequest(req))
                     {
-                        PLOG(PL_FATAL, "NormSession::SenderBuildRepairAdv() warning: full msg\n");
+                        PLOG(PL_WARN, "NormSession::SenderBuildRepairAdv() warning: full msg\n");
                         // (TBD) set NORM_REPAIR_ADV_LIMIT flag in this case
                         prevForm = NormRepairRequest::INVALID;
                         break;
@@ -3981,21 +4014,26 @@ bool NormSession::SenderBuildRepairAdv(NormCmdRepairAdvMsg& cmd)
                                           currentId, 0, ndata, 0); 
                     break;
             }   
-            cmd.PackRepairRequest(req);
+            prevForm = NormRepairRequest::INVALID;
+            if (0 == cmd.PackRepairRequest(req))
+            {
+                PLOG(PL_WARN, "NormSession::SenderBuildRepairAdv() warning: full msg\n");
+                // (TBD) set NORM_REPAIR_ADV_LIMIT flag in this case
+                break;
+            }
             objectCount = 0;
         }
         if (!repairEntireObject)
         {           
             if ((NormRepairRequest::INVALID != prevForm) && currentObject->IsRepairPending())
             {
+                prevForm = NormRepairRequest::INVALID;
                 if (0 == cmd.PackRepairRequest(req))
                 {
-                    PLOG(PL_FATAL, "NormSession::SenderBuildRepairAdv() warning: full msg\n");
+                    PLOG(PL_WARN, "NormSession::SenderBuildRepairAdv() warning: full msg\n");
                     // (TBD) set NORM_REPAIR_ADV_LIMIT flag in this case
-                    prevForm = NormRepairRequest::INVALID;
                     break;
                 }
-                prevForm = NormRepairRequest::INVALID;
                 currentObject->AppendRepairAdv(cmd);
             }
             else
@@ -4167,7 +4205,6 @@ bool NormSession::OnTxTimeout(ProtoTimer& /*theTimer*/)
                 tx_timer.Deactivate();
             tx_socket->StartOutputNotification();
             return false;
-            
         }
     }
     else
@@ -4177,7 +4214,8 @@ bool NormSession::OnTxTimeout(ProtoTimer& /*theTimer*/)
         
         if (message_queue.IsEmpty())
         {
-            tx_timer.Deactivate();
+            if (tx_timer.IsActive())
+                tx_timer.Deactivate();
             // Check that any possible notifications posted in
             // the previous call to Serve() may have caused a
             // change in sender state making it ready to send

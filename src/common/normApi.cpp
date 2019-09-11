@@ -640,7 +640,7 @@ void NormInstance::Shutdown()
         notify_event = NULL;
     }
 #else
-    if (notify_fd[0] > 0)
+    if (notify_fd[0] >= 0)
     {
         close(notify_fd[0]);  // close read end of pipe
         close(notify_fd[1]);  // close write end of pipe
@@ -714,6 +714,15 @@ UINT32 NormInstance::CountCompletedObjects(NormSession* session)
 //////////////////////////////////////////////////////////////////////////
 // NORM API FUNCTION IMPLEMENTATIONS
 //
+
+NORM_API_LINKAGE 
+int NormGetVersion(int* major, int* minor, int* patch)
+{
+    if (NULL != major) *major = NORM_VERSION_MAJOR; 
+    if (NULL != minor) *minor = NORM_VERSION_MINOR;
+    if (NULL != patch) *patch = NORM_VERSION_PATCH; 
+    return NORM_VERSION_MAJOR;
+}  // end NormGetVersion()
 
 /** NORM API Initialization */
 
@@ -818,6 +827,7 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent, bo
                     instance->dispatcher.ResumeThread();
                     if (!instance->WaitForEvent())
                     {
+                        // Indication that NormInstance is dead
                         return false;
                     }
                     // re-suspend thread after wait
@@ -828,9 +838,22 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent, bo
             instance->dispatcher.ResumeThread();
         }
     }
-    return result;  
+    // We do this so we only return "false" when NormInstance is dead
+    if (!result && (NULL != theEvent))
+        theEvent->type = NORM_EVENT_INVALID;
+    return true;  
 }  // end NormGetNextEvent()
 
+
+NORM_API_LINKAGE
+bool NormIsUnicastAddress(const char* address)
+{
+    ProtoAddress addr;
+    if ((NULL != address) && addr.ResolveFromString(address))
+        return addr.IsUnicast();
+    else
+        return false;  // not valid, so not unicast
+}  // end NormIsUnicast()
 
 /** NORM Session Creation and Control Functions */
 NORM_API_LINKAGE
@@ -1179,6 +1202,7 @@ void NormCloseDebugPipe(NormInstanceHandle instanceHandle)
 NORM_API_LINKAGE
 void NormSetDebugLevel(unsigned int level)
 {
+    // Sets underlying Protolib debug leve
     SetDebugLevel(level);
 }
 
@@ -1217,6 +1241,15 @@ double NormGetReportInterval(NormSessionHandle sessionHandle)
 }  // end NormGetReportInterval()
 
 /** NORM Sender Functions */
+
+NORM_API_LINKAGE
+NormSessionId NormGetRandomSessionId()
+{
+    ProtoTime currentTime;
+    currentTime.GetCurrentTime();
+    srand(currentTime.usec());  // seed random number generator
+    return (NormSessionId)rand();
+}  // end NormGetRandomSessionId()
 
 NORM_API_LINKAGE
 bool NormStartSender(NormSessionHandle  sessionHandle,
@@ -1577,6 +1610,15 @@ void NormStreamClose(NormObjectHandle streamHandle, bool graceful)
 }  // end NormStreamClose()
 
 NORM_API_LINKAGE
+unsigned int NormGetStreamBufferSegmentCount(unsigned int bufferBytes, UINT16 segmentSize, UINT16 blockSize)
+{
+    // This same computation is performed in NormStreamObject::Open() in "normObject.cpp"
+    unsigned int numBlocks = bufferBytes / (blockSize * segmentSize);
+    if (numBlocks < 2) numBlocks = 2; // NORM enforces a 2-block minimum buffer size
+    return (numBlocks * blockSize);
+}  // end NormGetStreamBufferSegmentCount()
+
+NORM_API_LINKAGE
 unsigned int NormStreamWrite(NormObjectHandle   streamHandle,
                              const char*        buffer,
                              unsigned int       numBytes)
@@ -1704,16 +1746,18 @@ bool NormSetWatermark(NormSessionHandle  sessionHandle,
 NORM_API_LINKAGE
 bool NormResetWatermark(NormSessionHandle  sessionHandle)
 {
-    bool result = false;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
     if (instance && instance->dispatcher.SuspendThread())
     {
         NormSession* session = (NormSession*)sessionHandle;
         session->SenderResetWatermark();
-        result = true;
         instance->dispatcher.ResumeThread();
+        return true;
     }
-    return true;
+    else
+    {
+        return false;
+    }
 }  // end NormResetWatermark()
 
 NORM_API_LINKAGE
@@ -1874,7 +1918,6 @@ bool NormStartReceiver(NormSessionHandle  sessionHandle,
 NORM_API_LINKAGE
 void NormStopReceiver(NormSessionHandle sessionHandle)
 {
-    
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
     if (instance && instance->dispatcher.SuspendThread())
     {
@@ -2165,12 +2208,33 @@ void NormObjectCancel(NormObjectHandle objectHandle)
             if (sender)
                 sender->DeleteObject(obj); 
             else
-                obj->GetSession().DeleteTxObject(obj);
+                obj->GetSession().DeleteTxObject(obj, false);
             instance->PurgeObjectNotifications(objectHandle);
             instance->dispatcher.ResumeThread();
         }
     }
 }  // end NormObjectCancel()
+
+NORM_API_LINKAGE
+void NormObjectSetUserData(NormObjectHandle objectHandle, const void* userData)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromObject(objectHandle);
+    if (instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {    
+            ((NormObject*)objectHandle)->SetUserData(userData);
+            instance->dispatcher.ResumeThread();
+        }
+    }
+}  // end NormObjectSetUserData()
+
+NORM_API_LINKAGE
+const void* NormObjectGetUserData(NormObjectHandle objectHandle)
+{
+    return (((NormObject*)objectHandle)->GetUserData());
+}  // end NormNormObjectGetUserData()
+
 
 NORM_API_LINKAGE
 void NormObjectRetain(NormObjectHandle objectHandle)
@@ -2409,6 +2473,10 @@ void NormNodeRelease(NormNodeHandle nodeHandle)
 //         is done so that this current approach is not very costly)
 //
 
+
+// Not sure why this function exists.  It just counts the number
+// of RX_OBJECT_COMPLETED events currently in notification queue
+// which is a temporary and transitory thing???
 NORM_API_LINKAGE
 UINT32 NormCountCompletedObjects(NormSessionHandle sessionHandle)
 {

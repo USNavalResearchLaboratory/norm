@@ -64,6 +64,12 @@ class NormObject
         class NormSenderNode* GetSender() const {return sender;}
         NormNodeId GetSenderNodeId() const;
         
+        // for NORM API usage only
+        void SetUserData(const void* userData) 
+            {user_data = userData;}
+        const void* GetUserData() const
+            {return user_data;}
+        
         bool IsOpen() {return (0 != segment_size);}
         // Opens (inits) object for tx operation
         bool Open(const NormObjectSize& objectSize, 
@@ -290,6 +296,8 @@ class NormObject
         bool                  first_pass;   // for sender objects
         bool                  accepted;
         bool                  notify_on_update;
+        
+        const void*           user_data;  // for NORM API usage only
         
         NormObject*           next; 
 };  // end class NormObject
@@ -616,7 +624,6 @@ class NormObjectTable
                 const NormObjectTable&  table;
                 bool                    reset;
                 NormObjectId            index;
-                bool                    backwards;
         }; 
             
     private:

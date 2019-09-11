@@ -51,6 +51,7 @@ def build(ctx):
         target = 'norm',
         includes = ['include'],
         export_includes = ['include'],
+        vnum = '1.0.0',
         use = ctx.env.USE_BUILD_NORM,
         source = ['src/common/{0}.cpp'.format(x) for x in [
             'galois',

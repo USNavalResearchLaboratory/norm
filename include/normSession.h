@@ -303,8 +303,10 @@ class NormSession
         bool SendMessage(NormMsg& msg);
         void ActivateTimer(ProtoTimer& timer) {session_mgr.ActivateTimer(timer);}
         
-        void SetUserData(const void* userData) {user_data = userData;}
-        const void* GetUserData() {return user_data;}
+        void SetUserData(const void* userData) 
+            {user_data = userData;}
+        const void* GetUserData() const
+            {return user_data;}
         
         // Sender methods
         void SenderSetBaseObjectId(NormObjectId baseId)
@@ -335,7 +337,7 @@ class NormSession
         
         bool RequeueTxObject(NormObject* obj);
         
-        void DeleteTxObject(NormObject* obj); 
+        void DeleteTxObject(NormObject* obj, bool notify); 
         
         NormObject* SenderFindTxObject(NormObjectId objectId)
             {return tx_table.Find(objectId);}

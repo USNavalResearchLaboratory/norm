@@ -1,6 +1,32 @@
 			           NORM Version History
 
+Version 1.5b2
+=============
+    - Fixed bug with "graceful" stream closure when the sender application
+      did not first flush the stream before calling NormStreamClose()
+    - Added NORM_TX_FLUSH_COMPLETED notification for active stream
+      flushes, including the end of transmission flush when a stream
+      has been gracefully closed.
+    - Added NORM_SYNC_STREAM sync policy that is equivalent to NORM_SYNC_CURRENT
+      but attempts to sync to _start_ of stream (byte offset 0)
+    - Fixed issue with ackowledged, graceful stream closure to allow application
+      to choose to reset watermark before closing stream. The app needs to close
+      streams that remain unacknowledged at closure (i.e. catch TX_WATERMARK_COMPLETED
+      notification check acking status).  Acknowledged, graceful shutdown streams,
+      are automatically closed.
+    - Fixed issue with compilation for NormObjectSize constructor, MSB(), and LSB()
+      methods on 32-bit systems.  Thanks to Bill Skiba.
+
 Version 1.5b1
+=============
+    - Rolled up all of the features described in Version 1.4b4 below
+      as a new "stable release" even though some minor documentation
+      issues are pending.
+    - Also includes the beginnings of code for "auto population" of
+      the sender acking node list for easier (less precoordination)
+      invocation of ACK-based flow control, etc
+
+Version 1.4b4
 =============
     - Added option to set NORM receiver "rx cache count max", i.e. the 
       maximum number of pending object for which the receiver will keep

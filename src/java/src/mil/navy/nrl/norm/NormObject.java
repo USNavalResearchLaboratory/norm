@@ -49,9 +49,8 @@ public class NormObject {
    */
   public boolean equals(Object obj) {
     if (obj instanceof NormObject) {
-      return handle == ((NormObject)obj).handle;
+      return (handle == ((NormObject)obj).handle);
     }
-
     return false;
   }
 }

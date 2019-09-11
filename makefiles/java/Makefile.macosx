@@ -1,0 +1,17 @@
+#
+# MacOSX NORM-JNI Makefile definitions
+#
+
+# System specific additional libraries, include paths, etc
+SYSTEM_INCLUDES = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/darwin
+SYSTEM_LIBS = 
+SYSTEM_SRC =
+
+SYSTEM = macosx
+
+CC = g++
+SYSTEM_CFLAGS = -Wall -Wcast-align -fPIC -arch x86_64 -arch i386
+SYSTEM_SOFLAGS = -dynamiclib 
+SYSTEM_SOEXT = dylib
+
+include Makefile.common

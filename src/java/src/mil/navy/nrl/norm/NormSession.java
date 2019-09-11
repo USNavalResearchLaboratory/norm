@@ -49,16 +49,17 @@ public class NormSession {
   public void setTxPort(int port) {
     setTxPort(port, false, null);
   }
-
   public native void setTxPort(int port, boolean enableReuse, String txAddress);
 
   public void setRxPortReuse(boolean enable) {
     setRxPortReuse(enable, null, null, 0);
   }
-  
   public native void setRxPortReuse(boolean enable, String rxBindAddress, String senderAddress, int senderPort);
 
-  public native void setEcnSupport(boolean ecnEnable, boolean ignoreLoss);
+  public void setEcnSupport(boolean ecnEnable, boolean ignoreLoss) {
+    setEcnSupport(ecnEnable, ignoreLoss, false);
+  }
+  public native void setEcnSupport(boolean ecnEnable, boolean ignoreLoss, boolean tolerateLoss);
 
   public native void setMulticastInterface(String interfaceName)
       throws IOException;
@@ -97,6 +98,9 @@ public class NormSession {
 
   public native void setTxSocketBuffer(long bufferSize) throws IOException;
 
+  public void setCongestionControl(boolean enable) {
+    setCongestionControl(enable, true);
+  }
   public native void setCongestionControl(boolean enable, boolean adjustRate);
 
   public native void setTxRateBounds(double rateMin, double rateMax);
@@ -156,6 +160,8 @@ public class NormSession {
       throws IOException;
 
   public native void cancelWatermark();
+  
+  public native void resetWatermark();
 
   public native void addAckingNode(long nodeId) throws IOException;
 

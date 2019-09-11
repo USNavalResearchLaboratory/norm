@@ -13,11 +13,11 @@ from pynorm.node import Node
 from pynorm.object import Object
 
 class Event(object):
-    def __init__(self, type, session, sender, object):
-        self._type = type
+    def __init__(self, eventType, session, sender, normObject):
+        self._type = eventType
         self._session = session
         self._sender = sender
-        self._object = object
+        self._object = normObject
 
     # Properties
     type = property(lambda self: self._type)
@@ -57,6 +57,8 @@ class Event(object):
             return "NORM_TX_OBJECT_SENT"
         elif self.type == c.NORM_TX_OBJECT_PURGED:
             return "NORM_TX_OBJECT_PURGED"
+        elif self.type == c.NORM_TX_RATE_CHANGED:
+            return "NORM_TX_RATE_CHANGED"
         elif self.type == c.NORM_LOCAL_SENDER_CLOSED:
             return "NORM_LOCAL_SENDER_CLOSED"
         elif self.type == c.NORM_REMOTE_SENDER_NEW:

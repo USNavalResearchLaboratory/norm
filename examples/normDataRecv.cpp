@@ -87,10 +87,11 @@ int main(int argc, char* argv[])
     NormInstanceHandle instance = NormCreateInstance();
     
     // 2) Create a NormSession using default "automatic" local node id
+    fprintf(stderr, "joining session at addr/port %s/%hu\n", sessionAddr, sessionPort);
     NormSessionHandle session = NormCreateSession(instance,
                                                   sessionAddr, 
                                                   sessionPort,
-                                                  NORM_NODE_ANY);
+                                                  2);//NORM_NODE_ANY);
     
     
     // NOTE: These are debugging routines available 
@@ -124,7 +125,12 @@ int main(int argc, char* argv[])
     {
         // Uncomment to allow multiple NORM processes on same session port number
         //NormSetRxPortReuse(session, true, sessionAddr);
+        
+        // NormSetDefaultUnicastNack(session, true);
     }
+    
+    // Set a big rx cache for our current testing
+    NormSetRxCacheLimit(session, 4096);
     
     // 3) Start the receiver with 1 Mbyte buffer per sender
     NormStartReceiver(session, 1024*1024);
@@ -141,7 +147,7 @@ int main(int argc, char* argv[])
         {
            case NORM_RX_OBJECT_NEW:
                 gettimeofday(&startTime, NULL);
-                fprintf(stderr, "normDataRecv: NORM_RX_OBJECT_NEW event ...\n");
+                //fprintf(stderr, "normDataRecv: NORM_RX_OBJECT_NEW event ...\n");
                 break;
 
             case NORM_RX_OBJECT_INFO:
@@ -174,9 +180,10 @@ int main(int argc, char* argv[])
             case NORM_RX_OBJECT_COMPLETED:
             {
                 gettimeofday(&endTime, NULL);
-                fprintf(stderr, "normDataRecv: NORM_RX_OBJECT_COMPLETED event ...\n");
+                //fprintf(stderr, "normDataRecv: NORM_RX_OBJECT_COMPLETED event ...\n");
                 unsigned int objSize = NormObjectGetSize(theEvent.object);
                 const char* dataPtr = NormDataAccessData(theEvent.object);
+                // next 3 lines are temp for normMsgr testing
                 // Validate that the data is complete/accurate
                 // a) compare data size against the size embedded in the "INFO"
                 char dataInfo[8192];

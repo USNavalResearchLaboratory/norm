@@ -317,6 +317,10 @@ void NormTrace2(const struct timeval&    currentTime,
                             break;
                         }
                     }
+                    struct timeval sendTime;
+                    cc.GetSendTime(sendTime);
+                    double delay = ProtoTime::Delta(ProtoTime(currentTime), ProtoTime(sendTime));
+                    PLOG(PL_ALWAYS, "delay>%lf ", delay);
                     break;
                 }
                 default:
@@ -328,6 +332,7 @@ void NormTrace2(const struct timeval&    currentTime,
         case NormMsg::ACK:
         case NormMsg::NACK:
         {
+            PLOG(PL_ALWAYS, "%s ", MSG_NAME[msgType]);   
             // look for NormCCFeedback extension
             NormHeaderExtension ext;
             while (msg.GetNextExtension(ext))
@@ -335,10 +340,22 @@ void NormTrace2(const struct timeval&    currentTime,
                 if (NormHeaderExtension::CC_FEEDBACK == ext.GetType())
                 {
                     clrFlag = ((NormCCFeedbackExtension&)ext).CCFlagIsSet(NormCC::CLR);
+                    // Print ccRtt (only valid if pcap file is from sender node)
+                    double ccRtt = NormUnquantizeRtt(((NormCCFeedbackExtension&)ext).GetCCRtt());
+                    PLOG(PL_ALWAYS, "ccRtt:%lf ", ccRtt);
                     break;
                 }
             }
-            PLOG(PL_ALWAYS, "%s ", MSG_NAME[msgType]);   
+            // Print locally measured rtt (only valid if pcap file is from sender node)
+            struct timeval grttResponse;
+            if (NormMsg::NACK == msgType)
+                static_cast<const NormNackMsg&>(msg).GetGrttResponse(grttResponse);
+            else
+                static_cast<const NormAckMsg&>(msg).GetGrttResponse(grttResponse);
+            
+            double rtt = ProtoTime::Delta(ProtoTime(currentTime), ProtoTime(grttResponse));
+            PLOG(PL_ALWAYS, "rtt:%lf ", rtt);
+            
             PLOG(PL_ALWAYS, "len>%hu %s\n", length, clrFlag ? "(CLR)" : "");
             if (NormMsg::NACK == msgType)
             {

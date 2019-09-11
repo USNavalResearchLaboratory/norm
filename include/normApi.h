@@ -58,6 +58,10 @@ typedef uint32_t UINT32;
 extern "C" {
 #endif /* __cplusplus */
 
+#define NORM_VERSION_MAJOR 1
+#define NORM_VERSION_MINOR 0
+#define NORM_VERSION_PATCH 0
+
 /** NORM API Types */
 typedef const void* NormInstanceHandle;
 extern NORM_API_LINKAGE
@@ -143,7 +147,8 @@ typedef enum NormProbingMode
 NORM_API_LINKAGE
 typedef enum NormSyncPolicy
 {
-    NORM_SYNC_CURRENT,  // attempt to receiver current/new objects only
+    NORM_SYNC_CURRENT,  // attempt to receiver current/new objects only, join mid-stream
+    NORM_SYNC_STREAM,   // sync to current stream, but to beginning of stream
     NORM_SYNC_ALL       // attempt to receive old and new objects
 } NormSyncPolicy;
     
@@ -170,7 +175,7 @@ typedef enum NormEventType
     NORM_REMOTE_SENDER_NEW,
     NORM_REMOTE_SENDER_ACTIVE,
     NORM_REMOTE_SENDER_INACTIVE,
-    NORM_REMOTE_SENDER_PURGED,
+    NORM_REMOTE_SENDER_PURGED,    // not yet implemented
     NORM_RX_CMD_NEW,
     NORM_RX_OBJECT_NEW,
     NORM_RX_OBJECT_INFO,
@@ -192,6 +197,12 @@ typedef struct
     
 
 /** NORM API General Initialization and Operation Functions */
+
+NORM_API_LINKAGE 
+int NormGetVersion(int* major DEFAULT((int*)0), 
+                   int* minor DEFAULT((int*)0), 
+                   int* patch  DEFAULT((int*)0));
+
 NORM_API_LINKAGE 
 NormInstanceHandle NormCreateInstance(bool priorityBoost DEFAULT(false));
 
@@ -251,6 +262,9 @@ NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
 
 NORM_API_LINKAGE 
 void NormDestroySession(NormSessionHandle sessionHandle);
+
+NORM_API_LINKAGE
+bool NormIsUnicastAddress(const char* address);
 
 NORM_API_LINKAGE 
 void NormSetUserData(NormSessionHandle sessionHandle, const void* userData);
@@ -358,6 +372,9 @@ double NormGetReportInterval(NormSessionHandle sessionHandle);
 
 /** NORM Sender Functions */
 
+NORM_API_LINKAGE
+NormSessionId NormGetRandomSessionId();
+
 NORM_API_LINKAGE 
 bool NormStartSender(NormSessionHandle  sessionHandle,
                      NormSessionId      instanceId,
@@ -457,10 +474,19 @@ NormObjectHandle NormStreamOpen(NormSessionHandle sessionHandle,
                                 const char*       infoPtr DEFAULT((const char*)0),
                                 unsigned int      infoLen DEFAULT(0));
 
+NORM_API_LINKAGE 
+void NormObjectSetUserData(NormObjectHandle objectHandle, const void* userData);
+
+NORM_API_LINKAGE 
+const void* NormObjectGetUserData(NormObjectHandle objectHandle);
+
 // TBD - we should add a "bool watermark" option to "graceful" stream closure???
 NORM_API_LINKAGE 
 void NormStreamClose(NormObjectHandle streamHandle, bool graceful DEFAULT(false));
 
+NORM_API_LINKAGE
+unsigned int NormGetStreamBufferSegmentCount(unsigned int bufferBytes, UINT16 segmentSize, UINT16 blockSize);
+        
 NORM_API_LINKAGE 
 unsigned int NormStreamWrite(NormObjectHandle streamHandle,
                              const char*      buffer,
@@ -508,8 +534,8 @@ void NormSetAutoAckingNodes(NormSessionHandle   sessionHandle,
                             NormTrackingStatus  trackingStatus);
 
 NORM_API_LINKAGE 
-NormAckingStatus NormGetAckingStatus(NormSessionHandle  sessionHandle,
-                                     NormNodeId         nodeId DEFAULT(NORM_NODE_ANY));
+NormAckingStatus NormGetAckingStatus(NormSessionHandle sessionHandle,
+                                     NormNodeId        nodeId DEFAULT(NORM_NODE_ANY));
 
 NORM_API_LINKAGE 
 bool NormGetNextAckingNode(NormSessionHandle    sessionHandle,

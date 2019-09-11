@@ -18,7 +18,7 @@ class Object(object):
     def __init__(self, object):
         libnorm.NormObjectRetain(object)
         self._object = object
-
+        
     def getType(self):
         return libnorm.NormObjectGetType(self)
 
@@ -56,12 +56,19 @@ class Object(object):
     def renameFile(self, name):
         libnorm.NormFileRename(self, name)
 
-    def accessData(self):
+    # Because 'ctypes.string_at()' makes a _copy_ of the data, we don't
+    # support the usual NORM accessData / detachData options.  We use
+    # NormDataAccessData() to get a pointer to the data we copy and
+    # let the underlying NORM release the received object and free the
+    # memory.
+    def getData(self):
         return ctypes.string_at(libnorm.NormDataAccessData(self), self.size)
 
-    def detachData(self):
-        return ctypes.string_at(libnorm.NormDataDetachData(self), self.size)
-
+    #def accessData(self):
+    #    return ctypes.string_at(libnorm.NormDataAccessData(self), self.size)
+    #def detachData(self):
+    #    return ctypes.string_at(libnorm.NormDataDetachData(self), self.size)
+        
     def getSender(self):
         return Node(libnorm.NormObjectGetSender(self))
 
@@ -133,4 +140,7 @@ class Object(object):
         return cmp(self._as_parameter_, other._as_parameter_)
 
     def __hash__(self):
-        return self._as_parameter_
+        return hash(self._as_parameter_)
+        
+    def __equ__(self, other):
+        return self._object == other._object

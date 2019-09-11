@@ -52,4 +52,12 @@ LOCAL_SRC_FILES := \
 	../../../src/unix/unixPostProcess.cpp
 include $(BUILD_EXECUTABLE)
 
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := normMsgr
+LOCAL_STATIC_LIBRARIES := norm
+LOCAL_SRC_FILES := \
+	../../../examples/normMsgr.cpp
+include $(BUILD_EXECUTABLE)
+
 $(call import-module,protolib/makefiles/android/jni)

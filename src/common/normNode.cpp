@@ -334,7 +334,7 @@ bool NormSenderNode::AllocateBuffers(UINT8  fecId,
                 {
                     if (NULL == (decoder = new NormDecoderRS8))
                     {
-                        PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderMDP error: %s\n", GetErrorString());
+                        PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderRS8 error: %s\n", GetErrorString());
                         Close();
                         return false; 
                     }
@@ -959,7 +959,7 @@ void NormSenderNode::HandleRepairContent(const UINT32* buffer, UINT16 bufferLen)
     bool freshBlock = true;
     NormBlockId prevBlockId = 0;
     NormBlock* block = NULL;
-    while ((requestLength = req.Unpack(buffer, bufferLen)))
+    while (0 != (requestLength = req.Unpack(buffer, bufferLen)))
     {      
         // Point "buffer" to next request and adjust "bufferLen"
         buffer += (requestLength/4); 
@@ -1081,8 +1081,7 @@ void NormSenderNode::CalculateGrttResponse(const struct timeval&    currentTime,
         if (grttResponse.tv_usec < grtt_recv_time.tv_usec)
         {
             grttResponse.tv_sec = grttResponse.tv_sec - grtt_recv_time.tv_sec - 1;
-            grttResponse.tv_usec = 1000000 - (grtt_recv_time.tv_usec - 
-                                              grttResponse.tv_usec);
+            grttResponse.tv_usec = 1000000 - (grtt_recv_time.tv_usec - grttResponse.tv_usec);
         }
         else
         {
@@ -1511,9 +1510,15 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
                     session.Notify(NormController::RX_OBJECT_NEW, this, obj);
                     if (obj->Accepted())
                     {
-                        // (TBD) Do I _need_ to call "StreamUpdateStatus()" here?
                         if (obj->IsStream()) 
-                            (static_cast<NormStreamObject*>(obj))->StreamUpdateStatus(blockId);
+                        {
+                            // This initial "StreamUpdateStatus()" syncs the stream according to our sync policy
+                            NormStreamObject* stream = static_cast<NormStreamObject*>(obj);
+                            if (SYNC_CURRENT != sync_policy)
+                                stream->StreamResync(NormBlockId(0));
+                            else
+                                stream->StreamUpdateStatus(blockId);
+                        }    
                         PLOG(PL_DETAIL, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu new obj>%hu\n", 
                             LocalNodeId(), GetId(), (UINT16)objectId);
                     }
@@ -1597,6 +1602,7 @@ bool NormSenderNode::SyncTest(const NormObjectMsg& msg) const
     switch (sync_policy)
     {
         case SYNC_CURRENT:  // default, more conservative "sync policy"
+        case SYNC_STREAM:
 	    {
             // Allow sync on stream at any time
             bool result = msg.FlagIsSet(NormObjectMsg::FLAG_STREAM);
@@ -1697,6 +1703,7 @@ void NormSenderNode::Sync(NormObjectId objectId)
         switch (sync_policy)
         {
             case SYNC_CURRENT:  // this is the usual default
+            case SYNC_STREAM:
                 sync_id = next_id = max_pending_object = objectId;
                 break;
             case SYNC_ALL:  // gratuitously sync for anything in our "range"
@@ -2299,7 +2306,7 @@ void NormSenderNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
     if (prev_update_time.tv_sec || prev_update_time.tv_usec)
     {
         double interval = (double)(currentTime.tv_sec - prev_update_time.tv_sec);
-        if (currentTime.tv_usec > prev_update_time.tv_sec)
+        if (currentTime.tv_sec > prev_update_time.tv_sec)
             interval += 1.0e-06*(double)(currentTime.tv_usec - prev_update_time.tv_usec);
         else
             interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);            
@@ -3218,7 +3225,7 @@ bool NormLossEstimator2::Update(const struct timeval&   currentTime,
             event_time = event_time_orig = currentTime;
             newLossEvent = true;
             
-            TRACE("time>%lf new loss event fraction = %lf\n", ProtoTime(currentTime).GetValue(), LossFraction());
+            //TRACE("time>%lf new loss event fraction = %lf\n", ProtoTime(currentTime).GetValue(), LossFraction());
             
         }
     }  

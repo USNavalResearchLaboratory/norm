@@ -1,5 +1,5 @@
 /******************************************************************************
- Simple NORM_OBJECT_DATA sender example app using the NORM API
+ Simple NORM_OBJECT_STREAM sender example app using the NORM API
 
  USAGE: 
  
@@ -17,9 +17,7 @@
 
 
 // Notes:
-//  1) A single file is sent.
-//  2) The program exits upon NORM_TX_FLUSH_COMPLETED notification (or user <CTRL-C>)
-//  3) NORM receiver should be started first (before sender starts)
+//  1) A series of text messages are sent over a stream
 
 
 #include "normApi.h"     // for NORM API
@@ -33,10 +31,11 @@
 int main(int argc, char* argv[])
 {
     // 0) Default parameter values
-    const unsigned int MSG_LENGTH_MIN = 1400;
-    const unsigned int MSG_LENGTH_MAX = 1400;
+    const int MSG_COUNT_MAX = 10;
+    const unsigned int MSG_LENGTH_MIN = 40;
+    const unsigned int MSG_LENGTH_MAX = 40;
     UINT32 streamBufferSize = 4*1024*1024; // 1 Mbyte stream buffer size
-    double normRate = 1.0e+07;           // 1 Mbps default NORM tx rate for fixed rate operation (bits/sec units here)
+    double normRate = 1.0e+07;           // 10 Mbps default NORM tx rate for fixed rate operation (bits/sec units here)
     double msgRate = -1.0; //1e+06;   // 32 kbits/sec default message rate
     
     // 1) Create a NORM API "NormInstance"
@@ -45,7 +44,7 @@ int main(int argc, char* argv[])
     // 2) Create a NormSession using default "automatic" local node id (based on IP addr)
     //    TBD - add an option to set a specific NormNodeId
     NormSessionHandle session = NormCreateSession(instance,
-                                                  "loon", //"224.1.2.3", 
+                                                  "224.1.2.3", 
                                                    6003,
                                                    1);//NORM_NODE_ANY);
     
@@ -53,7 +52,7 @@ int main(int argc, char* argv[])
     //       (not necessary for normal app use)
     NormSetDebugLevel(3);
     // Uncomment to turn on debug NORM message tracing
-    //NormSetMessageTrace(session, true);
+    NormSetMessageTrace(session, true);
     // Uncomment to turn on some random packet loss
     //NormSetTxLoss(session, 25.0);  // 25% packet loss for testing purposes
     
@@ -177,6 +176,10 @@ int main(int argc, char* argv[])
              
         int result = select(normfd+1, &fdset, NULL, NULL, timeoutPtr);
         
+        bool keepSending = true;
+        if ((MSG_COUNT_MAX > 0) && (msgCount >= (unsigned int)MSG_COUNT_MAX))
+            keepSending = false;
+        
         if (result > 0)
         {        
             // Get and handle NORM API event
@@ -194,7 +197,7 @@ int main(int argc, char* argv[])
                         else
                             fprintf(stderr, "normStreamSend: NORM_TX_QUEUE_EMPTY event ...\n");
                         */
-                        if (!vacancy)
+                        if (keepSending && (bytesWritten < msgLen))
                         {
                             // Finish writing remaining pending message content (as much as can be written)
                             bytesWritten += NormStreamWrite(stream, msgData + bytesWritten, msgLen - bytesWritten);
@@ -219,7 +222,7 @@ int main(int argc, char* argv[])
                         break;
                 
                     case NORM_GRTT_UPDATED:
-                        fprintf(stderr, "normStreamRecv: NORM_GRTT_UPDATED event ...\n");
+                        fprintf(stderr, "normStreamSend: NORM_GRTT_UPDATED event ...\n");
                         break;
 
                     default:
@@ -234,6 +237,7 @@ int main(int argc, char* argv[])
             break;
         }
         
+        
         // This code writes _new_ message(s) to the stream _if_  there is "vacancy"
         // and it is time based on "msgRate" and how much time has passed since "lastTime" 
         struct timeval currentTime;
@@ -244,7 +248,7 @@ int main(int argc, char* argv[])
         else
             timeDelta -= 1.0e-06 * (lastTime.tv_usec - currentTime.tv_usec);
         timeAccumulator += timeDelta;
-        while (vacancy && (timeAccumulator > delayTime))
+        while (keepSending && vacancy && (timeAccumulator > delayTime))
         {
             timeAccumulator -= delayTime;  // subtract last message tx duration from accumulator
             // Fill buffer with new message "data" text character (a-z)
@@ -270,6 +274,12 @@ int main(int argc, char* argv[])
                 NormStreamMarkEom(stream);
                 msgCount++;  
                 delayTime = (msgRate > 0.0) ? ((double)msgLen / msgRate) : 0.0;
+                if ((MSG_COUNT_MAX > 0) && ((unsigned int)msgCount >= MSG_COUNT_MAX))
+                {
+                    fprintf(stderr, "closing stream after %u messages ...\n", msgCount);
+                    NormStreamClose(stream, true);  // gracefully close stream
+                    keepSending = false;
+                }
             }
         }
         if (timeAccumulator <= delayTime) 
@@ -278,6 +288,7 @@ int main(int argc, char* argv[])
             timeAccumulator = 0.0;
         }
         lastTime = currentTime;
+        
         
     }  // end while (keepGoing)
     

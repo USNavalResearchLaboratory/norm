@@ -9,6 +9,7 @@ import ctypes
 from select import select
 from weakref import WeakValueDictionary
 from platform import system
+import sys
 
 if system() == 'Windows':
     import win32event
@@ -48,6 +49,9 @@ class Instance(object):
 
     def setCacheDirectory(self, path):
         libnorm.NormSetCacheDirectory(self, path)
+        
+    def setDebugLevel(self, level):
+        libnorm.NormSetDebugLevel(level)
 
     def openDebugLog(self, path):
         libnorm.NormOpenDebugLog(self, path)
@@ -64,23 +68,26 @@ class Instance(object):
         if not self._select(timeout):
             return None
 
-        libnorm.NormGetNextEvent(self, ctypes.byref(self._estruct), True)
+        result = libnorm.NormGetNextEvent(self, ctypes.byref(self._estruct), True)
 
+        if not result:
+            sys.stderr.write("NormInstance.getNextEvent() warning: no more NORM events\n")
+            return False
+        # Note a NORM_EVENT_INVALID can be OK (with NORM_SESSION_INVALID)    
+        if self._estruct.type == c.NORM_EVENT_INVALID:
+            return Event(c.NORM_EVENT_INVALID, None, None, None)
+        
         if self._estruct.session == c.NORM_SESSION_INVALID:
             raise NormError("No new event")
-
         try:
             sender = self._senders[self._estruct.sender]
         except KeyError:
-            sender = self._senders[self._estruct.sender] =\
-                    Node(self._estruct.sender)
+            sender = self._senders[self._estruct.sender] = Node(self._estruct.sender)
         try:
             object = self._objects[self._estruct.object]
         except KeyError:
-            object = self._objects[self._estruct.object] =\
-                    Object(self._estruct.object)
-        return Event(self._estruct.type,
-                self._sessions[self._estruct.session], sender, object)
+            object = self._objects[self._estruct.object] = Object(self._estruct.object)
+        return Event(self._estruct.type, self._sessions[self._estruct.session], sender, object)
 
     def getDescriptor(self):
         return libnorm.NormGetDescriptor(self)

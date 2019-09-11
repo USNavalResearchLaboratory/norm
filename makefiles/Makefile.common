@@ -168,7 +168,14 @@ normThreadTest2:    $(TTEST2_OBJ) libnorm.a $(LIBPROTO)
 	mkdir -p ../bin
 	cp $@ ../bin/$@ 
 
+# (normMsgr) message sender/receiver
+MSGR_SRC = $(EXAMPLE)/normMsgr.cpp
+MSGR_OBJ = $(MSGR_SRC:.cpp=.o)
 
+normMsgr:    $(MSGR_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(MSGR_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
 
 # (pcap2norm) - parses pcap (e.g. tcpdump) file and prints NORM trace
 PCAP_SRC = $(COMMON)/pcap2norm.cpp

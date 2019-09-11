@@ -110,23 +110,27 @@ class NormObjectSize
 {
     public:
 #ifdef WIN32
+#define _FILE_OFFSET_BITS 64
 		typedef __int64 Offset;
 #else
 		typedef off_t Offset;
-#endif
+#endif  // if/else WIN32
         NormObjectSize() : size(0) {}
         NormObjectSize(Offset theSize) : size(theSize) {}
         NormObjectSize(UINT16 msb, UINT32 lsb)
         {
             size = (Offset)lsb;
-            size |= (sizeof(Offset) > 4) ? (((Offset)msb) << 32): (Offset)0;   
+#if _FILE_OFFSET_BITS > 32                     
+            size |=  ((Offset)msb) << 32;
+#endif   
         }
         Offset GetOffset() const {return size;}
-        UINT16 MSB() const
-            {return ((sizeof(Offset) > 4) ? (UINT16)((size >> 32) & 0x0000ffff) : 0);}
-        UINT32 LSB() const
-            {return ((UINT32)(size & 0xffffffff));}   
-        
+#if _FILE_OFFSET_BITS > 32
+	    UINT16 MSB() const {return ((UINT16)((size >> 32) & 0x0000ffff));}
+#else
+	    UINT16 MSB() const {return 0;} 
+#endif
+	    UINT32 LSB() const {return ((UINT32)(size & 0xffffffff));}
         // Operators
         bool operator==(const NormObjectSize& b) const
             {return (b.size == size);}

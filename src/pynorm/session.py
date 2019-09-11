@@ -23,13 +23,13 @@ class Session(object):
         localId - NormNodeId
         """
         self._instance = instance
-        self._session = libnorm.NormCreateSession(instance, address, port,
-                localId)
+        self._session = libnorm.NormCreateSession(instance, address, port, localId)
         self.sendGracefulStop = False
         self.gracePeriod = 0
 
     def destroy(self):
         libnorm.NormDestroySession(self)
+        del self._instance._sessions[self]
 
     def setUserData(self, data):
         """data should be a string"""
@@ -66,13 +66,12 @@ class Session(object):
         libnorm.NormSetReportInterval(self, interval)
 
     ## Sender functions
-    def startSender(self, sessionId, bufferSpace, segmentSize, blockSize,
-            numParity):
+    def startSender(self, sessionId, bufferSpace, segmentSize, blockSize, numParity):
         libnorm.NormStartSender(self, sessionId, bufferSpace, segmentSize,
                 blockSize, numParity)
 
-    def stopSender(self, graceful=False):
-        libnorm.NormStopSender(self, graceful)
+    def stopSender(self):
+        libnorm.NormStopSender(self)
 
     def setTxRate(self, rate):
         libnorm.NormSetTxRate(self, rate)
@@ -80,11 +79,17 @@ class Session(object):
     def setTxSocketBuffer(self, size):
         libnorm.NormSetTxSocketBuffer(self, size)
 
-    def setCongestionControl(self, cc):
-        libnorm.NormSetCongestionControl(self, cc)
+    def setCongestionControl(self, ccEnable, adjustRate=True):
+        libnorm.NormSetCongestionControl(self, ccEnable, adjustRate)
+        
+    def setEcnSupport(self, ecnEnable, ignoreLoss=False, tolerateLoss=False):
+        libnorm.NormSetEcnSupport(self, ecnEnable, ignoreLoss, tolerateLoss)
+        
+    def setFlowControl(self, flowControlFactor):
+        libnorm.NormSetFlowControl(self, flowControlFactor)
 
-    def setTxRateBounds(self, min, max):
-        libnorm.NormSetTxRateBounds(self, min, max)
+    def setTxRateBounds(self, rateMin, rateMax):
+        libnorm.NormSetTxRateBounds(self, rateMin, rateMax)
 
     def setTxCacheBounds(self, sizeMax, countMin, countMax):
         libnorm.NormSetTxCacheBounds(self, sizeMax, countMin, countMax)
@@ -95,17 +100,17 @@ class Session(object):
     def getGrttEstimate(self):
         return libnorm.NormGetGrttEstimate(self)
 
-    def setGrttEstimate(self, grtt):
+    def setGrttEstimate(self, grttMax):
         libnorm.NormSetGrttEstimate(self, grtt)
 
     def setGrttMax(self, max):
-        libnorm.NormSetGrttMax(self, max)
+        libnorm.NormSetGrttMax(self, grttMax)
 
     def setGrttProbingMode(self, mode):
         libnorm.NormSetGrttProbingMode(self, mode)
 
-    def setGrttProbingInterval(self, min, max):
-        libnorm.NormSetGrttProbingInterval(self, min, max)
+    def setGrttProbingInterval(self, intervalMin, intervalMax):
+        libnorm.NormSetGrttProbingInterval(self, intervalMin, intervalMax)
 
     def setBackoffFactor(self, factor):
         libnorm.NormSetBackoffFactor(self, factor)
@@ -114,22 +119,25 @@ class Session(object):
         libnorm.NormSetGroupSize(self, size)
 
     def fileEnqueue(self, filename, info=""):
-        return Object(libnorm.NormFileEnqueue(self, filename, info,
-            len(info)))
+        return Object(libnorm.NormFileEnqueue(self, filename, info, len(info)))
 
     def dataEnqueue(self, data, info=""):
-        return Object(libnorm.NormDataEnqueue(self, data,
-            len(data), info, len(info)))
+        return Object(libnorm.NormDataEnqueue(self, data, len(data), info, len(info)))
 
-    def requeueObject(self, object):
-        libnorm.NormRequeueObject(self, object)
+    def requeueObject(self, normObject):
+        libnorm.NormRequeueObject(self, normObject)
 
     def streamOpen(self, bufferSize, info=""):
-        return Object(libnorm.NormStreamOpen(self, bufferSize, info,
-            len(info)))
+        return Object(libnorm.NormStreamOpen(self, bufferSize, info, len(info)))
 
-    def setWatermark(self, object):
-        libnorm.NormSetWatermark(self, object)
+    def setWatermark(self, normObject, overrideFlush=False):
+        libnorm.NormSetWatermark(self, normObject, overrideFlush)
+        
+    def resetWatermark(self):
+        libnorm.NormResetWatermark(self)
+        
+    def cancelWatermark(self):
+        libnorm.NormCancelWatermark(self)
 
     def addAckingNode(self, nodeId):
         libnorm.NormAddAckingNode(self, nodeId)
@@ -148,6 +156,9 @@ class Session(object):
         """This will be called automatically if the receiver is active"""
         libnorm.NormStopReceiver(self, gracePeriod)
 
+    def setRxCacheLimit(self, count):
+        libnorm.NormSetRxCacheLimit(self, count)
+        
     def setRxSocketBuffer(self, size):
         libnorm.NormSetRxSocketBuffer(self, size)
 
@@ -158,12 +169,18 @@ class Session(object):
 
     def setDefaultUnicastNack(self, mode):
         libnorm.NormSetDefaultUnicastNack(self, mode)
+        
+    def setDefaultSyncPolicy(self, policy):
+        libnorm.NormSetDefaultSyncPolicy(self, policy)
 
     def setDefaultNackingMode(self, mode):
         libnorm.NormSetDefaultNackingMode(self, mode)
 
     def setDefaultRepairBoundary(self, boundary):
         libnorm.NormSetDefaultRepairBoundary(self, boundary)
+        
+    def setMessageTrace(self, state):
+        libnorm.NormSetMessageTrace(self, state)
 
     ## Properties
     nodeId = property(getNodeId)

@@ -69,12 +69,12 @@ JNIEXPORT void JNICALL PKGNAME(NormSession_setRxPortReuse)
 }
 
 JNIEXPORT void JNICALL PKGNAME(NormSession_setEcnSupport)
-    (JNIEnv *env, jobject obj, jboolean ecnEnable, jboolean ignoreLoss) {
+    (JNIEnv *env, jobject obj, jboolean ecnEnable, jboolean ignoreLoss, jboolean tolerateLoss) {
   NormSessionHandle session;
 
   session = (NormSessionHandle)env->GetLongField(obj, fid_NormSession_handle);
 
-  NormSetEcnSupport(session, ecnEnable, ignoreLoss);
+  NormSetEcnSupport(session, ecnEnable, ignoreLoss, tolerateLoss);
 }
 
 JNIEXPORT void JNICALL PKGNAME(NormSession_setMulticastInterface)
@@ -507,6 +507,15 @@ JNIEXPORT void JNICALL PKGNAME(NormSession_cancelWatermark)
   session = (NormSessionHandle)env->GetLongField(obj, fid_NormSession_handle);
 
   NormCancelWatermark(session);
+}
+
+JNIEXPORT void JNICALL PKGNAME(NormSession_resetWatermark)
+    (JNIEnv *env, jobject obj) {
+  NormSessionHandle session;
+
+  session = (NormSessionHandle)env->GetLongField(obj, fid_NormSession_handle);
+
+  NormResetWatermark(session);
 }
 
 JNIEXPORT void JNICALL PKGNAME(NormSession_addAckingNode)
