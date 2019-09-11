@@ -56,8 +56,8 @@ class NormBlock
             
         NormBlock();
         ~NormBlock();
-        const NormBlockId& GetId() const {return id;}
-        void SetId(NormBlockId& x) {id = x;}
+        const NormBlockId& GetId() const {return blk_id;}
+        void SetId(NormBlockId& x) {blk_id = x;}
         bool Init(UINT16 totalSize);
         void Destroy();   
         
@@ -98,7 +98,7 @@ class NormBlock
         // Sender routines
         void TxInit(NormBlockId& blockId, UINT16 ndata, UINT16 autoParity)
         {
-            id = blockId;
+            blk_id = blockId;
             pending_mask.Clear();
             pending_mask.SetBits(0, ndata+autoParity);
             repair_mask.Clear();
@@ -111,7 +111,7 @@ class NormBlock
         }
         void TxRecover(NormBlockId& blockId, UINT16 ndata, UINT16 nparity)
         {
-            id = blockId;
+            blk_id = blockId;
             pending_mask.Clear();
             repair_mask.Clear();
             erasure_count = 0;
@@ -149,7 +149,7 @@ class NormBlock
         // Receiver routines
         void RxInit(NormBlockId& blockId, UINT16 ndata, UINT16 nparity)
         {
-            id = blockId;
+            blk_id = blockId;
             pending_mask.Clear();
             pending_mask.SetBits(0, ndata+nparity);
             repair_mask.Clear();
@@ -254,7 +254,7 @@ class NormBlock
         void EmptyToPool(NormSegmentPool& segmentPool);
             
     private:
-        NormBlockId  id;
+        NormBlockId  blk_id;
         UINT16       size;
         char**       segment_table;
         

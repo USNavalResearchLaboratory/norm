@@ -150,10 +150,10 @@ bool NormRepairRequest::AppendRepairItem(UINT8               fecId,
 {
     if (RANGES == form)
         PLOG(PL_TRACE, "NormRepairRequest::AppendRepairItem-Range(fecId>%d obj>%hu blk>%lu seg>%hu) ...\n",
-            fecId, (UINT16)objectId, (UINT32)blockId, (UINT32)symbolId);
+            fecId, (UINT16)objectId, (UINT32)blockId, (UINT16)symbolId);
     else
         PLOG(PL_TRACE, "NormRepairRequest::AppendRepairItem(fecId>%d obj>%hu blk>%lu seg>%hu) ...\n",
-                       fecId, (UINT16)objectId, (UINT32)blockId, (UINT32)symbolId);
+                       fecId, (UINT16)objectId, (UINT32)blockId, (UINT16)symbolId);
     ASSERT(NormPayloadId::IsValid(fecId));
     
     UINT16 itemLength = RepairItemLength(fecId);
@@ -186,8 +186,8 @@ bool NormRepairRequest::AppendRepairRange(UINT8                 fecId,
                                           UINT16                endSymbolId)
 {
     PLOG(PL_TRACE, "NormRepairRequest::AppendRepairRange(%hu:%lu:%hu->%hu:%lu:%hu) ...\n",
-            (UINT16)startObjectId, (UINT32)startBlockId, (UINT32)startSymbolId,
-            (UINT16)endObjectId, (UINT32)endBlockId, (UINT32)endSymbolId);
+            (UINT16)startObjectId, (UINT32)startBlockId, (UINT16)startSymbolId,
+            (UINT16)endObjectId, (UINT32)endBlockId, (UINT16)endSymbolId);
     // Note a "range" is two repair items
     UINT16 rangeLength = RepairRangeLength(fecId);
     if (buffer_len >= (ITEM_LIST_OFFSET+length+rangeLength))

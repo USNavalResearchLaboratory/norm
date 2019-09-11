@@ -342,7 +342,7 @@ bool NormBlock::HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
                                      UINT16 numData, UINT16 numParity, UINT16 erasureCount)
 {
     PLOG(PL_TRACE, "NormBlock::HandleSegmentRequest() blk>%lu seg>%hu:%hu erasures:%hu\n",
-            (UINT32)id, (UINT16)nextId, (UINT16)lastId, erasureCount);
+            (UINT32)blk_id, (UINT16)nextId, (UINT16)lastId, erasureCount);
     bool increasedRepair = false;
     if (nextId < numData)
     {
@@ -461,13 +461,13 @@ bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd,
                         ASSERT(0);  // can't happen
                         break;
                     case NormRepairRequest::ITEMS:
-                        req.AppendRepairItem(fecId, fecM, objectId, id, numData, firstId);
+                        req.AppendRepairItem(fecId, fecM, objectId, blk_id, numData, firstId);
                         if (2 == segmentCount) 
-                            req.AppendRepairItem(fecId, fecM, objectId, id, numData, currentId);
+                            req.AppendRepairItem(fecId, fecM, objectId, blk_id, numData, currentId);
                         break;
                     case NormRepairRequest::RANGES:
-                        req.AppendRepairRange(fecId, fecM, objectId, id, numData, firstId,
-                                              objectId, id, numData, currentId);
+                        req.AppendRepairRange(fecId, fecM, objectId, blk_id, numData, firstId,
+                                              objectId, blk_id, numData, currentId);
                         break;
                     case NormRepairRequest::ERASURES:
                         // erasure counts not used
@@ -504,7 +504,7 @@ NormObjectSize NormBlock::GetBytesPending(UINT16      numData,
         } while (GetNextPending(nextId));        
     }
     // Correct for final_segment_size, if applicable
-    if ((id == finalBlockId) && IsPending(numData - 1))
+    if ((blk_id == finalBlockId) && IsPending(numData - 1))
     {
         pendingBytes -= NormObjectSize(segmentSize);
         pendingBytes += NormObjectSize(finalSegmentSize);  
@@ -594,13 +594,14 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
                     ASSERT(0);
                     break;
                 case NormRepairRequest::ITEMS:
-                    req.AppendRepairItem(fecId, fecM, objectId, id, numData, firstId);       // (TBD) error check
+                    req.AppendRepairItem(fecId, fecM, objectId, blk_id, numData, firstId);       // (TBD) error check
                     if (2 == segmentCount)
-                        req.AppendRepairItem(fecId, fecM, objectId, id, numData, currentId); // (TBD) error check
+                        req.AppendRepairItem(fecId, fecM, objectId, blk_id, numData, currentId); // (TBD) error check
                     break;
                 case NormRepairRequest::RANGES:
-                    req.AppendRepairRange(fecId, fecM, objectId, id, numData, firstId,       // (TBD) error check
-                                          objectId, id, numData, currentId);    // (TBD) error check
+                    req.AppendRepairRange(fecId, fecM, 
+                                          objectId, blk_id, numData, firstId,       // (TBD) error check
+                                          objectId, blk_id, numData, currentId);    // (TBD) error check
                     break;
                 case NormRepairRequest::ERASURES:
                     // erasure counts not used

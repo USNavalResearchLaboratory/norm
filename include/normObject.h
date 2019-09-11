@@ -508,10 +508,11 @@ class NormStreamObject : public NormObject
         
         bool IsReadReady() const {return read_ready;}
         
-        bool DetermineReadReadiness() const
+        bool DetermineReadReadiness() //const
         {
             NormBlock* block = stream_buffer.Find(read_index.block);
-            return ((NULL != block) && (NULL != block->GetSegment(read_index.segment)));  
+            read_ready = ((NULL != block) && (NULL != block->GetSegment(read_index.segment))); 
+            return read_ready; 
         }
 
         bool IsReadIndex(NormBlockId blockId, NormSegmentId segmentId) const

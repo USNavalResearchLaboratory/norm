@@ -2180,7 +2180,7 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                     break;  
                             }
                             
-                            if (obj)
+                            if (NULL != obj)
                             {
                                 if (obj->IsPending(nextId != max_pending_object))
                                 {
@@ -2246,6 +2246,7 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         // The nack had no repair request content,
                         // perhaps because of our "nacking mode"
                         // even though there were pending objects
+                        // TBD - should we avoid NACK hold-off when this happens?
                         PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu zero content nack ...\n",
                             LocalNodeId());
                         session.ReturnMessageToPool(nack);

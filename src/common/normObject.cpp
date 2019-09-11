@@ -1076,8 +1076,8 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
         // Two PLOG() statements because one doesn't work right for some reason?!
         if (PL_TRACE <= GetDebugLevel())
         {
-            PLOG(PL_TRACE, "NormObject::AppendRepairRequest() node>%lu obj>%lu, blk>%lu->%lu ",
-               LocalNodeId(), (UINT32)((UINT16)GetId()), (UINT32)nextId, (UINT32)lastId);
+            PLOG(PL_TRACE, "NormObject::AppendRepairRequest() node>%lu obj>%hu, blk>%lu->%lu ",
+                    LocalNodeId(), (UINT16)GetId(), (UINT32)nextId, (UINT32)lastId);
             PLOG(PL_ALWAYS, "(maxPending = %lu)\n", (UINT32)max_pending_block);
         }
         bool appendRequest = false;
@@ -1151,7 +1151,7 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
                 default:
                     break;
             }  // end switch(nextForm)
-            if (block)
+            if (NULL != block)
             {
                 // Note our NACK construction is limited by "max_pending_block:max_pending_segment"
                 // based on most recent transmissions from sender
@@ -1286,7 +1286,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             if (!stream->StreamUpdateStatus(blockId))
             {
                 PLOG(PL_WARN, "NormObject::HandleObjectMessage() node:%lu sender:%lu obj>%hu blk>%lu "
-                        "broken stream ...\n", LocalNodeId(), sender->GetId(), (UINT16)transport_id, (UINT32)blockId);
+                              "broken stream ...\n", LocalNodeId(), sender->GetId(), (UINT16)transport_id, (UINT32)blockId);
                 sender->IncrementResyncCount();
                 while (!stream->StreamUpdateStatus(blockId))
                 {
@@ -1304,9 +1304,11 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                     }
                     else
                     {
-                        stream->StreamResync(blockId);
+                        // If we try to resync to too far back, we end up chasing our tail here
+                        // do we just sync to the current block under these circumstances
+                        stream->StreamResync(blockId); // - pending_mask.GetSize()/2);
                         break;
-                    }          
+                    }      
                 }
             }
         }
@@ -1491,7 +1493,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 //        so it's not called unnecessarily
                 if (objectUpdated && notify_on_update)
                 {
-                    if ((NULL == stream) || stream->IsReadReady())
+                    if ((NULL == stream) || stream->DetermineReadReadiness())
                     {
                         notify_on_update = false;
                         session.Notify(NormController::RX_OBJECT_UPDATED, sender, this);
@@ -2818,21 +2820,22 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
             sender->PutFreeBlock(block);
         }
         pending_mask.Clear();
+        
         pending_mask.SetBits(blockId, pending_mask.GetSize());
         stream_sync = true;
         stream_sync_id = blockId;
         stream_next_id = blockId + pending_mask.GetSize(); 
         
-        if (read_init) 
+        if (NULL != sender)
         {
-            // This is a fresh rx stream, so init the read indices
-            // TBD - we may wish to do this here only for
-            // a "NORM_SYNC_STREAM" sync policy (beginning of current stream)
-            // This is a "fresh" stream
-            read_init = false;
-            read_index.block = blockId;
-            read_index.segment = 0;   
-            read_offset = 0;
+            if (read_init && (NormSenderNode::SYNC_CURRENT != sender->GetSyncPolicy()))
+            {
+                // This is a fresh rx stream, so init the read indices
+                read_init = false;
+                read_index.block = blockId;
+                read_index.segment = 0;   
+                read_offset = 0;
+            }
         }
         
         // Since we're doing a resync including "read_init", dump any buffered data
@@ -2992,7 +2995,6 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
     {
         PLOG(PL_ERROR, "NormStreamObject::WriteSegment() diff:%lu segmentOffset:%lu < read_offset:%lu \n",
                  diff, segmentOffset, read_offset);
-        //ASSERT(0);
         return false;
     }
     
@@ -3102,7 +3104,6 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
         if (!read_ready)
         {
             // Did this segment make our stream ready for reading
-            
             if ((blockId == read_index.block) && (segmentId == read_index.segment))
             {
                 read_ready = true;
@@ -3253,15 +3254,20 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                     if (delta > session.RcvrGetMaxDelay())
                         forceForward = true;
                 }
+                else
+                {
+                    NormBlockId firstPending;
+                    if (GetFirstPending(firstPending))
+                    {
+                        if (read_index.block < firstPending)
+                            forceForward = true;
+                    }
+                }
                 if (forceForward)
                 {
-                    // Force read_index forward and try again.
-                    if (++read_index.segment >= ndata)
-                    {
-                        read_index.block++;  
-                        read_index.segment = 0; 
-                        Prune(read_index.block, false);
-                    }
+                    read_index.block++;  
+                    read_index.segment = 0; 
+                    Prune(read_index.block, false);
                     continue;
                 }
                 else
@@ -3277,7 +3283,7 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
         
         if (NULL == segment)
         {
-            //DMSG(0, "NormStreamObject::Read(%lu:%hu) stream buffer empty (read_offset>%lu) (2)\n",
+            //DMSG(0, "NormStreamObject::ReadPrivate(%lu:%hu) stream buffer empty (read_offset>%lu) (2)\n",
             //        (UINT32)read_index.block, read_index.segment, read_offset);
             read_ready = false;
             *buflen = bytesRead;
@@ -3301,6 +3307,15 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                     INT32 delta = max_pending_block - read_index.block;
                     if (delta > session.RcvrGetMaxDelay())
                         forceForward = true;
+                }
+                else
+                {
+                    NormBlockId firstPending;
+                    if (GetFirstPending(firstPending))
+                    {
+                        if (read_index.block < firstPending)
+                            forceForward = true;
+                    }
                 }
                 if (forceForward)
                 {
@@ -3336,7 +3351,7 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                     break;
                 default:
                     // Invalid stream control code, skip this invalid segment
-                    PLOG(PL_ERROR, "NormStreamObject::Read() invalid stream control message\n");
+                    PLOG(PL_ERROR, "NormStreamObject::ReadPrivate() invalid stream control message\n");
                     if (++read_index.segment >= ndata)
                     {
                         stream_buffer.Remove(block);
@@ -3363,7 +3378,7 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
             else
             {
                 // Skip this invalid segment
-                PLOG(PL_ERROR, "NormStreamObject::Read() node>%lu obj>%hu blk>%lu seg>%hu invalid stream segment!\n", 
+                PLOG(PL_ERROR, "NormStreamObject::ReadPrivate() node>%lu obj>%hu blk>%lu seg>%hu invalid stream segment!\n", 
                          LocalNodeId(), (UINT16)transport_id, (UINT32)read_index.block, read_index.segment, read_offset, length);
                 if (++read_index.segment >= ndata)
                 {
@@ -3393,8 +3408,9 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
             }
             else
             {
-                PLOG(PL_WARN, "NormStreamObject::Read() node>%lu obj>%hu blk>%lu seg>%hu broken stream!\n", 
-                        (UINT32)LocalNodeId(), (UINT16)transport_id, (UINT32)read_index.block, (UINT16)read_index.segment);
+                PLOG(PL_WARN, "NormStreamObject::ReadPrivate() node>%lu obj>%hu blk>%lu seg>%hu broken stream (read_offset:%lu segmentOffset:%lu)!\n", 
+                        (UINT32)LocalNodeId(), (UINT16)transport_id, (UINT32)read_index.block, (UINT16)read_index.segment,
+                        read_offset, segmentOffset);
                 read_offset = segmentOffset;
                 *buflen = 0;
                 read_ready = false; //DetermineReadReadiness();
@@ -3415,7 +3431,7 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
             }
             else
             {
-                PLOG(PL_ERROR, "NormStreamObject::Read() node>%lu obj>%hu blk>%lu seg>%hu mangled stream! index:%hu length:%hu "
+                PLOG(PL_ERROR, "NormStreamObject::ReadPrivate() node>%lu obj>%hu blk>%lu seg>%hu mangled stream! index:%hu length:%hu "
                         "read_offset:%lu segmentOffset:%lu\n",
                         LocalNodeId(), (UINT16)transport_id, (UINT32)read_index.block, read_index.segment, index, length, read_offset, segmentOffset);
                 // Reset our read_offset ...
@@ -3434,7 +3450,7 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
                 // make sure msg start searches don't miss the stream end ...
                 if (0 == NormDataMsg::ReadStreamPayloadLength(segment))
                 {
-                    PLOG(PL_DEBUG, "NormStreamObject::Read() stream ended by sender 1\n");
+                    PLOG(PL_DEBUG, "NormStreamObject::ReadPrivate() stream ended by sender 1\n");
                     session.Notify(NormController::RX_OBJECT_COMPLETED, sender, this);
                     stream_closing = true;
                     sender->DeleteObject(this);
@@ -3504,7 +3520,7 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
             
             if (streamEnded)
             {
-                PLOG(PL_DEBUG, "NormStreamObject::Read() stream ended by sender 2\n");
+                PLOG(PL_DEBUG, "NormStreamObject::ReadPrivate() stream ended by sender 2\n");
                 session.Notify(NormController::RX_OBJECT_COMPLETED, sender, this);
                 stream_closing = true;
                 sender->DeleteObject(this);  
