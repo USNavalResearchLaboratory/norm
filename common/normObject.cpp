@@ -214,7 +214,6 @@ void NormObject::Close()
 
 NormObjectSize NormObject::GetBytesPending() const
 {
-    NormObjectSize bytesCompleted;
     NormBlockId nextId;
     if (GetFirstPending(nextId))
     {
@@ -1796,7 +1795,7 @@ bool NormFileObject::Open(const char* thePath,
         }
         else
         {
-            if (file.Open(thePath, O_RDWR | O_CREAT | O_TRUNC))
+            if (file.Open(thePath, O_WRONLY | O_CREAT | O_TRUNC))
             {
                 file.Lock();   
             }   
@@ -1806,15 +1805,21 @@ bool NormFileObject::Open(const char* thePath,
                 return false;
             }
         }  
-        //block_size = NormObjectSize(server->BlockSize()) * 
-        //             NormObjectSize(server->SegmentSize());
     }
     else
     {
+        // Verify that it _is_ a file
+        if (NormFile::NORMAL != NormFile::GetType(thePath))
+        {
+            DMSG(0, "NormFileObject::Open() send file \"%s\" is not a file "
+                    "(a directory perhaps?)\n", thePath);
+            return false;    
+        }        
+			
         // We're sending this file
         if (file.Open(thePath, O_RDONLY))
         {
-			NormObjectSize::Offset size = file.GetSize(); 
+            NormObjectSize::Offset size = file.GetSize(); 
             if (size)
             {
                 if (!NormObject::Open(NormObjectSize(size), 
@@ -2576,6 +2581,8 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
         read_index.block = blockId;
         read_index.segment = segmentId;   
         read_offset = segmentOffset;
+        TRACE("norm stream read init read_index.segment:%hu read_offset:%lu\n", 
+                read_index.segment, read_offset);
     } 
         
     if ((blockId < read_index.block) ||
@@ -2742,13 +2749,16 @@ void NormStreamObject::Prune(NormBlockId blockId)
 }  // end NormStreamObject::Prune()
 
 // Sequential (in order) read/write routines (TBD) Add a "Seek()" method
-bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStart)
+bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool seekMsgStart)
 {
+    SetDebugLevel(4);
+    TRACE("NormStreamObject::Read(seekMsgStart:%d) read_offset:%lu\n", seekMsgStart, read_offset);
     if (stream_closing)
     {
         DMSG(4, "NormStreamObject::Read() attempted to read from closed stream\n");
         *buflen = 0;
-        return true;
+        TRACE("return 1\n");
+        return seekMsgStart ? false : true;
     }   
     Retain();
     SetNotifyOnUpdate(true);  // reset notification when streams are read
@@ -2756,14 +2766,16 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
     unsigned int bytesToRead = *buflen;
     do
     {
+        TRACE("do top ...\n");
         NormBlock* block = stream_buffer.Find(read_index.block);
         if (!block)
         {
-           // DMSG(0, "NormStreamObject::Read() stream buffer empty (1) (sbEmpty:%d)\n", stream_buffer.IsEmpty());
+            DMSG(0, "NormStreamObject::Read() stream buffer empty (1) (sbEmpty:%d)\n", stream_buffer.IsEmpty());
             *buflen = bytesRead;
             if (bytesRead > 0)
             {
                 Release();
+                TRACE("return 2\n");
                 return true;
             }
             else
@@ -2782,7 +2794,8 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
                 else
                 {
                     Release();
-                    return findMsgStart ? false : true;   
+                    TRACE("return 3\n");
+                    return seekMsgStart ? false : true;   
                 }
             }
         }
@@ -2792,12 +2805,13 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
         
         if (!segment)
         {
-            //DMSG(0, "NormStreamObject::Read(%lu:%hu) stream buffer empty (2)\n",
-            //        (UINT32)read_index.block, read_index.segment);
+            DMSG(0, "NormStreamObject::Read(%lu:%hu) stream buffer empty (2)\n",
+                    (UINT32)read_index.block, read_index.segment);
             *buflen = bytesRead;
             if (bytesRead > 0)
             {
                 Release();
+                TRACE("return 4\n");
                 return true;
             }
             else
@@ -2819,7 +2833,8 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
                 else
                 {
                     Release();
-                    return findMsgStart ? false : true;   
+                    TRACE("return 5\n");
+                    return seekMsgStart ? false : true;   
                 } 
             } 
         }
@@ -2855,7 +2870,7 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
         UINT16 count = length - index;
         count = MIN(count, bytesToRead);
         
-        if (findMsgStart)
+        if (seekMsgStart)
         {
             if ((0 != index) ||
                 !NormDataMsg::StreamPayloadFlagIsSet(segment, NormDataMsg::FLAG_MSG_START))
@@ -2882,8 +2897,13 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
                     read_index.segment = 0;
                     Prune(read_index.block);
                 }
+                TRACE("continue ...\n");
                 continue;
             }
+            else
+            {
+                seekMsgStart = false;    
+            }            
         }
         
 #ifdef SIMULATE
@@ -2924,9 +2944,10 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
                 server->DeleteObject(this);  
             }
         } 
-    }  while (bytesToRead > 0); // end while (len > 0)
+    }  while ((bytesToRead > 0) || seekMsgStart); // end while (len > 0)
     *buflen = bytesRead;
     Release();
+    TRACE("return 7\n");
     return true;
 }  // end NormStreamObject::Read()
 

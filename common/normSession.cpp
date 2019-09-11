@@ -94,7 +94,7 @@ bool NormSession::Open(const char* interfaceName)
     {   
         if (address.GetPort() != tx_port)
         {
-            if (!tx_socket->Open(tx_port))
+            if (!tx_socket->Open(tx_port, address.GetType()))
             {
                 DMSG(0, "NormSession::Open() tx_socket open error\n");
                 return false;   
@@ -107,7 +107,7 @@ bool NormSession::Open(const char* interfaceName)
     }
     if (!rx_socket.IsOpen())
     {
-        if (!rx_socket.Open(address.GetPort()))
+        if (!rx_socket.Open(address.GetPort(), address.GetType()))
         {
             DMSG(0, "NormSession::Open() rx_socket open error\n");
             Close();
@@ -1043,6 +1043,30 @@ void NormSession::DeleteTxObject(NormObject* obj)
     obj->Close();
     obj->Release();
 }  // end NormSession::DeleteTxObject()
+
+void NormSession::SetTxCacheBounds(NormObjectSize  sizeMax,
+                                   unsigned long   countMin,
+                                   unsigned long   countMax)
+{
+    tx_cache_size_max = sizeMax;
+    tx_cache_count_min = (countMin < countMax) ? countMin : countMax;
+    tx_cache_count_max = (countMax > countMin) ? countMax : countMin;
+    // Now trim the tx_table as needed
+    if (IsServer())
+    {
+        unsigned long count = tx_table.Count();
+        while ((count >= tx_cache_count_min) &&
+               ((count >= tx_cache_count_max) ||
+                (tx_table.GetSize() > tx_cache_size_max)))
+        {
+            // Remove oldest non-pending 
+            NormObject* oldest = tx_table.Find(tx_table.RangeLo());
+            Notify(NormController::TX_OBJECT_PURGED, (NormServerNode*)NULL, oldest);
+            DeleteTxObject(oldest);
+            count = tx_table.Count();
+        }
+    }
+}  // end NormSession::SetTxCacheBounds()
 
 NormBlock* NormSession::ServerGetFreeBlock(NormObjectId objectId, 
                                            NormBlockId  blockId)

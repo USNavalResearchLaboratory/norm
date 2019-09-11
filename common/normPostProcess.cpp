@@ -70,7 +70,7 @@ bool NormPostProcessor::SetCommand(const char* cmd)
     }
    
     // 2) Count the number of tokens
-    if (!cmd) return true;          // post processing disabled
+    if (NULL == cmd) return true;          // post processing disabled
     if (!strcmp(cmd, "none")) return SetCommand(NULL);
     const char* ptr = cmd;
     unsigned int argCount = 0;

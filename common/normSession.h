@@ -136,7 +136,9 @@ class NormSession
         bool CongestionControl() {return cc_enable;}
         void SetCongestionControl(bool state) {cc_enable = state;}
         void SetTxRateBounds(double rateMin, double rateMax);
-        
+        void SetTxCacheBounds(NormObjectSize sizeMax,
+                              unsigned long  countMin,
+                              unsigned long  countMax);
         void Notify(NormController::Event event,
                     class NormServerNode* server,
                     class NormObject*     object)

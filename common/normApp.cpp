@@ -12,11 +12,12 @@
 #ifdef UNIX
 #include <sys/types.h>
 #include <sys/wait.h>  // for "waitpid()"
+#include <signal.h>
 #else
 #ifndef _WIN32_WCE
 #include <io.h>  // for _mktmp()
 #endif // _WIN32-WCE
-#endif // UNIX
+#endif // if/else UNIX/WIN32
 
 // Command-line application using Protolib EventDispatcher
 class NormApp : public NormController, public ProtoApp
@@ -142,7 +143,7 @@ NormApp::NormApp()
    tx_buffer_size(1024*1024), 
    tx_object_interval(0.0), tx_repeat_count(0), tx_repeat_interval(2.0), tx_repeat_clear(true),
    rx_buffer_size(1024*1024), rx_sock_buffer_size(0),
-   rx_cache_path(NULL), unicast_nacks(false), silent_client(false),
+   rx_cache_path(NULL), post_processor(NULL), unicast_nacks(false), silent_client(false),
    tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
     
@@ -166,7 +167,7 @@ NormApp::~NormApp()
     if (address) delete[] address;
     if (interface_name) delete[] interface_name;
     if (rx_cache_path) delete[] rx_cache_path;
-    if (post_processor) delete[] post_processor;
+    if (post_processor) delete post_processor;
 }
 
 // NOTE on message flushing mode:
@@ -353,7 +354,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         len = strlen(buffer);
         len = (len > 8191) ? 8191 : len;
         buffer[len++] = '\0';
-        if (!control_pipe.Send(buffer, (unsigned int)len))
+        if (!control_pipe.Send(buffer, (unsigned int&)len))
         {
             DMSG(0, "NormApp::OnCommand() error sending command to remote instance\n");
             return false;

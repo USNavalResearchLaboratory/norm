@@ -6,7 +6,7 @@
 	<META NAME="GENERATOR" CONTENT="OpenOffice.org 1.1.3  (Linux)">
 	<META NAME="AUTHOR" CONTENT="Robert Adamson">
 	<META NAME="CREATED" CONTENT="20040824;15180000">
-	<META NAME="CHANGED" CONTENT="20050609;13321500">
+	<META NAME="CHANGED" CONTENT="20050621;14191600">
 	<META NAME="DESCRIPTION" CONTENT="NORM Object Functions	42NORM Object FunctionsNORM_OBJECT_STREAMNORM Sender Functions	19NORM Sender Functions">
 	<META NAME="KEYWORDS" CONTENT="norm object value application function ">
 	<STYLE>
@@ -99,6 +99,8 @@ communication needs.</P>
 <H1 CLASS="western" ALIGN=CENTER STYLE="page-break-before: always">Table
 of Contents</H1>
 <DIV ID="Table of Contents1" DIR="LTR">
+	<P STYLE="margin-top: 0.25in; font-style: normal"><BR>
+	</P>
 	<P STYLE="margin-top: 0.25in; font-style: normal"><FONT FACE="Helvetica, sans-serif"><B>Overview</B></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>API
 	Initialization</B></FONT></P>
@@ -161,6 +163,7 @@ of Contents</H1>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTxSocketBuffer()">NormSetTxSocketBuffer()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetCongestionControl()">NormSetCongestionControl()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitRateBounds()">NormSetTransmitRateBounds()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitCacheBounds()">NormSetTransmitCacheBounds()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetAutoParity()">NormSetAutoParity()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttEstimate()">NormSetGrttEstimate()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormAddAckingNode()">NormAddAckingNode()</A></FONT></P>
@@ -400,7 +403,7 @@ that use the NORM library, a path to the &quot;normApi.h&quot; header
 file must be provided and the linker step needs to reference the NORM
 library file (&quot;libnorm.a&quot; for Unix platforms and &quot;Norm.lib&quot;
 for Win32 platforms).  NORM also depends upon the NRL Protean
-Protocol Prototyping toolkit&quot;Protokit&quot; library (a.k.a
+Protocol Prototyping toolkit &quot;Protokit&quot; library (a.k.a
 &quot;Protolib&quot;) (static library files &quot;libProtokit.a&quot;
 for Unix and &quot;Protokit.lib&quot; for Win32).  Depending upon the
 platform, some additional library dependencies may be required to
@@ -420,13 +423,22 @@ same.  With NORM, it is recommended that &quot;large file support&quot;
 options be enabled when possible.</P>
 <P CLASS="western" STYLE="font-style: normal">The NORM API uses
 threading so that the NORM protocol engine may run independent of the
-application.  Thus the &quot;Posix Threads&quot; library must be
+application.  Thus the &quot;POSIX Threads&quot; library must be
 included (&quot;-'pthread&quot;) in the linking step.  MacOS/BSD also
 requires the addition of the &quot;-lresolv&quot; (resolver) library
 and Solaris requires the dynamic loader, network/socket, and resolver
-libraries (&quot;-ldl &ndash;lnsl &ndash;lsocket &ndash;lresolv&quot;)
-to achieve successful compilation.  The Makefiles in the NORM source
-code distribution are a reference for these requirements.</P>
+libraries (&quot;&ndash;lnsl &ndash;lsocket &ndash;lresolv&quot;) to
+achieve successful compilation.  The Makefiles in the NORM source
+code distribution are a reference for these requirements.  Note that
+MacOS 9 and earlier are not supported.</P>
+<P CLASS="western" STYLE="font-style: normal">Additionally, it is
+critical that the _FILE_OFFSET_BITS macro be consistently defined for
+the NORM library build and the application build using the library. 
+The distributed NORM Makefiles have &ndash;D_FILE_OFFSET_BITS=64 set
+in the compilation to enable &quot;large file support&quot;. 
+Applications built using NORM should have the same compilation option
+set to operate correctly (The definition of the <FONT FACE="Courier"><A HREF="#NormSize">NormSize</A></FONT>
+type in &quot;normApi.h&quot; depends upon this compilation flag).</P>
 <H2 CLASS="western">Win32/WiNCE Platforms</H2>
 <P CLASS="western" STYLE="font-style: normal">NORM has been built
 using Microsoft's Visual C++ (6.0 and .NET) and Embedded VC++ 4.2
@@ -815,10 +827,11 @@ function call.</P>
 			refer to the transport object identified by the event's &quot;object'
 			field.  Typically, this will occur when the application has
 			enqueued more objects than space available within the set sender
-			transmit cache bounds.  Posting of this notification means the
-			application is free to free any resources (memory, files, etc)
-			associated with the indicated &quot;object&quot;.  After this
-			event, the given &quot;object&quot; handle (<FONT FACE="Courier"><A HREF="#NormObjectHandle">NormObjectHandle</A></FONT>)
+			transmit cache bounds (see <FONT FACE="Courier"><A HREF="#NormSetTransmitCacheBounds()">NormSetTransmitCacheBounds()</A></FONT>).
+			 Posting of this notification means the application is free to
+			free any resources (memory, files, etc) associated with the
+			indicated &quot;object&quot;.  After this event, the given
+			&quot;object&quot; handle (<FONT FACE="Courier"><A HREF="#NormObjectHandle">NormObjectHandle</A></FONT>)
 			is no longer valid unless it is specifically retained by the
 			application.</P>
 		</TD>
@@ -1645,7 +1658,7 @@ with no lower bound.  These rate bounds apply only when congestion
 control operation is enabled (see<FONT FACE="Courier">
 <A HREF="#NormSetCongestionControl()">NormSetCongestionControl()</A></FONT>).  If the current congestion
 control rate falls outside of the specified bounds, the sender
-transmission rate will</P>
+transmission rate will be adjusted to stay within the set bounds.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function returns
 <FONT FACE="Courier"><I>true</I></FONT> upon success.  If both
@@ -1653,6 +1666,69 @@ transmission rate will</P>
 are greater than or equal to zero, but (<FONT FACE="Courier"><U>rateMax</U></FONT>
 &lt; <FONT FACE="Courier"><U>rateMin</U></FONT>), the rate bounds
 will remain unset or unchanged and the function will return <FONT FACE="Courier"><I>false</I></FONT>.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetTransmitCacheBounds()">NormSetTransmitCacheBounds()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><A NAME="OLE_LINK1"></A>
+<FONT FACE="Courier"><FONT SIZE=2>void
+NormSetTransmitCacheBounds(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;session,
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormSize">NormSize</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;sizeMax,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
+int&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;countMin,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
+int&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;countMax);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function sets
+limits that define the number and total size of pending transmit
+objects a NORM sender will allow to be enqueued by the application. 
+Setting these bounds to large values means the NORM protocol engine
+will keep history and state for previously transmitted objects for a
+larger interval of time (depending upon the transmission rate) when
+the application is actively enqueueing additional objects in response
+to NORM_TX_QUEUE_EMPTY notifications.  This can allow more time for
+receivers suffering degraded network conditions to make repair
+requests before the sender &quot;purges&quot; older objects from its
+&quot;transmit cache&quot; when new objects are enqueued.  A
+NORM_TX_OBJECT_PURGED notification is issued when the enqueuing of a
+new transmit object causes the NORM transmit cache to overflow,
+indicating the NORM sender no longer needs to reference the
+designated old transmit object and the application is free to release
+related resources as needed.  
+</P>
+<P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><U>sizeMax</U></FONT>
+parameter sets the maximum total size, in bytes, of enqueued objects
+allowed, providing the constraints of the <FONT FACE="Courier"><U>countMin</U></FONT>
+and <FONT FACE="Courier"><U>countMax</U></FONT> parameters are met. 
+The <FONT FACE="Courier"><U>countMin</U></FONT> parameter sets the
+minimum number of objects the application may enqueue, regardless of
+the objects' sizes and the <FONT FACE="Courier"><U>sizeMax</U></FONT>
+value.  For example, the default <FONT FACE="Courier"><U>sizeMax</U></FONT>
+value is 20 Mbyte and the default <FONT FACE="Courier"><U>countMin</U></FONT>
+is 8, thus allowing the application to always have at least 8 pending
+objects enqueued for transmission if it desires, even if their total
+size is greater than 20 Mbyte.  Similarly, the <FONT FACE="Courier"><U>countMax</U></FONT>
+parameter sets a ceiling on how many objects may be enqueued,
+regardless of their total sizes with respect to the <FONT FACE="Courier"><U>sizeMax</U></FONT>
+setting.  For example, the default <FONT FACE="Courier"><U>countMax</U></FONT>
+value is 256, which means the application is never allowed to have
+more than 256 objects pending transmission enqueued, even if they are
+256 very small objects. <I>Note that </I><FONT FACE="Courier"><U><I>countMax</I></U></FONT><I>
+must be greater than or equal to </I><FONT FACE="Courier"><U><I>countMin</I></U></FONT><I>
+and </I><FONT FACE="Courier"><U><I>countMin</I></U></FONT><I> is
+recommended to be at least two.</I></P>
+<P CLASS="western" STYLE="font-style: normal">Note that in the case
+of NORM_OBJECT_FILE objects, some operating systems impose limits
+(e.g. 256) on how many open files a process may have at one time and
+it may be appropriate to limit the <FONT FACE="Courier"><U>countMax</U></FONT>
+value accordingly.  In other cases, a large <FONT FACE="Courier"><U>countMin</U></FONT>
+or <FONT FACE="Courier"><U>countMax</U></FONT> may be desired to
+allow the NORM sender to act as virtual cache of files or other data
+available for reliable transmission.  Future iterations of the NRL
+NORM implementation may support alternative NORM receiver &quot;group
+join&quot; policies that would allow the receivers to request
+transmission of cached content.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function has no
+return value.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormSetAutoParity()">NormSetAutoParity()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include

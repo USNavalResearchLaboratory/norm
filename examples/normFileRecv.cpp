@@ -7,11 +7,12 @@
 
  BUILD (Unix): 
  
- g++ -o normRecvFile normRecvFile.cpp -I../common/ -I../protolib/common \
-     -DPROTO_DEBUG ../unix/libnorm.a ../protolib/unix/libProtokit.a -lpthread
-     
+g++ -o normFileSend normFileSend.cpp -D_FILE_OFFSET_BITS=64 -DPROTO_DEBUG \ 
+     -I../common/ -I../protolib/common ../unix/libnorm.a \
+     ../protolib/unix/libProtokit.a -lpthread
+         
      (for MacOS/BSD, add "-lresolv")
-     (for Solaris, add "-ldl -lnsl -lsocket -lresolv")
+     (for Solaris, add "-lnsl -lsocket -lresolv")
 
 ******************************************************************************/            
 
@@ -126,10 +127,11 @@ int main(int argc, char* argv[])
                 //  only calculate/post updates occasionally rather than for
                 //  each and every RX_OBJECT_UPDATE event)
                 NormSize objectSize = NormObjectGetSize(theEvent.object);
+                fprintf(stderr, "sizeof(NormSize) = %d\n", sizeof(NormSize));
                 NormSize completed = objectSize - NormObjectGetBytesPending(theEvent.object);
                 double percentComplete = 100.0 * ((double)completed/(double)objectSize);
                 fprintf(stderr, "normFileRecv: completion status %lu/%lu (%3.0lf%%)\n",
-                                completed, objectSize, percentComplete);
+                                (unsigned long)completed, (unsigned long)objectSize, percentComplete);
                 break;                 
             }
 

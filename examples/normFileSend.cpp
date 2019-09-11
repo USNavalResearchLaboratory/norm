@@ -7,11 +7,12 @@
 
  BUILD (Unix): 
  
- g++ -o normFileSend normFileSend.cpp -I../common/ -I../protolib/common \
-     ../unix/libnorm.a ../protolib/unix/libProtokit.a -lpthread
+ g++ -o normFileSend normFileSend.cpp -D_FILE_OFFSET_BITS=64 -I../common/ \
+     -I../protolib/common ../unix/libnorm.a ../protolib/unix/libProtokit.a \
+     -lpthread
      
      (for MacOS/BSD, add "-lresolv")
-     (for Solaris, add "-ldl -lnsl -lsocket -lresolv")
+     (for Solaris, add "-lnsl -lsocket -lresolv")
 
 ******************************************************************************/            
 
@@ -24,7 +25,7 @@
 
 #include "normApi.h"     // for NORM API
 
-#include "protoDefs.h"   // for ProtoSystemTime        
+#include "protoDefs.h"   // for ProtoSystemTime()       
 #include "protoDebug.h"  // for SetDebugLevel(), etc   
 
 #include <stdio.h>       // for printf(), etc
@@ -70,7 +71,7 @@ int main(int argc, char* argv[])
     // (Need to include "protolib/common/protoDebug.h" for this
     //SetDebugLevel(2);
     // Uncomment to turn on debug NORM message tracing
-    //NormSetMessageTrace(session, true);
+    NormSetMessageTrace(session, true);
     // Uncomment to turn on some random packet loss
     // NormSetTxLoss(session, 10.0);  // 10% packet loss
     struct timeval currentTime;

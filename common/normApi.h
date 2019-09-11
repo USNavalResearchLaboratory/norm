@@ -171,7 +171,6 @@ void NormSetMessageTrace(NormSessionHandle sessionHandle, bool state);
 void NormSetTxLoss(NormSessionHandle sessionHandle, double percent);
 void NormSetRxLoss(NormSessionHandle sessionHandle, double percent);
 
-
 /** NORM Sender Functions */
 
 bool NormStartSender(NormSessionHandle  sessionHandle,
@@ -195,6 +194,11 @@ void NormSetCongestionControl(NormSessionHandle sessionHandle,
 void NormSetTransmitRateBounds(NormSessionHandle sessionHandle,
                                double            rateMin,
                                double            rateMax);
+
+void NormSetTransmitCacheBounds(NormSessionHandle sessionHandle,
+                                NormSize        sizeMax,
+                                unsigned long   countMin,
+                                unsigned long   countMax);
 
 void NormSetAutoParity(NormSessionHandle sessionHandle,
                        unsigned char     autoParity);

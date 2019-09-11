@@ -101,7 +101,6 @@ class UnixPostProcessor : public NormPostProcessor
 #endif // NETSCAPE_SUPPORT
 };  // end class UnixPostProcessor 
 
-
 UnixPostProcessor::UnixPostProcessor()
  : process_id(0)
 #ifdef NETSCAPE_SUPPORT

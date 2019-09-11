@@ -933,6 +933,21 @@ void NormSetTransmitRateBounds(NormSessionHandle sessionHandle,
     }
 }  // end NormSetTransmitRateBounds()
 
+void NormSetTransmitCacheBounds(NormSessionHandle sessionHandle,
+                                NormSize          sizeMax,
+                                unsigned long     countMin,
+                                unsigned long     countMax)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        NormObjectSize theSize(sizeMax);
+        if (session) session->SetTxCacheBounds(theSize, countMin, countMax);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetTransmitCacheBounds()
+
 void NormSetAutoParity(NormSessionHandle sessionHandle, unsigned char autoParity)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);

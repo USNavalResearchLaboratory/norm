@@ -1,5 +1,15 @@
 			           NORM Version History
 
+Version 1.3b4
+=============
+    - Added NormSetTxCacheBounds(), see NormDevGuide for details
+    - Fixed issue with NormStreamSeekMsgStart() that crept in
+      somehow (Thanks to Jody Hagins for finding it).
+    - Added code to check that NormFileEnqueue() argument is
+      actually a file and not a directory name (Thanks to
+      Charlie Shyr for finding this)
+    - Fixed NormSession::Open() so that IPv6 works
+    
 Version 1.3b3
 =============
     - Added NORM_TX_FLUSH_COMPLETE notification so the sender app

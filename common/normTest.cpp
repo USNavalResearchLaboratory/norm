@@ -15,7 +15,7 @@
 #endif // UNIX
 int main(int argc, char* argv[])
 {
-    printf("normTest starting (sizeof(NormOffset) = %d)...\n", sizeof(NormOffset));
+    printf("normTest starting (sizeof(NormSize) = %d)...\n", sizeof(NormSize));
     
     NormInstanceHandle instance = NormCreateInstance();
 
