@@ -61,8 +61,8 @@ int main(int argc, char* argv[])
 
     // Create a NORM session instance
     NormSessionHandle session = NormCreateSession(instance,
-                                                  "224.1.2.3", 
-                                                   6003,
+                                                  "224.1.1.1", 
+                                                   6001,
                                                    localId);
     
     //NormSetTOS(session, 0x20);
@@ -72,7 +72,7 @@ int main(int argc, char* argv[])
     // Uncomment to turn on debug NORM message tracing
     //NormSetMessageTrace(session, true);
     // Uncomment to turn on some random packet loss
-    NormSetTxLoss(session, 25.0);  // 10% packet loss
+    //NormSetTxLoss(session, 10.0);  // 10% packet loss
     //NormSetRxLoss(session, 20.0);
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
@@ -82,12 +82,12 @@ int main(int argc, char* argv[])
     
     NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 256.0e+04);  // in bits/second
+    NormSetTransmitRate(session, 1.0e+06);  // in bits/second
     
     // Uncomment to enable TCP-friendly congestion control (overrides NormSetTransmitRate())
-    //NormSetCongestionControl(session, true);
+    NormSetCongestionControl(session, true);
     
-    NormSetTransmitRateBounds(session, 1000.0, -1.0);
+    //NormSetTransmitRateBounds(session, 1000.0, -1.0);
     
     NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK); 
     
@@ -96,21 +96,20 @@ int main(int argc, char* argv[])
     //  is _not_ recommended when unicast feedback may be
     //  possible!)
     //NormSetTxPort(session, 6001); 
-    
-    
+       
     // Uncomment to allow reuse of rx port
     // (This allows multiple "normTest" instances on the same machine
     //  for the same NormSession - note those instances must use
     //  unique local NormNodeIds (see NormCreateSession() above).
-    NormSetRxPortReuse(session, true);
+    //NormSetRxPortReuse(session, true);
     
     // Uncomment to receive your own traffic
-    NormSetLoopback(session, true);     
+    //NormSetLoopback(session, true);     
     
     //NormSetSilentReceiver(session, true);
     
     // Uncomment this line to participate as a receiver
-    NormStartReceiver(session, 1024*1024);
+    //NormStartReceiver(session, 1024*1024);
     
     // Uncomment to set large rx socket buffer size
     // (might be needed for high rate sessions)
@@ -135,8 +134,10 @@ int main(int argc, char* argv[])
     //const char* filePath = "/home/adamson/pkgs/rh73.tgz";
     const char* fileName = "file1.jpg";
     const char* fileName2 = "file2.jpg";
+    
+    
     // Uncomment this line to send a stream instead of the file
-    stream = NormStreamOpen(session, 2*1024*1024);
+    stream = NormStreamOpen(session, 4*1024*1024);
        
     // NORM_FLUSH_PASSIVE automatically flushes full writes to
     // the stream.
@@ -148,7 +149,7 @@ int main(int argc, char* argv[])
     int txLen = 0;
     int rxIndex = 0;
     
-#define STREAM_MSG_PREFIX_SIZE 1024  // we pad with 'a' character value (the msgPrefix is a prefix)
+#define STREAM_MSG_PREFIX_SIZE 1000  // we pad with 'a' character value (the msgPrefix is a prefix)
     char msgPrefix[STREAM_MSG_PREFIX_SIZE];
     memset(msgPrefix, 'a', STREAM_MSG_PREFIX_SIZE);
     bool msgSync = false;
@@ -156,7 +157,11 @@ int main(int argc, char* argv[])
     int msgCount = 0;
     int recvCount = -1;  // used to monitor reliable stream reception
     int sendCount = 0;
-    int sendMax = 300;//-1;    // -1 means unlimited
+    int sendMax = -1;//300;//-1;    // -1 means unlimited
+    
+    int fileMax = 1;
+    NormObjectHandle txFile = NORM_OBJECT_INVALID;
+    
     NormEvent theEvent;
     
     while (NormGetNextEvent(instance, &theEvent))
@@ -165,8 +170,6 @@ int main(int argc, char* argv[])
         {
             case NORM_TX_QUEUE_VACANCY:
             case NORM_TX_QUEUE_EMPTY:
-                fprintf(stderr, "stopping ....\n");
-                NormStopInstance(instance);
                 /*if (NORM_TX_QUEUE_VACANCY == theEvent.type)
                     TRACE("NORM_TX_QUEUE_VACANCY ...\n");
                 else
@@ -216,37 +219,55 @@ int main(int argc, char* argv[])
                 }
                 else if (NORM_OBJECT_INVALID == stream)  // we weren't sending a stream that finished
                 {
-                    const char* namePtr = (0 == (sendCount & 0x01)) ? fileName : fileName2;
-                    NormObjectHandle txFile = 
-                        NormFileEnqueue(session,
-                                        filePath,
-                                        namePtr,
-                                        strlen(fileName));
-                    // Repeatedly queue our file for sending
-                    if (NORM_OBJECT_INVALID == txFile)
+                    if ((fileMax < 0) || (sendCount < fileMax))
                     {
-                        DMSG(0, "normTest: error queuing file: %s\n", filePath);
-                        break;   
-                    }
-                    else
-                    {
-                        TRACE("QUEUED FILE ...\n");
-                        sendCount++;
-                        if (sendCount < 2) NormSetWatermark(session, txFile);
+                        const char* namePtr = (0 == (sendCount & 0x01)) ? fileName : fileName2;
+                        txFile = 
+                            NormFileEnqueue(session,
+                                            filePath,
+                                            namePtr,
+                                            strlen(fileName));
+                        // Repeatedly queue our file for sending
+                        if (NORM_OBJECT_INVALID == txFile)
+                        {
+                            DMSG(0, "normTest: error queuing file: %s\n", filePath);
+                            break;   
+                        }
+                        else
+                        {
+                            TRACE("QUEUED FILE ...\n");
+                            sendCount++;
+                            if (sendCount < 2) NormSetWatermark(session, txFile);
+                        }
                     }
                 }
                 break;   
 
-            case NORM_TX_OBJECT_PURGED:
-                DMSG(2, "normTest: NORM_TX_OBJECT_PURGED event ...\n");
-                break;  
-
             case NORM_TX_FLUSH_COMPLETED:
                 DMSG(2, "normTest: NORM_TX_FLUSH_COMPLETED event ...\n");
+                // This line of code "requeues" the last file sent
+                // (Good for use with silent receivers ... can repeat transmit object this way)
+                NormRequeueObject(session, txFile);
                 break;  
 
             case NORM_TX_WATERMARK_COMPLETED:
                 DMSG(2, "normTest: NORM_TX_WATERMARK_COMPLETED event ...\n");
+                break;
+                
+            case NORM_TX_OBJECT_SENT:
+                DMSG(2, "normTest: NORM_TX_WATERMARK_COMPLETED event ...\n");
+                break;
+
+            case NORM_TX_OBJECT_PURGED:
+                DMSG(2, "normTest: NORM_TX_OBJECT_PURGED event ...\n");
+                break;  
+                
+            case NORM_CC_ACTIVE:
+                DMSG(2, "normTest: NORM_CC_ACTIVE event ...\n");
+                break;
+            
+            case NORM_CC_INACTIVE:
+                DMSG(2, "normTest: NORM_CC_INACTIVE event ...\n");
                 break;
 
             case NORM_RX_OBJECT_NEW:
@@ -392,24 +413,27 @@ int main(int argc, char* argv[])
             case NORM_RX_OBJECT_ABORTED:
                 TRACE("normTest: NORM_RX_OBJECT_ABORTED event ...\n");
                 break;
+                
+            case NORM_GRTT_UPDATED:
+                //TRACE("normTest: NORM_GRTT_UPDATED event ...\n");
+                break;
 
             default:
                 TRACE("Got event type: %d\n", theEvent.type); 
         }  // end switch(theEvent.type)
         
         // Uncomment to exit program after sending "sendMax" messages or files
-        //if ((sendMax > 0) && (sendCount >= sendMax)) break;
+        if ((sendMax > 0) && (sendCount >= sendMax)) break;
         
     }  // end while (NormGetNextEvent())
     
-    fprintf(stderr, "normTest shutting down in 30 sec ...\n");
 #ifdef WIN32
     Sleep(30000);
 #else
     sleep(30);  // allows time for cleanup if we're sending to someone else
 #endif // if/else WIN32/UNIX
 
-    NormStreamClose(stream);
+    //NormStreamClose(stream);  // stream is already closed in loop above 
     NormStopReceiver(session);
     NormStopSender(session);
     NormDestroySession(session);

@@ -1,5 +1,40 @@
 			           NORM Version History
 
+Version 1.3b9
+=============
+    - Fixed ProtoSocket WINVER stuff and NormApplicationMsg::SetContent()
+      (thanks to Stefan Titze for these)
+    - Fixed issue in NormSession::OnRepairTimeout() where a debug 
+      message erroneously dereferenced a NormObject pointer as
+      NormFileObject (led to run-time issue in optimized code build)
+      (thanks to Charlie Davis once again)
+    
+Version 1.3b8
+=============
+    - Fixed implementation of NormQuantizeGroupSize() in "normMessage.h"
+      (Thanks to David Lucas for finding the bug)
+    - Fixed some issues with NORM/Protolib ns-2 support
+    - Added API NormGetGrtt() and NormNodeGetGrtt() calls
+      to support some application needs.
+    - Modified transmission of FEC parity segments such that their
+      length is only as big as needed to support the maximum
+      sent segment size for the associated block (this allows more
+      latitude for stream apps in setting their sender segment
+      size and flushing).
+    - Added NORM_CC_ACTIVE and NORM_CC_INACTIVE notifications to indicate
+      whether receivers are actively providing congestion control feedback
+      (Thanks to Charlie Davis for the great suggestion)
+    - Fixed some floating-point exceptions that could occur in receiver
+      congestion control tracking under extreme circumstances.  This included
+      enhancement of receiver receive rate tracking.
+      (Thanks to Ian Downard for finding these issues)
+    - Changed naming of "SERVER" notifications in API to "SENDER"
+      notifications to be consistent with the rest of API.
+    - Debug statistics now indicate correct nack/suppressed counts
+      for silent receiver operation (i.e. none)
+    - Refined activity timeout of remote sender
+      (still need to give the app more control over resource allocation)
+
 Version 1.3b7
 =============
     - Deprecated NORM stream payload flags in favor of "payload_msg_start"

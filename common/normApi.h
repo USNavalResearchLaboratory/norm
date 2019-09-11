@@ -124,16 +124,19 @@ enum NormEventType
     NORM_TX_WATERMARK_COMPLETED,
     NORM_TX_OBJECT_SENT,
     NORM_TX_OBJECT_PURGED,
-    NORM_LOCAL_SERVER_CLOSED,
-    NORM_REMOTE_SERVER_NEW,
-    NORM_REMOTE_SERVER_ACTIVE,
-    NORM_REMOTE_SERVER_INACTIVE,
-    NORM_REMOTE_SERVER_PURGED,
+    NORM_LOCAL_SENDER_CLOSED,
+    NORM_REMOTE_SENDER_NEW,
+    NORM_REMOTE_SENDER_ACTIVE,
+    NORM_REMOTE_SENDER_INACTIVE,
+    NORM_REMOTE_SENDER_PURGED,
     NORM_RX_OBJECT_NEW,
     NORM_RX_OBJECT_INFO,
     NORM_RX_OBJECT_UPDATED,
     NORM_RX_OBJECT_COMPLETED,
-    NORM_RX_OBJECT_ABORTED
+    NORM_RX_OBJECT_ABORTED,
+    NORM_GRTT_UPDATED,
+    NORM_CC_ACTIVE,
+    NORM_CC_INACTIVE
 };
 
 typedef struct
@@ -159,6 +162,7 @@ NORM_API_LINKAGE
 bool NormRestartInstance(NormInstanceHandle instanceHandle);
 
 // This MUST be set to enable NORM_OBJECT_FILE reception!
+// (otherwise received files are ignored)
 NORM_API_LINKAGE
 bool NormSetCacheDirectory(NormInstanceHandle instanceHandle, 
                            const char*        cachePath);
@@ -286,6 +290,9 @@ NORM_API_LINKAGE
 void NormSetGrttEstimate(NormSessionHandle sessionHandle,
                          double            grttEstimate);
 
+NORM_API_LINKAGE
+double NormGetGrttEstimate(NormSessionHandle sessionHandle);
+
 NORM_API_LINKAGE 
 void NormSetGrttMax(NormSessionHandle sessionHandle,
                     double            grttMax);
@@ -320,7 +327,9 @@ NormObjectHandle NormDataEnqueue(NormSessionHandle sessionHandle,
                                  const char*       infoPtr = (const char*)0, 
                                  unsigned int      infoLen = 0);
 
-
+NORM_API_LINKAGE 
+bool NormRequeueObject(NormSessionHandle sessionHandle, NormObjectHandle objectHandle);
+                                     
 NORM_API_LINKAGE 
 NormObjectHandle NormStreamOpen(NormSessionHandle sessionHandle,
                                 unsigned long     bufferSize);
@@ -383,7 +392,8 @@ bool NormSetRxSocketBuffer(NormSessionHandle sessionHandle,
 
 NORM_API_LINKAGE 
 void NormSetSilentReceiver(NormSessionHandle sessionHandle,
-                           bool              silent);
+                           bool              silent,
+                           bool              lowDelay = false);
 
 NORM_API_LINKAGE 
 void NormSetDefaultUnicastNack(NormSessionHandle sessionHandle,
@@ -487,6 +497,9 @@ bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
                         char*           addrBuffer, 
                         unsigned int*   bufferLen,
                         unsigned short* port = (unsigned short*)0);
+
+NORM_API_LINKAGE
+double NormNodeGetGrtt(NormNodeHandle nodeHandle);
 
 NORM_API_LINKAGE 
 void NormNodeRetain(NormNodeHandle nodeHandle);

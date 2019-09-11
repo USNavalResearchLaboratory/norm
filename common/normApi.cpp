@@ -40,7 +40,7 @@ class NormInstance : public NormController
         void Notify(NormController::Event   event,
                     class NormSessionMgr*   sessionMgr,
                     class NormSession*      session,
-                    class NormServerNode*   server,
+                    class NormServerNode*   sender,
                     class NormObject*       object);
         
         bool Startup(bool priorityBoost = false);
@@ -140,7 +140,7 @@ class NormInstance : public NormController
                         return n;   
                     }
                     Notification* GetHead() {return head;}
-                    void SetHead(Notification* n) {head = n;}
+                    void SetTail(Notification* n) {tail = n;}
                 private:
                     Notification* head;
                     Notification* tail;
@@ -245,7 +245,7 @@ bool NormInstance::SetCacheDirectory(const char* cachePath)
 void NormInstance::Notify(NormController::Event   event,
                           class NormSessionMgr*   sessionMgr,
                           class NormSession*      session,
-                          class NormServerNode*   server,
+                          class NormServerNode*   sender,
                           class NormObject*       object)
 {
     // (TBD) set a limit on how many pending notifications
@@ -379,20 +379,20 @@ void NormInstance::Notify(NormController::Event   event,
             break;
         }  // end case RX_OBJECT_NEW
         
-        case RX_OBJECT_COMPLETED:
-        case TX_OBJECT_PURGED:
-        case RX_OBJECT_ABORTED:
-            object->Retain();
-            break;
-            
         default:
             break;
     }  // end switch(event)
     
+    // "Retain" any valid "object" or "sender" handles for API access
+    if (NORM_OBJECT_INVALID != object)
+        ((NormObject*)object)->Retain();
+    else if (NORM_NODE_INVALID != sender)
+        ((NormServerNode*)sender)->Retain();
+    
     bool doNotify = notify_queue.IsEmpty();
     n->event.type = (NormEventType)event;
     n->event.session = session;
-    n->event.sender = server;
+    n->event.sender = sender;
     n->event.object = object;
     notify_queue.Append(n);
     
@@ -421,25 +421,30 @@ void NormInstance::Notify(NormController::Event   event,
 
 void NormInstance::PurgeObjectNotifications(NormObjectHandle objectHandle)
 {
+    if (NORM_OBJECT_INVALID == objectHandle) return;
+    Notification* prev = NULL;
     Notification* next = notify_queue.GetHead();
     while (next)
     {
-        // TBD - return these to the pool?
         if (objectHandle == next->event.object)
         {
-            switch (next->event.type)
-            {
-                case RX_OBJECT_COMPLETED:
-                case TX_OBJECT_PURGED:
-                case RX_OBJECT_ABORTED:
-                    ((NormObject*)(next->event.object))->Release();
-                    break;
-                default:
-                    break;
-            }
-            next->event.type = NORM_EVENT_INVALID;
+            // "Release" the previously-retained object handle
+            ((NormObject*)objectHandle)->Release();
+            // Remove this notification from queue and return to pool
+            Notification* current = next;
+            next = next->GetNext();
+            if (NULL != prev) 
+                prev->Append(next);
+            else
+                notify_queue.RemoveHead();
+            if (NULL == next) notify_queue.SetTail(prev);
+            notify_pool.Append(current);
         }
-        next = next->GetNext();
+        else
+        {
+            prev = next;
+            next = next->GetNext();
+        }
     }
     // (TBD) if we put these in the pool, should we check that the queue has been emptied
     // and possible reset event/fd 
@@ -451,20 +456,11 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
     // First, do any garbage collection for "previous_notification"
     if (NULL != previous_notification)
     {
-        // "Release" any purged/completed/aborted objects
-        switch(previous_notification->event.type)
-        {
-            case NORM_RX_OBJECT_COMPLETED:
-            case NORM_TX_OBJECT_PURGED:
-            case NORM_RX_OBJECT_ABORTED:
-            {
-                NormObject* obj = (NormObject*)(previous_notification->event.object);
-                obj->Release();
-                break;
-            }         
-            default:
-                break;   
-        }
+        // "Release" any previously-retained object or node handle
+        if (NORM_OBJECT_INVALID != previous_notification->event.object)
+            ((NormObject*)(previous_notification->event.object))->Release();
+        else if (NORM_NODE_INVALID != previous_notification->event.object)
+            ((NormServerNode*)(previous_notification->event.sender))->Release();
         notify_pool.Append(previous_notification);   
         previous_notification = NULL;   
     }
@@ -487,15 +483,16 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
         switch (n->event.type)
         {
             case NORM_EVENT_INVALID:
-                continue;
+                if (!notify_queue.IsEmpty())
+                {
+                    // Discard this invalid event and get next one
+                    notify_pool.Append(n);
+                    continue;
+                }
+                break;
             case NORM_RX_OBJECT_UPDATED:
                 // reset update event notification
                 ((NormObject*)n->event.object)->SetNotifyOnUpdate(true);
-                break;
-            case NORM_TX_QUEUE_VACANCY:
-                //if (NULL != n->event.object)
-                //    static_cast<NormStreamObject*>((NormObject*)n->event.object)->ResetPostedTxQueueVacancy();
-                // (TBD) support session-level queue vacancy notify
                 break;
             default:
                 break;   
@@ -600,19 +597,11 @@ void NormInstance::Shutdown()
     // Garbage collect our "previous_notification"
     if (NULL != previous_notification)
     {
-        switch(previous_notification->event.type)
-        {
-            case NORM_RX_OBJECT_COMPLETED:
-            case NORM_TX_OBJECT_PURGED:
-            case NORM_RX_OBJECT_ABORTED:
-            {
-                NormObject* obj = (NormObject*)(previous_notification->event.object);
-                obj->Release();
-                break;
-            }         
-            default:
-                break;   
-        }
+        // Release any previously-retained object or node handles
+        if (NORM_OBJECT_INVALID != previous_notification->event.object)
+            ((NormObject*)(previous_notification->event.object))->Release();
+        else if (NORM_NODE_INVALID != previous_notification->event.object)
+            ((NormServerNode*)(previous_notification->event.sender))->Release();
         notify_pool.Append(previous_notification);   
         previous_notification = NULL;   
     }
@@ -635,15 +624,13 @@ void NormInstance::Shutdown()
                 }
                 break;
             }
-            // Garbage collect retained objects
-            case NORM_RX_OBJECT_COMPLETED:
-            case NORM_TX_OBJECT_PURGED:
-            case NORM_RX_OBJECT_ABORTED:
-                ((NormObject*)n->event.object)->Release();
-                break; 
             default:
-                break;      
+                break;
         }   
+        if (NORM_OBJECT_INVALID != n->event.object)
+            ((NormObject*)(n->event.object))->Release();
+        else if (NORM_NODE_INVALID != n->event.object)
+            ((NormServerNode*)(n->event.sender))->Release();
         delete n;        
     }
     notify_pool.Destroy();
@@ -1107,6 +1094,23 @@ void NormSetGrttEstimate(NormSessionHandle sessionHandle,
 }  // end NormSetGrttEstimate()
 
 NORM_API_LINKAGE
+double NormGetGrttEstimate(NormSessionHandle sessionHandle)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) session->ServerGrtt();
+        instance->dispatcher.ResumeThread();
+    }
+    
+    if (NORM_SESSION_INVALID != sessionHandle)
+        return (((NormSession*)sessionHandle)->ServerGrtt());
+    else
+        return -1.0;
+}  // end NormGetGrttEstimate()
+
+NORM_API_LINKAGE
 void NormSetGrttMax(NormSessionHandle sessionHandle,
                     double            grttMax)
 {
@@ -1186,8 +1190,9 @@ NormObjectHandle NormFileEnqueue(NormSessionHandle  sessionHandle,
         NormSession* session = (NormSession*)sessionHandle;
         if (session)
         {
-            NormObject* obj = session->QueueTxFile(fileName, infoPtr, infoLen);
-            if (obj) objectHandle = (NormObjectHandle)obj;
+            NormObject* obj = 
+                static_cast<NormObject*>(session->QueueTxFile(fileName, infoPtr, infoLen));
+            if (obj) objectHandle = (NormObjectHandle)(obj);
         }
         instance->dispatcher.ResumeThread();
     }
@@ -1208,13 +1213,33 @@ NormObjectHandle NormDataEnqueue(NormSessionHandle  sessionHandle,
         NormSession* session = (NormSession*)sessionHandle;
         if (session)
         {
-            NormObject* obj = session->QueueTxData(dataPtr, dataLen, infoPtr, infoLen);
+            NormObject* obj = 
+                static_cast<NormObject*>(session->QueueTxData(dataPtr, dataLen, infoPtr, infoLen));
             if (obj) objectHandle = (NormObjectHandle)obj;
         }
         instance->dispatcher.ResumeThread();
     }
     return objectHandle;
 }  // end NormDataEnqueue()
+
+
+NORM_API_LINKAGE 
+bool NormRequeueObject(NormSessionHandle sessionHandle, NormObjectHandle objectHandle)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session)
+        {
+            if (NORM_OBJECT_INVALID != objectHandle)
+                result = session->RequeueTxObject((NormObject*)objectHandle);
+        }
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+}  // end NormRequeueObject()
 
 NORM_API_LINKAGE
 NormObjectHandle NormStreamOpen(NormSessionHandle  sessionHandle,
@@ -1476,10 +1501,15 @@ bool NormSetRxSocketBuffer(NormSessionHandle sessionHandle,
 
 NORM_API_LINKAGE
 void NormSetSilentReceiver(NormSessionHandle sessionHandle,
-                           bool              silent)
+                           bool              silent,
+                           bool              lowDelay)
 {
     NormSession* session = (NormSession*)sessionHandle;
-    if (session) session->ClientSetSilent(silent);
+    if (session) 
+    {
+        session->ClientSetSilent(silent);
+        session->ReceiverSetLowDelay(lowDelay);
+    }
 }  // end NormSetSilentReceiver()
 
 NORM_API_LINKAGE
@@ -1494,7 +1524,8 @@ NORM_API_LINKAGE
 void NormNodeSetUnicastNack(NormNodeHandle   nodeHandle,
                             bool             unicastNacks)
 {
-     NormServerNode* node = (NormServerNode*)nodeHandle;
+    
+    NormServerNode* node = (NormServerNode*)nodeHandle;
     if (node) node->SetUnicastNacks(unicastNacks);
 }  // end NormNodeSetUnicastNack()
 
@@ -1679,8 +1710,7 @@ void NormObjectRetain(NormObjectHandle objectHandle)
         NormInstance* instance = NormInstance::GetInstanceFromObject(objectHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            NormObject* obj = (NormObject*)objectHandle;
-            obj->Retain();
+            ((NormObject*)objectHandle)->Retain();
             instance->dispatcher.ResumeThread();
         }
     }
@@ -1689,14 +1719,14 @@ void NormObjectRetain(NormObjectHandle objectHandle)
 NORM_API_LINKAGE
 void NormObjectRelease(NormObjectHandle objectHandle)
 {
+    // (TBD) we could maintain separate "app_retain" and "interval_retain"
+    // counts to prevent bad apps from messing up NORM interval code ???
     if (NORM_OBJECT_INVALID != objectHandle)
     {
         NormInstance* instance = NormInstance::GetInstanceFromObject(objectHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            NormObject* obj = (NormObject*)objectHandle;
-            obj->Release();
-            instance->PurgeObjectNotifications(objectHandle);
+            ((NormObject*)objectHandle)->Release();
             instance->dispatcher.ResumeThread();
         }
     }
@@ -1806,6 +1836,16 @@ bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
 }  // end NormNodeGetId()
 
 NORM_API_LINKAGE
+double NormNodeGetGrtt(NormNodeHandle nodeHandle)
+{
+    NormServerNode* node = (NormServerNode*)nodeHandle;
+    if (NULL != node)
+        return node->GetGrttEstimate();
+    else
+        return -1.0;
+}  // end NormNodeGetGrtt()
+
+NORM_API_LINKAGE
 void NormNodeRetain(NormNodeHandle nodeHandle)
 {
     if (NORM_NODE_INVALID != nodeHandle)
@@ -1813,8 +1853,7 @@ void NormNodeRetain(NormNodeHandle nodeHandle)
         NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            NormNode* node = (NormNode*)nodeHandle;
-            node->Retain();
+            ((NormServerNode*)nodeHandle)->Retain();
             instance->dispatcher.ResumeThread();
         }
     }
@@ -1828,8 +1867,7 @@ void NormNodeRelease(NormNodeHandle nodeHandle)
         NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
         if (instance && instance->dispatcher.SuspendThread())
         {
-            NormNode* node = (NormNode*)nodeHandle;
-            node->Release();
+            ((NormServerNode*)nodeHandle)->Release();
             instance->dispatcher.ResumeThread();
         }
     }
@@ -1848,6 +1886,8 @@ void NormNodeRelease(NormNodeHandle nodeHandle)
 //        NORM thread ... an approach to this would be enable
 //        the app to install an event handler callback and dispatch
 //        events with a "NormDispatchEvents()" call ...
+//        (Update: I've improved the way the NORM thread suspend/resume
+//         is done so that this current approach is not very costly)
 //
 
 NORM_API_LINKAGE

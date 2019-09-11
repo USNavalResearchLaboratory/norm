@@ -37,6 +37,14 @@
 12) Can we eliminate rapid clr norm-cc probing when data is
     not being actively sent? (COMPLETED)
     
+13) Fix ns-2 issue when Agent/NORM is attached to ns-2 node ZERO and
+    results in a NormNode attempting to be assigned NORM_NODE_NONE as
+    a node id.
+    
+14) IMPORANT: double check ACKing in reponse to watermark polling and
+    relation to cc feedback suppression, etc ... watermark acks should
+    be unicast and not effect cc feedback? 
+    
     
 
    

@@ -3,7 +3,6 @@
 	ProjectType="Visual C++"
 	Version="7.10"
 	Name="NormLib"
-	ProjectGUID="{CEC5446E-BC6D-40B2-B496-78A211A9C1E6}"
 	SccProjectName=""
 	SccLocalPath="">
 	<Platforms>
@@ -29,7 +28,7 @@
 				UsePrecompiledHeader="2"
 				PrecompiledHeaderFile=".\Debug/NormLib.pch"
 				AssemblerListingLocation=".\Debug/"
-				ObjectFile="Norm.lib"
+				ObjectFile=".\Debug/"
 				ProgramDataBaseFileName=".\Debug/"
 				WarningLevel="3"
 				SuppressStartupBanner="TRUE"
@@ -38,7 +37,7 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLibrarianTool"
-				OutputFile="$(OutDir)/NormLib.lib"
+				OutputFile=".\Debug\NormLib.lib"
 				SuppressStartupBanner="TRUE"/>
 			<Tool
 				Name="VCMIDLTool"/>
@@ -81,6 +80,7 @@
 				UsePrecompiledHeader="2"
 				PrecompiledHeaderFile=".\Release/NormLib.pch"
 				AssemblerListingLocation=".\Release/"
+				ObjectFile=".\Release/"
 				ProgramDataBaseFileName=".\Release/"
 				WarningLevel="3"
 				SuppressStartupBanner="TRUE"
@@ -89,7 +89,7 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLibrarianTool"
-				OutputFile="$(OutDir)/NormLib.lib"
+				OutputFile=".\Release\NormLib.lib"
 				SuppressStartupBanner="TRUE"/>
 			<Tool
 				Name="VCMIDLTool"/>

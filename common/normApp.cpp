@@ -87,6 +87,7 @@ class NormApp : public NormController, public ProtoApp
         // NormSession common parameters 
         char*               address;        // session address
         UINT16              port;           // session port number
+        UINT16              tx_port;
         UINT8               ttl;
         bool                loopback;
         char*               interface_name; // for multi-home hosts
@@ -196,7 +197,8 @@ const char* const NormApp::cmd_list[] =
     "+trace",        // message tracing on
     "+txloss",       // tx packet loss percent (for testing)
     "+rxloss",       // rx packet loss percent (for testing)
-    "+address",      // session destination address
+    "+address",      // session destination address/port
+    "+txport",       // use specific transmission source port number 
     "+ttl",          // multicast hop count scope
     "+loopback",     // "off" or "on" to recv our own packets
     "+interface",    // multicast interface name to use
@@ -247,6 +249,7 @@ void NormApp::ShowHelp()
         "   +txloss,       // tx packet loss percent (for testing)\n"
         "   +rxloss,       // rx packet loss percent (for testing)\n"
         "   +address,      // session destination address\n"
+        "   +txport,       // use a specific transmission source port number\n"
         "   +ttl,          // multicast hop count scope\n"
         "   +loopback,     // 'on' or 'off' to recv our own packets (default = 'off')\n"
         "   +interface,    // multicast interface name to use\n"
@@ -447,6 +450,17 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
             return false;
         }
         port = portNum;
+    }
+    else if (!strncmp("txport", cmd, len))
+    {
+        int txPort = atoi(val);
+        if ((txPort < 0) || (txPort > 65535))
+        {
+            DMSG(0, "NormApp::OnCommand(txport) invalid port number!\n");   
+            return false;
+        }
+        tx_port = (UINT16)txPort;
+        if (session) session->SetTxPort(txPort);
     }
     else if (!strncmp("ttl", cmd, len))
     {
@@ -1557,13 +1571,14 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
     if (session)
     {
         // Common session parameters
+        session->SetTxPort(tx_port);
         session->SetTxRate(tx_rate);
         session->SetTrace(tracing);
         session->SetTxLoss(tx_loss);
         session->SetRxLoss(rx_loss);
         session->SetTTL(ttl);
         session->SetLoopback(loopback); 
-           
+        
         if (input || !tx_file_list.IsEmpty())
         {
             NormObjectId baseId = (unsigned short)(rand() * (65535.0/ (double)RAND_MAX));

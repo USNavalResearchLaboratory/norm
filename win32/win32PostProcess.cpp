@@ -276,7 +276,7 @@ bool Win32PostProcessor::ProcessFile(const char *path)
 	}
 	else
 	{
-		post_processor_handle = exeInfo.hProcess;
+		post_processor_handle = exeInfo.hProcess; 
         return true;
 	}
 }  // end Win32PostProcessor::ProcessFile()

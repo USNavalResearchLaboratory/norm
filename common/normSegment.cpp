@@ -124,7 +124,8 @@ bool NormBlock::Init(UINT16 totalSize)
     size = totalSize;
     erasure_count = 0;
     parity_count = 0;
-    parity_offset = 0;;
+    parity_offset = 0;
+    seg_size_max = 0;
     return true;
 }  // end NormBlock::Init()
 
@@ -222,7 +223,7 @@ bool NormBlock::TxReset(UINT16 numData,
         pending_mask.SetBits(0, numData+autoParity);
         pending_mask.UnsetBits(numData+autoParity, numParity-autoParity);
         parity_offset = autoParity;  // reset parity since we're resending this one
-        parity_count = numParity;      // no parity repair this repair cycle
+        parity_count = numParity;    // no parity repair this repair cycle
         SetFlag(IN_REPAIR);
         if (!ParityReady(numData))  // (TBD) only when incrementalParity == true
         {

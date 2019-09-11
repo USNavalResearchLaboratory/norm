@@ -66,6 +66,7 @@ class NormBlock
         void Destroy();   
         
         void SetFlag(NormBlock::Flag flag) {flags |= flag;}
+        void ClearFlag(NormBlock::Flag flag) {flags &= ~flag;}
         bool InRepair() {return (0 != (flags & IN_REPAIR));}
         bool ParityReady(UINT16 ndata) {return (erasure_count == ndata);}
         UINT16 ParityReadiness() {return erasure_count;}
@@ -109,6 +110,7 @@ class NormBlock
             parity_count = 0; 
             parity_offset = autoParity;  
             flags = 0;
+            seg_size_max = 0;
         }
         void TxRecover(NormBlockId& blockId, UINT16 ndata, UINT16 nparity)
         {
@@ -119,11 +121,15 @@ class NormBlock
             parity_count = nparity;  // force recovered blocks to 
             parity_offset = nparity; // explicit repair mode ???  
             flags = IN_REPAIR;
+            seg_size_max = 0;
         }
         bool TxReset(UINT16 ndata, UINT16 nparity, UINT16 autoParity, 
                      UINT16 segmentSize);
         bool TxUpdate(NormSegmentId nextId, NormSegmentId lastId,
                       UINT16 ndata, UINT16 nparity, UINT16 erasureCount);
+        void UpdateSegSizeMax(UINT16 segSize)
+            {seg_size_max = (segSize > seg_size_max) ? segSize : seg_size_max;}
+        UINT16 GetSegSizeMax() {return seg_size_max;}
         
         bool HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
                                   UINT16 ndata, UINT16 nparity, 
@@ -246,6 +252,7 @@ class NormBlock
         UINT16       erasure_count;
         UINT16       parity_count;
         UINT16       parity_offset;
+        UINT16       seg_size_max;
         
         ProtoBitmask pending_mask;
         ProtoBitmask repair_mask;

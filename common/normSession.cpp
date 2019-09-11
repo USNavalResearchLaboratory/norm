@@ -35,8 +35,8 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    grtt_max(DEFAULT_GRTT_MAX), 
    grtt_decrease_delay_count(DEFAULT_GRTT_DECREASE_DELAY),
    grtt_response(false), grtt_current_peak(0.0), grtt_age(0.0),
-   cc_enable(false), cc_sequence(0), cc_slow_start(true),
-   is_client(false), unicast_nacks(false), client_silent(false),
+   cc_enable(false), cc_sequence(0), cc_slow_start(true), cc_active(false),
+   is_client(false), unicast_nacks(false), client_silent(false), receiver_low_delay(false),
    default_repair_boundary(NormServerNode::BLOCK_BOUNDARY),
    default_nacking_mode(NormObject::NACK_NORMAL),
    trace(false), tx_loss_rate(0.0), rx_loss_rate(0.0),
@@ -219,7 +219,7 @@ void NormSession::Close()
         if (address.IsMulticast()) 
         {
             const char* interfaceName = ('\0' != interface_name[0]) ?
-                                        interface_name : NULL;
+                                            interface_name : NULL;
             rx_socket.LeaveGroup(address, interfaceName);
         }
         rx_socket.Close();
@@ -295,12 +295,14 @@ void NormSession::SetTxRateInternal(double txRate)
             grtt_advertised = NormUnquantizeRtt(grtt_quantized);    
         }
         
-        
         if (grttQuantizedOld != grtt_quantized)
+        {
             DMSG(4, "NormSession::SetTxRateInternal() node>%lu %s to new grtt to: %lf sec\n",
                     LocalNodeId(), 
                     (grttQuantizedOld < grtt_quantized) ? "increased" : "decreased",
                     grtt_advertised);
+            Notify(NormController::GRTT_UPDATED, (NormServerNode*)NULL, (NormObject*)NULL);
+        }
     }
 }  // end NormSession::SetTxRateInternal()
 
@@ -434,9 +436,12 @@ bool NormSession::StartServer(UINT16        instanceId,
         }
         if ((tx_rate_max >= 0.0) && (tx_rate > tx_rate_max))
             txRate = tx_rate_max;
-        tx_rate = txRate;             // keep grtt at initial
-        //SetTxRateInternal(txRate);  // adjusts grtt_advertised as needed
+        //tx_rate = txRate;             // keep grtt at initial
+        SetTxRateInternal(txRate);  // adjusts grtt_advertised as needed
     }
+    cc_slow_start = true;
+    cc_active = false;
+    
     grtt_age = 0.0;
     probe_pending = false;
     probe_data_check = false;
@@ -676,6 +681,8 @@ void NormSession::Serve()
                         posted_tx_queue_empty = true; // repair-delayed stream advance
                     else
                         tx_pending_mask.Unset(obj->GetId());
+                    // (TBD) post TX_OBJECT_SENT notification
+                                    
                 }
                 else if (obj->IsStream())
                 {
@@ -1161,6 +1168,7 @@ NormStreamObject* NormSession::QueueTxStream(UINT32         bufferSize,
     }
 }  // end NormSession::QueueTxStream()
 
+
 #ifdef SIMULATE
 NormSimObject* NormSession::QueueTxSim(unsigned long objectSize)
 {
@@ -1240,6 +1248,36 @@ bool NormSession::QueueTxObject(NormObject* obj)
     TouchServer();
     return true;
 }  // end NormSession::QueueTxObject()
+
+bool NormSession::RequeueTxObject(NormObject* obj)
+{
+    ASSERT(obj);
+    if (obj->IsStream())
+    {
+        // (TBD) allow buffered stream to be reset?
+        DMSG(0, "NormSession::RequeueTxObject() error: can't requeue NORM_OBJECT_STREAM\n");
+        return false;   
+    }
+    NormObjectId objectId = obj->GetId();
+    if (tx_table.Find(objectId) == obj)
+    {
+        if (tx_pending_mask.Set(objectId))
+        {
+            obj->TxReset(0, true);
+            return true;
+        }        
+        else
+        {
+            DMSG(0, "NormSession::RequeueTxObject() error: couldn't set object as pending\n");
+            return false;
+        }
+    }
+    else
+    {
+        DMSG(0, "NormSession::RequeueTxObject() error: couldn't find object\n");
+        return false;
+    }
+}  // end NormSession::RequeueTxObject()
 
 void NormSession::DeleteTxObject(NormObject* obj)
 {
@@ -1644,7 +1682,7 @@ void NormSession::ClientHandleObjectMessage(const struct timeval&   currentTime,
     {
         if ((theServer = new NormServerNode(*this, msg.GetSourceId())))
         {
-            Notify(NormController::REMOTE_SERVER_NEW, theServer, NULL);
+            Notify(NormController::REMOTE_SENDER_NEW, theServer, NULL);
             if (theServer->Open(msg.GetInstanceId()))
             {
                 server_tree.AttachNode(theServer);
@@ -1667,11 +1705,12 @@ void NormSession::ClientHandleObjectMessage(const struct timeval&   currentTime,
         }   
     }
     theServer->Activate(true);
-    theServer->UpdateLossEstimate(currentTime, msg.GetSequence()); 
     theServer->SetAddress(msg.GetSource());
+    theServer->UpdateRecvRate(currentTime, msg.GetLength());
+    theServer->UpdateLossEstimate(currentTime, msg.GetSequence()); 
     theServer->IncrementRecvTotal(msg.GetLength()); // for statistics only (TBD) #ifdef NORM_DEBUG
     theServer->HandleObjectMessage(msg);
-    theServer->UpdateRecvRate(currentTime, msg.GetLength());
+    
 }  // end NormSession::ClientHandleObjectMessage()
 
 void NormSession::ClientHandleCommand(const struct timeval& currentTime,
@@ -1701,7 +1740,7 @@ void NormSession::ClientHandleCommand(const struct timeval& currentTime,
         //        LocalNodeId());   
         if ((theServer = new NormServerNode(*this, cmd.GetSourceId())))
         {
-            Notify(NormController::REMOTE_SERVER_NEW, theServer, NULL);
+            Notify(NormController::REMOTE_SENDER_NEW, theServer, NULL);
             if (theServer->Open(cmd.GetInstanceId()))
             {
                 server_tree.AttachNode(theServer);
@@ -1724,11 +1763,11 @@ void NormSession::ClientHandleCommand(const struct timeval& currentTime,
         }   
     }
     theServer->Activate(false);
-    theServer->UpdateLossEstimate(currentTime, cmd.GetSequence()); 
     theServer->SetAddress(cmd.GetSource());
-    theServer->IncrementRecvTotal(cmd.GetLength()); // for statistics only (TBD) #ifdef NORM_DEBUG
-    theServer->HandleCommand(currentTime, cmd);
     theServer->UpdateRecvRate(currentTime, cmd.GetLength());
+    theServer->UpdateLossEstimate(currentTime, cmd.GetSequence()); 
+    theServer->IncrementRecvTotal(cmd.GetLength()); // for statistics only (TBD) #ifdef NORM_DEBUG
+    theServer->HandleCommand(currentTime, cmd);    
 }  // end NormSession::ClientHandleCommand()
 
 
@@ -1737,26 +1776,26 @@ double NormSession::CalculateRtt(const struct timeval& currentTime,
 {
     if (grttResponse.tv_sec || grttResponse.tv_usec)
     {
-        double clientRtt;
-        // Calculate rtt estimate for this client and process the response
+        double rcvrRtt;
+        // Calculate rtt estimate for this receiver and process the response
         if (currentTime.tv_usec < grttResponse.tv_usec)
         {
-            clientRtt = 
+            rcvrRtt = 
                 (double)(currentTime.tv_sec - grttResponse.tv_sec - 1);
-            clientRtt += 
+            rcvrRtt += 
                 ((double)(1000000 - (grttResponse.tv_usec - currentTime.tv_usec))) / 1.0e06;
         }
         else
         {
-            clientRtt = 
+            rcvrRtt = 
                 (double)(currentTime.tv_sec - grttResponse.tv_sec);
-            clientRtt += 
+            rcvrRtt += 
                 ((double)(currentTime.tv_usec - grttResponse.tv_usec)) / 1.0e06;
         } 
         // Lower limit on RTT (because of coarse timer resolution on some systems,
         // this can sometimes actually end up a negative value!)
         // (TBD) this should be system clock granularity?
-        return (clientRtt < 1.0e-06) ? 1.0e-06 : clientRtt;
+        return (rcvrRtt < 1.0e-06) ? 1.0e-06 : rcvrRtt;
     }
     else
     {
@@ -2390,7 +2429,7 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                 else
                                 {
                                     // Entire block already tx pending, don't recover
-                                    DMSG(0, "NormSession::ServerHandleNackMessage() node>%lu "
+                                    DMSG(4, "NormSession::ServerHandleNackMessage() node>%lu "
                                             "recvd SEGMENT repair request for pending block.\n");
                                     break;   
                                 }
@@ -2812,8 +2851,8 @@ bool NormSession::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         LocalNodeId(), (UINT16)objectId);
                 if (obj->ActivateRepairs()) 
                 {
-                    DMSG(6, "NormSession::OnRepairTimeout() node>%lu activated obj>%hu repairs fd=%d...\n",
-                            LocalNodeId(), (UINT16)objectId, static_cast<NormFileObject*>(obj)->file.fd);
+                    DMSG(6, "NormSession::OnRepairTimeout() node>%lu activated obj>%hu repairs ...\n",
+                            LocalNodeId(), (UINT16)objectId);
                     if (!tx_pending_mask.Set(objectId))
                         DMSG(0, "NormSession::OnRepairTimeout() rx_pending_mask.Set(%hu) error (2)\n",
                                 (UINT16)objectId); 
@@ -3359,6 +3398,11 @@ void NormSession::AdjustRate(bool onResponse)
     double txRate = tx_rate;
     if (onResponse)
     {
+        if (!cc_active)
+        {
+            cc_active = true;
+            Notify(NormController::CC_ACTIVE, NULL, NULL);
+        }
         if (data_active)  // adjust only if actively transmitting
         {
             // Adjust rate based on CLR feedback and
@@ -3446,7 +3490,19 @@ void NormSession::AdjustRate(bool onResponse)
         if (minRate > ((double)(segment_size)))
             minRate = (double)(segment_size);
     }
-    if (txRate < minRate) txRate = minRate;
+    if (txRate <= minRate) 
+    {
+        txRate = minRate;
+        if ((NULL == clr) || (!clr->IsActive()))
+        {
+            // Post notification that no cc feedback is being received
+            if (cc_active)
+            {
+                cc_active = false;
+                Notify(NormController::CC_INACTIVE, NULL, NULL);
+            }
+        }
+    }
     if ((tx_rate_max >= 0.0) && (txRate > tx_rate_max))
         txRate = tx_rate_max;
     if (txRate != tx_rate) SetTxRateInternal(txRate);
@@ -3569,7 +3625,8 @@ NormSession* NormSessionMgr::NewSession(const char* sessionAddress,
                 GetErrorString()); 
         return ((NormSession*)NULL);  
     }     
-    theSession->SetAddress(theAddress);    
+    theSession->SetAddress(theAddress);
+	theSession->SetTxPort(sessionPort); /* JPH 4/24/06 */
     // Add new session to our session list
     theSession->next = top_session;
     top_session = theSession;

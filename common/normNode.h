@@ -238,6 +238,8 @@ class NormServerNode : public NormNode
         bool UnicastNacks() {return unicast_nacks;}
         void SetUnicastNacks(bool state) {unicast_nacks = state;}
         
+        double GetGrttEstimate() {return grtt_estimate;}
+        
         bool UpdateLossEstimate(const struct timeval&   currentTime,
                                 unsigned short          theSequence, 
                                 bool                    ecnStatus = false);
@@ -364,6 +366,9 @@ class NormServerNode : public NormNode
         
         
     private:
+        static const double DEFAULT_NOMINAL_INTERVAL;
+        static const double ACTIVITY_INTERVAL_MIN;
+        
         bool PassiveRepairCheck(NormObjectId    objectId,  
                                 NormBlockId     blockId,
                                 NormSegmentId   segmentId);
@@ -440,6 +445,7 @@ class NormServerNode : public NormNode
         bool                    slow_start;        
         double                  send_rate;         // sender advertised rate
         double                  recv_rate;         // measured recv rate
+        unsigned short          recv_rate_quantized; 
         struct timeval          prev_update_time;  // for recv_rate measurement
         unsigned long           recv_accumulator;  // for recv_rate measurement
         double                  nominal_packet_size;

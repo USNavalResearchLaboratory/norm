@@ -167,7 +167,7 @@ class NormObject
         NormBlock* ServerRecoverBlock(NormBlockId blockId);
         bool CalculateBlockParity(NormBlock* block);
         
-        bool TxReset(NormBlockId firstBlock = NormBlockId(0));
+        bool TxReset(NormBlockId firstBlock = NormBlockId(0), bool requeue = false);
         bool TxResetBlocks(NormBlockId nextId, NormBlockId lastId);
         bool TxUpdateBlock(NormBlock*       theBlock, 
                            NormSegmentId    firstSegmentId, 
@@ -452,6 +452,9 @@ class NormStreamObject : public NormObject
             {block_pool_threshold = value;}
 
         void ResetPostedTxQueueVacancy() {posted_tx_queue_vacancy = false;}
+        
+        bool IsReadIndex(NormBlockId blockId, NormSegmentId segmentId) const
+            {return ((blockId == read_index.block) && (segmentId == read_index.segment));}
          
     private:
         void Terminate();

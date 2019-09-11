@@ -15,8 +15,8 @@ class NormSimAgent : public NormController
         bool ProcessCommand(const char* cmd, const char* val);
         
         // Note: don't allow client _and_ server operation at same time
-		bool StartServer();
-        bool StartClient();
+		bool StartServer();  // start sender
+        bool StartClient();  // start receiver
         bool IsActive() {return (NULL != session);}
         void Stop();
         
@@ -29,6 +29,10 @@ class NormSimAgent : public NormController
         enum CmdType {CMD_INVALID, CMD_NOARG, CMD_ARG};
         CmdType CommandType(const char* cmd);
         virtual unsigned long GetAgentId() = 0;
+ 		/* JPH 4/11/06  Use packet stream instead of direct call on mgen process */
+	    void HandleMgenMessage(char*             buffer, 
+                           unsigned int          len, 
+                           const ProtoAddress& srcAddr);
     
     private:
         void OnInputReady();
@@ -83,7 +87,7 @@ class NormSimAgent : public NormController
         char*                       tx_msg_buffer;
         unsigned int                tx_msg_len;
         unsigned int                tx_msg_index;
-        Mgen*                       mgen;
+        Mgen*                       mgen;           // mgen receiver
         char                        mgen_buffer[64];
         bool                        msg_sync;
         unsigned int                mgen_bytes;

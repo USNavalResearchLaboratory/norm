@@ -21,22 +21,25 @@ class NormController
             TX_WATERMARK_COMPLETED,
             TX_OBJECT_SENT,
             TX_OBJECT_PURGED,
-            LOCAL_SERVER_CLOSED,
-            REMOTE_SERVER_NEW,
-            REMOTE_SERVER_ACTIVE,
-            REMOTE_SERVER_INACTIVE,
-            REMOTE_SERVER_PURGED,
+            LOCAL_SENDER_CLOSED,
+            REMOTE_SENDER_NEW,
+            REMOTE_SENDER_ACTIVE,
+            REMOTE_SENDER_INACTIVE,
+            REMOTE_SENDER_PURGED,
             RX_OBJECT_NEW,
             RX_OBJECT_INFO,
             RX_OBJECT_UPDATED,
             RX_OBJECT_COMPLETED,
-            RX_OBJECT_ABORTED
+            RX_OBJECT_ABORTED,
+            GRTT_UPDATED,
+            CC_ACTIVE,              // posted when cc feedback is detected
+            CC_INACTIVE             // posted when no cc feedback and min rate reached 
         };
                   
         virtual void Notify(NormController::Event event,
                             class NormSessionMgr* sessionMgr,
                             class NormSession*    session,
-                            class NormServerNode* server,
+                            class NormServerNode* sender,
                             class NormObject*     object) = 0;
                     
 };  // end class NormController
@@ -59,11 +62,11 @@ class NormSessionMgr
         
         void Notify(NormController::Event event,
                     class NormSession*    session,
-                    class NormServerNode* server,
+                    class NormServerNode* sender,
                     class NormObject*     object)
         {
             if (controller)
-                controller->Notify(event, this, session, server, object);   
+                controller->Notify(event, this, session, sender, object);   
         }
                
         void ActivateTimer(ProtoTimer& timer) {timer_mgr.ActivateTimer(timer);}
@@ -220,6 +223,9 @@ class NormSession
                                     UINT32      dataLen,
                                     const char* infoPtr = NULL,
                                     UINT16      infoLen = 0);
+        
+        bool RequeueTxObject(NormObject* obj);
+        
         void DeleteTxObject(NormObject* obj); 
         
         // postive ack mgmnt
@@ -307,8 +313,16 @@ class NormSession
             {return remote_server_buffer_size;}
         void ClientSetUnicastNacks(bool state) {unicast_nacks = state;}
         bool ClientGetUnicastNacks() const {return unicast_nacks;}
-        void ClientSetSilent(bool state) {client_silent = state;}
+        void ClientSetSilent(bool state) 
+        {
+            client_silent = state;
+            receiver_low_delay = client_silent ? receiver_low_delay : false;
+        }
         bool ClientIsSilent() const {return client_silent;}
+        
+        void ReceiverSetLowDelay(bool state) 
+            {receiver_low_delay = client_silent ? state : false;}
+        bool ReceiverIsLowDelay() {return receiver_low_delay;}
         
         NormObject::NackingMode ClientGetDefaultNackingMode() const
             {return default_nacking_mode;}
@@ -473,21 +487,23 @@ class NormSession
         double                          gsize_advertised;
         UINT8                           gsize_quantized;
         
-        // Server congestion control parameters
+        // Sender congestion control parameters
         bool                            cc_enable;
         UINT8                           cc_sequence;
         NormNodeList                    cc_node_list;
         bool                            cc_slow_start;
+        bool                            cc_active;
         unsigned long                   sent_accumulator;  // for sentRate measurement
         double                          nominal_packet_size;
         bool                            data_active;       // true when actively sending data
         
-        // Client parameters
+        // Receiver parameters
         bool                            is_client;
         NormNodeTree                    server_tree;
         unsigned long                   remote_server_buffer_size;
         bool                            unicast_nacks;
         bool                            client_silent;
+        bool                            receiver_low_delay;
         NormServerNode::RepairBoundary  default_repair_boundary;
         NormObject::NackingMode         default_nacking_mode;    
         

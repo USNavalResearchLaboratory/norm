@@ -6,7 +6,7 @@
 	<META NAME="GENERATOR" CONTENT="NeoOffice/J 1.1  (Unix)">
 	<META NAME="AUTHOR" CONTENT="Robert Adamson">
 	<META NAME="CREATED" CONTENT="20040824;14180000">
-	<META NAME="CHANGED" CONTENT="20051028;14285700">
+	<META NAME="CHANGED" CONTENT="20060512;16004100">
 	<META NAME="DESCRIPTION" CONTENT="NORM Object Functions	42NORM Object FunctionsNORM_OBJECT_STREAMNORM Sender Functions	19NORM Sender Functions">
 	<META NAME="KEYWORDS" CONTENT="norm object value application function ">
 	<STYLE>
@@ -52,7 +52,7 @@
 		<TD WIDTH=371>
 			<P ALIGN=LEFT STYLE="margin-left: 0.86in; margin-top: 0.17in; font-style: normal">
 			<FONT FACE="Helvetica, sans-serif"><FONT SIZE=4 STYLE="font-size: 16pt"><B><FONT SIZE=6 STYLE="font-size: 28pt">NORM<BR>Developer’s
-			<BR>Guide<BR></FONT><FONT SIZE=4>(version 1.3b7)</FONT></B></FONT></FONT></P>
+			<BR>Guide<BR></FONT><FONT SIZE=4>(version 1.3b8)</FONT></B></FONT></FONT></P>
 		</TD>
 	</TR>
 </TABLE>
@@ -163,6 +163,7 @@ of Contents</A></H1>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitRateBounds()">NormSetTransmitRateBounds()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitCacheBounds()">NormSetTransmitCacheBounds()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetAutoParity()">NormSetAutoParity()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetGrttEstimate()">NormGetGrttEstimate()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttEstimate()">NormSetGrttEstimate()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttMax()">NormSetGrttMax()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttProbingMode()">NormSetGrttProbingMode()</A></FONT></P>
@@ -171,6 +172,7 @@ of Contents</A></H1>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGroupSize()">NormSetGroupSize()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormFileEnqueue()">NormFileEnqueue()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDataEnqueue()">NormDataEnqueue()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormRequeueObject()">NormRequeueObject()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamOpen()">NormStreamOpen()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamClose()">NormStreamClose()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamWrite()">NormStreamWrite()</A></FONT></P>
@@ -216,6 +218,7 @@ of Contents</A></H1>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B><A HREF="#NORM Node Functions">NORM Node Functions</A></B></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeGetId()">NormNodeGetId()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeGetAddress()">NormNodeGetAddress()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeGetGrtt()">NormNodeGetGrtt()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeRetain()">NormNodeRetain()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeRelease()">NormNodeRelease()</A></FONT></P>
 </DIV>
@@ -1039,13 +1042,47 @@ function call.</P>
 	<TR VALIGN=TOP>
 		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			<FONT FACE="Courier"><I>NORM_LOCAL_SERVER_CLOSED</I></FONT></P>
+			<FONT FACE="Courier"><I>NORM_LOCAL_SENDER_CLOSED</I></FONT></P>
 		</TD>
 		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This event is posted when the NORM protocol engine completes the
 			&quot;graceful shutdown&quot; of its participation as a sender in
 			the indicated &quot;session&quot; (see <FONT FACE="Courier"><A HREF="#NormStopSender()">NormStopSender()</A></FONT>).</P>
+		</TD>
+	</TR>
+	<TR VALIGN=TOP>
+		<TD WIDTH=269>
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			<FONT FACE="Courier"><I>NORM_CC_ACTIVE</I></FONT></P>
+		</TD>
+		<TD WIDTH=293>
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			This event indicates that congestion control feedback from
+			receivers has begun to be received (<I>This also implies that
+			receivers in the group are actually present and can be used as a
+			cue to begin data transmission.</I>).  Note that congestion
+			control must be enabled (see <FONT FACE="Courier"><A HREF="#NormSetCongestionControl()">NormSetCongestionControl()</A></FONT>)
+			for this event to be posted.  Congestion control feedback can be
+			assumed to be received until a <FONT FACE="Courier"><I>NORM_CC_INACTIVE</I></FONT>
+			event is posted.</P>
+		</TD>
+	</TR>
+	<TR VALIGN=TOP>
+		<TD WIDTH=269>
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			<FONT FACE="Courier"><I>NORM_CC_INACTIVE</I></FONT></P>
+		</TD>
+		<TD WIDTH=293>
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			This event indicates there has been no recent congestion control
+			feedback received from the receiver set and that the local NORM
+			sender has reached its minimum transmit rate.  Applications may
+			wish to refrain from new data transmission until a <FONT FACE="Courier"><I>NORM_CC_ACTIVE</I></FONT>
+			event is posted.  This notification is only posted when congestion
+			control operation is enabled (see <FONT FACE="Courier"><A HREF="#NormSetCongestionControl()">NormSetCongestionControl()</A></FONT>)
+			<I>and</I> a previous <FONT FACE="Courier"><I>NORM_CC_ACTIVE</I></FONT>
+			event has occurred.</P>
 		</TD>
 	</TR>
 	<TR>
@@ -1057,32 +1094,32 @@ function call.</P>
 	<TR VALIGN=TOP>
 		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			<FONT FACE="Courier"><I>NORM_REMOTE_SERVER_NEW</I></FONT></P>
+			<FONT FACE="Courier"><I>NORM_REMOTE_SENDER_NEW</I></FONT></P>
 		</TD>
 		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			This notification is posted when a receiver first receives
-			messages from a specific remote NORM server.  This marks the
-			beginning of the interval during which the application may
-			reference the provided &quot;node&quot; handle (<FONT FACE="Courier"><A HREF="#NormNodeHandle">NormNodeHandle</A></FONT>).</P>
+			This event is posted when a receiver first receives messages from
+			a specific remote NORM sender.  This marks the beginning of the
+			interval during which the application may reference the provided
+			&quot;node&quot; handle (<FONT FACE="Courier"><A HREF="#NormNodeHandle">NormNodeHandle</A></FONT>).</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
 		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			<FONT FACE="Courier"><I>NORM_REMOTE_SERVER_ACTIVE</I></FONT></P>
+			<FONT FACE="Courier"><I>NORM_REMOTE_SENDER_ACTIVE</I></FONT></P>
 		</TD>
 		<TD WIDTH=293>
-			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid"><A NAME="OLE_LINK5"></A><A NAME="OLE_LINK4"></A>
 			This event is posted when a previously inactive (or new) remote
-			server is detected operating as an active sender within the
+			sender is detected operating as an active sender within the
 			session.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
 		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			<FONT FACE="Courier"><I>NORM_REMOTE_SERVER_INACTIVE</I></FONT></P>
+			<FONT FACE="Courier"><I>NORM_REMOTE_SENDER_INACTIVE</I></FONT></P>
 		</TD>
 		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
@@ -1095,7 +1132,7 @@ function call.</P>
 	<TR VALIGN=TOP>
 		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			<FONT FACE="Courier"><I>NORM_REMOTE_SERVER_PURGED</I></FONT></P>
+			<FONT FACE="Courier"><I>NORM_REMOTE_SENDER_PURGED</I></FONT></P>
 		</TD>
 		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
@@ -1175,12 +1212,28 @@ function call.</P>
 	<TR VALIGN=TOP>
 		<TD WIDTH=269>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			<FONT FACE="Courier"><I>NORM_GRTT_UPDATED</I></FONT></P>
+		</TD>
+		<TD WIDTH=293>
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			This notification indicates that either the local sender estimate
+			of GRTT has changed, or that a remote sender's estimate of GRTT
+			has changed.  The &quot;sender&quot; member of the <FONT FACE="Courier"><A HREF="#NormEvent">NormEvent</A></FONT>
+			is set to <FONT FACE="Courier"><I>NORM_NODE_INVALID</I></FONT> if
+			the local sender's GRTT estimate has changed or to the
+			<FONT FACE="Courier"><A HREF="#NormNodeHandle">NormNodeHandle</A></FONT> of the remote sender
+			that has updated its estimate of GRTT.</P>
+		</TD>
+	</TR>
+	<TR VALIGN=TOP>
+		<TD WIDTH=269>
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><I>NORM_EVENT_INVALID</I></FONT></P>
 		</TD>
 		<TD WIDTH=293>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			This <A HREF="#NormEventType">NormEventType</A> indicates an invalid or &quot;null&quot;
-			notification which should be ignored.</P>
+			This <FONT FACE="Courier"><A HREF="#NormEventType">NormEventType</A></FONT> indicates an
+			invalid or &quot;null&quot; notification which should be ignored.</P>
 		</TD>
 	</TR>
 </TABLE>
@@ -1800,7 +1853,7 @@ without notifying the receiver set of its intention.  However a
 &quot;graceful shutdown&quot; option is provided to terminate sender
 operation gracefully, notifying the receiver set its pending exit
 with appropriate protocol messaging.  A <I><A HREF="#NormEvent">NormEvent</A></I>,
-<FONT FACE="Courier"><I>NORM_LOCAL_SERVER_CLOSED,</I></FONT> is
+<FONT FACE="Courier"><I>NORM_LOCAL_SENDER_CLOSED,</I></FONT> is
 dispatched when the graceful shutdown process has completed.</P>
 <P CLASS="western" STYLE="font-style: normal"><I>(NOTE: The
 &quot;</I><FONT FACE="Courier"><U><I>graceful</I></U></FONT><I>&quot;
@@ -2032,6 +2085,30 @@ called for the given <FONT FACE="Courier"><U>sessionHandle</U></FONT>.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function has no
 return values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormGetGrttEstimate()">NormGetGrttEstimate()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>double
+NormGetGrttEstimate(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;session);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function returns
+the sender's current estimate(in seconds) of group round-trip timing
+(GRTT) for the given NORM <FONT FACE="Courier"><U>session</U></FONT>.
+ This function may be useful for applications to leverage for other
+purposes the assessment of round-trip timing made by the NORM
+protocol engine.  For example, an application may scale its own
+timeouts based on connectivity delays among participants in a NORM
+session.  Note that the <FONT FACE="Courier"><I>NORM_GRTT_UPDATED</I></FONT>
+event is posted (see <FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT>)
+by the NORM protocol engine to indicate when changes in the local
+sender or remote senders' GRTT estimate occurs.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function returns
+the current sender group round-trip timing (GRTT) estimate (in units
+of seconds).  A value of <FONT FACE="Courier"><I>-1.0</I></FONT> is
+returned if an invalid <FONT FACE="Courier"><U>session</U></FONT>
+value is provided.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormSetGrttEstimate()">NormSetGrttEstimate()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -2383,6 +2460,56 @@ previously enqueued NORM transmit objects are pending transmission.
 Also the call will fail if the <FONT FACE="Courier"><U>infoLen</U></FONT>
 parameter exceeds the local <I>NormSender</I> <FONT FACE="Courier"><U>segmentSize</U></FONT>
 limit.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormRequeueObject()">NormRequeueObject()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>bool&nbsp;NormRequeueObject(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;session,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormObjectHandle">NormObjectHandle</A>&nbsp;&nbsp;object);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function allows
+the application to resend (or reset transmission of) a
+<FONT FACE="Courier"><I>NORM_OBJECT_FILE</I></FONT> or
+<FONT FACE="Courier"><I>NORM_OBJECT_DATA</I></FONT> transmit object
+that was previously enqueued for the indicated <FONT FACE="Courier"><U>session</U></FONT>.
+ This function is useful for applications sending to silent
+(non-NACKing) receivers as it enables the receivers to take advantage
+of multiple retransmissions of objects (including any auto-parity
+set, see <FONT FACE="Courier"><A HREF="#NormSetAutoParity()">NormSetAutoParity()</A></FONT>) to more
+robustly receive content.  The <FONT FACE="Courier"><U>object</U></FONT>
+parameter must be a valid transmit <A HREF="#NormObjectHandle">NormObjectHandle</A> that has not yet
+been &quot;purged&quot; from the sender's transmit queue.  Upon
+success, the specified <FONT FACE="Courier"><U>object</U></FONT> will
+be fully retransmitted using the same NORM object transport
+identifier as was used on its initial transmission.  This call may be
+made at any time to restart transmission of a previously-enqueued
+object, but the <FONT FACE="Courier"><I>NORM_TX_OBJECT_SENT</I></FONT>
+or <FONT FACE="Courier"><I>NORM_TX_FLUSH_COMPLETED</I></FONT>
+notifications can serve as good cues for an appropriate time to
+resend an object.  If multiple objects are re-queued, they will be
+resent in order of their initial enqueuing.</P>
+<P CLASS="western" STYLE="font-style: normal">The transmit cache
+bounds set by <FONT FACE="Courier"><A HREF="#NormSetTransmitCacheBounds()">NormSetTransmitCacheBounds()</A></FONT>
+determine the number of previously-sent objects retained in the
+sender's transmit queue and that are thus eligible to be requeued for
+retransmission.  An object may be requeued via this call multiple
+times, but each distinct requeue should be done after an indication
+such as <FONT FACE="Courier"><I>NORM_TX_OBJECT_SENT</I></FONT> or
+<FONT FACE="Courier"><I>NORM_TX_FLUSH_COMPLETED</I></FONT>  for the
+given object.  Otherwise, the object will simply be reset from its
+current transmission point to transmit from the beginning (i.e.
+restart).  Note that the object type <FONT FACE="Courier"><I>NORM_OBJECT_STREAM</I></FONT>
+cannot currently be requeued.</P>
+<P CLASS="western"><I>(TBD – should a &quot;numRepeats&quot;
+parameter be added to this function?)</I></P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">A value of <FONT FACE="Courier"><I>true</I></FONT>
+is returned upon success and a value of <FONT FACE="Courier"><I>false</I></FONT>
+is returned upon failure.  Possible reasons for failure include an
+invalid object handle was provided (i.e. a non-transmit object or
+transmit object that has been &quot;purged&quot; from the transmit
+queue (see <FONT FACE="Courier"><I>NORM_TX_OBJECT_PURGED</I></FONT>))
+or the provided <FONT FACE="Courier"><U>object</U></FONT> was of type
+<FONT FACE="Courier"><I>NORM_OBJECT_STREAM</I></FONT>.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormStreamOpen()">NormStreamOpen()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -3005,17 +3132,18 @@ long&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bufferSpace);</FONT></FONT></P>
 <P CLASS="western" STYLE="font-style: normal">This function initiates
 the application's participation as a receiver within the <I>NormSession</I>
 identified by the <FONT FACE="Courier"><U>session</U></FONT>
-parameter.  The receiver will respond with appropriate protocol
-messages (unless <FONT FACE="Courier">NormSetSilentReceiver(</FONT><FONT FACE="Courier"><I>true</I></FONT><FONT FACE="Courier">)</FONT>
-is invoked) and begin providing the  application with
-receiver-related <I><A HREF="#NormEvent">NormEvent</A></I> notification.  The <FONT FACE="Courier"><U>bufferSpace</U></FONT>
-parameter is used to set a limit on the amount of <FONT FACE="Courier"><U>bufferSpace</U></FONT>
+parameter.  The NORM protocol engine will begin providing the 
+application with receiver-related <I><A HREF="#NormEvent">NormEvent</A></I> notifications,
+and, unless <FONT FACE="Courier">NormSetSilentReceiver(</FONT><FONT FACE="Courier"><I>true</I></FONT><FONT FACE="Courier">)</FONT>
+is invoked, respond to senders with appropriate protocol messages. 
+The <FONT FACE="Courier"><U>bufferSpace</U></FONT> parameter is used
+to set a limit on the amount of <FONT FACE="Courier"><U>bufferSpace</U></FONT>
 allocated by the receiver per active <I>NormSender</I> within the
 session.  The appropriate <FONT FACE="Courier"><U>bufferSpace</U></FONT>
 to use is a function of expected network <I>delay*bandwidth</I>
 product and packet loss characteristics.  A discussion of trade-offs
 associated with NORM transmit and receiver buffer space selection is
-provided later in this document.  An insufficient bufferSpace
+provided later in this document.  An insufficient <FONT FACE="Courier"><U>bufferSpace</U></FONT>
 allocation will result in potentially inefficient protocol operation,
 even though reliable operation may be maintained.  In some cases of a
 large <I>delay*bandwidth</I> product and/or severe packet loss, a
@@ -3023,8 +3151,7 @@ small <FONT FACE="Courier"><U>bufferSpace</U></FONT> allocation
 (coupled with the lack of explicit flow control in NORM) may result
 in the receiver &quot;re-syncing&quot; to the sender, resulting in
 &quot;outages&quot; in the reliable transmissions from a sender (this
-is similar to the conditions resulting in a TCP connection timeout
-failure).  
+is analogous to a TCP connection timeout failure).  
 </P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">A value of <FONT FACE="Courier"><I>true</I></FONT>
@@ -3112,7 +3239,8 @@ specification was given.</P>
 &lt;normApi.h&gt;</FONT></FONT></P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
 NormSetSilentReceiver(<A HREF="#NormSessionHandle">NormSessionHandle</A> session,
-<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bool&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;silent);</FONT></FONT></P>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bool&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;silent,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bool&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lowDelay
+= false);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function provides
 the option to configure a NORM receiver application as a &quot;silent
@@ -3127,6 +3255,27 @@ needed for reliability and protocol operation.  Silent receivers are
 dependent upon proactive FEC transmission (see <FONT FACE="Courier"><A HREF="#NormSetAutoParity()">NormSetAutoParity()</A></FONT>)
 or using repair information requested by other non-silent receivers
 within the group to achieve reliable transfers.</P>
+<P CLASS="western" STYLE="font-style: normal">The optional <FONT FACE="Courier"><U>lowDelay</U></FONT>
+parameter is applicable only for reception of the <FONT FACE="Courier"><I>NORM_OBJECT_STREAM</I></FONT>
+type.  When <FONT FACE="Courier"><U>lowDelay</U></FONT> is set to a
+value of <FONT FACE="Courier"><I>true</I></FONT>, the NORM receiver
+is allowed to read received data from the stream for a given FEC code
+block as soon as any content for a subsequent FEC code block is
+received, regardless of the sender stream buffer size setting (see
+<FONT FACE="Courier"><A HREF="#NormStreamOpen()">NormStreamOpen()</A></FONT>) or the receiver's
+receive buffer size (see <FONT FACE="Courier"><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT>).
+ This eliminates data delivery delay due to receiver buffering beyond
+one FEC code block, but may result in compromise of potential stream
+reliability where the sender may provide additional repair
+transmissions in response to NACKs from other, non-silent receiver
+participating in the <FONT FACE="Courier"><U>session</U></FONT>.  The
+default behavior (<FONT FACE="Courier"><U>lowDelay</U></FONT> =
+<FONT FACE="Courier"><I>false</I></FONT>), causes the receiver to
+buffer received FEC code blocks for as long as possible (within
+buffer constraints as newer data arrives) before allowing the
+application to read the data.  This provides maximum reliability, but
+buffer delays of potentially multiple FEC code blocks may be incurred
+when packet loss occurs.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function has no
 return values.</P>
@@ -3872,11 +4021,11 @@ NormNodeGetId(<A HREF="#NormNodeHandle">NormNodeHandle</A> nodeHandle)</FONT></F
 <P CLASS="western" STYLE="font-style: normal">This function retrieves
 the <FONT FACE="Courier"><A HREF="#NormNodeId">NormNodeId</A></FONT> identifier for the remote
 participant referenced by the given <FONT FACE="Courier"><U>nodeHandle</U></FONT>
-value.  The <A HREF="#NormNodeId">NormNodeId</A> is a 32-bit value used within the NORM
-protocol to uniquely identify participants within a NORM session. 
-The participants identifiers are assigned by the application or
-derived (by the NORM API code) from the host computers default IP
-address.</P>
+value.  The <FONT FACE="Courier"><A HREF="#NormNodeId">NormNodeId</A></FONT> is a 32-bit value
+used within the NORM protocol to uniquely identify participants
+within a NORM session.  The participants identifiers are assigned by
+the application or derived (by the NORM API code) from the host
+computers default IP address.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function returns
 the <FONT FACE="Courier"><A HREF="#NormNodeId">NormNodeId</A></FONT> value associated with the
@@ -3888,24 +4037,55 @@ value will be <FONT FACE="Courier"><I>NORM_NODE_NONE</I></FONT>.</P>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
 &lt;normApi.h&gt;</FONT></FONT></P>
-<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2><A HREF="#NormNodeId">NormNodeId</A>
-NormNodeGetAddress(<A HREF="#NormNodeHandle">NormNodeHandle</A> nodeHandle)</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>bool
+NormNodeGetAddress(<A HREF="#NormNodeHandle">NormNodeHandle</A> 
+nodeHandle,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;char*&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;addrBuffer,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
+int*&nbsp;&nbsp;&nbsp;bufferLen,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
+short*&nbsp;port = (unsigned short*)0);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function retrieves
-the <FONT FACE="Courier"><A HREF="#NormNodeId">NormNodeId</A></FONT> identifier for the remote
-participant referenced by the given <FONT FACE="Courier"><U>nodeHandle</U></FONT>
-value.  The <A HREF="#NormNodeId">NormNodeId</A> is a 32-bit value used within the NORM
-protocol to uniquely identify participants within a NORM session. 
-The participants identifiers are assigned by the application or
-derived (by the NORM API code) from the host computers default IP
-address.</P>
+the current network source address detected for packets received from
+remote NORM sender referenced by the <FONT FACE="Courier"><U>nodeHandle</U></FONT>
+parameter.  The <FONT FACE="Courier"><U>addrBuffer</U></FONT> must be
+a pointer to storage of <FONT FACE="Courier"><U>bufferLen</U></FONT>
+bytes in length in which the referenced sender node's address will be
+returned.  Optionally, the remote sender source port number (see
+<FONT FACE="Courier"><A HREF="#NormSetTxPort()">NormSetTxPort()</A></FONT>) is also returned if the
+optional <FONT FACE="Courier"><U>port</U></FONT> pointer to storage
+parameter is provided in the call.  Note that in the case of Network
+Address Translation (NAT) or other firewall activities, the source
+address detected by the NORM receiver may not be the original address
+of the original NORM sender.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">A value of <FONT FACE="Courier"><I>true</I></FONT>
+is returned upon success and <FONT FACE="Courier"><I>false</I></FONT>
+upon failure.  An invalid <FONT FACE="Courier"><U>nodeHandle</U></FONT>
+parameter value would lead to failure.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormNodeGetGrtt()">NormNodeGetGrtt()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>double
+NormNodeGetId(<A HREF="#NormNodeHandle">NormNodeHandle</A> nodeHandle)</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function retrieves
+the advertised estimate of group round-trip timing (GRTT) for the
+remote sender referenced by the given <FONT FACE="Courier"><U>nodeHandle</U></FONT>
+value.  Newly-starting senders that have been participating as a
+receiver within a group may wish to use this function to provide a
+more accurate startup estimate of GRTT (see <FONT FACE="Courier"><A HREF="#NormSetGrttEstimate()">NormSetGrttEstimate()</A></FONT>)
+prior to a call to <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT>. 
+Applications may use this information for other purpose as well. 
+Note that the <FONT FACE="Courier"><I>NORM_GRTT_UPDATED</I></FONT>
+event is posted (see <FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT>)
+by the NORM protocol engine to indicate when changes in the local
+sender or remote senders' GRTT estimate occurs.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function returns
-the <FONT FACE="Courier"><A HREF="#NormNodeId">NormNodeId</A></FONT> value associated with the
-specified <FONT FACE="Courier"><U>nodeHandle</U></FONT>.  In the case
-<FONT FACE="Courier"><U>nodeHandle</U></FONT> is equal to
-<FONT FACE="Courier"><I>NORM_NODE_INVALID</I></FONT>, the return
-value will be <FONT FACE="Courier"><I>NORM_NODE_NONE</I></FONT>.</P>
+the remote sender's advertised GRTT estimate in units of seconds.  A
+value of <FONT FACE="Courier"><I>-1.0</I></FONT> is returned upon
+failure.  An invalid <FONT FACE="Courier"><U>nodeHandle</U></FONT>
+parameter value will lead to such failure.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormNodeRetain()">NormNodeRetain()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -3923,31 +4103,31 @@ associated state and thus invalidate the <FONT FACE="Courier"><A HREF="#NormNode
 call to <FONT FACE="Courier"><A HREF="#NormNodeRelease()">NormNodeRelease()</A></FONT> when finished
 with the node information to avoid a memory leak condition. 
 <FONT FACE="Courier"><A HREF="#NormNodeHandle">NormNodeHandle</A></FONT> values (unless retained)
-are valid from the time of a <FONT FACE="Courier"><I>NORM_REMOTE_SERVER_NEW</I></FONT>
-notification until a complimentary <FONT FACE="Courier"><I>NORM_REMOTE_SERVER_PURGED</I></FONT>
+are valid from the time of a <FONT FACE="Courier"><I>NORM_REMOTE_SENDER_NEW</I></FONT>
+notification until a complimentary <FONT FACE="Courier"><I>NORM_REMOTE_SENDER_PURGED</I></FONT>
 notification.  During that interval, the application will receive
-<FONT FACE="Courier"><I>NORM_REMOTE_SERVER_ACTIVE</I></FONT> and
-<FONT FACE="Courier"><I>NORM_REMOTE_SERVER_INACTIVE</I></FONT>
-notifications according to the server's message transmission activity
+<FONT FACE="Courier"><I>NORM_REMOTE_SENDER_ACTIVE</I></FONT> and
+<FONT FACE="Courier"><I>NORM_REMOTE_SENDER_INACTIVE</I></FONT>
+notifications according to the sender's message transmission activity
 within the session.</P>
 <P CLASS="western" STYLE="font-style: normal">It is important to note
-that, if the NORM protocol engine posts a <FONT FACE="Courier"><I>NORM_REMOTE_SERVER_PURGED</I></FONT>
+that, if the NORM protocol engine posts a <FONT FACE="Courier"><I>NORM_REMOTE_SENDER_PURGED</I></FONT>
 notification for a given <FONT FACE="Courier"><A HREF="#NormNodeHandle">NormNodeHandle</A></FONT>,
 the NORM protocol engine could possibly, subsequently establish a
 new, different <FONT FACE="Courier"><A HREF="#NormNodeHandle">NormNodeHandle</A></FONT> value for
-the same remote server (i.e., one of equivalent <FONT FACE="Courier"><A HREF="#NormNodeId">NormNodeId</A></FONT>)
+the same remote sender (i.e., one of equivalent <FONT FACE="Courier"><A HREF="#NormNodeId">NormNodeId</A></FONT>)
 if it again becomes active in the session.  A new <FONT FACE="Courier"><A HREF="#NormNodeHandle">NormNodeHandle</A></FONT>
 may likely be established even if the application has retained the
 previous <FONT FACE="Courier"><A HREF="#NormNodeHandle">NormNodeHandle</A></FONT> value. 
 Therefore, to the application, it might appear that two different
-servers with the same <FONT FACE="Courier"><A HREF="#NormNodeId">NormNodeId</A></FONT> are
+senders with the same <FONT FACE="Courier"><A HREF="#NormNodeId">NormNodeId</A></FONT> are
 participating if these notifications are not carefully monitored. 
 This behavior is contingent upon how the application has configured
 the NORM protocol engine to manage resources when there is potential
-for a large number of remote servers within a session (related APIs
+for a large number of remote senders within a session (related APIs
 are TBD).  For example, the application may wish to control which
-specific remote servers for which it keeps state (or limit the memory
-resources used for remote servers state, etc) and the NORM API may be
+specific remote senders for which it keeps state (or limit the memory
+resources used for remote sender state, etc) and the NORM API may be
 extended in the future to control this behavior.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function has no

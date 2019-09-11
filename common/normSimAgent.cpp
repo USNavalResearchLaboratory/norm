@@ -48,7 +48,7 @@ const char* const NormSimAgent::cmd_list[] =
     "-trace",        // message tracing
     "+txloss",       // tx packet loss percent
     "+rxloss",       // rx packet loss percent
-    "+address",      // session dest addres
+    "+address",      // session dest address
     "+ttl",          // multicast ttl
     "+rate",         // tx rate
     "+cc",           // congestion control on/off
@@ -67,12 +67,12 @@ const char* const NormSimAgent::cmd_list[] =
     "+grtt",         // grtt estimate
     "+txbuffer",     // tx buffer size (bytes)
     "+rxbuffer",     // rx buffer size (bytes)
-    "+start",        // open session and beging activity
+    "+start",        // open session and begin activity
     "-stop",         // cease activity and close session
     "+sendFile",     // queue a "sim" file of <size> bytes for transmission
     "+sendRandomFile",  // queue random-size file size range <sizeMin>:<sizeMax>
     "+sendStream",   // send a simulated NORM stream
-    "+openStream",   // open a stream object for messaging
+    "+openStream",   // open a stream object for messaging (sending)
     "+push",         // "on" means real-time push stream advancement (non-blocking)
     "+flush",        // stream flush mode
     "-doFlush",      // invoke flushing of stream
@@ -691,7 +691,7 @@ void NormSimAgent::Notify(NormController::Event event,
                 }
                 break;
                 case NormObject::DATA: 
-                    DMSG(0, "NormSimAgent::Notify() FILE/DATA objects not _yet_ supported...\n");      
+                    DMSG(0, "NormSimAgent::Notify() DATA objects not _yet_ supported...\n");      
                     break;
                 default:
                     DMSG(0, "NormSimAgent::Notify() INVALID object type!\n");      
@@ -733,8 +733,8 @@ void NormSimAgent::Notify(NormController::Event event,
                                 unsigned int want = 2 - mgen_bytes;
                                 unsigned int got = want;
                                 bool findMsgSync = msg_sync ? false : true;
-                                if (((NormStreamObject*)object)->Read(mgen_buffer + mgen_bytes, 
-                                                                      &got, findMsgSync))
+                                if ((static_cast<NormStreamObject*>(object))->Read(mgen_buffer + mgen_bytes, 
+                                                                                   &got, findMsgSync))
                                 {
                                     mgen_bytes += got;
                                     msg_sync = true;
@@ -761,8 +761,8 @@ void NormSimAgent::Notify(NormController::Event event,
                                 {
                                     unsigned int want = MIN(mgen_pending_bytes, 62);
                                     unsigned int got = want;
-                                    if (((NormStreamObject*)object)->Read(mgen_buffer+mgen_bytes, 
-                                                                          &got))
+                                    if ((static_cast<NormStreamObject*>(object))->Read(mgen_buffer+mgen_bytes, 
+                                                                                       &got))
                                     {
                                         mgen_pending_bytes -= got;
                                         mgen_bytes += got;
@@ -781,7 +781,7 @@ void NormSimAgent::Notify(NormController::Event event,
                                     char buffer[256];
                                     unsigned int want = MIN(256, mgen_pending_bytes); 
                                     unsigned int got = want;
-                                    if (((NormStreamObject*)object)->Read(buffer, &got))
+                                    if ((static_cast<NormStreamObject*>(object))->Read(buffer, &got))
                                     {
                                         mgen_pending_bytes -= got;
                                         mgen_bytes += got;
@@ -800,7 +800,12 @@ void NormSimAgent::Notify(NormController::Event event,
                                     ProtoAddress srcAddr;
                                     srcAddr.ResolveFromString(server->GetAddress().GetHostString());
                                     srcAddr.SetPort(server->GetAddress().GetPort());
+#ifdef OPNET  // JPH 4/11/06  Use packet stream to send msg to mgen rather than direct call on mgen method.
+									HandleMgenMessage(mgen_buffer, mgen_bytes, srcAddr);
+#else
                                     mgen->HandleMgenMessage(mgen_buffer, mgen_bytes, srcAddr);
+#endif OPNET
+
                                     mgen_bytes = 0;   
                                 }
                             }  // end if (mgen_pending_bytes)
@@ -813,7 +818,7 @@ void NormSimAgent::Notify(NormController::Event event,
                         unsigned int got = want;
                         while (1)
                         {
-                            if (((NormStreamObject*)object)->Read(buffer, &got))
+                            if ((static_cast<NormStreamObject*>(object))->Read(buffer, &got))
                             {
                                 // Break when data is no longer available
                                 if (got != want) break;

@@ -1,4 +1,3 @@
-
 #include "normNode.h"
 #include "normSession.h"
 
@@ -42,6 +41,9 @@ NormCCNode::~NormCCNode()
 }
 
 
+const double NormServerNode::DEFAULT_NOMINAL_INTERVAL = 2*NormSession::DEFAULT_GRTT_ESTIMATE;
+const double NormServerNode::ACTIVITY_INTERVAL_MIN = 1.0;  // 1 second min activity timeout
+        
 NormServerNode::NormServerNode(class NormSession& theSession, NormNodeId nodeId)
  : NormNode(theSession, nodeId), instance_id(0), synchronized(false), sync_id(0),
    max_pending_range(256), is_open(false), segment_size(0), ndata(0), nparity(0), 
@@ -65,7 +67,9 @@ NormServerNode::NormServerNode(class NormSession& theSession, NormNodeId nodeId)
     repair_timer.SetRepeat(1);
     
     activity_timer.SetListener(this, &NormServerNode::OnActivityTimeout);
-    activity_timer.SetInterval(NormSession::DEFAULT_GRTT_ESTIMATE*NORM_ROBUST_FACTOR);
+    double activityInterval = NormSession::DEFAULT_GRTT_ESTIMATE*NORM_ROBUST_FACTOR;
+    if (activityInterval < ACTIVITY_INTERVAL_MIN) activityInterval = ACTIVITY_INTERVAL_MIN;
+    activity_timer.SetInterval(activityInterval);
     activity_timer.SetRepeat(NORM_ROBUST_FACTOR);
     
     cc_timer.SetListener(this, &NormServerNode::OnCCTimeout);
@@ -92,6 +96,8 @@ NormServerNode::NormServerNode(class NormSession& theSession, NormNodeId nodeId)
     
     prev_update_time.tv_sec = 0;
     prev_update_time.tv_usec = 0;
+    
+    recv_rate_quantized = NormQuantizeRate(recv_rate);
     
 }
 
@@ -167,17 +173,22 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
     unsigned long segPerBlock = 
         (unsigned long) ((bufferFactor * (double)numData) +
                          ((1.0 - bufferFactor) * (double)numParity) + 0.5);
+    if (segPerBlock > numData) segPerBlock = numData;
     // If there's no parity, no segment buffering for decoding is required at all!
     // (Thus, the full rxbuffer space can be used for block state)
     if (0 == numParity) segPerBlock = 0;
     unsigned long blockSegmentSpace = segPerBlock * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());    
-    unsigned long blockSpace = blockStateSpace+blockSegmentSpace;
+    unsigned long blockSpace = blockStateSpace + blockSegmentSpace;
     unsigned long numBlocks = bufferSpace / blockSpace;
+
+    // Round numBlocks upward
     if (bufferSpace > (numBlocks*blockSpace)) numBlocks++;
+
+    // Always have at least 2 blocks in the pool
     if (numBlocks < 2) numBlocks = 2;
+
     unsigned long numSegments = numBlocks * segPerBlock;
 
-    
     if (!block_pool.Init(numBlocks, blockSize))
     {
         DMSG(0, "NormServerNode::AllocateBuffers() block_pool init error\n");
@@ -299,8 +310,17 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
         grtt_estimate = NormUnquantizeRtt(grttQuantized);
         DMSG(4, "NormServerNode::HandleCommand() node>%lu server>%lu new grtt: %lf sec\n",
                 LocalNodeId(), GetId(), grtt_estimate);
-        activity_timer.SetInterval(grtt_estimate*NORM_ROBUST_FACTOR);
+        // Possible change in activity timeout
+        double nominalSize = (nominal_packet_size > segment_size) ? nominal_packet_size : segment_size;
+        double activityInterval = 
+            (0.0 != recv_rate) ? (nominalSize / recv_rate) : DEFAULT_NOMINAL_INTERVAL;
+        if (grtt_estimate > activityInterval) activityInterval = grtt_estimate;
+        activityInterval *= NORM_ROBUST_FACTOR;
+        if (activityInterval < ACTIVITY_INTERVAL_MIN) 
+            activityInterval = ACTIVITY_INTERVAL_MIN;
+        activity_timer.SetInterval(activityInterval);
         if (activity_timer.IsActive()) activity_timer.Reschedule();
+        session.Notify(NormController::GRTT_UPDATED, this, (NormObject*)NULL);
     }
     UINT8 gsizeQuantized = cmd.GetGroupSize();
     if (gsizeQuantized != gsize_quantized)
@@ -396,9 +416,9 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                         backoffFactor = MAX(backoffFactor, 4.0);
                         maxBackoff = grtt_estimate*backoffFactor;
                     }
-                    double backoffTime = (maxBackoff > 0.0) ?
-                                            ExponentialRand(maxBackoff, gsize_estimate) : 
-                                            0.0;
+                    double backoffTime = 
+                        (maxBackoff > 0.0) ?
+                            ExponentialRand(maxBackoff, gsize_estimate) : 0.0;
                     // Bias backoff timeout based on our rate 
                     double r;
                     if (slow_start)
@@ -567,11 +587,14 @@ void NormServerNode::HandleCCFeedback(UINT8 ccFlags, double ccRate)
         }
         if (suppressed)
         {
-            if (cc_timer.IsActive()) cc_timer.Deactivate();
+            // This sets a holdoff timeout for cc feedback when suppressed
             double backoffFactor = backoff_factor;
             backoffFactor = MAX(backoffFactor, 4.0);     // always use at least 4 for cc purposes
-            cc_timer.SetInterval(grtt_estimate*backoffFactor);  // (TBD) ??? xxx
-            session.ActivateTimer(cc_timer);
+            cc_timer.SetInterval(grtt_estimate*backoffFactor);
+            if (cc_timer.IsActive())
+                cc_timer.Reschedule();
+            else
+                session.ActivateTimer(cc_timer);
             cc_timer.DecrementRepeatCount();
         }
     }
@@ -873,8 +896,20 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
         grtt_estimate = NormUnquantizeRtt(grttQuantized);
         DMSG(4, "NormServerNode::HandleObjectMessage() node>%lu server>%lu new grtt: %lf sec\n",
                 LocalNodeId(), GetId(), grtt_estimate);
-        activity_timer.SetInterval(grtt_estimate*NORM_ROBUST_FACTOR);
+        
+        // Scale and reschedule pertinent timeouts  repair_timer
+        
+        // Possible change in sender activity timeout
+        double nominalSize = (nominal_packet_size > segment_size) ? nominal_packet_size : segment_size;
+        double activityInterval = 
+            (0.0 != recv_rate) ? (nominalSize / recv_rate) : DEFAULT_NOMINAL_INTERVAL;
+        if (grtt_estimate > activityInterval) activityInterval = grtt_estimate;
+        activityInterval *= NORM_ROBUST_FACTOR;
+        if (activityInterval < ACTIVITY_INTERVAL_MIN) 
+            activityInterval = ACTIVITY_INTERVAL_MIN;
+        activity_timer.SetInterval(activityInterval);
         if (activity_timer.IsActive()) activity_timer.Reschedule();
+        session.Notify(NormController::GRTT_UPDATED, this, (NormObject*)NULL);
     }
     UINT8 gsizeQuantized = msg.GetGroupSize();
     if (gsizeQuantized != gsize_quantized)
@@ -1489,14 +1524,14 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         }
                         DMSG(6, "NormServerNode::OnRepairTimeout() node>%lu sending NACK rate:%lf kbps (rtt:%lf loss:%lf s:%hu) slow_start:%d\n",
                                  LocalNodeId(), 8.0e-03*NormUnquantizeRate(ext.GetCCRate()), 
-                                 rtt_estimate, ccLoss, nominal_packet_size, slow_start);
+                                 rtt_estimate, ccLoss, (UINT16)nominal_packet_size, slow_start);
                         ext.SetCCSequence(cc_sequence);
                         // Cancel potential pending NORM_ACK(RTT) 
                         if (cc_timer.IsActive())
                         {
-                            cc_timer.Deactivate();
+                            // Set holdoff timeout to refrain from send too much cc feedback
                             cc_timer.SetInterval(grtt_estimate*backoff_factor);
-                            session.ActivateTimer(cc_timer);
+                            cc_timer.Reschedule();
                             cc_timer.DecrementRepeatCount();   
                         }
                     }  // end if (cc_enable)
@@ -1632,10 +1667,13 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                     if (nackAppended)
                     {
                         ASSERT(nack->GetRepairContentLength() > 0);
-                        //session.QueueMessage(nack);
-                        session.SendMessage(*nack);
+                        if (!session.ClientIsSilent())
+                        {
+                            session.SendMessage(*nack);
+                            nack_count++;
+                        }
                         session.ReturnMessageToPool(nack);
-                        nack_count++;
+                        
                     }
                     else
                     {
@@ -1649,9 +1687,12 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                 }
                 else
                 {
-                    suppress_count++;
-                    DMSG(4, "NormServerNode::OnRepairTimeout() node>%lu NACK SUPPRESSED ...\n",
-                            LocalNodeId());
+                    if (!session.ClientIsSilent())
+                    {
+                        suppress_count++;
+                        DMSG(4, "NormServerNode::OnRepairTimeout() node>%lu NACK SUPPRESSED ...\n",
+                                LocalNodeId());
+                    }
                 }  // end if/else(repairPending)
                 // BACKOFF related code
                 double holdoffInterval = 
@@ -1693,51 +1734,83 @@ void NormServerNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
         double measurementInterval = rtt_confirmed ? rtt_estimate : grtt_estimate;
         // Here, we put a NORM_TICK_MIN sec lower bound on our measurementInterval for the 
         // recv_rate because of the typical limited granularity of our system clock
-        // (Note this does limit our ramp up of data rate during slow start)
-        if (measurementInterval < NORM_TICK_MIN) measurementInterval = NORM_TICK_MIN;
+        // (Note this can limit our ramp up of data rate during slow start)
+        if (measurementInterval < NORM_TICK_MIN) 
+            measurementInterval = NORM_TICK_MIN;
+        recv_accumulator += msgSize;
+        unsigned short oldRateQuantized = recv_rate_quantized;
         if (interval > 0.0)
         {
             double currentRecvRate = ((double)(recv_accumulator)) / interval;
             if ((interval >= measurementInterval) && (currentRecvRate < recv_rate))
             {
                 // Make sure we've allowed sufficient time for a measurement at low rates
-                double minInterval = 4.0 * ((double)(MAX(nominal_packet_size, segment_size)))/ recv_rate;
-                if (measurementInterval < minInterval) 
-                    measurementInterval = minInterval;
+                double nominalSize = (nominal_packet_size > segment_size) ? nominal_packet_size : segment_size;
+                double minInterval = 4.0 * nominalSize / recv_rate;
+                if (measurementInterval < minInterval) measurementInterval = minInterval;
             }
             if (interval >= measurementInterval)
             {
-                recv_rate = currentRecvRate; //((double)(recv_accumulator)) / interval;
+                recv_rate = currentRecvRate; 
                 prev_update_time = currentTime;
-                recv_accumulator = msgSize;
+                recv_accumulator = 0;
             }
-            else
+            else if (0.0 == recv_rate)
             {
-                recv_accumulator += msgSize;
+                recv_rate = currentRecvRate;
+            }
+            recv_rate_quantized = NormQuantizeRate(recv_rate);
+        }
+        else if (0.0 == recv_rate)
+        {
+            // Approximate initial recv_rate when initial packets arrive in a burst
+            recv_rate = ((double)(recv_accumulator)) / NORM_TICK_MIN;
+            recv_rate_quantized = NormQuantizeRate(recv_rate);
+        }
+        nominal_packet_size += 0.05 * (((double)msgSize) - nominal_packet_size);   
+        if (recv_rate_quantized != oldRateQuantized)
+        {
+            double nominalSize = (nominal_packet_size > segment_size) ? nominal_packet_size : segment_size;
+            double activityInterval = 
+                (0.0 != recv_rate) ? (nominalSize / recv_rate) : DEFAULT_NOMINAL_INTERVAL;
+            if ((activity_timer.GetInterval() > (NORM_ROBUST_FACTOR*grtt_estimate)) || 
+                (activityInterval > grtt_estimate))
+            {
+                if (grtt_estimate > activityInterval) activityInterval = grtt_estimate;
+                activityInterval *= NORM_ROBUST_FACTOR;
+                if (activityInterval < ACTIVITY_INTERVAL_MIN) 
+                    activityInterval = ACTIVITY_INTERVAL_MIN;
+                activity_timer.SetInterval(activityInterval);
+                if (activity_timer.IsActive()) activity_timer.Reschedule();
             }
         }
     }
     else
     {
-        /*if (send_rate > 0.0)
-            recv_rate = send_rate;
-        else
-            recv_rate = ((double)msgSize) / grtt_estimate;*/
-        recv_rate = 0.0;
+        recv_rate = 0.0;  
+        recv_rate_quantized = NormQuantizeRate(0.0);
         prev_update_time = currentTime;
-        recv_accumulator = msgSize;
+        recv_accumulator = 0;
+        nominal_packet_size = msgSize;
     }
-    nominal_packet_size += 0.05 * (((double)msgSize) - nominal_packet_size);
+    
 }  // end NormServerNode::UpdateRecvRate()
 
 void NormServerNode::Activate(bool isObjectMsg)
 {
     if (!activity_timer.IsActive())
     {
-        activity_timer.SetInterval(grtt_estimate*NORM_ROBUST_FACTOR);
+        double nominalSize = (nominal_packet_size > segment_size) ? nominal_packet_size : segment_size;
+        double activityInterval = 
+                (0.0 != recv_rate) ? (nominalSize / recv_rate) : DEFAULT_NOMINAL_INTERVAL;
+        if (grtt_estimate > activityInterval) activityInterval = grtt_estimate;
+        activityInterval *= NORM_ROBUST_FACTOR;
+        if (activityInterval < ACTIVITY_INTERVAL_MIN) 
+            activityInterval = ACTIVITY_INTERVAL_MIN;
+        activity_timer.SetInterval(activityInterval);
         session.ActivateTimer(activity_timer);
         server_active = false;
-        session.Notify(NormController::REMOTE_SERVER_ACTIVE, this, NULL);
+        session.Notify(NormController::REMOTE_SENDER_ACTIVE, this, NULL);
     }
     else if (isObjectMsg)
     {
@@ -1757,7 +1830,7 @@ bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
         DMSG(0, "NormServerNode::OnActivityTimeout() node>%lu server>%lu gone inactive?\n",
                 LocalNodeId(), GetId());
         FreeBuffers();
-        session.Notify(NormController::REMOTE_SERVER_INACTIVE, this, NULL);
+        session.Notify(NormController::REMOTE_SENDER_INACTIVE, this, NULL);
     }
     else
     {
@@ -1788,18 +1861,12 @@ bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
             }
             else
             {
-                RepairCheck(NormObject::THRU_OBJECT,   // (TBD) thru object???
+                RepairCheck(NormObject::THRU_OBJECT,   
                             max_pending_object, 0, 0);
                 //RepairCheck(NormObject::TO_BLOCK,   // (TBD) thru object???
                 //            max_pending_object, 0, 0);
             }
         }
-        // At low recv data rates, we adjust the activity timeout a little.
-        // to _help_ prevent premature timeout
-        double nominalInterval = nominal_packet_size / recv_rate;
-        if (grtt_estimate < nominalInterval)
-            activity_timer.SetInterval(NORM_ROBUST_FACTOR * nominalInterval);
-        
     }
     server_active = false;
     return true;     
@@ -1812,16 +1879,22 @@ bool NormServerNode::UpdateLossEstimate(const struct timeval& currentTime,
     bool result = loss_estimator.Update(currentTime, seq, ecn);
     if (result && slow_start)
     {
+        // Calculate loss initialization based on current receive rate
+        // and rtt estimation
         double lossInit = (recv_rate * rtt_estimate) /
-                          (segment_size*sqrt(3.0/2.0));
+                          (nominal_packet_size*sqrt(3.0/2.0));
         lossInit = (lossInit*lossInit);
-        double currentInterval = (double)loss_estimator.LastLossInterval();
-        lossInit = 1.0 / MAX(lossInit, currentInterval);
-        loss_estimator.SetInitialLoss(lossInit);
+        // At this point, "LastLossInterval()" will always be non-zero
+        double altLoss = (double)loss_estimator.LastLossInterval();
+        double altInit = (altLoss > 0.0) ? (1.0 / altLoss) : 0.5;
+        if (altInit < lossInit)
+            loss_estimator.SetInitialLoss(altInit);
+        else
+            loss_estimator.SetInitialLoss(lossInit);
         slow_start = false;
     }
     return result;
-}
+}  // end NormServerNode::UpdateLossEstimate()
 
 void NormServerNode::AttachCCFeedback(NormAckMsg& ack)
 {
@@ -1855,7 +1928,7 @@ void NormServerNode::AttachCCFeedback(NormAckMsg& ack)
     //               LocalNodeId(), 8.0e-03*NormUnquantizeRate(ext.GetCCRate()) , 
     //               rtt_estimate, ccLoss, nominal_packet_size, 8.0e-03*recv_rate, slow_start);
     ext.SetCCSequence(cc_sequence);
-}  // end ormServerNode::AttachCCFeedback()
+}  // end NormServerNode::AttachCCFeedback()
 
 bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
 {
@@ -1946,9 +2019,11 @@ bool NormServerNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
         if (!is_clr && !is_plr && session.Address().IsMulticast())
         {
             // Install cc feedback holdoff
-            if (cc_timer.IsActive()) cc_timer.Deactivate();
             cc_timer.SetInterval(grtt_estimate*backoff_factor);
-            session.ActivateTimer(cc_timer);
+            if (cc_timer.IsActive())
+                cc_timer.Reschedule();
+            else
+                session.ActivateTimer(cc_timer);
             cc_timer.DecrementRepeatCount();
         } 
         else if (cc_timer.IsActive())
@@ -2533,7 +2608,7 @@ bool NormLossEstimator2::Update(const struct timeval&   currentTime,
     if (history[0] < 100000) history[0]++;
     
     return newLossEvent;
-}  // end NormLossEstimator2::ProcessRecvPacket()
+}  // end NormLossEstimator2::Update()
 
 double NormLossEstimator2::LossFraction()
 {
@@ -2612,7 +2687,7 @@ double NormLossEstimator2::TfrcLossFraction()
             break;
         }
     }
-    double s0 = average / scaling;   
+    double s0 = (average > 0.0) ? average / scaling : 0.0;
     // Use max of old/new averages
     return (1.0 /  MAX(s0, s1));
 }  // end NormLossEstimator2::LossFraction()

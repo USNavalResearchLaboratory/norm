@@ -71,7 +71,7 @@ inline unsigned char NormQuantizeGroupSize(double gsize)
     int mantissa = (int)((gsize/pow(10.0, (double)ebits)) + 0.5);
     // round up quantized group size
     unsigned char mbit = (mantissa > 1) ? ((mantissa > 5) ? 0x00 : 0x08) : 0x00;
-    ebits = (mantissa > 5) ? ebits : ebits+1;
+    ebits = (mantissa > 5) ? ebits : ebits-1;
     mbit = (ebits > 0x07) ? 0x08 : mbit;
     ebits = (ebits > 0x07) ? 0x07 : ebits;
     return (mbit | ebits);
@@ -91,6 +91,7 @@ inline double NormUnquantizeLoss(unsigned short lossQuantized)
 
 inline unsigned short NormQuantizeRate(double rate)
 {
+    if (rate <= 0.0) return 0x01;  // rate = 0.0
     unsigned char exponent = (unsigned char)log10(rate);
     unsigned short mantissa = (unsigned short)((256.0/10.0) * rate / pow(10.0, (double)exponent));
     return ((mantissa << 8) | exponent);
@@ -323,9 +324,12 @@ class NormMsg
         
         // Message processing routines
         bool InitFromBuffer(UINT16 msgLength);
-        UINT8 GetVersion() const {return ((UINT8*)buffer)[VERSION_OFFSET];}
-        NormMsg::Type GetType() const {return (Type)(((UINT8*)buffer)[TYPE_OFFSET] & 0x0f);}
-        UINT16 GetHeaderLength() {return ((UINT8*)buffer)[HDR_LEN_OFFSET] << 2;}
+        UINT8 GetVersion() const 
+            {return (((UINT8*)buffer)[VERSION_OFFSET] >> 4);}
+        NormMsg::Type GetType() const 
+            {return (Type)(((UINT8*)buffer)[TYPE_OFFSET] & 0x0f);}
+        UINT16 GetHeaderLength() 
+            {return ((UINT8*)buffer)[HDR_LEN_OFFSET] << 2;}
         UINT16 GetSequence() const
         {
             return (ntohs((((UINT16*)buffer)[SEQUENCE_OFFSET])));   
@@ -1363,6 +1367,7 @@ class NormCmdApplicationMsg : public NormCmdMsg
         {
             UINT16 len = MIN(contentLen, segmentSize);
             memcpy(((char*)buffer)+header_length, content, len);
+            length = header_length + len;
             return (contentLen <= segmentSize);
         }
         
@@ -1391,7 +1396,7 @@ class NormNackMsg : public NormMsg
         // Message building
         void SetServerId(NormNodeId serverId)
         {
-            buffer[SERVER_ID_OFFSET] = htonl(serverId);
+            buffer[SENDER_ID_OFFSET] = htonl(serverId);
         }
         void SetInstanceId(UINT16 instanceId)
         {
@@ -1419,7 +1424,7 @@ class NormNackMsg : public NormMsg
         // Message processing 
         NormNodeId GetServerId() const
         {
-            return (ntohl(buffer[SERVER_ID_OFFSET]));
+            return (ntohl(buffer[SENDER_ID_OFFSET]));
         }
         UINT16 GetInstanceId() const
         {
@@ -1445,8 +1450,8 @@ class NormNackMsg : public NormMsg
     private:
         enum
         {
-            SERVER_ID_OFFSET          = MSG_OFFSET/4,
-            INSTANCE_ID_OFFSET        = ((SERVER_ID_OFFSET*4)+4)/2,
+            SENDER_ID_OFFSET          = MSG_OFFSET/4,
+            INSTANCE_ID_OFFSET        = ((SENDER_ID_OFFSET*4)+4)/2,
             RESERVED_OFFSET           = ((INSTANCE_ID_OFFSET*2)+2)/2,
             GRTT_RESPONSE_SEC_OFFSET  = ((RESERVED_OFFSET*2)+2)/4,
             GRTT_RESPONSE_USEC_OFFSET = ((GRTT_RESPONSE_SEC_OFFSET*4)+4)/4,
@@ -1467,7 +1472,7 @@ class NormAckMsg : public NormMsg
         }
         void SetServerId(NormNodeId serverId)
         {
-            buffer[SERVER_ID_OFFSET] = htonl(serverId);
+            buffer[SENDER_ID_OFFSET] = htonl(serverId);
         }
         void SetInstanceId(UINT16 instanceId)
         {
@@ -1491,7 +1496,7 @@ class NormAckMsg : public NormMsg
         // Message processing 
         NormNodeId GetServerId() const
         {
-            return (ntohl(buffer[SERVER_ID_OFFSET]));
+            return (ntohl(buffer[SENDER_ID_OFFSET]));
         }
         UINT16 GetInstanceId() const
         {
@@ -1510,8 +1515,8 @@ class NormAckMsg : public NormMsg
     protected:
         enum
         {
-            SERVER_ID_OFFSET          = MSG_OFFSET/4,
-            INSTANCE_ID_OFFSET        = ((SERVER_ID_OFFSET*4)+4)/2,
+            SENDER_ID_OFFSET          = MSG_OFFSET/4,
+            INSTANCE_ID_OFFSET        = ((SENDER_ID_OFFSET*4)+4)/2,
             ACK_TYPE_OFFSET           = (INSTANCE_ID_OFFSET*2)+2,
             ACK_ID_OFFSET             = ACK_TYPE_OFFSET + 1,
             GRTT_RESPONSE_SEC_OFFSET  = (ACK_ID_OFFSET + 1)/4,

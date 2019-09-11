@@ -24,7 +24,7 @@
 				Name="VCCLCompilerTool"
 				Optimization="0"
 				AdditionalIncludeDirectories="..\common,..\protolib\common,..\protolib\win32"
-				PreprocessorDefinitions="NORM_USE_DLL, PROTO_DEBUG, WIN32"
+				PreprocessorDefinitions="NORM_USE_DLL, PROTO_DEBUG, HAVE_ASSERT, WIN32"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="3"
 				BufferSecurityCheck="TRUE"
@@ -41,7 +41,7 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="iphlpapi.lib ws2_32.lib odbc32.lib odbccp32.lib Norm.dll"
+				AdditionalDependencies="iphlpapi.lib ws2_32.lib odbc32.lib odbccp32.lib"
 				OutputFile=".\Debug/normTest.exe"
 				LinkIncremental="0"
 				SuppressStartupBanner="TRUE"
