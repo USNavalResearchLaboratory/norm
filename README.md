@@ -8,6 +8,9 @@ line options are not yet fully documented, but there is abbreviated "help"
 available in the "norm" application.  And many options are similar to the 
 preceding NRL MDP work (see http://mdp.pf.itd.nrl.navy.mil).
 
+A _very_ preliminary user's guide for the "norm" demo app is now included. 
+See the file "NormUserGuide.pdf"
+
 A "normTest.cpp" program is now included which is a simple demonstration 
 (and active test code) of the evolving NORM API.  When the API is
 further completed, I plan to provide a few different example applications

@@ -196,13 +196,13 @@ class NormSlidingMask
             
             
         unsigned char*  mask;
-        UINT32   mask_len;
-        UINT32   range_mask;
-        INT32    range_sign;
-        INT32    num_bits;
-        INT32    start;
-        INT32    end;
-        UINT32   offset;
+        UINT32          mask_len;
+        UINT32          range_mask;
+        INT32           range_sign;
+        INT32           num_bits;
+        INT32           start;
+        INT32           end;
+        UINT32          offset;
 };  // end class NormSlidingMask
 
 #endif // _NORM_BITMASK_

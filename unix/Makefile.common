@@ -11,7 +11,7 @@ COMMON = ../common
 UNIX = ../unix
 NS = ../ns
 
-INCLUDES = $(TCL_INCL_PATH) $(SYSTEM_INCLUDES) -I$(UNIX) -I$(COMMON) -I$(PROTOLIB)/common
+INCLUDES = $(SYSTEM_INCLUDES) -I$(UNIX) -I$(COMMON) -I$(PROTOLIB)/common
 
 CFLAGS = -g -DPROTO_DEBUG -DUNIX -D_FILE_OFFSET_BITS=64 -O -fPIC $(SYSTEM_HAVES) $(INCLUDES)
 
@@ -21,24 +21,6 @@ LDFLAGS = $(SYSTEM_LDFLAGS)
 LIBS = $(SYSTEM_LIBS) -lm -lpthread
 XLIBS = -lXmu -lXt -lX11
 
-#NOTE: TK_LIB must come before TCL_LIB for some reason
-TKLIBS = $(TK_LIB) $(TCL_LIB)
-
-TCL_SCRIPTS =   ${TCL_SCRIPT_PATH}/init.tcl \
-                ${TK_SCRIPT_PATH}/tk.tcl \
-                ${TK_SCRIPT_PATH}/bgerror.tcl \
-                ${TK_SCRIPT_PATH}/button.tcl \
-                ${TK_SCRIPT_PATH}/dialog.tcl \
-                ${TK_SCRIPT_PATH}/entry.tcl \
-                ${TK_SCRIPT_PATH}/focus.tcl \
-                ${TK_SCRIPT_PATH}/listbox.tcl \
-                ${TK_SCRIPT_PATH}/menu.tcl \
-                ${TK_SCRIPT_PATH}/palette.tcl \
-                ${TK_SCRIPT_PATH}/scale.tcl \
-                ${TK_SCRIPT_PATH}/scrlbar.tcl \
-                ${TK_SCRIPT_PATH}/tearoff.tcl \
-                ${TK_SCRIPT_PATH}/text.tcl \
-                ${TK_SCRIPT_PATH}/optMenu.tcl
 
 TARGETS = norm raft
 
@@ -55,7 +37,7 @@ NORM_SRC = $(COMMON)/normMessage.cpp $(COMMON)/normSession.cpp \
            $(COMMON)/normNode.cpp $(COMMON)/normObject.cpp \
            $(COMMON)/normSegment.cpp $(COMMON)/normBitmask.cpp \
            $(COMMON)/normEncoder.cpp $(COMMON)/galois.cpp \
-           $(COMMON)/normFile.cpp
+           $(COMMON)/normFile.cpp $(COMMON)/normApi.cpp
           
 NORM_OBJ = $(NORM_SRC:.cpp=.o)
 
@@ -86,7 +68,7 @@ norm:    $(APP_OBJ) libnorm.a $(LIBPROTO)
 
 
 # (normTest) test of NORM API
-TEST_SRC = $(COMMON)/normApi.cpp $(COMMON)/normTest.cpp
+TEST_SRC = $(COMMON)/normTest.cpp
 TEST_OBJ = $(TEST_SRC:.cpp=.o)
 
 normTest:    $(TEST_OBJ) libnorm.a $(LIBPROTO) 

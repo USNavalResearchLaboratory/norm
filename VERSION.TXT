@@ -1,5 +1,11 @@
 			           NORM Version History
 
+Version 1.2b6
+=============
+    - Added normApi.cpp into libNorm.a (Norm.lib (WIN32)) builds
+    - Fixed Solaris build (new protolib code)
+    - Included very rough user's guide for "norm" demo app
+    
 Version 1.2b5
 =============
     - Initial release with theoretically-working API 

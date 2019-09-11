@@ -50,7 +50,7 @@ int main(int argc, char* argv[])
     NormStartReceiver(session, 1024*1024);
     
     // Uncomment the following line to start sender
-    //NormStartSender(session, 1024*1024, 1024, 64, 0);
+    NormStartSender(session, 1024*1024, 1024, 64, 0);
     
     NormAddAckingNode(session, NormGetLocalNodeId(session));
     
