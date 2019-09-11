@@ -86,8 +86,14 @@ A) A reliable multicast "chat" application (users can share files
 B) An application for reliably "tunneling" real-time UDP packet
    streams (like RTP video or audio) using NORM's streaming
    capability.
-  
-  
+
+NACK-Oriented Proxy (NORP)
+==========================
+NORM Proxy code is also included in the 'norp' directory.
+More info is available in the norp/doc directory, as well as the
+NORP website:  https://www.nrl.navy.mil/itd/ncs/products/norp
+
+
 OTHER FILES:
 ============
 
