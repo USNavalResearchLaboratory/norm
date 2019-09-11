@@ -107,9 +107,10 @@ bool NsNormAgent::ProcessCommands(int argc, const char*const* argv)
             // query agent's current state of activity
             Tcl& tcl = Tcl::instance(); 
             if (IsActive())
-                sprintf(tcl.result(), "on");
+                Tcl_SetResult(tcl.interp(), "on", TCL_STATIC);
+                //sprintf(tcl.result(), "on");
             else
-                sprintf(tcl.result(), "off");
+                Tcl_SetResult(tcl.interp(), "off", TCL_STATIC);
             i++;
             continue;
         }

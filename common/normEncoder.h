@@ -39,9 +39,9 @@ class NormEncoder
 {
     // Members
     private:
-	    int		        npar;	      // No. of parity packets (N-k)
+	    int		        npar;	      // No. of parity packets (n-k)
 	    int		        vector_size;  // Size of biggest vector to encode
-	    unsigned char*  genPoly;      // Ptr to generator polynomial
+	    unsigned char*  gen_poly;     // Ptr to generator polynomial
 	    unsigned char*  scratch;      // scratch space for encoding
 	
     // Methods
@@ -50,7 +50,8 @@ class NormEncoder
 	    ~NormEncoder();
 	    bool Init(int numParity, int vectorSize);
         void Destroy();
-        bool IsReady(){return (bool)(genPoly != NULL);}
+        bool IsReady(){return (bool)(gen_poly != NULL);}
+        // "Encode" must be called in order of source vector0, vector1, vector2, etc
 	    void Encode(const char *dataVector, char **parityVectorList);
 	    int NumParity() {return npar;}
 	    int VectorSize() {return vector_size;}
@@ -64,18 +65,18 @@ class NormDecoder
 {
     // Members
     private:
-	    int             npar;        // No. of parity packets (n-K)
+	    int             npar;        // No. of parity packets (n-k)
 	    int             vector_size; // Size of biggest vector to encode  			
-	    unsigned char*  Lambda;      // Erasure location polynomial ("2*npar" ints)
-	    unsigned char** sVec;        // Syndrome vectors (pointers to "npar" vectors)
-	    unsigned char** oVec;        // Omega vectors (pointers to "npar" vectors)
+	    unsigned char*  lambda;      // Erasure location polynomial ("2*npar" ints)
+	    unsigned char** s_vec;       // Syndrome vectors (pointers to "npar" vectors)
+	    unsigned char** o_vec;       // Omega vectors (pointers to "npar" vectors)
 	    unsigned char*  scratch;
     // Methods
     public:
 	    NormDecoder();
 	    ~NormDecoder();
 	    bool Init(int numParity, int vectorSize);
-	    int Decode(char **vectorList, int ndata,  UINT16 erasureCount, UINT16* erasureLocs);
+	    int Decode(char** vectorList, int ndata,  UINT16 erasureCount, UINT16* erasureLocs);
         int NumParity() {return npar;}
 	    int VectorSize() {return vector_size;}
         void Destroy();

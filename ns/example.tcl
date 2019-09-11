@@ -11,10 +11,10 @@ $ns_ multicast
 
 # 2) Trace files are opened and ns and nam 
 #    tracing is enabled:
-set f [open norm.tr w]
-#$ns_ trace-all $f
-set nf [open norm.nam w]
-#$ns_ namtrace-all $nf
+set f [open example.tr w]
+$ns_ trace-all $f
+set nf [open example.nam w]
+$ns_ namtrace-all $nf
 
 set numNodes 10
 
@@ -53,11 +53,11 @@ puts "Configuring NORM agents ..."
 
 # 5) Configure global NORM agent parameters (debugging/logging is global)
 #    (Uncomment the "log" command to direct NORM debug output to a file)
-$norm(1) debug 1
-#$norm(1) log normLog.txt
+$norm(1) debug 2
+$norm(1) log normLog.txt
 
 # 6) Configure NORM server agent at node 1
-$norm(1) address $group/5000
+$norm(1) address $group/1
 $norm(1) rate 32000
 $norm(1) block 1
 $norm(1) parity 0
@@ -69,7 +69,7 @@ $norm(1) txloss 0.0
 
 # 7) Configure NORM client agents at other nodes
 for {set i 2} {$i <= $numNodes} {incr i} {
-    $norm($i) address $group/5000
+    $norm($i) address $group/1
     $norm($i) rxbuffer 100000
     $norm($i) rxloss 0.0
     #$norm($i) trace

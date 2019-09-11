@@ -261,7 +261,7 @@ class NormServerNode : public NormNode
         bool AllocateBuffers(UINT16 segmentSize, UINT16 numData, UINT16 numParity);
         bool BuffersAllocated() {return (0 != segment_size);}
         void FreeBuffers();
-        void Activate();
+        void Activate(bool isObjectMsg);
                
         
         bool SyncTest(const NormObjectMsg& msg) const;

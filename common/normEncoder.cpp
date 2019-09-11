@@ -36,7 +36,6 @@
         
 #include "normEncoder.h"
 #include "galois.h"  // for Galois math routines
-#include "debug.h"
 
 #ifdef SIMULATE
 #include "normMessage.h"
@@ -44,14 +43,14 @@
 
 NormEncoder::NormEncoder()
     : npar(0), vector_size(0), 
-      genPoly(NULL), scratch(NULL)
+      gen_poly(NULL), scratch(NULL)
 {
 
 }  // end NormEncoder::NormEncoder()
 
 NormEncoder::~NormEncoder()
 {
-	if (genPoly) Destroy();
+	if (gen_poly) Destroy();
 }
 
 bool NormEncoder::Init(int numParity, int vecSizeMax)
@@ -59,7 +58,7 @@ bool NormEncoder::Init(int numParity, int vecSizeMax)
     // Debugging assertions
     ASSERT((numParity>=0)&&(numParity<129));
     ASSERT(vecSizeMax >= 0);    
-    if (genPoly) Destroy();    
+    if (gen_poly) Destroy();    
     npar = numParity;
     
 #ifdef SIMULATE
@@ -67,10 +66,10 @@ bool NormEncoder::Init(int numParity, int vecSizeMax)
 #endif // SIMUATE
     
     vector_size = vecSizeMax;    
-    // Create generator polynomial 
+    // Create gen_poly polynomial 
     if(!CreateGeneratorPolynomial())
     {
-	    DMSG(0, "NormEncoder: Error creating generator polynomial!\n");
+	    DMSG(0, "NormEncoder: Error creating gen_poly polynomial!\n");
 	    return false;
     }    
     // Allocate scratch space for encoding
@@ -92,10 +91,10 @@ void NormEncoder::Destroy()
 		delete[] scratch;
 		scratch = NULL;
     }
-    if (NULL != genPoly) 
+    if (NULL != gen_poly) 
     {
-	    delete[] genPoly;
-	    genPoly = NULL;
+	    delete[] gen_poly;
+	    gen_poly = NULL;
     }
 }  // end NormEncoder::Destroy()
 
@@ -104,27 +103,27 @@ bool NormEncoder::CreateGeneratorPolynomial()
 {
     unsigned char *tp, *tp1, *tp2;
     int degree = 2*npar;    
-    if(genPoly) delete genPoly;
+    if(gen_poly) delete gen_poly;
     
-    if(!(genPoly = new unsigned char[npar+1]))
+    if(!(gen_poly = new unsigned char[npar+1]))
     {
-	    DMSG(0, "NormEncoder: Error allocating memory for generator polynomial: %s\n",
+	    DMSG(0, "NormEncoder: Error allocating memory for gen_poly polynomial: %s\n",
                  GetErrorString());
 	    return false;
     }    
     /* Allocate memory for temporary polynomial arrays */
     if(!(tp = new unsigned char[2*degree]))
     {
-	    DMSG(0, "NormEncoder: Error allocating memory while computing genpoly: %s\n",
+	    DMSG(0, "NormEncoder: Error allocating memory while computing gen_poly: %s\n",
                 GetErrorString());
-        delete genPoly;
+        delete gen_poly;
 	    return false;
     }    
     if(!(tp1 = new unsigned char[2*degree]))
     {
 	    delete tp;
-	    delete genPoly;
-	    DMSG(0, "NormEncoder: Error allocating memory while computing genpoly: %s\n",
+	    delete gen_poly;
+	    DMSG(0, "NormEncoder: Error allocating memory while computing gen_poly: %s\n",
                 GetErrorString());
 	    return false;
     }    
@@ -132,8 +131,8 @@ bool NormEncoder::CreateGeneratorPolynomial()
     {
 	    delete tp1;
 	    delete tp;
-	    delete genPoly;
-	    DMSG(0, "NormEncoder: Error allocating memory while computing genpoly: %s\n",
+	    delete gen_poly;
+	    DMSG(0, "NormEncoder: Error allocating memory while computing gen_poly: %s\n",
                 GetErrorString());
 	    return false;
     }
@@ -146,7 +145,7 @@ bool NormEncoder::CreateGeneratorPolynomial()
 	    tp[0] = gexp(n);  // set up x+a^n 
 	    tp[1] = 1;
 	    // Polynomial multiplication 
-	    memset(genPoly, 0, (npar+1)*sizeof(unsigned char));	
+	    memset(gen_poly, 0, (npar+1)*sizeof(unsigned char));	
 	    for (int i = 0; i < degree; i++)
 	    {
 	        memset(&tp2[degree], 0, degree*sizeof(unsigned char));
@@ -157,9 +156,9 @@ bool NormEncoder::CreateGeneratorPolynomial()
 	        for (j = (degree*2)-1; j >= i; j--) tp2[j] = tp2[j-i];
 	        memset(tp2, 0, i*sizeof(unsigned char));
 	        // Add into partial product 
-	        for(j=0; j < (npar+1); j++) genPoly[j] ^= tp2[j];
+	        for(j=0; j < (npar+1); j++) gen_poly[j] ^= tp2[j];
 	    }    
-	    memcpy(tp1, genPoly, (npar+1)*sizeof(unsigned char));
+	    memcpy(tp1, gen_poly, (npar+1)*sizeof(unsigned char));
 	    memset(&tp1[npar+1], 0, (2*degree)-(npar+1));
     }    
     delete tp2;
@@ -178,7 +177,7 @@ void NormEncoder::Encode(const char *data, char **pVec)
     int i, j;
     unsigned char *userData, *LSFR1, *LSFR2, *pVec0;
     int npar_minus_one = npar - 1;
-    unsigned char *gen_poly = &genPoly[npar_minus_one];
+    unsigned char* genPoly = &gen_poly[npar_minus_one];
     ASSERT(scratch);  // Make sure it's been init'd first    
     // Assumes parity vectors are zero-filled at block start !!! 
     // Copy pVec[0] for use in calculations 
@@ -200,15 +199,15 @@ void NormEncoder::Encode(const char *data, char **pVec)
 	        LSFR2 = (unsigned char *) pVec[i+1];
 	        for(j = 0; j < vecSize; j++)
 		        *LSFR1++ = *LSFR2++ ^
-			        gmult(*gen_poly, (*userData++ ^ *pVec0++));
-	        gen_poly--;
+			        gmult(*genPoly, (*userData++ ^ *pVec0++));
+	        genPoly--;
 	    }
     }    
     pVec0 = scratch;
     userData = (unsigned char *) data;
     LSFR1 = (unsigned char *) pVec[npar_minus_one];
     for(j = 0; j < vecSize; j++)
-    	*LSFR1++ = gmult(*gen_poly, (*userData++ ^ *pVec0++));
+    	*LSFR1++ = gmult(*genPoly, (*userData++ ^ *pVec0++));
 }  // end NormEncoder::Encode()
 
 
@@ -217,15 +216,15 @@ void NormEncoder::Encode(const char *data, char **pVec)
  */
 
 NormDecoder::NormDecoder()
-    : npar(0), vector_size(0), Lambda(NULL), 
-      sVec(NULL), oVec(NULL), scratch(NULL)
+    : npar(0), vector_size(0), lambda(NULL), 
+      s_vec(NULL), o_vec(NULL), scratch(NULL)
 {
     
 }
 
 NormDecoder::~NormDecoder()
 {
-    if (Lambda) Destroy();
+    if (lambda) Destroy();
 }
 
 bool NormDecoder::Init(int numParity, int vecSizeMax)
@@ -238,22 +237,22 @@ bool NormDecoder::Init(int numParity, int vecSizeMax)
     vecSizeMax = MIN(SIM_PAYLOAD_MAX+1, vecSizeMax);
 #endif // SIMUATE  
     
-    if (Lambda) Destroy();  // Check if already inited ...
+    if (lambda) Destroy();  // Check if already inited ...
     
     npar = numParity;
     vector_size = vecSizeMax;
     
-    if(!(Lambda = new unsigned char[2*npar]))
+    if(!(lambda = new unsigned char[2*npar]))
     {
-	    DMSG(0, "NormDecoder: Error allocating memory for Lambda: %s\n",
+	    DMSG(0, "NormDecoder: Error allocating memory for lambda: %s\n",
                 GetErrorString());
 	    return(false);
     }
     
-    /* Allocate memory for sVec ptr and the syndrome vectors */
-    if(!(sVec = new unsigned char*[npar]))
+    /* Allocate memory for s_vec ptr and the syndrome vectors */
+    if(!(s_vec = new unsigned char*[npar]))
     {
-	    DMSG(0, "NormDecoder: Error allocating memory for sVec ptr: %s\n",
+	    DMSG(0, "NormDecoder: Error allocating memory for s_vec ptr: %s\n",
                 GetErrorString());
 	    Destroy();
 	    return(false);
@@ -261,19 +260,19 @@ bool NormDecoder::Init(int numParity, int vecSizeMax)
     int i;
     for(i=0; i < npar; i++)
     {
-	    if(!(sVec[i] = new unsigned char[vecSizeMax]))
+	    if(!(s_vec[i] = new unsigned char[vecSizeMax]))
 	    {
-	        DMSG(0, "NormDecoder: Error allocating memory for new sVec: %s\n",
+	        DMSG(0, "NormDecoder: Error allocating memory for new s_vec: %s\n",
                     GetErrorString());
 	        Destroy();
 	        return(false);
 	    }
     }
     
-    /* Allocate memory for the oVec ptr and the Omega vectors */
-    if(!(oVec = new unsigned char*[npar]))
+    /* Allocate memory for the o_vec ptr and the Omega vectors */
+    if(!(o_vec = new unsigned char*[npar]))
     {
-	    DMSG(0, "NormDecoder: Error allocating memory for new oVec ptr: %s\n",
+	    DMSG(0, "NormDecoder: Error allocating memory for new o_vec ptr: %s\n",
                 GetErrorString());
 	    Destroy();
 	    return(false);
@@ -281,9 +280,9 @@ bool NormDecoder::Init(int numParity, int vecSizeMax)
     
     for(i=0; i < npar; i++)
     {
-	    if(!(oVec[i] = new unsigned char[vecSizeMax]))
+	    if(!(o_vec[i] = new unsigned char[vecSizeMax]))
 	    {
-	        DMSG(0, "NormDecoder: Error allocating memory for new oVec: %s",
+	        DMSG(0, "NormDecoder: Error allocating memory for new o_vec: %s",
                     GetErrorString());
 	        Destroy();
 	        return(false);
@@ -307,25 +306,25 @@ void NormDecoder::Destroy()
         delete scratch;
         scratch = NULL;
     }
-    if(oVec)
+    if(o_vec)
     {
 	    for(int i=0; i<npar; i++)
-	        if (oVec[i]) delete oVec[i];
-	    delete oVec;
-        oVec = NULL;
+	        if (o_vec[i]) delete o_vec[i];
+	    delete o_vec;
+        o_vec = NULL;
     }	
-    if(sVec)
+    if(s_vec)
     {
 	    for(int i = 0; i < npar; i++)
-	        if (sVec[i]) delete sVec[i];
-	    delete sVec;
-        sVec = NULL;
+	        if (s_vec[i]) delete s_vec[i];
+	    delete s_vec;
+        s_vec = NULL;
     }
-    if (Lambda)
+    if (lambda)
     {
         
-        delete Lambda;
-        Lambda = NULL;
+        delete lambda;
+        lambda = NULL;
     }
 }  // end NormDecoder::Destroy()
 
@@ -334,7 +333,7 @@ void NormDecoder::Destroy()
 int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* erasureLocs)
 {
     // Debugging assertions
-    ASSERT(Lambda);     
+    ASSERT(lambda);     
     ASSERT(erasureCount && (erasureCount<=npar));
       
     // (A) Compute syndrome vectors 
@@ -353,7 +352,7 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
     for (i = 0; i < npar; i++)
     {
 	    int X = gexp(i+1);
-	    unsigned char* synVec = sVec[i];
+	    unsigned char* synVec = s_vec[i];
         memset(synVec, 0, vecSize*sizeof(char));
         for(int j = 0; j < nvecs; j++)
         {
@@ -367,29 +366,29 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
         }
     }
     
-    // (B) Init Lambda (the erasure locator polynomial) 
+    // (B) Init lambda (the erasure locator polynomial) 
     int degree = 2*npar;
     int nvecsMinusOne = nvecs - 1;
-    memset(Lambda, 0, degree*sizeof(char));
-    Lambda[0] = 1;
+    memset(lambda, 0, degree*sizeof(char));
+    lambda[0] = 1;
     for (i = 0; i < erasureCount; i++)
     {
 	    int X = gexp(nvecsMinusOne - erasureLocs[i]);
 	    for(int j = (degree-1); j > 0; j--)
-	        Lambda[j] = Lambda[j] ^ gmult(X, Lambda[j-1]);
+	        lambda[j] = lambda[j] ^ gmult(X, lambda[j-1]);
     }
 
-    // (C) Compute modified Omega using Lambda 
+    // (C) Compute modified Omega using lambda 
     for(i = 0; i < npar; i++)
     {
 	    int k = i;
-	    memset(oVec[i], 0, vecSize*sizeof(char));
+	    memset(o_vec[i], 0, vecSize*sizeof(char));
         int m = i + 1;
 	    for(int j = 0; j < m; j++)
 	    { 
-	        unsigned char* Omega = oVec[i];
-	        unsigned char* S = sVec[j];
-	        int Lk = Lambda[k--];
+	        unsigned char* Omega = o_vec[i];
+	        unsigned char* S = s_vec[j];
+	        int Lk = lambda[k--];
 	        for(int n = 0; n < vecSize; n++)
 		        *Omega++ ^= gmult(*S++, Lk);
 	    }
@@ -401,13 +400,13 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
         // Only fill _data_ erasures
         if (erasureLocs[i] >= ndata) break;//return erasureCount;
         
-        // evaluate Lambda' (derivative) at alpha^(-i) 
+        // evaluate lambda' (derivative) at alpha^(-i) 
 	    // ( all odd powers disappear) 
 	    int k = nvecsMinusOne - erasureLocs[i];
 	    int denom = 0;
         int j;
 	    for (j = 1; j < degree; j += 2)
-	        denom ^= gmult(Lambda[j], gexp(((255-k)*(j-1)) % 255));
+	        denom ^= gmult(lambda[j], gexp(((255-k)*(j-1)) % 255));
 	    // Invert for use computing error value below 
 	    denom = ginv(denom);
 
@@ -416,7 +415,7 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
 	    for (j = 0; j < npar; j++)
 	    {
             unsigned char* data = eVec;
-	        unsigned char* Omega = oVec[j];
+	        unsigned char* Omega = o_vec[j];
 	        int X = gexp(((255-k)*j) % 255);
 	        for(int n = 0; n < vecSize; n++)
 		        *data++ ^= gmult(*Omega++, X);

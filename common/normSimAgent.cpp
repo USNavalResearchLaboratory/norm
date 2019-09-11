@@ -369,7 +369,7 @@ bool NormSimAgent::ProcessCommand(const char* cmd, const char* val)
         tx_object_size += tx_object_size_min;
         if (session)
         {
-            TRACE("Queued file size: %lu bytes\n", tx_object_size);
+            DMSG(2, "NormSimAgent::ProcessCommand(sendRandomFile) Queued file size: %lu bytes\n", tx_object_size);
             return (NULL != session->QueueTxSim(tx_object_size));
         }
         else
@@ -494,7 +494,7 @@ bool NormSimAgent::ProcessCommand(const char* cmd, const char* val)
             DMSG(0, "NormSimAgent::ProcessCommand(unicastNacks) invalid argument!\n");   
             return false;
         }        
-        if (session) session->SetUnicastNacks(unicast_nacks);
+        if (session) session->ClientSetUnicastNacks(unicast_nacks);
         return true;
     }
     else if (!strncmp("silentClient", cmd, len))
@@ -590,8 +590,6 @@ bool NormSimAgent::SendMessage(unsigned int len, const char* txBuffer)
 
 void NormSimAgent::OnInputReady()
 {
-    //TRACE("NormSimAgent::OnInputReady() index:%lu len:%lu\n",
-    //        tx_msg_index, tx_msg_len);
     if (tx_msg_index < tx_msg_len)
     {
         unsigned int bytesWrote = stream->Write(tx_msg_buffer+tx_msg_index,
@@ -618,6 +616,7 @@ bool NormSimAgent::FlushStream()
     else
     {
         DMSG(0, "NormSimAgent::FlushStream() no output stream to flush\n");
+        return false;
     }   
 }  // end NormSimAgent::FlushStream()
     
@@ -630,6 +629,7 @@ void NormSimAgent::Notify(NormController::Event event,
 {
     switch (event)
     {
+        //case TX_QUEUE_VACANCY:
         case TX_QUEUE_EMPTY:
             // Can queue a new object or write to stream for transmission  
             if (object && (object == stream))
@@ -638,8 +638,7 @@ void NormSimAgent::Notify(NormController::Event event,
                 {
                     // sending a dummy byte stream
                     char buffer[NormMsg::MAX_SIZE];
-                    unsigned int count = 
-                        stream->Write(buffer, segment_size, false);
+                    stream->Write(buffer, segment_size, false);
                 }
                 else
                 {
@@ -663,7 +662,6 @@ void NormSimAgent::Notify(NormController::Event event,
            
         case RX_OBJECT_NEW:
         {
-            //TRACE("NormSimAgent::Notify(RX_OBJECT_NEW) ...\n");
             // It's up to the app to "accept" the object
             switch (object->GetType())
             {
@@ -695,23 +693,26 @@ void NormSimAgent::Notify(NormController::Event event,
                 case NormObject::DATA: 
                     DMSG(0, "NormSimAgent::Notify() FILE/DATA objects not _yet_ supported...\n");      
                     break;
+                default:
+                    DMSG(0, "NormSimAgent::Notify() INVALID object type!\n");      
+                    ASSERT(0);
+                    break;    
             }   
             break;
         }
             
         case RX_OBJECT_INFO:
-            //TRACE("NormSimAgent::Notify(RX_OBJECT_INFO) ...\n");
             switch(object->GetType())
             {
                 case NormObject::FILE:
                 case NormObject::DATA:
                 case NormObject::STREAM:
+                default:
                     break;
             }  // end switch(object->GetType())
             break;
             
-        case RX_OBJECT_UPDATE:
-            //TRACE("NormSimAgent::Notify(RX_OBJECT_UPDATE) ...\n");
+        case RX_OBJECT_UPDATED:
             switch (object->GetType())
             {
                 case NormObject::FILE:
@@ -830,6 +831,10 @@ void NormSimAgent::Notify(NormController::Event event,
                 case NormObject::DATA: 
                     DMSG(0, "NormSimAgent::Notify() FILE/DATA objects not _yet_ supported...\n");      
                     break;
+                    
+                default:
+                    // should never occur
+                    break;
             }  // end switch (object->GetType())
             break;
         case RX_OBJECT_COMPLETED:
@@ -839,16 +844,19 @@ void NormSimAgent::Notify(NormController::Event event,
                 case NormObject::FILE:
                     //DMSG(0, "norm: Completed rx file: %s\n", ((NormFileObject*)object)->Path());
                     break;
-                    
                 case NormObject::STREAM:
-                    ASSERT(0);
+                    //DMSG(0, "norm: Completed rx stream ...\n");
                     break;
                 case NormObject::DATA:
                     ASSERT(0);
                     break;
+                default:
+                    break;
             }
             break;
         }
+        default:
+            DMSG(0, "NormSimAgent::Notify() unhandled NormEvent type\n");
     }  // end switch(event)
 }  // end NormSimAgent::Notify()
 
@@ -875,7 +883,7 @@ bool NormSimAgent::OnIntervalTimeout(ProtoTimer& theTimer)
             {
                 DMSG(0, "NormSimAgent::OnIntervalTimeout() Error queueing tx object.\n");
             }
-            TRACE("Queued file size: %lu bytes\n", tx_object_size);
+            DMSG(2, "NormSimAgent::OnIntervalTimeout(() Queued file size: %lu bytes\n", tx_object_size);
         }
         interval_timer.SetInterval(tx_object_interval);
         return true;
@@ -917,7 +925,8 @@ bool NormSimAgent::StartServer()
         session->ServerSetGroupSize(group_size);
         session->ServerSetGrtt(grtt_estimate);        
         // StartServer(bufferMax, segmentSize, fec_ndata, fec_nparity)
-        if (!session->StartServer(tx_buffer_size, segment_size, ndata, nparity))
+        UINT16 instanceId = (rand() * 65535) / RAND_MAX;
+        if (!session->StartServer(instanceId, tx_buffer_size, segment_size, ndata, nparity, NULL))
         {
             DMSG(0, "NormSimAgent::OnStartup() start server error!\n");
             session_mgr.Destroy();
@@ -961,7 +970,7 @@ bool NormSimAgent::StartClient()
         session->SetTxLoss(tx_loss);
         session->SetRxLoss(rx_loss);
         
-        session->SetUnicastNacks(unicast_nacks);
+        session->ClientSetUnicastNacks(unicast_nacks);
         session->ClientSetSilent(silent_client);
         
         // StartClient(bufferSize)

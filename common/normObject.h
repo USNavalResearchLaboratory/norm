@@ -305,8 +305,8 @@ class NormFileObject : public NormObject
         virtual char* RetrieveSegment(NormBlockId   blockId,
                                       NormSegmentId segmentId);
             
-    private:
-        char            path[PATH_MAX];
+    //private:
+        char            path[PATH_MAX+10];
         NormFile        file;
         NormObjectSize  large_block_length;
         NormObjectSize  small_block_length;
@@ -474,6 +474,7 @@ class NormStreamObject : public NormObject
         NormBlockBuffer             stream_buffer;
         Index                       write_index;
         UINT32                      write_offset;
+        Index                       tx_index;
         UINT32                      tx_offset;
         bool                        write_vacancy;
         bool                        posted_tx_queue_vacancy;

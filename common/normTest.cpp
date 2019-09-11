@@ -65,12 +65,14 @@ int main(int argc, char* argv[])
                                                    6003,
                                                    localId);
     
+    //NormSetTOS(session, 0x20);
+    
     // NOTE: These are debugging routines available (not for normal app use)
     SetDebugLevel(2);
     // Uncomment to turn on debug NORM message tracing
     //NormSetMessageTrace(session, true);
     // Uncomment to turn on some random packet loss
-    //NormSetTxLoss(session, 10.0);  // 10% packet loss
+    NormSetTxLoss(session, 25.0);  // 10% packet loss
     //NormSetRxLoss(session, 20.0);
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
@@ -78,19 +80,21 @@ int main(int argc, char* argv[])
     // (and a different sender sessionId)
     srand(currentTime.tv_sec);  // seed random number generator
     
-    //NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
+    NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 256.0e+03);  // in bits/second
+    NormSetTransmitRate(session, 256.0e+04);  // in bits/second
     
     // Uncomment to enable TCP-friendly congestion control (overrides NormSetTransmitRate())
-    NormSetCongestionControl(session, true);
+    //NormSetCongestionControl(session, true);
+    
+    NormSetTransmitRateBounds(session, 1000.0, -1.0);
     
     NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK); 
     
     // Uncomment to use a _specific_ transmit port number
     // (Can be the same as session port (rx port), but this
-    // is _not_ recommended when unicast feedback may be
-    // possible!
+    //  is _not_ recommended when unicast feedback may be
+    //  possible!)
     //NormSetTxPort(session, 6001); 
     
     
@@ -101,10 +105,12 @@ int main(int argc, char* argv[])
     NormSetRxPortReuse(session, true);
     
     // Uncomment to receive your own traffic
-    //NormSetLoopback(session, true);     
+    NormSetLoopback(session, true);     
+    
+    //NormSetSilentReceiver(session, true);
     
     // Uncomment this line to participate as a receiver
-    //NormStartReceiver(session, 1024*1024);
+    NormStartReceiver(session, 1024*1024);
     
     // Uncomment to set large rx socket buffer size
     // (might be needed for high rate sessions)
@@ -114,7 +120,9 @@ int main(int argc, char* argv[])
     NormSessionId sessionId = (NormSessionId)rand();
     
     // Uncomment the following line to start sender
-    NormStartSender(session, sessionId, 1024*1024, 1420, 64, 0);
+    NormStartSender(session, sessionId, 1024*1024, 1400, 64, 8);
+    
+    //NormSetAutoParity(session, 6);
 
     // Uncomment to set large tx socket buffer size
     // (might be needed for high rate sessions)
@@ -128,7 +136,7 @@ int main(int argc, char* argv[])
     const char* fileName = "file1.jpg";
     const char* fileName2 = "file2.jpg";
     // Uncomment this line to send a stream instead of the file
-    stream = NormStreamOpen(session, 10*1024*1024);
+    stream = NormStreamOpen(session, 2*1024*1024);
        
     // NORM_FLUSH_PASSIVE automatically flushes full writes to
     // the stream.
@@ -139,21 +147,26 @@ int main(int argc, char* argv[])
     int txIndex = 0;
     int txLen = 0;
     int rxIndex = 0;
-    char refBuffer[1037];
-    memset(refBuffer, 'a', 1037);
+    
+#define STREAM_MSG_PREFIX_SIZE 1024  // we pad with 'a' character value (the msgPrefix is a prefix)
+    char msgPrefix[STREAM_MSG_PREFIX_SIZE];
+    memset(msgPrefix, 'a', STREAM_MSG_PREFIX_SIZE);
     bool msgSync = false;
     
     int msgCount = 0;
     int recvCount = -1;  // used to monitor reliable stream reception
     int sendCount = 0;
-    int sendMax = -1;    // -1 means unlimited
+    int sendMax = 300;//-1;    // -1 means unlimited
     NormEvent theEvent;
+    
     while (NormGetNextEvent(instance, &theEvent))
     {
         switch (theEvent.type)
         {
             case NORM_TX_QUEUE_VACANCY:
             case NORM_TX_QUEUE_EMPTY:
+                fprintf(stderr, "stopping ....\n");
+                NormStopInstance(instance);
                 /*if (NORM_TX_QUEUE_VACANCY == theEvent.type)
                     TRACE("NORM_TX_QUEUE_VACANCY ...\n");
                 else
@@ -167,9 +180,9 @@ int main(int argc, char* argv[])
                     {
                         if (0 == txLen)
                         {
-                            // Write a message to the "txBuffer"
-                            memset(txBuffer, 'a', 1037);
-                            sprintf(txBuffer+1037, "normTest says hello %d ...\n", sendCount);
+                            memset(txBuffer, 'a', STREAM_MSG_PREFIX_SIZE);
+                            // Write a message into the "txBuffer" for transmission
+                            sprintf(txBuffer+STREAM_MSG_PREFIX_SIZE, " normTest says hello %d ...\n", sendCount);
                             txLen = strlen(txBuffer);
                         }
                         unsigned int want = txLen - txIndex;
@@ -178,18 +191,18 @@ int main(int argc, char* argv[])
                         txIndex += put;
                         if (txIndex == txLen)
                         {
-                            // Instead of "NormStreamSetFlushMode(stream, NORM_FLUSH_PASSIVE)" above
-                            // and "NormStreamMarkEom()" here, I could have used 
+                            // _Instead_ of "NormStreamSetAutoFlush(stream, NORM_FLUSH_PASSIVE)" above
+                            // _and_ "NormStreamMarkEom()" here, I could have used 
                             // "NormStreamFlush(stream, true)" here to perform explicit flushing 
                             // and EOM marking in one fell swoop.  That would be a simpler approach 
-                            // for apps where big stream messages need to be written with 
+                            // for apps where very big stream messages might need to be written with 
                             // multiple calls to "NormStreamWrite()"
                             NormStreamMarkEom(stream);
                             txLen = txIndex = 0;
                             sendCount++;
                             if (sendCount == 15)
                             {
-                                NormSetWatermark(session, stream);   
+                                //NormSetWatermark(session, stream);   
                             }
                             if ((sendMax > 0) && (sendCount >= sendMax))
                             {
@@ -280,57 +293,82 @@ int main(int argc, char* argv[])
                         rxBuffer[rxIndex] = '\0';
                         if (rxIndex > 0)
                         {
-                            char* ptr = strchr(rxBuffer, '\n');
-                            if (ptr)
+                            // The '\n' indicates we have received an entire message
+                            int parsedLen = 0;
+                            bool searching = true;
+                            char* startPtr = rxBuffer;
+                            while (searching)
                             {
-                                // Save sub-string length
-                                len = ptr - rxBuffer + 1;
-                                
-                                // Validate string
-                                if (memcmp(rxBuffer, refBuffer, 1037))
-                                    ptr = (char*)NULL;
-                                else
-                                    ptr = strstr(rxBuffer, "hello");
-                                if (NULL != ptr)
+                                char* endPtr = strchr(startPtr, '\n');
+                                if (endPtr)
                                 {
-                                    int value;
-                                    if (1 == sscanf(ptr, "hello %d", &value))
+                                    // Save sub-string message length
+                                    parsedLen += (endPtr - startPtr + 1);
+                                    // Validate received message string
+                                    if (0 == memcmp(rxBuffer, msgPrefix, STREAM_MSG_PREFIX_SIZE))
                                     {
-                                        if (recvCount >= 0)
+                                        char* ptr = strstr(startPtr, "hello");
+                                        if (ptr)
                                         {
-                                            if (1 != (value - recvCount))
-                                                TRACE("WARNING! possible break? value:%d recvCount:%d\n",
-                                                        value, recvCount);
-                                            else
+                                            int value;
+                                            if (1 == sscanf(ptr, "hello %d", &value))
+                                            {
                                                 msgCount++; // successful recv
-                                            //else
-                                            //    TRACE("validated recv msg len:%d\n", len);
+                                                if (recvCount >= 0)
+                                                {
+                                                    if (0 != (value - recvCount))
+                                                        TRACE("WARNING! possible break? value:%d recvCount:%d\n",
+                                                                value, recvCount);
+                                                }
+                                                //else
+                                                //    TRACE("validated recv msg len:%d\n", len);
+                                                recvCount = value+1;   
+                                                if (0 == msgCount % 100)
+                                                {
+                                                    TRACE("normTest: status> msgCount:%d of total:%d (%lf)\n",
+                                                          msgCount, recvCount, 100.0*((double)msgCount)/((double)recvCount));
+                           
+                                                }
+                                            }
+                                            else
+                                            {
+                                                TRACE("couldn't find index!? len:%d in %s\n", len, ptr);
+                                                ASSERT(0);
+                                            }
                                         }
-                                        recvCount = value;   
-                                        //if (0 == msgCount % 100)
-                                        //    TRACE("recv stream msg count: %d\n", msgCount);
+                                        else
+                                        {
+                                            TRACE("couldn't find \"hello\"!? len:%d in %s\n", len, rxBuffer);
+                                            ASSERT(0);
+                                        }
+                                        
                                     }
                                     else
                                     {
-                                        TRACE("couldn't find index!?\n");
+                                        TRACE("invalid received message!?\n");
                                         ASSERT(0);
                                     }
-                                    if ((unsigned int)rxIndex > len)
+                                    if (parsedLen >= rxIndex) 
                                     {
-                                        memmove(rxBuffer, rxBuffer+len, rxIndex - len);
-                                        rxIndex -= len;   
+                                        rxIndex = 0;
+                                        searching = false;
                                     }
                                     else
                                     {
-                                        rxIndex = 0;
+                                        startPtr = rxBuffer + parsedLen;
                                     }
+                                }  // end if (endPtr)
+                                else if (parsedLen > 0)
+                                {
+                                    memmove(rxBuffer, rxBuffer+parsedLen, rxIndex - parsedLen);
+                                    rxIndex -= parsedLen;
+                                    searching = false;
                                 }
                                 else
                                 {
-                                    TRACE("invalid string!?\n");
-                                    ASSERT(0);
+                                    searching = false;
                                 }
-                            }
+                            }  // end while(searching)
                         }
                     }
                     else

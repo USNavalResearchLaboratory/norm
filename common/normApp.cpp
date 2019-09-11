@@ -69,7 +69,7 @@ class NormApp : public NormController, public ProtoApp
         // application parameters
         FILE*               input;  // input stream
         FILE*               output; // output stream
-        char                input_buffer[1250];
+        char                input_buffer[65535];
         unsigned int        input_index;
         unsigned int        input_length;
         bool                input_active;
@@ -78,7 +78,7 @@ class NormApp : public NormController, public ProtoApp
         bool                input_messaging; // stream input mode   
         UINT16              input_msg_length;
         UINT16              input_msg_index;
-        char                output_buffer[65536];
+        char                output_buffer[65535];
         UINT16              output_index;
         bool                output_messaging;
         UINT16              output_msg_length;
@@ -104,6 +104,7 @@ class NormApp : public NormController, public ProtoApp
         double              group_size;
         unsigned long       tx_buffer_size; // bytes
         NormFileList        tx_file_list;
+        bool                tx_one_shot;
         double              tx_object_interval;
         int                 tx_repeat_count;
         double              tx_repeat_interval;
@@ -140,7 +141,7 @@ NormApp::NormApp()
    backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
    grtt_estimate(NormSession::DEFAULT_GRTT_ESTIMATE),
    group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
-   tx_buffer_size(1024*1024), 
+   tx_buffer_size(1024*1024), tx_one_shot(false),
    tx_object_interval(0.0), tx_repeat_count(0), tx_repeat_interval(2.0), tx_repeat_clear(true),
    rx_buffer_size(1024*1024), rx_sock_buffer_size(0),
    rx_cache_path(NULL), post_processor(NULL), unicast_nacks(false), silent_client(false),
@@ -211,6 +212,7 @@ const char* const NormApp::cmd_list[] =
     "+interval",     // delay time (sec) between files (0.0 sec default)
     "+repeatcount",  // How many times to repeat the file/directory list tx
     "+rinterval",    // Interval (sec) between file/directory list repeats
+    "-oneshot",      // Transmit file(s), exiting upon TX_FLUSH_COMPLETED
     "-updatesOnly",  // only send updated files on repeat transmission
     "+rxcachedir",   // recv file cache directory
     "+segment",      // payload segment size (bytes)
@@ -260,6 +262,7 @@ void NormApp::ShowHelp()
         "   +interval,     // delay time (sec) between files (0.0 sec default)\n"
         "   +repeatcount,  // How many times to repeat the file/directory list tx\n"
         "   +rinterval,    // Interval (sec) between file/directory list repeats\n"
+        "   -oneshot,      // Exit upon sender TX_FLUSH_COMPLETED event (sender exits after transmission)\n"
         "   -updatesOnly,  // only send updated files on repeat transmission\n"
         "   +rxcachedir,   // recv file cache directory\n"
         "   +segment,      // payload segment size (bytes)\n"
@@ -628,6 +631,10 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
             tx_repeat_interval = 0.0;
             return false;
         }
+    }     
+    else if (!strncmp("oneshot", cmd, len))
+    {
+        tx_one_shot = true;
     }      
     else if (!strncmp("updatesOnly", cmd, len))
     {
@@ -915,7 +922,7 @@ void NormApp::OnInputReady()
             {
                 if (input_msg_length)
                 {
-                    UINT16 bufferSpace = 1024 - input_index;
+                    UINT16 bufferSpace = 65535 - input_index;
                     UINT16 msgRemainder = input_msg_length - input_msg_index;
                     readLength = MIN(bufferSpace, msgRemainder);
                 }
@@ -928,14 +935,14 @@ void NormApp::OnInputReady()
                     memcpy(&input_msg_length, input_buffer, 2);
                     input_msg_length = ntohs(input_msg_length);
                     ASSERT(input_msg_length >= 2);
-                    UINT16 bufferSpace = 1024 - input_index;
+                    UINT16 bufferSpace = 65535 - input_index;
                     UINT16 msgRemainder = input_msg_length - 2;
                     readLength = MIN(bufferSpace, msgRemainder);  
                 }
             }
             else
             {
-                readLength = 1024;   
+                readLength = segment_size;   
             }            
              
             // Read from "input" into our "input_buffer"
@@ -1005,21 +1012,21 @@ void NormApp::OnInputReady()
             
         if (writeLength || endOfStream)
         {
-            unsigned int wroteLength = tx_stream->Write(input_buffer+input_index, 
+            unsigned int wroteLength = tx_stream->Write(input_buffer+input_index,
                                                         writeLength, false);
             input_length -= wroteLength;
             if (0 == input_length)
                 input_index = 0;
             else
                 input_index += wroteLength;
-            if (input_messaging) 
+            if (input_messaging && (0 != wroteLength)) 
             {
                 input_msg_index += wroteLength;
                 if (input_msg_index == input_msg_length)
                 {
                     input_msg_index = 0;
                     input_msg_length = 0;  
-                    // Mark EOM _and_ flush
+                    // Mark EOM 
                     tx_stream->Write(NULL, 0, true); 
                     // No need to explicitly flush with "flush mode" set.
                     //tx_stream->Flush();
@@ -1071,12 +1078,20 @@ void NormApp::Notify(NormController::Event event,
 {
     switch (event)
     {
+        case TX_QUEUE_VACANCY:
+            if (NULL != object)
+            {
+                if (input && (object == tx_stream))
+                    OnInputReady();
+            }
+            break;
         case TX_QUEUE_EMPTY:
            // Write to stream as needed
             //DMSG(0, "NormApp::Notify(TX_QUEUE_EMPTY) ...\n");
-            if (object && (object == tx_stream))
+            if (NULL != object)
             {
-                if (input) OnInputReady();
+                if (input && (object == tx_stream))
+                    OnInputReady();
             }
             else
             {
@@ -1086,6 +1101,14 @@ void NormApp::Notify(NormController::Event event,
                     ActivateTimer(interval_timer); 
                 else
                     OnIntervalTimeout(interval_timer);
+            }
+            break;
+            
+        case TX_FLUSH_COMPLETED:
+            if (tx_one_shot)
+            {
+                DMSG(0, "norm: transmit flushing completed, exiting.\n");
+                Stop();
             }
             break;
            
@@ -1296,15 +1319,15 @@ void NormApp::Notify(NormController::Event event,
                                 break;
                             }
                         }
+                        else if (readLength > 0)
+                        {
+                            output_msg_sync = true;
+                            output_index += readLength;
+                        }
                         else
                         {
-                            if (readLength > 0) output_msg_sync = true;
-                        }
-                        
-                        if (readLength)
-                            output_index += readLength;
-                        else
                             reading = false;
+                        }
 
                         unsigned int writeLength;
                         if (output_messaging)
@@ -1354,9 +1377,13 @@ void NormApp::Notify(NormController::Event event,
                                 }
                             }   
                         }  // end while(put < nBytes)
-                        if (writeLength) memset(output_buffer, 0, writeLength); 
+                        if (writeLength > 0) 
+                        {
+                            memset(output_buffer, 0, writeLength); // why did do this?
+                            fflush(output);
+                        }
                     }  // end while (reading)
-                    fflush(output);
+                    
                     break;
                 }
                                         

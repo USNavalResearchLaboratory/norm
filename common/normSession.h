@@ -121,6 +121,14 @@ class NormSession
             ttl = result ? theTTL : ttl;
             return result; 
         }
+        bool SetTOS(UINT8 theTOS) 
+        {
+            // (TBD) call tx_socket->SetFlowLabel() to set traffic class for IPv6 sockets
+            // (or should we have ProtoSocket::SetTOS() do this for us?)
+            bool result = tx_socket->IsOpen() ? tx_socket->SetTOS(theTOS) : true;
+            tos = result ? theTOS : ttl;
+            return result; 
+        }
         bool SetLoopback(bool state) 
         {
             bool result = tx_socket->IsOpen() ? tx_socket->SetLoopback(state) : true;
@@ -128,7 +136,11 @@ class NormSession
             return result; 
         }
         void SetTxPort(UINT16 txPort) {tx_port = txPort;}
-        void SetRxPortReuse(bool state) {rx_port_reuse = state;}
+        void SetRxPortReuse(bool enable, bool bindToSessionAddress = true) 
+        {
+            rx_port_reuse = enable;              // allow sessionPort reuse when true
+            rx_addr_bind = bindToSessionAddress; // bind rx_socket to sessionAddr when true
+        }
         static double CalculateRate(double size, double rtt, double loss);
         
         NormSessionMgr& GetSessionMgr() {return session_mgr;}
@@ -139,7 +151,10 @@ class NormSession
             {return rx_socket.SetRxBufferSize(bufferSize);}
         
         // Session parameters
-        double TxRate() {return (tx_rate * 8.0);}
+        double GetTxRate() 
+        {
+            return (tx_rate * 8.0);  // convert to bits/second
+        }
         // (TBD) watch timer scheduling and min/max bounds
         void SetTxRate(double txRate)
         {
@@ -384,8 +399,10 @@ class NormSession
         NormNodeId                      local_node_id;
         ProtoAddress                    address;  // session destination address & port
         UINT8                           ttl;      // session multicast ttl   
+        UINT8                           tos;      // session IPv4 TOS (or IPv6 traffic class - TBD)
         bool                            loopback; // to receive own traffic
-        bool                            rx_port_reuse; // enable port reuse
+        bool                            rx_port_reuse; // enable rx_socket port (sessionPort) reuse when true
+        bool                            rx_addr_bind;  // bind rx_socket to sessionAddr when true
         char                            interface_name[32];    
         double                          tx_rate;  // bytes per second
         double                          tx_rate_min;
@@ -437,6 +454,7 @@ class NormSession
         bool                            probe_proactive;
         bool                            probe_pending; // true while CMD(CC) enqueued
         bool                            probe_reset;   
+        bool                            probe_data_check;  // refrain cc probe until data is send
         struct timeval                  probe_time_last;
         
         double                          grtt_interval;     // current GRTT update interval
@@ -460,9 +478,7 @@ class NormSession
         UINT8                           cc_sequence;
         NormNodeList                    cc_node_list;
         bool                            cc_slow_start;
-        double                          sent_rate;         // measured sent rate
-        struct timeval                  prev_update_time;  // for sent_rate measurement
-        unsigned long                   sent_accumulator;  // for sent_rate measurement
+        unsigned long                   sent_accumulator;  // for sentRate measurement
         double                          nominal_packet_size;
         bool                            data_active;       // true when actively sending data
         

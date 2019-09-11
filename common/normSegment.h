@@ -267,7 +267,7 @@ class NormBlockPool
             head = b ? b->next : NULL;
             if (b) 
             {
-                count--;
+                blk_count--;
                 overrun_flag = false;
             }
             else if (!overrun_flag)
@@ -282,14 +282,16 @@ class NormBlockPool
         {
             b->next = head;
             head = b;
-            count++;
+            blk_count++;
         }
         unsigned long OverrunCount() const {return overruns;}
-        UINT32 GetCount() {return count;}
+        UINT32 GetCount() {return blk_count;}
+        UINT32 GetTotal() {return blk_total;}
         
     private:
         NormBlock*      head;
-        UINT32          count;
+        UINT32          blk_total;
+        UINT32          blk_count;
         unsigned long   overruns;
         bool            overrun_flag;
 };  // end class NormBlockPool

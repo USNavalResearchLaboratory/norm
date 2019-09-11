@@ -53,6 +53,11 @@ libnorm.a:    $(LIB_OBJ)
 libnorm.so: $(LIB_OBJ)
 	$(CC) $(SYSTEM_SOFLAGS) $(LIB_OBJ) $(LIBS) -o $@
     
+# NORM as a dynamic library for MacOS
+libnorm.dylib: $(LIB_OBJ) $(LIBPROTO)
+	$(CC) $(SYSTEM_SOFLAGS) $(LIB_OBJ) $(LIBPROTO) $(LIBS) -o $@
+
+    
 SIM_SRC = $(NORM_SRC) $(COMMON)/normSimAgent.cpp    
 SIM_OBJ = $(SIM_SRC:.cpp=-sim.o)
 
@@ -74,7 +79,7 @@ TEST_SRC = $(COMMON)/normTest.cpp
 TEST_OBJ = $(TEST_SRC:.cpp=.o)
 
 normTest:    $(TEST_OBJ) libnorm.a $(LIBPROTO) 
-	$(CC) $(CFLAGS) -o $@ $(TEST_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO)  $(LIBS)
+	$(CC) $(CFLAGS) -o $@ $(TEST_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
        
 # (raft) command-line reliable tunnel helper
 RAFT_SRC = $(COMMON)/raft.cpp

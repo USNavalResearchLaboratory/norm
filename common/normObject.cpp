@@ -1208,6 +1208,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 if (isSourceSymbol) 
                 {
                     block->DecrementErasureCount();
+                    /* STREAM payload flags have been deprecated in favor of "payload_msg_start"
                     // This bit of code makes sure that NORM Protocol Version 1
                     // use of FLAG_MSG_START is observed even when the equivalent (and better!)
                     // stream payload flag is not used.
@@ -1221,6 +1222,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                             NormDataMsg::SetStreamPayloadFlag((char*)data.GetPayload(), NormDataMsg::FLAG_MSG_START);      
                         }   
                     }    
+                    */
                     
                     if (WriteSegment(blockId, segmentId, data.GetPayload()))
                     {
@@ -1585,13 +1587,14 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         }
         data->SetPayloadLength(payloadLength);
         
+        /* stream payload flags have been deprecated in favor of "payload_msg_start" field
         // Set FLAG_MSG_START as appropriated for NORM Protocol Version 1 compatibility
         if (IsStream())
         {
             if (NormDataMsg::StreamPayloadFlagIsSet(buffer, NormDataMsg::FLAG_MSG_START))
                 data->SetFlag(NormObjectMsg::FLAG_MSG_START);   
         }
-        
+        */
         // Perform incremental FEC encoding as needed
         if ((block->ParityReadiness() == segmentId) && nparity) 
            // (TBD) && incrementalParity == true
@@ -1794,7 +1797,7 @@ bool NormFileObject::Open(const char* thePath,
         }
         else
         {
-            if (file.Open(thePath, O_WRONLY | O_CREAT | O_TRUNC))
+            if (file.Open(thePath, O_RDWR | O_CREAT | O_TRUNC))
             {
                 file.Lock();   
             }   
@@ -1849,7 +1852,7 @@ bool NormFileObject::Open(const char* thePath,
     large_block_length = NormObjectSize(large_block_size) * segment_size;
     small_block_length = NormObjectSize(small_block_size) * segment_size;
     strncpy(path, thePath, PATH_MAX);
-    unsigned int len = strlen(thePath);
+    size_t len = strlen(thePath);
     len = MIN(len, PATH_MAX);
     if (len < PATH_MAX) path[len] = '\0';
     return true;
@@ -1878,7 +1881,7 @@ bool NormFileObject::WriteSegment(NormBlockId   blockId,
                                   NormSegmentId segmentId, 
                                   const char*   buffer)
 {
-    UINT16 len;  
+    size_t len;  
     if (blockId == final_block_id)
     { 
         if (segmentId == (GetBlockSize(blockId)-1))
@@ -1909,7 +1912,7 @@ bool NormFileObject::WriteSegment(NormBlockId   blockId,
     {
         if (!file.Seek(offset)) return false; 
     }
-    UINT16 nbytes = file.Write(buffer, len);
+    size_t nbytes = file.Write(buffer, len);
     return (nbytes == len);
 }  // end NormFileObject::WriteSegment()
 
@@ -1919,7 +1922,7 @@ UINT16 NormFileObject::ReadSegment(NormBlockId      blockId,
                                    char*            buffer)            
 {
     // Determine segment length from blockId::segmentId
-    UINT16 len;
+    size_t len;
     if (blockId == final_block_id)
     {
         if (segmentId == (GetBlockSize(blockId)-1))
@@ -1949,11 +1952,17 @@ UINT16 NormFileObject::ReadSegment(NormBlockId      blockId,
 	NormFile::Offset offset = segmentOffset.GetOffset();
     if (offset != file.GetOffset())
     {
-        if (!file.Seek(offset)) 
-            return false;
+        if (!file.Seek(offset))
+        {
+            DMSG(0, "NormFileObject::ReadSegment() error seeking to file offset\n");
+            return 0;
+        }
     }
-    UINT16 nbytes = file.Read(buffer, len);
-    return (len == nbytes) ? len : 0;
+    size_t nbytes = file.Read(buffer, len);
+    if (len == nbytes)
+        return (UINT16)len;
+    else
+        return 0;
 }  // end NormFileObject::ReadSegment()
 
 char* NormFileObject::RetrieveSegment(NormBlockId      blockId, 
@@ -2284,7 +2293,7 @@ bool NormStreamObject::Open(UINT32      bufferSize,
     numBlocks = MAX(2, numBlocks);
     if (doubleBuffer) numBlocks *= 2;
     UINT32 numSegments = numBlocks * numData;
-        
+    
     if (!block_pool.Init(numBlocks, numData))
     {
         DMSG(0, "NormStreamObject::Open() block_pool init error\n");
@@ -2310,6 +2319,7 @@ bool NormStreamObject::Open(UINT32      bufferSize,
     read_init = true;
     read_index.block = read_index.segment = 0; 
     write_index.block = write_index.segment = 0;
+    tx_index.block = tx_index.segment = 0;
     tx_offset = write_offset = read_offset = 0;    
     write_vacancy = true;
     posted_tx_queue_vacancy = false;
@@ -2539,18 +2549,31 @@ UINT16 NormStreamObject::ReadSegment(NormBlockId      blockId,
     char* segment = block->GetSegment(segmentId);
     ASSERT(segment != NULL);    
         
-    // Update tx_offset if ((segmentOffset - tx_offset) > 0)
-    UINT32 segmentOffset = NormDataMsg::ReadStreamPayloadOffset(segment);
-    INT32 offsetDelta = segmentOffset - tx_offset;
-    if (offsetDelta > 0) tx_offset = segmentOffset;
+    // Update tx_offset if ((segmentOffset - tx_offset) > 0)  (TBD) deprecate "tx_offset"
+    //UINT32 segmentOffset = NormDataMsg::ReadStreamPayloadOffset(segment);
+    //INT32 offsetDelta = segmentOffset - tx_offset;
+    //if (offsetDelta > 0) tx_offset = segmentOffset;
+    // Update tx_index if (blockId::segmentId > tx_index)
+    if (blockId > tx_index.block)
+    {
+        tx_index.block = blockId;
+        tx_index.segment = segmentId;
+    }
+    else if ((blockId == tx_index.block) && (segmentId > tx_index.segment))
+    {
+        tx_index.segment = segmentId;
+    }
     
     // Only advertise vacancy if stream_buffer.RangeLo() is non-pending _and_
-    // (write_offset - tx_offset) < streamBufferSize
+    // (write_index.block - tx_index.block) < block_pool.GetTotal() / 2
     if (!write_vacancy)
     {
-        offsetDelta = write_offset - tx_offset;
-        ASSERT(offsetDelta >= 0);
-        if ((UINT32)offsetDelta < object_size.LSB())
+        //offsetDelta = write_offset - tx_offset;
+        //ASSERT(offsetDelta >= 0);
+        //if ((UINT32)offsetDelta < object_size.LSB())
+        ASSERT(tx_index.block <= write_index.block);
+        UINT32 blockDelta = write_index.block - tx_index.block;
+        if (blockDelta < (block_pool.GetTotal() >> 1))
         {
             NormBlock* b = stream_buffer.Find(stream_buffer.RangeLo());
             if (b && !b->IsPending()) 
@@ -2863,7 +2886,31 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool seekMsgStar
         }  // end if (!segment)
         
         UINT16 length = NormDataMsg::ReadStreamPayloadLength(segment);
-        if (length > segment_size)
+        if (0 == length)
+        {
+            // It's a "stream control" message, so interpret "payload_msg_start" as control code
+            switch (NormDataMsg::ReadStreamPayloadMsgStart(segment))
+            {
+                case 0:
+                    // This is the "stream end" control code
+                    break;
+                default:
+                    // Invalid stream control code, skip this invalid segment
+                    DMSG(0, "NormStreamObject::Read() invalid stream control message\n");
+                    if (++read_index.segment >= ndata)
+                    {
+                        stream_buffer.Remove(block);
+                        block->EmptyToPool(segment_pool);
+                        block_pool.Put(block);
+                        read_index.block++;
+                        read_index.segment = 0;
+                        //Prune(read_index.block, false);
+                    }
+                    continue;
+                    break;
+            }  // end switch(NormDataMsg::ReadStreamPayloadMsgStart(segment))
+        }
+        else if (length > segment_size)
         {
             Release();
             if (bytesRead > 0)
@@ -2935,18 +2982,19 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool seekMsgStar
                 return false;
             }
         }
-
-
-        UINT16 count = length - index;
-        count = MIN(count, bytesToRead);
         
         if (seekMsgStart)
         {
+            /* stream payload flags have in deprecated in favor of "payload_msg_start"
             if ((0 != index) ||
                 !NormDataMsg::StreamPayloadFlagIsSet(segment, NormDataMsg::FLAG_MSG_START))
+            */
+            UINT16 msgStart = NormDataMsg::ReadStreamPayloadMsgStart(segment);
+            if (0 == msgStart)
             {
                 // make sure msg start searches don't miss stream end ...
-                if (NormDataMsg::StreamPayloadFlagIsSet(segment, NormDataMsg::FLAG_STREAM_END))
+                //if (NormDataMsg::StreamPayloadFlagIsSet(segment, NormDataMsg::FLAG_STREAM_END))
+                if (0 == NormDataMsg::ReadStreamPayloadLength(segment))
                 {
                     DMSG(4, "NormStreamObject::Read() stream ended by sender 1\n");
                     session.Notify(NormController::RX_OBJECT_COMPLETED, server, this);
@@ -2971,10 +3019,13 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool seekMsgStar
             }
             else
             {
-                seekMsgStart = false;    
+                read_offset += (msgStart - 1);
+                index += (msgStart - 1); 
+                seekMsgStart = false; 
             }            
         }
-        
+        UINT16 count = length - index;
+        count = MIN(count, bytesToRead);
 #ifdef SIMULATE
         UINT16 simCount = index + count + NormDataMsg::GetStreamPayloadHeaderLength();
         simCount = (simCount < SIM_PAYLOAD_MAX) ? (SIM_PAYLOAD_MAX - simCount) : 0;
@@ -2989,8 +3040,8 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool seekMsgStar
         bytesToRead -= count;
         if (index >= length)
         {            
-            bool streamEnded = 
-                NormDataMsg::StreamPayloadFlagIsSet(segment, NormDataMsg::FLAG_STREAM_END);
+            bool streamEnded = (0 == NormDataMsg::ReadStreamPayloadLength(segment));
+            // NormDataMsg::StreamPayloadFlagIsSet(segment, NormDataMsg::FLAG_STREAM_END);
             // Don't bother managing individual segments since
             // stream buffers are multiples of block size!
             // block->DetachSegment(read_index.segment);
@@ -3022,8 +3073,8 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool seekMsgStar
 
 void NormStreamObject::Terminate()
 {
-    // If there's a pending buffer at our "write_index", mark it
-    // otherwise create a ZERO length segment to send
+    // Flush stream and create a ZERO length segment to send
+    Flush();  // should eom be set for this call?
     NormBlock* block = stream_buffer.Find(write_index.block);
     if (!block)
     {
@@ -3057,9 +3108,9 @@ void NormStreamObject::Terminate()
         ASSERT(success);
     }  // end if (!block)
     char* segment = block->GetSegment(write_index.segment);
-    if (!segment)
+    if (NULL == segment)
     {
-        if (!(segment = segment_pool.Get()))
+        if (NULL == (segment = segment_pool.Get()))
         {
             NormBlock* b = stream_buffer.Find(stream_buffer.RangeLo());
             ASSERT(b != block);
@@ -3086,13 +3137,19 @@ void NormStreamObject::Terminate()
             segment = segment_pool.Get();
             ASSERT(segment);
         }
-        NormDataMsg::WriteStreamPayloadOffset(segment, write_offset);  
-        NormDataMsg::WriteStreamPayloadLength(segment, 0);
         block->AttachSegment(write_index.segment, segment);
-    }  // end if (!segment)
-    UINT16 index = NormDataMsg::ReadStreamPayloadLength(segment);
-    if (0 == index) NormDataMsg::ResetStreamPayloadFlags(segment);
-    NormDataMsg::SetStreamPayloadFlag(segment, NormDataMsg::FLAG_STREAM_END);
+        NormDataMsg::WriteStreamPayloadMsgStart(segment, 0);
+        NormDataMsg::WriteStreamPayloadLength(segment, 0);
+    }
+    else
+    {
+        ASSERT(0 == NormDataMsg::ReadStreamPayloadMsgStart(segment));
+        ASSERT(0 == NormDataMsg::ReadStreamPayloadLength(segment));
+    }
+    NormDataMsg::WriteStreamPayloadOffset(segment, write_offset);  
+    
+    //NormDataMsg::ResetStreamPayloadFlags(segment);  // flags are deprecated!
+    //NormDataMsg::SetStreamPayloadFlag(segment, NormDataMsg::FLAG_STREAM_END);
     block->SetPending(write_index.segment);
     if (++write_index.segment >= ndata) 
     {
@@ -3117,12 +3174,15 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
             }
             break;   
         }
-        INT32 deltaOffset = write_offset - tx_offset;
-        ASSERT(deltaOffset >= 0);
-        if (deltaOffset >= (INT32)object_size.LSB())
+        //INT32 deltaOffset = write_offset - tx_offset;  // (TBD) deprecate tx_offset
+        //ASSERT(deltaOffset >= 0);
+        //if (deltaOffset >= (INT32)object_size.LSB())
+        ASSERT(write_index.block >= tx_index.block);
+        UINT32 deltaBlock = write_index.block - tx_index.block;
+        if (deltaBlock >= (block_pool.GetTotal() >> 1))
         {
             write_vacancy = false;
-            DMSG(4, "NormStreamObject::Write() stream buffer full (1)\n", len, eom);
+            DMSG(8, "NormStreamObject::Write() stream buffer full (1)\n", len, eom);
             if (!push_mode) break;  
         }
         NormBlock* block = stream_buffer.Find(write_index.block);
@@ -3154,7 +3214,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
                     }
                     else
                     {
-                        DMSG(4, "NormStreamObject::Write() stream buffer full (2) len:%d eom:%d\n", len, eom);
+                        DMSG(8, "NormStreamObject::Write() stream buffer full (2) len:%d eom:%d\n", len, eom);
                         break;
                     }
                 }                             
@@ -3165,7 +3225,6 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
             block->ClearPending();
             bool success = stream_buffer.Insert(block);
             ASSERT(success);
-            
         }  // end if (!block)
         char* segment = block->GetSegment(write_index.segment);
         if (!segment)
@@ -3196,7 +3255,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
                     }
                     else
                     {
-                        DMSG(4, "NormStreamObject::Write() stream buffer full (3)\n");
+                        DMSG(8, "NormStreamObject::Write() stream buffer full (3)\n");
                         break;
                     }
                 }
@@ -3206,27 +3265,21 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
                 segment = segment_pool.Get();
                 ASSERT(segment);
             }
-            NormDataMsg::WriteStreamPayloadOffset(segment, write_offset);  
+            NormDataMsg::WriteStreamPayloadMsgStart(segment, 0);
             NormDataMsg::WriteStreamPayloadLength(segment, 0);
+            NormDataMsg::WriteStreamPayloadOffset(segment, write_offset);
             block->AttachSegment(write_index.segment, segment);
         }  // end if (!segment)
         
         UINT16 index = NormDataMsg::ReadStreamPayloadLength(segment);
-        
-        if (0 == index)
+        // If it is an application start-of-message, mark the stream header accordingly
+        // (but only if it is the _first_ message start for this segment!)
+        if (msg_start && (0 != len))
         {
-            NormDataMsg::ResetStreamPayloadFlags(segment);
-            if (msg_start && len)
-            {
-                ASSERT(0 == index);
-                NormDataMsg::SetStreamPayloadFlag(segment, NormDataMsg::FLAG_MSG_START);
-                msg_start = false;
-            }
+            if (0 == NormDataMsg::ReadStreamPayloadMsgStart(segment))
+                NormDataMsg::WriteStreamPayloadMsgStart(segment, index+1);
+            msg_start = false;
         }
-        else
-        {
-            msg_start = false;   
-        }            
         
         UINT16 count = (UINT16)(len - nBytes);
         UINT16 space = segment_size - index;

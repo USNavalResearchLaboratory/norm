@@ -66,8 +66,8 @@ class NormFile
             return (fd >= 0);
 #endif // _WIN32_WCE
         }
-        int Read(char* buffer, int len);
-        int Write(const char* buffer, int len);
+        size_t Read(char* buffer, size_t len);
+        size_t Write(const char* buffer, size_t len);
         bool Seek(Offset theOffset);
 		NormFile::Offset GetOffset() const {return (offset);}
 		NormFile::Offset GetSize() const;
@@ -112,7 +112,7 @@ class NormFile
        
     
     // Members
-    private:
+    //private:
 #ifdef _WIN32_WCE
         FILE*   file_ptr;
 #else

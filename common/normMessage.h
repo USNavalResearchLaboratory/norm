@@ -23,6 +23,11 @@ const UINT8 NORM_PROTOCOL_VERSION = 1;
 
 const int NORM_ROBUST_FACTOR = 20;  // default robust factor
 
+// This value is used in a couple places in the code as 
+// a safety check where some critical timeouts may be
+// less than expected operating system clock resolution
+const double NORM_TICK_MIN = 0.100; // in seconds
+
 // Pick a random number from 0..max
 inline double UniformRand(double max)
 {
@@ -41,6 +46,7 @@ inline double ExponentialRand(double max, double groupSize)
 // These are the GRTT estimation bounds set for the current
 // NORM protocol.  (Note that our Grtt quantization routines
 // are good for the range of 1.0e-06 <= 1000.0)
+
 const double NORM_GRTT_MIN = 0.001;  // 1 msec
 const double NORM_GRTT_MAX = 15.0;   // 15 sec
 const double NORM_RTT_MIN = 1.0e-06;
@@ -225,8 +231,8 @@ class NormHeaderExtension
         enum Type
         {
             INVALID     =   0,
-            FTI         =   1,  // FEC Object Transmission Information (FTI) extension
-            CC_FEEDBACK =   2,  // NORM-CC Feedback extension
+            FTI         =  64,  // FEC Object Transmission Information (FTI) extension
+            CC_FEEDBACK =   3,  // NORM-CC Feedback extension
             CC_RATE     = 128   // NORM-CC Rate extension
         }; 
             
@@ -350,6 +356,8 @@ class NormMsg
         char* AccessBuffer() {return ((char*)buffer);} 
         ProtoAddress& AccessAddress() {return addr;} 
         
+        NormMsg* GetNext() {return next;}
+        
     protected:
         // Common message header offsets
         // All of our offsets reflect their offset based on the field size!
@@ -400,8 +408,8 @@ class NormObjectMsg : public NormMsg
             FLAG_INFO       = 0x04,
             FLAG_UNRELIABLE = 0x08,
             FLAG_FILE       = 0x10,
-            FLAG_STREAM     = 0x20,
-            FLAG_MSG_START  = 0x40
+            FLAG_STREAM     = 0x20
+            //FLAG_MSG_START  = 0x40 deprecated
         }; 
         UINT16 GetInstanceId() const
         {
@@ -632,6 +640,7 @@ class NormDataMsg : public NormObjectMsg
         // Some static helper routines for reading/writing embedded payload length/offsets
         static UINT16 GetStreamPayloadHeaderLength() {return (PAYLOAD_DATA_OFFSET);}
         
+        /* Payload flags have deprecated in the revised NORM spec
         enum PayloadFlag
         {
             FLAG_STREAM_END = 0x01,
@@ -649,6 +658,11 @@ class NormDataMsg : public NormObjectMsg
         static void SetStreamPayloadFlag(char* payload, PayloadFlag flag) 
         {
             ((UINT8*)payload)[PAYLOAD_FLAGS_OFFSET] |= flag;
+        }*/
+        static void WriteStreamPayloadMsgStart(char* payload, UINT16 msgStartOffset)
+        {
+            UINT16 temp16 = htons(msgStartOffset);
+            memcpy(payload+PAYLOAD_MSG_START_OFFSET, &temp16, 2);
         }
         static void WriteStreamPayloadLength(char* payload, UINT16 len)
         {
@@ -659,6 +673,12 @@ class NormDataMsg : public NormObjectMsg
         {
             UINT32 temp32 = htonl(offset);
             memcpy(payload+PAYLOAD_OFFSET_OFFSET, &temp32, 4);
+        }
+        static UINT16 ReadStreamPayloadMsgStart(const char* payload)
+        {
+            UINT16 temp16;
+            memcpy(&temp16, payload+PAYLOAD_MSG_START_OFFSET, 2);
+            return (ntohs(temp16));
         }
         static UINT16 ReadStreamPayloadLength(const char* payload)
         {
@@ -685,11 +705,11 @@ class NormDataMsg : public NormObjectMsg
         };
         enum
         {
-            PAYLOAD_FLAGS_OFFSET    = 0,
-            PAYLOAD_RESERVED_OFFSET = PAYLOAD_FLAGS_OFFSET+1,     // this is not in the NORM spec!
-            PAYLOAD_LENGTH_OFFSET   = PAYLOAD_RESERVED_OFFSET+1,
-            PAYLOAD_OFFSET_OFFSET   = PAYLOAD_LENGTH_OFFSET+2,
-            PAYLOAD_DATA_OFFSET     = PAYLOAD_OFFSET_OFFSET+4   
+            //PAYLOAD_FLAGS_OFFSET    = 0,  // deprecated
+            PAYLOAD_MSG_START_OFFSET = 0,    
+            PAYLOAD_LENGTH_OFFSET    = PAYLOAD_MSG_START_OFFSET+2,
+            PAYLOAD_OFFSET_OFFSET    = PAYLOAD_LENGTH_OFFSET+2,
+            PAYLOAD_DATA_OFFSET      = PAYLOAD_OFFSET_OFFSET+4   
         };
 };  // end class NormDataMsg
 
@@ -1589,6 +1609,7 @@ class NormMessageQueue
         void Remove(NormMsg* msg);
         NormMsg* RemoveHead();
         NormMsg* RemoveTail();
+        NormMsg* GetHead() {return head;}
         bool IsEmpty() {return ((NormMsg*)NULL == head);}
     
     private:

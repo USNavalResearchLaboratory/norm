@@ -160,9 +160,10 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
     // enforced.  Note that "bufferFactor" values > 0.0 help reduce "seeking" for decoding, 
     // but reduce the number of blocks for which NORM can keep state.  Note this only comes 
     // into play when NORM would be "buffer constrained"
-    // (TBD) perhaps we should keep more "block state" than we can even buffer parity for ???
-    //       (this would reduce requests for full block retransmissions when resource contrained)
-    double bufferFactor = 0.0;
+    // (TBD) perhaps we should keep state for more blocks than we can even buffer parity for ???
+    //       (this would reduce requests for full block retransmissions when resource constrained)
+    //       (this would correspond to "bufferFactor < 0.0"
+    double bufferFactor = 0.0;  // (TBD) let app control "bufferFactor"???
     unsigned long segPerBlock = 
         (unsigned long) ((bufferFactor * (double)numData) +
                          ((1.0 - bufferFactor) * (double)numParity) + 0.5);
@@ -206,7 +207,8 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
     memset(retrieval_pool, 0, numData*sizeof(char*));
     for (UINT16 i = 0; i < numData; i++)
     {
-        char* s = new char[segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()];
+        // allocate segment with extra byte for stream flags ...
+        char* s = new char[segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()+1];
         if (NULL == s)
         {
             DMSG(0, "NormServerNode::AllocateBuffers() new retrieval segment error: %s\n", GetErrorString());
@@ -240,6 +242,7 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
     nominal_packet_size = (double)segmentSize;
     ndata = numData;
     nparity = numParity;
+    IncrementResyncCount();
     return true;
 }  // end NormServerNode::AllocateBuffers()
 
@@ -326,6 +329,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                 static_cast<NormStreamObject*>(obj)->Prune(blockId, true);   
             }
             // 3) (TBD) Go ahead and discard any invalidated objects
+            //          (those listed with id's > objectId)
             //   (although they will eventually get discarded anyway)
             break;
         }
@@ -391,7 +395,6 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                         double backoffFactor = backoff_factor;
                         backoffFactor = MAX(backoffFactor, 4.0);
                         maxBackoff = grtt_estimate*backoffFactor;
-
                     }
                     double backoffTime = (maxBackoff > 0.0) ?
                                             ExponentialRand(maxBackoff, gsize_estimate) : 
@@ -415,7 +418,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                     }
                     //DMSG(0, "NormServerNode::HandleCommand(CC) node>%lu bias:%lf recv_rate:%lf send_rate:%lf "
                     //      "grtt:%lf gsize:%lf\n",
-                    //        LocalNodeId(), r, recv_rate*(8.0/1000.0), send_rate*(8.0/1000.0),
+                    //        LocalNodeId(), r, 8.0e-03*recv_rate, 8.0e-03*send_rate,
                     // 
 
                     backoffTime = 0.25 * r * maxBackoff + 0.75 * backoffTime;
@@ -491,7 +494,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
         case NormCmdMsg::REPAIR_ADV:
         {
             const NormCmdRepairAdvMsg& repairAdv = (const NormCmdRepairAdvMsg&)cmd;
-            // Does the CC feedback of this ACK suppress our CC feedback
+            // Does the CC feedback of this ACK suppress our CC feedback?
             if (!is_clr && !is_plr && cc_timer.IsActive() && 
                 cc_timer.GetRepeatCount())
             {
@@ -507,6 +510,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
             }   
             if (repair_timer.IsActive() && repair_timer.GetRepeatCount())
             {
+                // (TBD) pay attention to the NORM_REPAIR_ADV_LIMIT flag
                 HandleRepairContent(repairAdv.GetRepairContent(), 
                                     repairAdv.GetRepairContentLength());
             }
@@ -522,7 +526,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
 
 void NormServerNode::HandleCCFeedback(UINT8 ccFlags, double ccRate)
 {
-    ASSERT(cc_timer.IsActive() && cc_timer.GetRepeatCount());
+    //ASSERT(cc_timer.IsActive() && cc_timer.GetRepeatCount());
     if (0 == (ccFlags & NormCC::CLR))
     {
         // We're suppressed by non-CLR receivers with no RTT confirmed
@@ -532,6 +536,8 @@ void NormServerNode::HandleCCFeedback(UINT8 ccFlags, double ccRate)
                             NormSession::CalculateRate(nominal_packet_size,
                                                        rtt_estimate,
                                                        LossEstimate());
+        // This increases our chance of being suppressed
+        // (but is it a good idea?)
         localRate = MAX(localRate, cc_rate);
         
         bool hasRtt = (0 != (ccFlags & NormCC::RTT));
@@ -562,7 +568,9 @@ void NormServerNode::HandleCCFeedback(UINT8 ccFlags, double ccRate)
         if (suppressed)
         {
             if (cc_timer.IsActive()) cc_timer.Deactivate();
-            cc_timer.SetInterval(grtt_estimate*backoff_factor);  // (TBD) ???
+            double backoffFactor = backoff_factor;
+            backoffFactor = MAX(backoffFactor, 4.0);     // always use at least 4 for cc purposes
+            cc_timer.SetInterval(grtt_estimate*backoffFactor);  // (TBD) ??? xxx
             session.ActivateTimer(cc_timer);
             cc_timer.DecrementRepeatCount();
         }
@@ -609,6 +617,7 @@ void NormServerNode::HandleNackMessage(const NormNackMsg& nack)
 // Clients use this method to process NACK content overheard from other 
 // clients or via NORM_CMD(REPAIR_ADV) messages received from the server.  
 // Such content can "suppress" pending NACKs
+// (TBD) add provision to handle case when NORM_REPAIR_ADV_FLAG_LIMIT was set
 void NormServerNode::HandleRepairContent(const UINT32* buffer, UINT16 bufferLen)
 {
     // Parse NACK and incorporate into repair state masks
@@ -851,7 +860,8 @@ char* NormServerNode::GetFreeSegment(NormObjectId objectId, NormBlockId blockId)
                 break;
         }
     }
-    return segment_pool.Get();
+    char* result = segment_pool.Get();
+    return result;
 }  // end NormServerNode::GetFreeSegment()
 
 void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
@@ -1478,7 +1488,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                             ext.SetCCRate(NormQuantizeRate(ccRate));
                         }
                         DMSG(6, "NormServerNode::OnRepairTimeout() node>%lu sending NACK rate:%lf kbps (rtt:%lf loss:%lf s:%hu) slow_start:%d\n",
-                                 LocalNodeId(), NormUnquantizeRate(ext.GetCCRate()) * (8.0/1000.0), 
+                                 LocalNodeId(), 8.0e-03*NormUnquantizeRate(ext.GetCCRate()), 
                                  rtt_estimate, ccLoss, nominal_packet_size, slow_start);
                         ext.SetCCSequence(cc_sequence);
                         // Cancel potential pending NORM_ACK(RTT) 
@@ -1675,25 +1685,23 @@ void NormServerNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
 {
     if (prev_update_time.tv_sec || prev_update_time.tv_usec)
     {
-        recv_accumulator += msgSize;
-        
         double interval = (double)(currentTime.tv_sec - prev_update_time.tv_sec);
         if (currentTime.tv_usec > prev_update_time.tv_sec)
             interval += 1.0e-06*(double)(currentTime.tv_usec - prev_update_time.tv_usec);
         else
             interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);            
         double measurementInterval = rtt_confirmed ? rtt_estimate : grtt_estimate;
-        // Here, we put a 0.100 sec lower bound on our measurementInterval for the 
+        // Here, we put a NORM_TICK_MIN sec lower bound on our measurementInterval for the 
         // recv_rate because of the typical limited granularity of our system clock
         // (Note this does limit our ramp up of data rate during slow start)
-        if (measurementInterval < 0.100) measurementInterval = 0.100;
+        if (measurementInterval < NORM_TICK_MIN) measurementInterval = NORM_TICK_MIN;
         if (interval > 0.0)
         {
             double currentRecvRate = ((double)(recv_accumulator)) / interval;
-            if (currentRecvRate < recv_rate)
+            if ((interval >= measurementInterval) && (currentRecvRate < recv_rate))
             {
-                // Make sure we've allowed sufficient time for a measurement
-                double minInterval = 4.0 * ((double)nominal_packet_size) / recv_rate;
+                // Make sure we've allowed sufficient time for a measurement at low rates
+                double minInterval = 4.0 * ((double)(MAX(nominal_packet_size, segment_size)))/ recv_rate;
                 if (measurementInterval < minInterval) 
                     measurementInterval = minInterval;
             }
@@ -1701,46 +1709,28 @@ void NormServerNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
             {
                 recv_rate = currentRecvRate; //((double)(recv_accumulator)) / interval;
                 prev_update_time = currentTime;
-                recv_accumulator = 0;
+                recv_accumulator = msgSize;
+            }
+            else
+            {
+                recv_accumulator += msgSize;
             }
         }
-        /*
-        // We put a 0.100 sec lower bound on our rttEstimate for the recv_rate measurement
-        // interval because of the typical limited granularity of our system clock
-        // (Note this does limit our ramp up of data rate during slow start)
-        if (rttEstimate < 0.1) rttEstimate = 0.1;
-        rttEstimate = rttEstimate < 0.1 ? 0.1 : rttEstimate;
-        
-        // Also, don't update more than nominal_packet_size / recv_rate
-        // or our measurement is subject to quantization error
-        
-        double minterval = recv_rate > 0.0 ? 2.0 * ((double)nominal_packet_size) / recv_rate : rttEstimate;
-        
-        rttEstimate = rttEstimate < minterval ? minterval : rttEstimate;
-        
-        
-        if (interval >= rttEstimate)
-        {
-            recv_rate = ((double)(recv_accumulator)) / interval;
-            prev_update_time = currentTime;
-            recv_accumulator = 0;
-        }*/
-        //TRACE("updated recv rate to %lf  (accum:%lu) (cc_rate:%lf)\n", recv_rate,
-        //        recv_accumulator, cc_rate);
     }
     else
     {
-        if (send_rate > 0.0)
+        /*if (send_rate > 0.0)
             recv_rate = send_rate;
         else
-            recv_rate = ((double)msgSize) / grtt_estimate;
+            recv_rate = ((double)msgSize) / grtt_estimate;*/
+        recv_rate = 0.0;
         prev_update_time = currentTime;
-        recv_accumulator = 0;
+        recv_accumulator = msgSize;
     }
     nominal_packet_size += 0.05 * (((double)msgSize) - nominal_packet_size);
 }  // end NormServerNode::UpdateRecvRate()
 
-void NormServerNode::Activate()
+void NormServerNode::Activate(bool isObjectMsg)
 {
     if (!activity_timer.IsActive())
     {
@@ -1749,7 +1739,7 @@ void NormServerNode::Activate()
         server_active = false;
         session.Notify(NormController::REMOTE_SERVER_ACTIVE, this, NULL);
     }
-    else
+    else if (isObjectMsg)
     {
         server_active = true;
     }
@@ -1797,9 +1787,19 @@ bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
                             max_pending_object, 0, 0);
             }
             else
-                RepairCheck(NormObject::TO_BLOCK,   // (TBD) thru object???
+            {
+                RepairCheck(NormObject::THRU_OBJECT,   // (TBD) thru object???
                             max_pending_object, 0, 0);
+                //RepairCheck(NormObject::TO_BLOCK,   // (TBD) thru object???
+                //            max_pending_object, 0, 0);
+            }
         }
+        // At low recv data rates, we adjust the activity timeout a little.
+        // to _help_ prevent premature timeout
+        double nominalInterval = nominal_packet_size / recv_rate;
+        if (grtt_estimate < nominalInterval)
+            activity_timer.SetInterval(NORM_ROBUST_FACTOR * nominalInterval);
+        
     }
     server_active = false;
     return true;     
@@ -1851,11 +1851,11 @@ void NormServerNode::AttachCCFeedback(NormAckMsg& ack)
                                                    rtt_estimate, ccLoss);
         ext.SetCCRate(NormQuantizeRate(ccRate));
     }
-    //DMSG(0, "NormServerNode::OnCCTimeout() node>%lu sending ACK rate:%lf kbps (rtt:%lf loss:%lf s:%lf recvRate:%lf) slow_start:%d\n",
-    //               LocalNodeId(), NormUnquantizeRate(ext.GetCCRate()) * (8.0/1000.0), 
-    //               rtt_estimate, ccLoss, nominal_packet_size, recv_rate*(8.0/1000.), slow_start);
+    //DMSG(0, "NormServerNode::AttachCCFeedback() node>%lu sending ACK rate:%lf kbps (rtt:%lf loss:%lf s:%lf recvRate:%lf) slow_start:%d\n",
+    //               LocalNodeId(), 8.0e-03*NormUnquantizeRate(ext.GetCCRate()) , 
+    //               rtt_estimate, ccLoss, nominal_packet_size, 8.0e-03*recv_rate, slow_start);
     ext.SetCCSequence(cc_sequence);
-}  // end 
+}  // end ormServerNode::AttachCCFeedback()
 
 bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
 {
@@ -1901,8 +1901,16 @@ bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
             //}
             
             // Begin cc_timer "holdoff" phase
-            cc_timer.SetInterval(grtt_estimate*backoff_factor);
-            return true;
+            if (session.Address().IsMulticast())
+            {
+                cc_timer.SetInterval(grtt_estimate*backoff_factor);
+                return true;
+            }
+            else if (cc_timer.IsActive()) 
+            {
+                cc_timer.Deactivate();
+            }
+            break;
         }
         
         default:
@@ -1935,7 +1943,7 @@ bool NormServerNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
         // Don't rate limit feedback messages
         session.SendMessage(*ack);
         session.ReturnMessageToPool(ack);
-        if (!is_clr && !is_plr)
+        if (!is_clr && !is_plr && session.Address().IsMulticast())
         {
             // Install cc feedback holdoff
             if (cc_timer.IsActive()) cc_timer.Deactivate();
@@ -1943,6 +1951,11 @@ bool NormServerNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
             session.ActivateTimer(cc_timer);
             cc_timer.DecrementRepeatCount();
         } 
+        else if (cc_timer.IsActive())
+        {
+            cc_timer.Deactivate();
+            return false;
+        }
     }
     else
     {

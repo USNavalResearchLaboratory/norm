@@ -1,3 +1,4 @@
+#define _NORM_API_BUILD	// force 'dllexport' in "normApi.h"
 #include "normApi.h"
 #include "normSession.h"
 
@@ -8,14 +9,22 @@
 #endif // WIN32
 
 // const defs
+extern NORM_API_LINKAGE
 const NormInstanceHandle NORM_INSTANCE_INVALID = ((NormInstanceHandle)0);
+extern NORM_API_LINKAGE
 const NormSessionHandle NORM_SESSION_INVALID = ((NormSessionHandle)0);
+extern NORM_API_LINKAGE
 const NormNodeHandle NORM_NODE_INVALID = ((NormNodeHandle)0);
+extern NORM_API_LINKAGE
 const NormNodeId NORM_NODE_NONE = ((NormNodeId)0x00000000);
+extern NORM_API_LINKAGE
 const NormNodeId NORM_NODE_ANY = ((NormNodeId)0xffffffff);
+extern NORM_API_LINKAGE
 const NormObjectHandle NORM_OBJECT_INVALID = ((NormObjectHandle)0);
 
+extern NORM_API_LINKAGE
 const NormDescriptor NORM_DESCRIPTOR_INVALID = ProtoDispatcher::INVALID_DESCRIPTOR;
+
 
 /** The "NormInstance" class is a C++ helper class that keeps
  *  state for an instance of the NORM API.  It acts as a
@@ -36,6 +45,24 @@ class NormInstance : public NormController
         
         bool Startup(bool priorityBoost = false);
         void Shutdown();
+        
+        void Pause()  // pause NORM protocol engine
+        {
+            dispatcher.Stop();
+            Notify(NormController::EVENT_INVALID, &session_mgr, NULL, NULL, NULL);
+        }
+        bool Resume()
+        {
+            if (dispatcher.StartThread(priority_boost))
+            {
+                return true;
+            }
+            else
+            {
+                DMSG(0, "NormInstance::Resume() error restarting NORM thread\n");
+                return false;
+            }
+        }
         
         bool WaitForEvent();
         bool GetNextEvent(NormEvent* theEvent);
@@ -63,7 +90,6 @@ class NormInstance : public NormController
             NormSession* session = (NormSession*)sessionHandle;
             NormInstance* theInstance = static_cast<NormInstance*>(session->GetSessionMgr().GetController());
             return theInstance;
-            //return static_cast<NormInstance*>(session->GetSessionMgr().GetController());   
         }
         static NormInstance* GetInstanceFromNode(NormNodeHandle nodeHandle)
         {
@@ -126,6 +152,7 @@ class NormInstance : public NormController
         };  // end class NormInstance::Notification
         
         ProtoDispatcher             dispatcher;
+        bool                        priority_boost;
         NormSessionMgr              session_mgr;    
         
     private:
@@ -165,7 +192,8 @@ void NormInstance::Notification::Queue::Destroy()
 ////////////////////////////////////////////////////
 // NormInstance implementation
 NormInstance::NormInstance()
- : session_mgr(static_cast<ProtoTimerMgr&>(dispatcher), 
+ : priority_boost(false),
+   session_mgr(static_cast<ProtoTimerMgr&>(dispatcher), 
                static_cast<ProtoSocket::Notifier&>(dispatcher)),
    previous_notification(NULL), rx_cache_path(NULL)
 {
@@ -188,7 +216,7 @@ bool NormInstance::SetCacheDirectory(const char* cachePath)
     bool result = false;
     if (dispatcher.SuspendThread())
     {
-        int length = strlen(cachePath);
+        size_t length = strlen(cachePath);
         if (PROTO_PATH_DELIMITER != cachePath[length-1]) 
             length += 2;
         else
@@ -481,6 +509,11 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
 
 bool NormInstance::WaitForEvent()
 {
+    if (!dispatcher.IsThreaded()) 
+    {
+        DMSG(0, "NormInstance::WaitForEvent() warning: NORM thread not running!\n");
+        return false;
+    }
 #ifdef WIN32
     WaitForSingleObject(notify_event, INFINITE);
 #else
@@ -537,6 +570,7 @@ bool NormInstance::Startup(bool priorityBoost)
     }
 #endif // if/else WIN32/UNIX
     // 2) Start thread
+    priority_boost = priorityBoost;
     return dispatcher.StartThread(priorityBoost);
 }  // end NormInstance::Startup()
 
@@ -637,6 +671,7 @@ unsigned long NormInstance::CountCompletedObjects(NormSession* session)
 
 /** NORM API Initialization */
 
+NORM_API_LINKAGE
 NormInstanceHandle NormCreateInstance(bool priorityBoost)
 {
     NormInstance* normInstance = new NormInstance;
@@ -650,11 +685,35 @@ NormInstanceHandle NormCreateInstance(bool priorityBoost)
     return NORM_INSTANCE_INVALID;  
 }  // end NormCreateInstance()
 
+NORM_API_LINKAGE
 void NormDestroyInstance(NormInstanceHandle instanceHandle)
 {
     delete ((NormInstance*)instanceHandle);   
 }  // end NormDestroyInstance()
 
+NORM_API_LINKAGE
+bool NormRestartInstance(NormInstanceHandle instanceHandle)
+{
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    if (instance)
+    {
+        if (instance->dispatcher.IsThreaded())
+            instance->Pause();
+        return instance->Resume();
+    }
+    return false;  // invalid instanceHandle
+}  // end NormStartInstance()
+
+
+NORM_API_LINKAGE
+void NormStopInstance(NormInstanceHandle instanceHandle)
+{
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    if (instance) instance->Pause();  // stops NORM protocol thread
+}  // end NormStopInstance()
+
+
+NORM_API_LINKAGE
 bool NormSetCacheDirectory(NormInstanceHandle instanceHandle, 
                            const char*        cachePath)
 {
@@ -665,6 +724,7 @@ bool NormSetCacheDirectory(NormInstanceHandle instanceHandle,
         return false;
 } // end NormSetCacheDirectory()
 
+NORM_API_LINKAGE
 NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle)
 {
     NormInstance* instance = (NormInstance*)instanceHandle;
@@ -675,6 +735,7 @@ NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle)
 }  // end NormGetDescriptor()
 
 // (TBD) add a timeout option to this?
+NORM_API_LINKAGE
 bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent)
 {
     bool result = false;
@@ -682,7 +743,12 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent)
     if (instance)
     {
         if (instance->NotifyQueueIsEmpty()) //(TBD) perform this check???
-            instance->WaitForEvent();
+        {
+            if (!instance->WaitForEvent())
+            {
+                return false;
+            }
+        }
         if (instance->dispatcher.SuspendThread())
         {
             result = instance->GetNextEvent(theEvent);
@@ -695,6 +761,7 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent)
 
 /** NORM Session Creation and Control Functions */
 
+NORM_API_LINKAGE
 NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
                                     const char*        sessionAddr,
                                     unsigned short     sessionPort,
@@ -711,6 +778,7 @@ NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
     return NORM_SESSION_INVALID;
 }  // end NormCreateSession()
 
+NORM_API_LINKAGE
 void NormDestroySession(NormSessionHandle sessionHandle)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -729,6 +797,7 @@ void NormDestroySession(NormSessionHandle sessionHandle)
     }
 }  // end NormDestroySession()
 
+NORM_API_LINKAGE
 void NormSetUserData(NormSessionHandle sessionHandle, const void* userData)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -743,6 +812,7 @@ void NormSetUserData(NormSessionHandle sessionHandle, const void* userData)
     }
 }  // end NormSetUserData()
 
+NORM_API_LINKAGE
 const void* NormGetUserData(NormSessionHandle sessionHandle)
 {
     const void* userData = NULL;
@@ -760,6 +830,7 @@ const void* NormGetUserData(NormSessionHandle sessionHandle)
     return userData;
 }  // end NormGetUserData()
 
+NORM_API_LINKAGE
 NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle)
 {
     NormSession* session = (NormSession*)sessionHandle;
@@ -769,6 +840,7 @@ NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle)
         return NORM_NODE_NONE;      
 }  // end NormGetLocalNodeId()
 
+NORM_API_LINKAGE
 void NormSetTxPort(NormSessionHandle sessionHandle,
                    unsigned short    txPort)
 {
@@ -784,8 +856,10 @@ void NormSetTxPort(NormSessionHandle sessionHandle,
     } 
 }  // end NormSetTxPort()
 
+NORM_API_LINKAGE
 void NormSetRxPortReuse(NormSessionHandle sessionHandle,
-                        bool              state)
+                        bool              enable,
+                        bool              bindToSessionAddress)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
     if (NULL != instance)
@@ -793,12 +867,13 @@ void NormSetRxPortReuse(NormSessionHandle sessionHandle,
         if (instance->dispatcher.SuspendThread())
         {    
             NormSession* session = (NormSession*)sessionHandle;
-            if (session) session->SetRxPortReuse(state);
+            if (session) session->SetRxPortReuse(enable, bindToSessionAddress);
             instance->dispatcher.ResumeThread();
         }
     } 
 }  // end NormSetTxPort()
 
+NORM_API_LINKAGE
 bool NormSetMulticastInterface(NormSessionHandle sessionHandle,
                                const char*       interfaceName)
 {
@@ -817,6 +892,7 @@ bool NormSetMulticastInterface(NormSessionHandle sessionHandle,
     return result;     
 }  // end NormSetMulticastInterface()
 
+NORM_API_LINKAGE
 bool NormSetTTL(NormSessionHandle sessionHandle,
                 unsigned char     ttl)
 {
@@ -835,6 +911,7 @@ bool NormSetTTL(NormSessionHandle sessionHandle,
     return result;     
 }  // end NormSetTTL()
 
+NORM_API_LINKAGE
 bool NormSetTOS(NormSessionHandle sessionHandle,
                 unsigned char     tos)
 {
@@ -846,7 +923,7 @@ bool NormSetTOS(NormSessionHandle sessionHandle,
         {    
             NormSession* session = (NormSession*)sessionHandle;
             if (session)
-                result = session->SetTTL(tos);
+                result = session->SetTOS(tos);
             instance->dispatcher.ResumeThread();
         }
     }
@@ -855,6 +932,7 @@ bool NormSetTOS(NormSessionHandle sessionHandle,
 
 /** Special test/debug support functions */
 
+NORM_API_LINKAGE
 bool NormSetLoopback(NormSessionHandle sessionHandle, bool state)
 {
     NormSession* session = (NormSession*)sessionHandle;
@@ -864,18 +942,21 @@ bool NormSetLoopback(NormSessionHandle sessionHandle, bool state)
         return false;  
 }  // end NormSetLoopback()
 
+NORM_API_LINKAGE
 void NormSetMessageTrace(NormSessionHandle sessionHandle, bool state)
 {
     NormSession* session = (NormSession*)sessionHandle;
     if (session) session->SetTrace(state);
 }  // end NormSetMessageTrace()
 
+NORM_API_LINKAGE
 void NormSetTxLoss(NormSessionHandle sessionHandle, double percent)
 {
     NormSession* session = (NormSession*)sessionHandle;
     if (session) session->SetTxLoss(percent);
 }  // end NormSetTxLoss()
 
+NORM_API_LINKAGE
 void NormSetRxLoss(NormSessionHandle sessionHandle, double percent)
 {
     NormSession* session = (NormSession*)sessionHandle;
@@ -885,6 +966,7 @@ void NormSetRxLoss(NormSessionHandle sessionHandle, double percent)
 
 /** NORM Sender Functions */
 
+NORM_API_LINKAGE
 bool NormStartSender(NormSessionHandle  sessionHandle,
                      NormSessionId      sessionId,
                      unsigned long      bufferSpace,
@@ -906,6 +988,7 @@ bool NormStartSender(NormSessionHandle  sessionHandle,
     return result;
 }  // end NormStartSender()
 
+NORM_API_LINKAGE
 void NormStopSender(NormSessionHandle sessionHandle)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -917,6 +1000,17 @@ void NormStopSender(NormSessionHandle sessionHandle)
     }
 }  // end NormStopSender()
 
+
+NORM_API_LINKAGE
+double NormGetTransmitRate(NormSessionHandle sessionHandle)
+{
+    if (NORM_SESSION_INVALID != sessionHandle)
+        return (((NormSession*)sessionHandle)->GetTxRate());
+    else
+        return -1.0;
+}  // end NormGetTransmitRate()
+
+NORM_API_LINKAGE
 void NormSetTransmitRate(NormSessionHandle sessionHandle,
                          double            bitsPerSecond)
 {
@@ -929,6 +1023,7 @@ void NormSetTransmitRate(NormSessionHandle sessionHandle,
     }
 }  // end NormSetTransmitRate()
 
+NORM_API_LINKAGE
 bool NormSetTxSocketBuffer(NormSessionHandle sessionHandle, 
                            unsigned int      bufferSize)
 {
@@ -944,6 +1039,7 @@ bool NormSetTxSocketBuffer(NormSessionHandle sessionHandle,
     return result;
 }  // end NormSetTxSocketBuffer()
 
+NORM_API_LINKAGE
 void NormSetCongestionControl(NormSessionHandle sessionHandle, bool enable)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -955,6 +1051,7 @@ void NormSetCongestionControl(NormSessionHandle sessionHandle, bool enable)
     }
 }  // end NormSetCongestionControl()
 
+NORM_API_LINKAGE
 void NormSetTransmitRateBounds(NormSessionHandle sessionHandle,
                                double            rateMin,
                                double            rateMax)
@@ -968,6 +1065,7 @@ void NormSetTransmitRateBounds(NormSessionHandle sessionHandle,
     }
 }  // end NormSetTransmitRateBounds()
 
+NORM_API_LINKAGE
 void NormSetTransmitCacheBounds(NormSessionHandle sessionHandle,
                                 NormSize          sizeMax,
                                 unsigned long     countMin,
@@ -983,6 +1081,7 @@ void NormSetTransmitCacheBounds(NormSessionHandle sessionHandle,
     }
 }  // end NormSetTransmitCacheBounds()
 
+NORM_API_LINKAGE
 void NormSetAutoParity(NormSessionHandle sessionHandle, unsigned char autoParity)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -994,6 +1093,7 @@ void NormSetAutoParity(NormSessionHandle sessionHandle, unsigned char autoParity
     }
 }  // end NormSetAutoParity()
 
+NORM_API_LINKAGE
 void NormSetGrttEstimate(NormSessionHandle sessionHandle,
                          double            grttEstimate)
 {
@@ -1006,6 +1106,7 @@ void NormSetGrttEstimate(NormSessionHandle sessionHandle,
     }
 }  // end NormSetGrttEstimate()
 
+NORM_API_LINKAGE
 void NormSetGrttMax(NormSessionHandle sessionHandle,
                     double            grttMax)
 {
@@ -1018,6 +1119,7 @@ void NormSetGrttMax(NormSessionHandle sessionHandle,
     }
 }  // end NormSetGrttMax()
 
+NORM_API_LINKAGE
 void NormSetGrttProbingMode(NormSessionHandle sessionHandle,
                             NormProbingMode   probingMode)
 {
@@ -1025,12 +1127,12 @@ void NormSetGrttProbingMode(NormSessionHandle sessionHandle,
     if (instance && instance->dispatcher.SuspendThread())
     {
         NormSession* session = (NormSession*)sessionHandle;
-        if (session) 
-            session->SetGrttProbingMode((NormSession::ProbingMode)probingMode);
+        session->SetGrttProbingMode((NormSession::ProbingMode)probingMode);
         instance->dispatcher.ResumeThread();
     }
 }  // end NormSetGrttProbingMode()
 
+NORM_API_LINKAGE
 void NormSetGrttProbingInterval(NormSessionHandle sessionHandle,
                                 double            intervalMin,
                                 double            intervalMax)
@@ -1044,6 +1146,34 @@ void NormSetGrttProbingInterval(NormSessionHandle sessionHandle,
     }
 }  // end NormSetGrttProbingInterval()
 
+NORM_API_LINKAGE
+void NormSetBackoffFactor(NormSessionHandle sessionHandle,
+                          double            backoffFactor)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (backoffFactor >= 0.0)
+            session->SetBackoffFactor(backoffFactor);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetBackoffFactor()
+
+NORM_API_LINKAGE
+void NormSetGroupSize(NormSessionHandle sessionHandle,
+                      unsigned int      groupSize)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        session->ServerSetGroupSize((double)groupSize);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetGroupSize()
+
+NORM_API_LINKAGE
 NormObjectHandle NormFileEnqueue(NormSessionHandle  sessionHandle,
                                  const char*        fileName,
                                  const char*        infoPtr, 
@@ -1064,6 +1194,7 @@ NormObjectHandle NormFileEnqueue(NormSessionHandle  sessionHandle,
     return objectHandle;
 }  // end NormFileEnqueue()
 
+NORM_API_LINKAGE
 NormObjectHandle NormDataEnqueue(NormSessionHandle  sessionHandle,
                                  const char*        dataPtr,
                                  unsigned long      dataLen,
@@ -1085,6 +1216,7 @@ NormObjectHandle NormDataEnqueue(NormSessionHandle  sessionHandle,
     return objectHandle;
 }  // end NormDataEnqueue()
 
+NORM_API_LINKAGE
 NormObjectHandle NormStreamOpen(NormSessionHandle  sessionHandle,
                                 unsigned long      bufferSize)
 {
@@ -1104,6 +1236,7 @@ NormObjectHandle NormStreamOpen(NormSessionHandle  sessionHandle,
     return objectHandle;
 }  // end NormStreamOpen()
 
+NORM_API_LINKAGE
 void NormStreamClose(NormObjectHandle streamHandle, bool graceful)
 {
     NormStreamObject* stream =
@@ -1126,6 +1259,7 @@ void NormStreamClose(NormObjectHandle streamHandle, bool graceful)
     }
 }  // end NormStreamClose()
 
+NORM_API_LINKAGE
 unsigned int NormStreamWrite(NormObjectHandle   streamHandle,
                              const char*        buffer,
                              unsigned int       numBytes)
@@ -1143,6 +1277,7 @@ unsigned int NormStreamWrite(NormObjectHandle   streamHandle,
     return result;
 }  // end NormStreamWrite()
 
+NORM_API_LINKAGE
 void NormStreamFlush(NormObjectHandle streamHandle, 
                      bool             eom,
                      NormFlushMode    flushMode)
@@ -1163,6 +1298,7 @@ void NormStreamFlush(NormObjectHandle streamHandle,
     }
 }  // end NormStreamFlush()
 
+NORM_API_LINKAGE
 void NormStreamSetAutoFlush(NormObjectHandle    streamHandle,
                             NormFlushMode       flushMode)
 {
@@ -1172,6 +1308,7 @@ void NormStreamSetAutoFlush(NormObjectHandle    streamHandle,
         stream->SetFlushMode((NormStreamObject::FlushMode)flushMode);
 }  // end NormStreamSetAutoFlush()
 
+NORM_API_LINKAGE
 void NormStreamSetPushEnable(NormObjectHandle streamHandle, bool state)
 {
     NormStreamObject* stream = 
@@ -1179,6 +1316,7 @@ void NormStreamSetPushEnable(NormObjectHandle streamHandle, bool state)
     if (stream) stream->SetPushMode(state);
 }  // end NormStreamSetPushEnable()
 
+NORM_API_LINKAGE
 bool NormStreamHasVacancy(NormObjectHandle streamHandle)
 {
     bool result = false;
@@ -1194,6 +1332,7 @@ bool NormStreamHasVacancy(NormObjectHandle streamHandle)
     return result;
 }  // end NormStreamHasVacancy()
 
+NORM_API_LINKAGE
 void NormStreamMarkEom(NormObjectHandle streamHandle)
 {
     NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
@@ -1206,6 +1345,7 @@ void NormStreamMarkEom(NormObjectHandle streamHandle)
     }
 }  // end NormStreamMarkEom()
 
+NORM_API_LINKAGE
 bool NormSetWatermark(NormSessionHandle  sessionHandle,
                       NormObjectHandle   objectHandle)
 {
@@ -1240,6 +1380,7 @@ bool NormSetWatermark(NormSessionHandle  sessionHandle,
     return result;
 }  // end NormSetWatermark()
 
+NORM_API_LINKAGE
 bool NormAddAckingNode(NormSessionHandle  sessionHandle,
                        NormNodeId         nodeId)
 {
@@ -1255,6 +1396,7 @@ bool NormAddAckingNode(NormSessionHandle  sessionHandle,
     return result;
 }  // end NormAddAckingNode()
 
+NORM_API_LINKAGE
 void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
                           NormNodeId         nodeId)
 {
@@ -1267,6 +1409,7 @@ void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
     }
 }  // end NormRemoveAckingNode()
 
+NORM_API_LINKAGE
 NormAckingStatus NormGetAckingStatus(NormSessionHandle  sessionHandle,
                                      NormNodeId         nodeId)
 {
@@ -1287,6 +1430,7 @@ NormAckingStatus NormGetAckingStatus(NormSessionHandle  sessionHandle,
 
 /** NORM Receiver Functions */
 
+NORM_API_LINKAGE
 bool NormStartReceiver(NormSessionHandle  sessionHandle,
                        unsigned long      bufferSpace)
 {
@@ -1301,6 +1445,7 @@ bool NormStartReceiver(NormSessionHandle  sessionHandle,
     return result;
 }  // end NormStartReceiver()
 
+NORM_API_LINKAGE
 void NormStopReceiver(NormSessionHandle sessionHandle)
 {
     
@@ -1313,6 +1458,7 @@ void NormStopReceiver(NormSessionHandle sessionHandle)
     }
 }  // end NormStopReceiver()
 
+NORM_API_LINKAGE
 bool NormSetRxSocketBuffer(NormSessionHandle sessionHandle, 
                            unsigned int      bufferSize)
 {
@@ -1328,6 +1474,7 @@ bool NormSetRxSocketBuffer(NormSessionHandle sessionHandle,
     return result;
 }  // end NormSetRxSocketBuffer()
 
+NORM_API_LINKAGE
 void NormSetSilentReceiver(NormSessionHandle sessionHandle,
                            bool              silent)
 {
@@ -1335,6 +1482,7 @@ void NormSetSilentReceiver(NormSessionHandle sessionHandle,
     if (session) session->ClientSetSilent(silent);
 }  // end NormSetSilentReceiver()
 
+NORM_API_LINKAGE
 void NormSetDefaultUnicastNack(NormSessionHandle sessionHandle,
                                bool              unicastNacks)
 {
@@ -1342,6 +1490,7 @@ void NormSetDefaultUnicastNack(NormSessionHandle sessionHandle,
     if (session) session->ClientSetUnicastNacks(unicastNacks);
 }  // end NormSetDefaultUnicastNack()
 
+NORM_API_LINKAGE
 void NormNodeSetUnicastNack(NormNodeHandle   nodeHandle,
                             bool             unicastNacks)
 {
@@ -1349,6 +1498,7 @@ void NormNodeSetUnicastNack(NormNodeHandle   nodeHandle,
     if (node) node->SetUnicastNacks(unicastNacks);
 }  // end NormNodeSetUnicastNack()
 
+NORM_API_LINKAGE
 void NormSetDefaultNackingMode(NormSessionHandle sessionHandle,
                                NormNackingMode   nackingMode)
 {
@@ -1356,6 +1506,7 @@ void NormSetDefaultNackingMode(NormSessionHandle sessionHandle,
     if (session) session->ClientSetDefaultNackingMode((NormObject::NackingMode)nackingMode);
 }  // end NormSetDefaultNackingMode()
 
+NORM_API_LINKAGE
 void NormNodeSetNackingMode(NormNodeHandle   nodeHandle,
                             NormNackingMode  nackingMode)
 {
@@ -1363,6 +1514,7 @@ void NormNodeSetNackingMode(NormNodeHandle   nodeHandle,
     if (node) node->SetDefaultNackingMode((NormObject::NackingMode)nackingMode);
 }  // end NormNodeSetNackingMode()
 
+NORM_API_LINKAGE
 void NormObjectSetNackingMode(NormObjectHandle objectHandle,
                               NormNackingMode  nackingMode)
 {
@@ -1370,6 +1522,7 @@ void NormObjectSetNackingMode(NormObjectHandle objectHandle,
     if (object) object->SetNackingMode((NormObject::NackingMode)nackingMode);
 }  // end NormObjectSetNackingMode()
 
+NORM_API_LINKAGE
 void NormSetDefaultRepairBoundary(NormSessionHandle  sessionHandle,
                                   NormRepairBoundary repairBoundary)
 {
@@ -1378,6 +1531,7 @@ void NormSetDefaultRepairBoundary(NormSessionHandle  sessionHandle,
         session->ClientSetDefaultRepairBoundary((NormServerNode::RepairBoundary)repairBoundary);
 }  // end NormSetDefaultRepairBoundary()
 
+NORM_API_LINKAGE
 void NormNodeSetRepairBoundary(NormNodeHandle     nodeHandle,
                                NormRepairBoundary repairBoundary)
 {
@@ -1386,6 +1540,7 @@ void NormNodeSetRepairBoundary(NormNodeHandle     nodeHandle,
         node->SetRepairBoundary((NormServerNode::RepairBoundary)repairBoundary);
 }  // end NormNodeSetRepairBoundary()
 
+NORM_API_LINKAGE
 bool NormStreamRead(NormObjectHandle   streamHandle,
                     char*              buffer,
                     unsigned int*      numBytes)
@@ -1402,6 +1557,7 @@ bool NormStreamRead(NormObjectHandle   streamHandle,
     return result;
 }  // end NormStreamRead()
 
+NORM_API_LINKAGE
 bool NormStreamSeekMsgStart(NormObjectHandle streamHandle)
 {
     bool result = false;
@@ -1418,6 +1574,7 @@ bool NormStreamSeekMsgStart(NormObjectHandle streamHandle)
 }  // end NormStreamSeekMsgStart()
 
 
+NORM_API_LINKAGE
 unsigned long NormStreamGetReadOffset(NormObjectHandle streamHandle)
 {
     NormStreamObject* stream = static_cast<NormStreamObject*>((NormObject*)streamHandle);
@@ -1430,6 +1587,7 @@ unsigned long NormStreamGetReadOffset(NormObjectHandle streamHandle)
 
 /** NORM Object Functions */
 
+NORM_API_LINKAGE
 NormObjectType NormObjectGetType(NormObjectHandle objectHandle)
 {
     if (NORM_OBJECT_INVALID != objectHandle)
@@ -1438,16 +1596,19 @@ NormObjectType NormObjectGetType(NormObjectHandle objectHandle)
         return NORM_OBJECT_NONE;
 }  // end NormObjectGetType()
 
+NORM_API_LINKAGE
 bool NormObjectHasInfo(NormObjectHandle objectHandle)
 {
     return ((NormObject*)objectHandle)->HasInfo();
 }  // end NormObjectHasInfo()
 
+NORM_API_LINKAGE
 unsigned short NormObjectGetInfoLength(NormObjectHandle objectHandle)
 {
     return ((NormObject*)objectHandle)->GetInfoLength();
 }  // end NormObjectGetInfoLength()
 
+NORM_API_LINKAGE
 unsigned short NormObjectGetInfo(NormObjectHandle objectHandle,
                                  char*            buffer,
                                  unsigned short   bufferLen)
@@ -1468,11 +1629,13 @@ unsigned short NormObjectGetInfo(NormObjectHandle objectHandle,
     return result;
 }  // end NormObjectGetInfo()
 
+NORM_API_LINKAGE
 NormSize NormObjectGetSize(NormObjectHandle objectHandle)
 {
     return ((NormSize)((NormObject*)objectHandle)->GetSize().GetOffset());
 }  // end NormObjectGetSize()
 
+NORM_API_LINKAGE
 NormSize NormObjectGetBytesPending(NormObjectHandle objectHandle)
 {
     NormSize bytesPending = 0;
@@ -1488,6 +1651,7 @@ NormSize NormObjectGetBytesPending(NormObjectHandle objectHandle)
     return bytesPending;
 }  // end NormObjectGetBytesPending()
 
+NORM_API_LINKAGE
 void NormObjectCancel(NormObjectHandle objectHandle)
 {
     if (NORM_OBJECT_INVALID != objectHandle)
@@ -1507,6 +1671,7 @@ void NormObjectCancel(NormObjectHandle objectHandle)
     }
 }  // end NormObjectCancel()
 
+NORM_API_LINKAGE
 void NormObjectRetain(NormObjectHandle objectHandle)
 {
     if (NORM_OBJECT_INVALID != objectHandle)
@@ -1521,6 +1686,7 @@ void NormObjectRetain(NormObjectHandle objectHandle)
     }
 }  // end NormRetainObject()
 
+NORM_API_LINKAGE
 void NormObjectRelease(NormObjectHandle objectHandle)
 {
     if (NORM_OBJECT_INVALID != objectHandle)
@@ -1536,6 +1702,7 @@ void NormObjectRelease(NormObjectHandle objectHandle)
     }
 }  // end NormObjectRelease()
 
+NORM_API_LINKAGE
 bool NormFileGetName(NormObjectHandle   fileHandle,
                      char*              nameBuffer,
                      unsigned int       bufferLen)
@@ -1554,6 +1721,7 @@ bool NormFileGetName(NormObjectHandle   fileHandle,
     return result;
 }  // end NormFileGetName()
 
+NORM_API_LINKAGE
 bool NormFileRename(NormObjectHandle   fileHandle,
                     const char*        fileName)
 {
@@ -1570,6 +1738,7 @@ bool NormFileRename(NormObjectHandle   fileHandle,
     return result;
 }  // end NormFileRename()
 
+NORM_API_LINKAGE
 const char*volatile NormDataAccessData(NormObjectHandle dataHandle) 
 {
     NormDataObject* dataObj = 
@@ -1577,6 +1746,7 @@ const char*volatile NormDataAccessData(NormObjectHandle dataHandle)
     return dataObj->GetData();
 }  // end NormDataAccessData()
 
+NORM_API_LINKAGE
 char* NormDataDetachData(NormObjectHandle dataHandle) 
 {
     NormDataObject* dataObj = 
@@ -1584,6 +1754,7 @@ char* NormDataDetachData(NormObjectHandle dataHandle)
     return dataObj->DetachData();
 }  // end NormDataDetachData()
 
+NORM_API_LINKAGE
 NormNodeHandle NormObjectGetSender(NormObjectHandle objectHandle)
 {
     return (NormNodeHandle)(((NormObject*)objectHandle)->GetServer());
@@ -1592,6 +1763,7 @@ NormNodeHandle NormObjectGetSender(NormObjectHandle objectHandle)
 
 /** NORM Node Functions */
 
+NORM_API_LINKAGE
 NormNodeId NormNodeGetId(NormNodeHandle nodeHandle)
 {
     NormNode* node = (NormNode*)nodeHandle;
@@ -1601,6 +1773,7 @@ NormNodeId NormNodeGetId(NormNodeHandle nodeHandle)
         return NORM_NODE_NONE;
 }  // end NormNodeGetId()
 
+NORM_API_LINKAGE
 bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
                         char*           addrBuffer, 
                         unsigned int*   bufferLen,
@@ -1632,6 +1805,7 @@ bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
     return result;
 }  // end NormNodeGetId()
 
+NORM_API_LINKAGE
 void NormNodeRetain(NormNodeHandle nodeHandle)
 {
     if (NORM_NODE_INVALID != nodeHandle)
@@ -1646,6 +1820,7 @@ void NormNodeRetain(NormNodeHandle nodeHandle)
     }
 }  // end NormNodeRetain()
 
+NORM_API_LINKAGE
 void NormNodeRelease(NormNodeHandle nodeHandle)
 {
     if (NORM_NODE_INVALID != nodeHandle)
@@ -1675,6 +1850,7 @@ void NormNodeRelease(NormNodeHandle nodeHandle)
 //        events with a "NormDispatchEvents()" call ...
 //
 
+NORM_API_LINKAGE
 unsigned long NormCountCompletedObjects(NormSessionHandle sessionHandle)
 {
     unsigned long result = 0;

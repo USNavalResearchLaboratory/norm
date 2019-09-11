@@ -4,6 +4,7 @@
 	Version="7.10"
 	Name="normTest"
 	ProjectGUID="{32CF83E0-D2E0-4E43-8F7B-72BD0AB64647}"
+	RootNamespace="normTest"
 	SccProjectName=""
 	SccLocalPath="">
 	<Platforms>
@@ -23,7 +24,7 @@
 				Name="VCCLCompilerTool"
 				Optimization="0"
 				AdditionalIncludeDirectories="..\common,..\protolib\common,..\protolib\win32"
-				PreprocessorDefinitions="_DEBUG;PROTO_DEBUG;HAVE_IPV6;HAVE_ASSERT;WIN32;_CONSOLE"
+				PreprocessorDefinitions="NORM_USE_DLL, PROTO_DEBUG, WIN32"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="3"
 				BufferSecurityCheck="TRUE"
@@ -40,10 +41,11 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="iphlpapi.lib ws2_32.lib odbc32.lib odbccp32.lib"
+				AdditionalDependencies="iphlpapi.lib ws2_32.lib odbc32.lib odbccp32.lib Norm.dll"
 				OutputFile=".\Debug/normTest.exe"
 				LinkIncremental="0"
 				SuppressStartupBanner="TRUE"
+				AdditionalLibraryDirectories="./"
 				GenerateDebugInformation="TRUE"
 				ProgramDatabaseFile=".\Debug/normTest.pdb"
 				SubSystem="1"
@@ -85,8 +87,8 @@
 				Name="VCCLCompilerTool"
 				Optimization="2"
 				InlineFunctionExpansion="1"
-				AdditionalIncludeDirectories="..\common,..\protolib\common,..\protolib\win32"
-				PreprocessorDefinitions="NDEBUG;PROTO_DEBUG;HAVE_IPV6;HAVE_ASSERT;WIN32;_CONSOLE"
+				AdditionalIncludeDirectories="..\common;..\protolib\common;..\protolib\win32;NormDll3"
+				PreprocessorDefinitions="NORM_USE_DLL, PROTO_DEBUG, WIN32, HAVE_ASSERT"
 				StringPooling="TRUE"
 				RuntimeLibrary="2"
 				EnableFunctionLevelLinking="TRUE"
@@ -103,10 +105,12 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLinkerTool"
+				IgnoreImportLibrary="FALSE"
 				AdditionalDependencies="iphlpapi.lib ws2_32.lib odbc32.lib odbccp32.lib"
 				OutputFile=".\Release/normTest.exe"
 				LinkIncremental="1"
 				SuppressStartupBanner="TRUE"
+				AdditionalLibraryDirectories=""
 				ProgramDatabaseFile=".\Release/normTest.pdb"
 				SubSystem="1"
 				TargetMachine="1"/>
@@ -144,23 +148,6 @@
 			Filter="cpp;c;cxx;rc;def;r;odl;idl;hpj;bat">
 			<File
 				RelativePath="..\common\normTest.cpp">
-				<FileConfiguration
-					Name="Debug|Win32">
-					<Tool
-						Name="VCCLCompilerTool"
-						Optimization="0"
-						AdditionalIncludeDirectories=""
-						PreprocessorDefinitions=""
-						BasicRuntimeChecks="3"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Win32">
-					<Tool
-						Name="VCCLCompilerTool"
-						Optimization="2"
-						AdditionalIncludeDirectories=""
-						PreprocessorDefinitions=""/>
-				</FileConfiguration>
 			</File>
 		</Filter>
 		<Filter

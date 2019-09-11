@@ -65,7 +65,8 @@ char* NormSegmentPool::Get()
     char* ptr = seg_list;
     if (ptr)
     {
-        memcpy(&seg_list, ptr, sizeof(char*));
+        //memcpy(&seg_list, ptr, sizeof(char*));
+        seg_list = *((char**)ptr);
         seg_count--;
 //#ifdef NORM_DEBUG
         overrun_flag = false;
@@ -601,7 +602,7 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
 }  // end NormBlock::AppendRepairRequest()
          
 NormBlockPool::NormBlockPool()
- : head((NormBlock*)NULL), count(0), overruns(0), overrun_flag(false)
+ : head((NormBlock*)NULL), blk_total(0), blk_count(0), overruns(0), overrun_flag(false)
 {
 }
 
@@ -627,6 +628,8 @@ bool NormBlockPool::Init(UINT32 numBlocks, UINT16 segsPerBlock)
             }  
             b->next = head;
             head = b;
+            blk_count++;
+            blk_total++;
         }
         else
         {
@@ -635,19 +638,19 @@ bool NormBlockPool::Init(UINT32 numBlocks, UINT16 segsPerBlock)
             return false; 
         } 
     }
-    count = numBlocks;
     return true;
 }  // end NormBlockPool::Init()
 
 void NormBlockPool::Destroy()
 {
+    ASSERT(blk_total == blk_count);
     NormBlock* next;
     while ((next = head))
     {
         head = next->next;
         delete next;   
     }
-    count = 0;
+    blk_count = blk_total = 0;
 }  // end NormBlockPool::Destroy()
 
 NormBlockBuffer::NormBlockBuffer()

@@ -18,7 +18,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
  : session_mgr(sessionMgr), notify_pending(false), tx_port(0), 
    tx_socket(&tx_socket_actual), tx_socket_actual(ProtoSocket::UDP), 
    rx_socket(ProtoSocket::UDP), local_node_id(localNodeId), 
-   ttl(DEFAULT_TTL), loopback(false), rx_port_reuse(false), 
+   ttl(DEFAULT_TTL), tos(0), loopback(false), rx_port_reuse(false), rx_addr_bind(false),
    tx_rate(DEFAULT_TRANSMIT_RATE/8.0), tx_rate_min(-1.0), tx_rate_max(-1.0),
    backoff_factor(DEFAULT_BACKOFF_FACTOR), is_server(false), instance_id(0),
    ndata(DEFAULT_NDATA), nparity(DEFAULT_NPARITY), auto_parity(0), extra_parity(0),
@@ -28,7 +28,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    posted_tx_queue_empty(false), 
    acking_node_count(0), watermark_pending(false), advertise_repairs(false),
    suppress_nonconfirmed(false), suppress_rate(-1.0), suppress_rtt(-1.0),
-   probe_proactive(true), probe_pending(false), probe_reset(true),
+   probe_proactive(true), probe_pending(false), probe_reset(true), probe_data_check(false),
    grtt_interval(0.5), 
    grtt_interval_min(DEFAULT_GRTT_INTERVAL_MIN),
    grtt_interval_max(DEFAULT_GRTT_INTERVAL_MAX),
@@ -68,7 +68,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
     
     grtt_quantized = NormQuantizeRtt(DEFAULT_GRTT_ESTIMATE);
     grtt_measured = grtt_advertised = NormUnquantizeRtt(grtt_quantized);
-    
+            
     gsize_measured = DEFAULT_GSIZE_ESTIMATE;
     gsize_quantized = NormQuantizeGroupSize(DEFAULT_GSIZE_ESTIMATE);
     gsize_advertised = NormUnquantizeGroupSize(gsize_quantized);
@@ -114,7 +114,7 @@ bool NormSession::Open(const char* interfaceName)
             Close();
             return false;   
         }
-        const ProtoAddress* bindAddr = NULL;
+        
         if (rx_port_reuse)
         {
             // Enable port/addr reuse and bind socket to destination address 
@@ -124,6 +124,10 @@ bool NormSession::Open(const char* interfaceName)
                 Close();
                 return false;   
             }
+        }
+        const ProtoAddress* bindAddr = NULL;
+        if (rx_addr_bind)
+        {
 #ifndef WIN32
             if (address.IsMulticast())  // Win32 doesn't like to bind to multicast addr ???
                 bindAddr = &address;
@@ -134,6 +138,13 @@ bool NormSession::Open(const char* interfaceName)
             DMSG(0, "NormSession::Open() rx_socket bind error\n");
             Close();
             return false;
+        }
+    }
+    if (0 != tos)
+    {
+        if (!tx_socket->SetTOS(tos))
+        {
+            DMSG(0, "NormSession::Open() warning: tx_socket set tos error\n");
         }
     }
     
@@ -238,12 +249,17 @@ bool NormSession::SetMulticastInterface(const char* interfaceName)
 
 void NormSession::SetTxRateInternal(double txRate)
 {
+    if (txRate < 0.0) 
+    {
+        DMSG(0, "NormSession::SetTxRateInternal() invalid transmit rate!\n");
+        return;
+    }
     if (tx_timer.IsActive())
     {
         if (txRate > 0.0)
         {
             double adjustInterval = (tx_rate/txRate) * tx_timer.GetTimeRemaining();
-            if (adjustInterval > 0.100)
+            if (adjustInterval > NORM_TICK_MIN)
             {
                 tx_timer.SetInterval(adjustInterval);
                 tx_timer.Reschedule();
@@ -254,30 +270,38 @@ void NormSession::SetTxRateInternal(double txRate)
             tx_timer.Deactivate();
         
         }
-        tx_rate = txRate;
     }
     else if ((0.0 == tx_rate) && IsOpen())
     {
-        tx_rate = txRate;
         tx_timer.SetInterval(0.0);
-        ActivateTimer(tx_timer);
+        if (txRate > 0.0) ActivateTimer(tx_timer);
     }
-    else
+    tx_rate = txRate; 
+    if (tx_rate > 0.0)
     {
-        tx_rate = txRate;   
+        unsigned char grttQuantizedOld = grtt_quantized;
+        double pktInterval = (double)(44+segment_size)/txRate;
+        if (grtt_measured < pktInterval)
+            grtt_quantized = NormQuantizeRtt(pktInterval);
+        else
+            grtt_quantized = NormQuantizeRtt(grtt_measured);
+        grtt_advertised = NormUnquantizeRtt(grtt_quantized);
+        
+        // What do we do when "pktInterval" > "grtt_max"?
+        // We will take our lumps with some extra activity timeout NACKs when they happen?
+        if (grtt_advertised > grtt_max)
+        {
+            grtt_quantized = NormQuantizeRtt(grtt_max); 
+            grtt_advertised = NormUnquantizeRtt(grtt_quantized);    
+        }
+        
+        
+        if (grttQuantizedOld != grtt_quantized)
+            DMSG(4, "NormSession::SetTxRateInternal() node>%lu %s to new grtt to: %lf sec\n",
+                    LocalNodeId(), 
+                    (grttQuantizedOld < grtt_quantized) ? "increased" : "decreased",
+                    grtt_advertised);
     }
-    unsigned char grttQuantizedOld = grtt_quantized;
-    double pktInterval = (double)(44+segment_size)/tx_rate;
-    if (grtt_measured < pktInterval)
-        grtt_quantized = NormQuantizeRtt(pktInterval);
-    else
-        grtt_quantized = NormQuantizeRtt(grtt_measured);
-    grtt_advertised = NormUnquantizeRtt(grtt_quantized);
-    if (grttQuantizedOld != grtt_quantized)
-        DMSG(4, "NormSession::SetTxRateInternal() node>%lu %s to new grtt to: %lf sec\n",
-                LocalNodeId(), 
-                (grttQuantizedOld < grtt_quantized) ? "increased" : "decreased",
-                grtt_advertised);
 }  // end NormSession::SetTxRateInternal()
 
 void NormSession::SetTxRateBounds(double rateMin, double rateMax)
@@ -292,8 +316,11 @@ void NormSession::SetTxRateBounds(double rateMin, double rateMax)
             rateMax = temp;   
         }   
     }
+    
     if (rateMin < 0.0)
         tx_rate_min = -1.0;
+    else if (rateMin < 8.0)
+        tx_rate_min = 1.0;          // one byte/second absolute minimum
     else
         tx_rate_min = rateMin/8.0;  // convert to bytes/second
     if (rateMax < 0.0)
@@ -302,11 +329,12 @@ void NormSession::SetTxRateBounds(double rateMin, double rateMax)
         tx_rate_max = rateMax/8.0;  // convert to bytes/second
     if (cc_enable)
     {
-        if ((tx_rate_min >= 0.0) && (tx_rate < tx_rate_min))
-            tx_rate = tx_rate_min;
-        if ((tx_rate_max >= 0.0) && (tx_rate > tx_rate_max))
-            tx_rate = tx_rate_max;
-        SetTxRateInternal(tx_rate);
+        double txRate = tx_rate;
+        if ((tx_rate_min > 0.0) && (txRate < tx_rate_min))
+            txRate = tx_rate_min;
+        if ((tx_rate_max >= 0.0) && (txRate > tx_rate_max))
+            txRate = tx_rate_max;
+        if (txRate != tx_rate) SetTxRateInternal(txRate);
     }
 }  // end NormSession::SetTxRateBounds()
         
@@ -382,8 +410,6 @@ bool NormSession::StartServer(UINT16        instanceId,
     
     instance_id = instanceId;
     segment_size = segmentSize;
-    sent_rate = 0.0;
-    prev_update_time.tv_sec = prev_update_time.tv_usec = 0;
     sent_accumulator = 0;
     nominal_packet_size = (double)segmentSize;
     data_active = false;
@@ -394,14 +420,26 @@ bool NormSession::StartServer(UINT16        instanceId,
     
     if (cc_enable) 
     {
-        tx_rate = segmentSize;
-        if ((tx_rate_min >= 0.0) && (tx_rate < tx_rate_min))
-            tx_rate = tx_rate_min;
+        double txRate;
+        if(tx_rate_min > 0.0)
+        {
+            txRate = tx_rate_min;
+        }
+        else
+        {
+            // Don't let txRate below MIN(one segment per grtt, one segment per seconds)
+            txRate = ((double)segment_size) / grtt_measured;
+            if (txRate > ((double)(segment_size)))
+                txRate = (double)(segment_size);
+        }
         if ((tx_rate_max >= 0.0) && (tx_rate > tx_rate_max))
-            tx_rate = tx_rate_max;
+            txRate = tx_rate_max;
+        tx_rate = txRate;             // keep grtt at initial
+        //SetTxRateInternal(txRate);  // adjusts grtt_advertised as needed
     }
     grtt_age = 0.0;
     probe_pending = false;
+    probe_data_check = false;
     if (probe_reset)
     {        
         probe_reset = false;
@@ -428,6 +466,7 @@ void NormSession::StopServer()
         NormObject* obj = tx_table.Find(tx_table.RangeLo());
         ASSERT(obj);
         tx_table.Remove(obj);
+        obj->Close();
         obj->Release();
     }
     // Then destroy table
@@ -680,7 +719,6 @@ void NormSession::Serve()
                         posted_tx_queue_empty = true;
                         Notify(NormController::TX_QUEUE_EMPTY, (NormServerNode*)NULL, obj);
                         // (TBD) Was session deleted?
-                        //Serve();
                         return;
                     }      
                 }
@@ -702,13 +740,12 @@ void NormSession::Serve()
         // No pending objects or positive acknowledgement request
         if (!posted_tx_queue_empty)
         {
-            data_active = false;
+            data_active = false;  // (TBD) should we wait until the flush process completes before setting false???
             posted_tx_queue_empty = true;
             Notify(NormController::TX_QUEUE_EMPTY,
                    (NormServerNode*)NULL,
                    (NormObject*)NULL);
             // (TBD) Was session deleted?
-            //Serve();
             return;
         }     
         if (flush_count < NORM_ROBUST_FACTOR)
@@ -732,8 +769,6 @@ void NormSession::ServerSetWatermark(NormObjectId  objectId,
                                      NormBlockId   blockId,
                                      NormSegmentId segmentId)       
 {
-    TRACE("NormSession::ServerSetWatermark(%hu:%lu:%hu) ...\n",
-            (UINT16)objectId, (UINT32)blockId, (UINT16)segmentId);
     watermark_pending = true;
     watermark_active = false;
     watermark_object_id = objectId;
@@ -894,12 +929,14 @@ bool NormSession::ServerQueueWatermarkFlush()
         }
         else if (NULL != acking_node_tree.GetRoot())
         {
+            ReturnMessageToPool(flush);
             DMSG(4, "NormSession::ServeQueueWatermarkFlush() node>%lu watermark ack finished.\n");
             Notify(NormController::TX_WATERMARK_COMPLETED, (NormServerNode*)NULL, (NormObject*)NULL);
             return false; 
         }
         else
         {
+            ReturnMessageToPool(flush);
             DMSG(2, "NormSession::ServeQueueWatermarkFlush() node>%lu no acking nodes specified?!\n");
             return false;
         }
@@ -940,16 +977,21 @@ void NormSession::ServerQueueFlush()
     }
     else
     {
-        // Why did I do this? - Brian
+        // Why did I do this? - Brian // Because a squelch keeps the receivers from NACKing in futility
         // (TBD) send NORM_CMD(EOT) instead? - no
         if (ServerQueueSquelch(next_tx_object_id))
         {
             if (flush_count < NORM_ROBUST_FACTOR) flush_count++;
-            flush_timer.SetInterval(2*grtt_advertised);
+            flush_timer.SetInterval(4*grtt_advertised);
             ActivateTimer(flush_timer);
+            DMSG(8, "NormSession::ServerQueueFlush() node>%lu squelch queued (flush_count:%u)...\n",
+                 LocalNodeId(), flush_count);
         }
-        DMSG(8, "NormSession::ServerQueueFlush() node>%lu squelch queued (flush_count:%u)...\n",
-                LocalNodeId(), flush_count);
+        else
+        {
+            DMSG(0, "NormSession::ServerQueueFlush() warning: node>%lu unable to queue squelch\n",
+                    LocalNodeId());  
+        }
         return;  
     }
     NormCmdFlushMsg* flush = (NormCmdFlushMsg*)GetMessageFromPool();
@@ -973,14 +1015,14 @@ void NormSession::ServerQueueFlush()
         DMSG(0, "NormSession::ServerQueueFlush() node>%lu message_pool exhausted! (couldn't flush)\n",
                 LocalNodeId());  
     }   
-    flush_timer.SetInterval(2*grtt_advertised); 
+    flush_timer.SetInterval(4*grtt_advertised); 
     ActivateTimer(flush_timer);
 }  // end NormSession::ServerQueueFlush()
 
 bool NormSession::OnFlushTimeout(ProtoTimer& /*theTimer*/)
 {
     flush_timer.Deactivate();
-    PromptServer();//Serve();  // (TBD) Change this to PromptServer() ??
+    PromptServer();
     return false;   
 }  // NormSession::OnFlushTimeout()
         
@@ -1000,6 +1042,8 @@ void NormSession::QueueMessage(NormMsg* msg)
     }
     lastTime = currentTime;
 */
+        // (TBD) if (0.0 == tx_rate), should we just dump the
+        // message rather than queueing it?
     if (!tx_timer.IsActive() && (tx_rate > 0.0))
     {
         tx_timer.SetInterval(0.0);
@@ -1348,7 +1392,6 @@ void NormTrace(const struct timeval&    currentTime,
                const NormMsg&           msg, 
                bool                     sent)
 {
-    //if (DebugLevel() < 8) return;  // (TBD) provide per-session trace on/off switch
     static const char* MSG_NAME[] =
     {
         "INVALID",
@@ -1421,15 +1464,18 @@ void NormTrace(const struct timeval&    currentTime,
                     (UINT16)data.GetFecSymbolId());
             if (data.IsData() && data.IsStream())
             {
-                if (NormDataMsg::StreamPayloadFlagIsSet(data.GetPayload(), NormDataMsg::FLAG_MSG_START))
+                //if (NormDataMsg::StreamPayloadFlagIsSet(data.GetPayload(), NormDataMsg::FLAG_MSG_START))
+                if (0 != NormDataMsg::ReadStreamPayloadMsgStart(data.GetPayload()))
                 {
+                    // (TBD) use "payload_msg_start" value for this ...
                     // We usually use the first two bytes of "messages"
                     // as a "message length" header
                     UINT16 x;
                     memcpy(&x, data.GetPayloadData(), 2);
                     DMSG(0, "start word>%hu ", ntohs(x));
                 }
-                if (NormDataMsg::StreamPayloadFlagIsSet(data.GetPayload(), NormDataMsg::FLAG_STREAM_END))
+                //if (NormDataMsg::StreamPayloadFlagIsSet(data.GetPayload(), NormDataMsg::FLAG_STREAM_END))
+                if (0 == NormDataMsg::ReadStreamPayloadLength(data.GetPayload()))
                     DMSG(0, "(stream end) ");
             }
             break;
@@ -1479,7 +1525,7 @@ void NormTrace(const struct timeval&    currentTime,
                         if (NormHeaderExtension::CC_RATE == ext.GetType())
                         {
                             UINT16 sendRate = ((NormCCRateExtension&)ext).GetSendRate();       
-                            DMSG(0, " rate>%f ", (8.0/1000.0) * NormUnquantizeRate(sendRate));
+                            DMSG(0, " rate>%f ", 8.0e-03 * NormUnquantizeRate(sendRate));
                             break;
                         }
                     }
@@ -1620,7 +1666,7 @@ void NormSession::ClientHandleObjectMessage(const struct timeval&   currentTime,
             return;   
         }   
     }
-    theServer->Activate();
+    theServer->Activate(true);
     theServer->UpdateLossEstimate(currentTime, msg.GetSequence()); 
     theServer->SetAddress(msg.GetSource());
     theServer->IncrementRecvTotal(msg.GetLength()); // for statistics only (TBD) #ifdef NORM_DEBUG
@@ -1677,7 +1723,7 @@ void NormSession::ClientHandleCommand(const struct timeval& currentTime,
             return;   
         }   
     }
-    theServer->Activate();
+    theServer->Activate(false);
     theServer->UpdateLossEstimate(currentTime, cmd.GetSequence()); 
     theServer->SetAddress(cmd.GetSource());
     theServer->IncrementRecvTotal(cmd.GetLength()); // for statistics only (TBD) #ifdef NORM_DEBUG
@@ -1721,14 +1767,12 @@ double NormSession::CalculateRtt(const struct timeval& currentTime,
 void NormSession::ServerUpdateGrttEstimate(double clientRtt)
 {
     grtt_response = true;
-    
-        
     if ((clientRtt > grtt_measured) || !address.IsMulticast())
     {
         // Immediately incorporate bigger RTT's
         grtt_decrease_delay_count = DEFAULT_GRTT_DECREASE_DELAY;
-        //grtt_measured = 0.25 * grtt_measured + 0.75 * clientRtt; 
-        grtt_measured = 0.9 * grtt_measured + 0.1 * clientRtt; 
+        grtt_measured = 0.25 * grtt_measured + 0.75 * clientRtt; 
+        //grtt_measured = 0.9 * grtt_measured + 0.1 * clientRtt; 
         if (grtt_measured > grtt_max) grtt_measured = grtt_max;
         UINT8 grttQuantizedOld = grtt_quantized;
         double pktInterval =  ((double)(44+segment_size))/tx_rate;
@@ -1738,6 +1782,11 @@ void NormSession::ServerUpdateGrttEstimate(double clientRtt)
             grtt_quantized = NormQuantizeRtt(grtt_measured);
         // Calculate grtt_advertised since quantization rounds upward
         grtt_advertised = NormUnquantizeRtt(grtt_quantized);
+        if (grtt_advertised > grtt_max)
+        {
+            grtt_quantized = NormQuantizeRtt(grtt_max);
+            grtt_advertised = NormUnquantizeRtt(grtt_quantized);
+        }
         grtt_current_peak = grtt_measured;
         if (grttQuantizedOld != grtt_quantized)
             DMSG(4, "NormSession::ServerUpdateGrttEstimate() node>%lu increased to new grtt>%lf sec\n",
@@ -1804,7 +1853,9 @@ void NormSession::ServerHandleCCFeedback(struct timeval  currentTime,
     // 1) Does this response replace the active CLR?
     if (next && next->IsActive())
     {
-        if (ccRate < next->GetRate() || (nodeId == next->GetId()))
+        if ((nodeId == next->GetId()) ||
+            (ccRate < next->GetRate()) ||
+            ((ccRate < (next->GetRate() * 1.1)) && (ccRtt > next->GetRtt())))  // use Rtt as tie-breaker if close
         {
             NormNodeId savedId = next->GetId();
             bool savedRttStatus = next->HasRtt();
@@ -2519,8 +2570,32 @@ void NormSession::ClientHandleNackMessage(const NormNackMsg& nack)
 
 bool NormSession::ServerQueueSquelch(NormObjectId objectId)
 {
-    // (TBD) if a squelch is already queued, update it if (objectId < squelch->objectId)
-    NormCmdSquelchMsg* squelch = (NormCmdSquelchMsg*)GetMessageFromPool();
+    // If a squelch is already queued, update it if (objectId < squelch->objectId)
+    bool doEnqueue = true;
+    NormCmdSquelchMsg* squelch = NULL;
+    NormMsg* msg = message_pool.GetHead();
+    while (NULL != msg)
+    {
+        if (NormMsg::CMD == msg->GetType())
+        {
+            if (NormCmdMsg::SQUELCH == static_cast<NormCmdMsg*>(msg)->GetFlavor())
+            {
+                squelch = static_cast<NormCmdSquelchMsg*>(msg);
+                break;
+            }
+        }
+        msg = msg->GetNext();
+    }
+    if (NULL != squelch)
+    {
+        if (objectId >= squelch->GetObjectId())
+            return false; // no need to update squelch
+        doEnqueue = false;
+    }
+    else
+    {
+        squelch = (NormCmdSquelchMsg*)GetMessageFromPool();
+    }
     if (squelch)
     {
         squelch->Init();
@@ -2577,9 +2652,17 @@ bool NormSession::ServerQueueSquelch(NormObjectId objectId)
                 nextId++;
             }
         }
-        QueueMessage(squelch);
-        DMSG(4, "NormSession::ServerQueueSquelch() node>%lu server queued squelch ...\n",
-                LocalNodeId());
+        if (doEnqueue)
+        {
+            QueueMessage(squelch);
+            DMSG(4, "NormSession::ServerQueueSquelch() node>%lu server queued squelch ...\n",
+                    LocalNodeId());
+        }
+        else
+        {
+            DMSG(4, "NormSession::ServerQueueSquelch() node>%lu server updated squelch ...\n",
+                    LocalNodeId());
+        }
         return true;
     }
     else
@@ -2637,6 +2720,8 @@ bool NormSession::ServerBuildRepairAdv(NormCmdRepairAdvMsg& cmd)
                     if (0 == cmd.PackRepairRequest(req))
                     {
                         DMSG(0, "NormSession::ServerBuildRepairAdv() warning: full msg\n");
+                        // (TBD) set NORM_REPAIR_ADV_LIMIT flag in this case
+                        prevForm = NormRepairRequest::INVALID;
                         break;
                     }    
                 }
@@ -2669,7 +2754,13 @@ bool NormSession::ServerBuildRepairAdv(NormCmdRepairAdvMsg& cmd)
         {           
             if ((NormRepairRequest::INVALID != prevForm) && currentObject->IsRepairPending())
             {
-                cmd.PackRepairRequest(req);  // (TBD) error check;
+                if (0 == cmd.PackRepairRequest(req))
+                {
+                    DMSG(0, "NormSession::ServerBuildRepairAdv() warning: full msg\n");
+                    // (TBD) set NORM_REPAIR_ADV_LIMIT flag in this case
+                    prevForm = NormRepairRequest::INVALID;
+                    break;
+                }
                 prevForm = NormRepairRequest::INVALID;
                 currentObject->AppendRepairAdv(cmd);
             }
@@ -2684,6 +2775,7 @@ bool NormSession::ServerBuildRepairAdv(NormCmdRepairAdvMsg& cmd)
     {
         if (0 == cmd.PackRepairRequest(req))
             DMSG(0, "NormSession::ServerBuildRepairAdv() warning: full msg\n");
+        // (TBD) set NORM_REPAIR_ADV_LIMIT flag in this case
     }
     return true;
 }  // end NormSession::ServerBuildRepairAdv()
@@ -2716,18 +2808,20 @@ bool NormSession::OnRepairTimeout(ProtoTimer& /*theTimer*/)
             }  
             else
             {
-                //DMSG(6, "NormSession::OnRepairTimeout() node>%lu activating obj>%hu repairs ...\n",
-                //        LocalNodeId(), (UINT16)objectId);
+                DMSG(6, "NormSession::OnRepairTimeout() node>%lu activating obj>%hu repairs ...\n",
+                        LocalNodeId(), (UINT16)objectId);
                 if (obj->ActivateRepairs()) 
                 {
-                    DMSG(6, "NormSession::OnRepairTimeout() node>%lu activated obj>%hu repairs ...\n",
-                            LocalNodeId(), (UINT16)objectId);
+                    DMSG(6, "NormSession::OnRepairTimeout() node>%lu activated obj>%hu repairs fd=%d...\n",
+                            LocalNodeId(), (UINT16)objectId, static_cast<NormFileObject*>(obj)->file.fd);
                     if (!tx_pending_mask.Set(objectId))
                         DMSG(0, "NormSession::OnRepairTimeout() rx_pending_mask.Set(%hu) error (2)\n",
                                 (UINT16)objectId); 
                 }  
             } 
-        }  // end while (iterator.GetNextObject())                
+        }  // end while (iterator.GetNextObject())   
+        // (TBD) should this be just PromptServer() instead???
+        // (note we do set posted_tx_queue_empty when repair state blocks stream progress)           
         TouchServer(); 
         // BACKOFF related code
         // Holdoff initiation of new repair cycle for one GRTT 
@@ -2800,6 +2894,8 @@ bool NormSession::OnTxTimeout(ProtoTimer& /*theTimer*/)
     {
         if (SendMessage(*msg))
         {
+            if (tx_rate > 0.0)
+                tx_timer.SetInterval(msg->GetLength() / tx_rate);
             if (advertise_repairs)
                 advertise_repairs = false;
             else
@@ -2840,10 +2936,7 @@ bool NormSession::OnTxTimeout(ProtoTimer& /*theTimer*/)
 
 bool NormSession::SendMessage(NormMsg& msg)
 {   
-    struct timeval currentTime;
-    ProtoSystemTime(currentTime); 
-    
-    bool clientMsg = false;
+    bool isClientMsg = false;
     bool isProbe = false;
     
     // Fill in any last minute timestamps
@@ -2860,8 +2953,14 @@ bool NormSession::SendMessage(NormMsg& msg)
             switch (((NormCmdMsg&)msg).GetFlavor())
             {
                 case NormCmdMsg::CC:
+                {
+                    struct timeval currentTime;
+                    ProtoSystemTime(currentTime); 
                     ((NormCmdCCMsg&)msg).SetSendTime(currentTime); 
                     isProbe = true; 
+                    break;
+                }
+                case NormCmdMsg::SQUELCH:
                     break;
                 default:
                     break;
@@ -2871,11 +2970,13 @@ bool NormSession::SendMessage(NormMsg& msg)
 
         case NormMsg::NACK:
         {
-            clientMsg = true;
+            isClientMsg = true;
             NormNackMsg& nack = (NormNackMsg&)msg;
             NormServerNode* theServer = 
                 (NormServerNode*)server_tree.FindNodeById(nack.GetServerId());
             ASSERT(theServer);
+            struct timeval currentTime;
+            ProtoSystemTime(currentTime); 
             struct timeval grttResponse;
             theServer->CalculateGrttResponse(currentTime, grttResponse);
             nack.SetGrttResponse(grttResponse);
@@ -2884,12 +2985,14 @@ bool NormSession::SendMessage(NormMsg& msg)
 
         case NormMsg::ACK:
         {
-            clientMsg = true;
+            isClientMsg = true;
             NormAckMsg& ack = (NormAckMsg&)msg;
             NormServerNode* theServer = 
                 (NormServerNode*)server_tree.FindNodeById(ack.GetServerId());
             ASSERT(theServer);
             struct timeval grttResponse;
+            struct timeval currentTime;
+            ProtoSystemTime(currentTime); 
             theServer->CalculateGrttResponse(currentTime, grttResponse);
             ack.SetGrttResponse(grttResponse);
             break;
@@ -2905,7 +3008,7 @@ bool NormSession::SendMessage(NormMsg& msg)
     bool result = true;
     // Possibly drop some tx messages for testing purposes
     bool drop = (UniformRand(100.0) < tx_loss_rate);
-    if (drop || (clientMsg && client_silent))
+    if (drop || (isClientMsg && client_silent))
     {
         //DMSG(0, "TX MESSAGE DROPPED! (tx_loss_rate:%lf\n", tx_loss_rate); 
     }    
@@ -2915,36 +3018,14 @@ bool NormSession::SendMessage(NormMsg& msg)
                               msg.GetDestination()))
         {
             // Separate send/recv tracing
-            if (trace) NormTrace(currentTime, LocalNodeId(), msg, true);  
-            
-            // Keep track of _actual_ sent rate 
-            // (TBD) move "sent_rate" tracking to ""OnReportTimeout()
-            // since it is no longer critical to protocol operation
-            // but just kept for information purposes ...
-            if (prev_update_time.tv_sec || prev_update_time.tv_usec)
+            if (trace) 
             {
-                double interval = (double)(currentTime.tv_sec - prev_update_time.tv_sec);
-                if (currentTime.tv_usec > prev_update_time.tv_sec)
-                    interval += 1.0e-06*(double)(currentTime.tv_usec - prev_update_time.tv_usec);
-                else
-                    interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);                
-                if (interval < 1.0) //grtt_advertised)
-                {
-                    sent_accumulator += msgSize;
-                }
-                else
-                {
-                     sent_rate = ((double)(sent_accumulator)) / interval;
-                     prev_update_time = currentTime;
-                     sent_accumulator = msgSize;
-                }
+                struct timeval currentTime;
+                ProtoSystemTime(currentTime); 
+                NormTrace(currentTime, LocalNodeId(), msg, true);  
             }
-            else
-            {
-                sent_rate = ((double)msgSize) / grtt_advertised;
-                prev_update_time = currentTime; 
-                sent_accumulator = msgSize;    
-            }
+            // To keep track of _actual_ sent rate 
+            sent_accumulator += msgSize;
             // Update nominal packet size
             nominal_packet_size += 0.05 * (((double)msgSize) - nominal_packet_size);    
         }
@@ -2954,19 +3035,36 @@ bool NormSession::SendMessage(NormMsg& msg)
             result = false;
         }
     }
-    if (result && isProbe)
+    if (result)
     {
-        probe_pending = false;
-        if (probe_reset) 
+        if (isProbe)
         {
-            probe_reset = false;
-            OnProbeTimeout(probe_timer);  //we commented this out to give data a chance at low rates
-            // we may want to re-visit this, it might compromis high rate performance a little
-            ActivateTimer(probe_timer);  
+            probe_pending = false;
+            probe_data_check = true;
+            if (probe_reset) 
+            {
+                probe_reset = false;
+                if (!probe_timer.IsActive())
+                    ActivateTimer(probe_timer);  
+            }
         }
+        else if (!isClientMsg)
+        {
+            probe_data_check = false;
+            if (!probe_pending && probe_reset)
+            {
+                probe_reset = false;
+                OnProbeTimeout(probe_timer);
+                if (!probe_timer.IsActive())
+                    ActivateTimer(probe_timer);
+            }
+        }
+        return true;
     }
-    tx_timer.SetInterval(((double)msgSize) / tx_rate);
-    return result;
+    else
+    {
+        return false;
+    }
 }  // end NormSession::SendMessage()
 
 void NormSession::SetGrttProbingInterval(double intervalMin, double intervalMax)
@@ -2978,8 +3076,8 @@ void NormSession::SetGrttProbingInterval(double intervalMin, double intervalMax)
         intervalMin = intervalMax;
         intervalMax = temp;
     }
-    if (intervalMin < 0.100) intervalMin = 0.100;
-    if (intervalMax < 0.100) intervalMax = 0.100;
+    if (intervalMin < NORM_TICK_MIN) intervalMin = NORM_TICK_MIN;
+    if (intervalMax < NORM_TICK_MIN) intervalMax = NORM_TICK_MIN;
     grtt_interval_min = intervalMin;
     grtt_interval_max = intervalMax;
     if (grtt_interval < grtt_interval_min)
@@ -3047,10 +3145,12 @@ void NormSession::SetGrttProbingMode(ProbingMode probingMode)
 bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
 {
     // 1) Temporarily kill probe_timer if CMD(CC) not yet tx'd
-    if (probe_pending)
+    //    (or if data has not been sent since last probe)
+    if (probe_pending || (data_active && probe_data_check))
     {
         probe_reset = true;
-        probe_timer.Deactivate();
+        if (probe_timer.IsActive())
+            probe_timer.Deactivate();
         return false;
     } 
     else if (0.0 == tx_rate)
@@ -3100,13 +3200,17 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
             // Update grtt estimate 
             if (grtt_current_peak < grtt_measured)
             {
-                if (grtt_decrease_delay_count-- == 0)
+                grtt_measured *= 0.9;
+                if (grtt_current_peak > grtt_measured)
+                    grtt_measured = grtt_current_peak;
+                // (TBD) "grtt_decrease_delay_count" isn't needed any more ...
+                /*if (grtt_decrease_delay_count-- == 0)
                 {
                     grtt_measured = 0.5 * grtt_measured + 
                                     0.5 * grtt_current_peak;
                     grtt_current_peak = 0.0;
                     grtt_decrease_delay_count = DEFAULT_GRTT_DECREASE_DELAY;
-                }
+                }*/
             }
             else
             {
@@ -3126,6 +3230,11 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
                 grtt_quantized = NormQuantizeRtt(grtt_measured);        
             // Recalculate grtt_advertise since quantization rounds upward
             grtt_advertised = NormUnquantizeRtt(grtt_quantized);
+            if (grtt_advertised > grtt_max)
+            {
+                grtt_quantized = NormQuantizeRtt(grtt_max);
+                grtt_advertised = NormUnquantizeRtt(grtt_quantized);
+            }
             if (grttQuantizedOld != grtt_quantized)
                 DMSG(4, "NormSession::OnProbeTimeout() node>%lu decreased to new grtt to: %lf sec\n",
                         LocalNodeId(), grtt_advertised);
@@ -3198,8 +3307,12 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
                 else
                     feedbackAge -= 1.0e-06*((double)(feedbackTime.tv_usec - currentTime.tv_usec));
                 double maxFeedbackAge = 5 * grtt_advertised;
-                if (maxFeedbackAge < 0.100) 
-                    maxFeedbackAge = 0.100;  // due computer clock coarseness
+                // Safety bound to compensate for computer clock coarseness
+                // and possible sluggish feedback from slower machines
+                // at higher norm data rates (keeps rate from being 
+                // prematurely reduced)
+                if (maxFeedbackAge <(10*NORM_TICK_MIN)) 
+                    maxFeedbackAge = (10*NORM_TICK_MIN);  
                 if (feedbackAge > maxFeedbackAge)
                     next->SetActive(false);
             }             
@@ -3223,9 +3336,10 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
         // Determine next probe_interval
         probeInterval = grtt_interval;
     }
-    // perhaps this instead of the commented out probe_reset case???
+    /*// perhaps this instead of the commented out probe_reset case???
     double nominalInterval = ((double)segment_size)/((double)tx_rate);
-    if (nominalInterval > probeInterval) probeInterval = nominalInterval;  
+    if (nominalInterval > grtt_max) nominalInterval = grtt_max;
+    if (nominalInterval > probeInterval) probeInterval = nominalInterval; */
         
     // Set probe_timer interval for next probe
     probe_timer.SetInterval(probeInterval);
@@ -3254,9 +3368,12 @@ void NormSession::AdjustRate(bool onResponse)
             if (cc_slow_start)
             {
                 txRate = clr->GetRate();
-                DMSG(6, "NormSession::AdjustRate(slow start) clr>%lu newRate>%lf (oldRate>%lf sentRate>%lf clrRate>%lf\n",
-                        clr->GetId(), txRate*8.0/1000.0,  tx_rate*8.0/1000.0, sent_rate*8.0/1000.0, 
-                        clr->GetRate()*8.0/1000.0);          
+                if (GetDebugLevel() >= 6)
+                {
+                    double sentRate = 8.0e-03*((double)sent_accumulator) / (report_timer.GetInterval() - report_timer.GetTimeRemaining());
+                    DMSG(6, "NormSession::AdjustRate(slow start) clr>%lu newRate>%lf (oldRate>%lf sentRate>%lf clrRate>%lf\n",
+                            clr->GetId(), 8.0e-03*txRate,  8.0e-03*tx_rate, sentRate, 8.0e-03*clr->GetRate());
+                }                          
             }
             else
             {
@@ -3271,8 +3388,17 @@ void NormSession::AdjustRate(bool onResponse)
                     txRate = clrRate;
                 }  
                 DMSG(6, "NormSession::AdjustRate(stdy state) clr>%lu newRate>%lf (rtt>%lf loss>%lf)\n",
-                        clr->GetId(), txRate*8.0/1000.0, clr->GetRtt(), clr->GetLoss());
+                        clr->GetId(), 8.0e-03*txRate, clr->GetRtt(), clr->GetLoss());
             }
+            // Adjust the probe timeout right away 
+            /* double probeInterval = probe_timer.GetInterval();
+            if (probeInterval > ccRtt)
+            {
+                double elapsed = probeInterval - probe_timer.GetTimeRemaining();
+                probeInterval = (ccRtt > elapsed) ? (ccRtt - elapsed) : 0.0;
+                probe_timer.SetInterval(probeInterval);
+                if (probe_timer.IsActive()) probe_timer.Reschedule(); 
+            } */
         }
     }
     else if (!data_active)
@@ -3305,38 +3431,30 @@ void NormSession::AdjustRate(bool onResponse)
         // reduce rate if no active clr
         txRate *= 0.5;
     }
+   
     
-    // Don't let txRate below MIN(one segment per grtt, one segment per 4 seconds)
-    double minRate = ((double)segment_size) / grtt_measured;
-    if (minRate > ((double)(segment_size >> 2)))
-        minRate = (double)(segment_size >> 2);
-    if (txRate < minRate) 
-        txRate = minRate;
-    
-    // Keep "tx_rate" within user set rate bounds (if any)
-    if ((tx_rate_min >= 0.0) && (txRate < tx_rate_min))
-        txRate = tx_rate_min;
+    // Keep "tx_rate" within default or user set rate bounds (if any)
+    double minRate;
+    if(tx_rate_min > 0.0)
+    {
+        minRate = tx_rate_min;
+    }
+    else
+    {
+        // Don't let txRate below MIN(one segment per grtt, one segment per second)
+        minRate = ((double)segment_size) / grtt_measured;
+        if (minRate > ((double)(segment_size)))
+            minRate = (double)(segment_size);
+    }
+    if (txRate < minRate) txRate = minRate;
     if ((tx_rate_max >= 0.0) && (txRate > tx_rate_max))
         txRate = tx_rate_max;
-    
     if (txRate != tx_rate) SetTxRateInternal(txRate);
-  
-    /*if (txRate != oldRate)
-    {
-        if (tx_timer.IsActive())
-        {
-            //double ratio = tx_rate / oldRate;
-            double txInterval = tx_timer.GetInterval() * oldRate / tx_rate;
-            double timeElapsed = tx_timer.GetInterval() - tx_timer.GetTimeRemaining();
-            txInterval = timeElapsed < txInterval ?  (txInterval - timeElapsed) : 0.0;
-            tx_timer.SetInterval(txInterval);
-            tx_timer.Reschedule();
-        }
-    }*/
+      
     struct timeval currentTime;
     ::ProtoSystemTime(currentTime);
     double theTime = (double)currentTime.tv_sec + 1.0e-06 * ((double)currentTime.tv_usec);
-    DMSG(8, "ServerRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n\n", theTime, tx_rate*(8.0/1000.0), ccRtt, ccLoss);
+    DMSG(8, "ServerRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n\n", theTime, 8.0e-03*tx_rate, ccRtt, ccLoss);
 }  // end NormSession::AdjustRate()
 
 bool NormSession::OnReportTimeout(ProtoTimer& /*theTimer*/)
@@ -3360,16 +3478,17 @@ bool NormSession::OnReportTimeout(ProtoTimer& /*theTimer*/)
     if (IsServer())
     {
         DMSG(2, "Local status:\n");
+        double sentRate = 8.0e-03*((double)sent_accumulator) / report_timer.GetInterval();  // kbps
+        sent_accumulator = 0;
         DMSG(2, "   txRate>%9.3lf kbps sentRate>%9.3lf grtt>%lf\n", 
-                 ((double)tx_rate)*8.0/1000.0, sent_rate*8.0/1000.0, grtt_advertised);
+                8.0e-03*tx_rate, sentRate, grtt_advertised);
         if (cc_enable)
         {
             const NormCCNode* clr = (const NormCCNode*)cc_node_list.Head(); 
             if (clr)  
-                DMSG(2, "   clr>%lu rate>%9.3lf rtt>%lf loss>%lf\n", clr->GetId(),
-                     clr->GetRate()*8.0/1000.0, clr->GetRtt(), clr->GetLoss());
-        }
-            
+                DMSG(2, "   clr>%lu rate>%9.3lf rtt>%lf loss>%lf %s\n", clr->GetId(),
+                     8.0e-03*clr->GetRate(), clr->GetRtt(), clr->GetLoss(), cc_slow_start ? "(slow_start)" : "");
+        }   
     }
     if (IsClient())
     {
@@ -3384,12 +3503,13 @@ bool NormSession::OnReportTimeout(ProtoTimer& /*theTimer*/)
             DMSG(2, "   rxRate>%9.3lf kbps rx_goodput>%9.3lf kbps\n", rxRate, rxGoodput);
             DMSG(2, "   rxObjects> completed>%lu pending>%lu failed:%lu\n", 
                     next->CompletionCount(), next->PendingCount(), next->FailureCount());
-            DMSG(2, "   bufferUsage> current>%lu peak>%lu (overuns>%lu)\n", next->CurrentBufferUsage(),
+            DMSG(2, "   fecBufferUsage> current>%lu peak>%lu (overuns>%lu)\n", next->CurrentBufferUsage(),
                                                                             next->PeakBufferUsage(), 
                                                                             next->BufferOverunCount());
-            DMSG(2, "   resyncs>%lu nacks>%lu suppressed>%lu\n", next->ResyncCount(),
-                                                                 next->NackCount(), 
-                                                                 next->SuppressCount());
+            DMSG(2, "   resyncs>%lu nacks>%lu suppressed>%lu\n", 
+                     next->ResyncCount() ? next->ResyncCount() - 1 : 0,  // "ResyncCount()" is reall "SyncCount()"
+                     next->NackCount(), 
+                     next->SuppressCount());
                     
         }
     }  // end if (IsClient())

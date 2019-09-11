@@ -46,7 +46,7 @@ SYSTEM = macosx
 
 CC = g++
 SYSTEM_CFLAGS = -fPIC -Wall -pedantic -Wcast-align
-SYSTEM_SOFLAGS = -shared 
+SYSTEM_SOFLAGS = -dynamiclib
 RANLIB = ranlib
 AR = ar
 

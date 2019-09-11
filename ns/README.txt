@@ -3,8 +3,6 @@
 This directory contains files for incorporating the NORM protocol
 into the ns-2 network simulation tool.
 
-(The NORM ns-2 support may need a little tweaking to work)
-
 FILES:
 
 nsNormAgent.h 

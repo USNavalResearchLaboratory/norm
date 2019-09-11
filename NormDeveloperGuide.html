@@ -6,7 +6,7 @@
 	<META NAME="GENERATOR" CONTENT="NeoOffice/J 1.1  (Unix)">
 	<META NAME="AUTHOR" CONTENT="Robert Adamson">
 	<META NAME="CREATED" CONTENT="20040824;14180000">
-	<META NAME="CHANGED" CONTENT="20050919;14362900">
+	<META NAME="CHANGED" CONTENT="20051028;14285700">
 	<META NAME="DESCRIPTION" CONTENT="NORM Object Functions	42NORM Object FunctionsNORM_OBJECT_STREAMNORM Sender Functions	19NORM Sender Functions">
 	<META NAME="KEYWORDS" CONTENT="norm object value application function ">
 	<STYLE>
@@ -52,7 +52,7 @@
 		<TD WIDTH=371>
 			<P ALIGN=LEFT STYLE="margin-left: 0.86in; margin-top: 0.17in; font-style: normal">
 			<FONT FACE="Helvetica, sans-serif"><FONT SIZE=4 STYLE="font-size: 16pt"><B><FONT SIZE=6 STYLE="font-size: 28pt">NORM<BR>Developer’s
-			<BR>Guide<BR></FONT><FONT SIZE=4>(version 1.3b6)</FONT></B></FONT></FONT></P>
+			<BR>Guide<BR></FONT><FONT SIZE=4>(version 1.3b7)</FONT></B></FONT></FONT></P>
 		</TD>
 	</TR>
 </TABLE>
@@ -60,7 +60,9 @@
 <P CLASS="western" STYLE="font-style: normal">This document describes
 an application programming interface (API) for the <FONT COLOR="#0000ff"><U><A HREF="http://norm.pf.itd.nrl.navy.mil/">Nack-Oriented
 Reliable Multicast (NORM)</A></U></FONT> protocol implementation
-developed by the United States <FONT COLOR="#0000ff"><U><A HREF="http://www.nrl.navy.mil/">Naval
+developed by the Protocol Engineering and Advance Networking
+(<FONT COLOR="#0000ff"><U><A HREF="http://cs.itd.nrl.navy.mil/">PROTEAN</A></U></FONT>)
+Research Group of the United States <FONT COLOR="#0000ff"><U><A HREF="http://www.nrl.navy.mil/">Naval
 Research Laboratory</A></U></FONT> (NRL).  The NORM protocol provides
 general purpose reliable data transport for applications wishing to
 use Internet Protocol (IP) Multicast services for group data
@@ -102,8 +104,6 @@ communication needs.</P>
 of Contents">Table
 of Contents</A></H1>
 <DIV ID="Table of Contents1" DIR="LTR">
-	<P STYLE="margin-top: 0.25in; font-style: normal"><BR>
-	</P>
 	<P STYLE="margin-top: 0.25in; font-style: normal"><FONT FACE="Helvetica, sans-serif"><B><A HREF="#Overview">Overview</A></B></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B><A HREF="#API Initialization">API Initialization</A></B></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B><A HREF="#Session Creation and Control">Session Creation and Control</A></B></FONT></P>
@@ -136,6 +136,8 @@ of Contents</A></H1>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B><A HREF="#API Initialization and Operation">API Initialization and Operation</A></B></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormCreateInstance()">NormCreateInstance()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDestroyInstance()">NormDestroyInstance()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStopInstance()">NormStopInstance()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormRestartInstance()">NormRestartInstance()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetCacheDirectory()">NormSetCacheDirectory()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetDescriptor()">NormGetDescriptor()</A></FONT></P>
@@ -151,7 +153,8 @@ of Contents</A></H1>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTTL()">NormSetTTL()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTOS()">NormSetTOS()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetLoopback()">NormSetLoopback()</A></FONT></P>
-	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B><A HREF="#NORM Sender Functions">NORM Sender Functions</A></B></FONT></P>
+	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>NORM
+	Sender Functions</B></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStartSender()">NormStartSender()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStopSender()">NormStopSender()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitRate()">NormSetTransmitRate()</A></FONT></P>
@@ -164,6 +167,8 @@ of Contents</A></H1>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttMax()">NormSetGrttMax()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttProbingMode()">NormSetGrttProbingMode()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttProbingInterval()">NormSetGrttProbingInterval()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetBackoffFactor()">NormSetBackoffFactor()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGroupSize()">NormSetGroupSize()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormFileEnqueue()">NormFileEnqueue()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDataEnqueue()">NormDataEnqueue()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamOpen()">NormStreamOpen()</A></FONT></P>
@@ -234,7 +239,8 @@ protocol thread notifies the application of various protocol events
 through a thread-safe event dispatching mechanism and API calls are
 provided to allow the application to control NORM operation.  (<I>Note:
  API mechanisms for lower-level, non-threaded control and execution
-of the NORM protocol engine may also be provided in the future</I>.)</P>
+of the NORM protocol engine code <U>may</U> also be provided in the
+future</I>.)</P>
 <P CLASS="western" STYLE="font-style: normal">The NORM API operation
 can be roughly summarized with the following categories of functions:</P>
 <OL>
@@ -248,16 +254,16 @@ categories roughly reflects the order of function calls required to
 use NORM in an application.  The first step is to create and
 initialize, as needed, at least one instance of the NORM API.  Then
 one or more NORM transport sessions (where a “session”
-corresponds to data exchanges on a given multicast group and host
-port number) may be created and controlled.  Applications may
-participate as senders and/or receivers within a NORM session.  NORM
-senders transmit data to the session destination address (usually an
-IP multicast group) while receivers are notified of incoming data. 
-The NORM API provides and event notification scheme to notify the
-application of significant sender and receiver events.  There are
-also a number support functions provided for the application to
-control and monitor its participation within a NORM transport
-session.</P>
+corresponds to data exchanges on a given multicast group (or unicast
+address) and host port number) may be created and controlled. 
+Applications may participate as senders and/or receivers within a
+NORM session.  NORM senders transmit data to the session destination
+address (usually an IP multicast group) while receivers are notified
+of incoming data.  The NORM API provides and event notification
+scheme to notify the application of significant sender and receiver
+events.  There are also a number support functions provided for the
+application to control and monitor its participation within a NORM
+transport session.</P>
 <H2 CLASS="western"><A NAME="API Initialization">API Initialization</A></H2>
 <P CLASS="western" STYLE="font-style: normal">The NORM API requires
 that an application explicitly create at least one instance of the
@@ -271,9 +277,9 @@ mechanism.
 single thread should access the <FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT>
 API call for a given <FONT FACE="Courier">NormInstance</FONT>.  This
 function serves as the conduit for delivering NORM protocol engine
-events to the application.  While a NORM application can be designed
-to be single-threaded, even with multiple active <I>NormSessions</I>,
-multiple API instances can be created (see <FONT FACE="Courier"><A HREF="#NormCreateInstance()">NormCreateInstance()</A></FONT>)
+events to the application.  A NORM application can be designed to be
+single-threaded, even with multiple active <I>NormSessions</I>, but
+also multiple API instances can be created (see <FONT FACE="Courier"><A HREF="#NormCreateInstance()">NormCreateInstance()</A></FONT>)
 as needed for applications with specific requirements for accessing
 and controlling participation in multiple <I>NormSessions</I> from
 separate operating system multiple threads.  Or, alternatively, a
@@ -295,7 +301,7 @@ transport session instances as needed.  The application can
 participate in each session as a sender and/or receiver of data.  If
 an application is participating as a sender, it may enqueue data
 transport objects for transmission.  The control of transmission is
-largely left to the sender and API calls are provided to control
+largely left to the senders and API calls are provided to control
 transmission rate, FEC parameters, etc.  Applications participating
 as receivers will be notified via the NORM API's event dispatching
 mechanism of pending and completed reliable reception of data along
@@ -531,12 +537,12 @@ build tools.</P>
 NT4 (and perhaps other older Windows operating systems) requires that
 the compile time macro <FONT FACE="Courier"><I>WINVER=0x0400</I></FONT>
 defined.  This is because the version of the IP Helper API library
-(<I>iphlpapi.lib</I>) used y Protolib (and hence NORM) for this
-system doesn't support some of the functions defined for this
+(<I>iphlpapi.lib</I>) used by <I>Protolib</I> (and hence NORM) for
+this system doesn't support some of the functions defined for this
 library.  This may be related to IPv6 support issues so it may be
-possible that the Protolib build could be tweaked to provide a single
-binary executable suitable for IPv4 operation only across a large
-range of Windows platforms.</P>
+possible that the <I>Protolib</I> build could be tweaked to provide a
+single binary executable suitable for IPv4 operation only across a
+large range of Windows platforms.</P>
 <H1 CLASS="western"><A NAME="API Reference">API Reference</A></H1>
 <P CLASS="western" STYLE="font-style: normal">This section provides a
 reference to the NORM API variable types, constants and functions.</P>
@@ -702,7 +708,7 @@ description).
 </P>
 <H3 CLASS="functionheading-western"><A NAME="NormFlushMode">NormFlushMode</A></H3>
 <P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormFlushMode">NormFlushMode</A></FONT>
-consist of the following enumeration:</P>
+type consists of the following enumeration:</P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>enum
 <A HREF="#NormFlushMode">NormFlushMode</A><BR>{<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_FLUSH_NONE,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_FLUSH_PASSIVE,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_FLUSH_ACTIVE<BR>};</FONT></FONT></P>
 <P CLASS="western" STYLE="font-style: normal">The interpretation of
@@ -710,7 +716,7 @@ these values is given  in the descriptions of <FONT FACE="Courier"><A HREF="#Nor
 and <FONT FACE="Courier"><A HREF="#NormStreamSetAutoFlush()">NormStreamSetAutoFlush()</A></FONT> functions.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormProbingMode">NormProbingMode</A></H3>
 <P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormProbingMode">NormProbingMode</A></FONT>
-consist of the following enumeration:</P>
+type consists of the following enumeration:</P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>enum
 <A HREF="#NormProbingMode">NormProbingMode</A><BR>{<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_PROBE_NONE,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_PROBE_PASSIVE,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_PROBE_ACTIVE<BR>};</FONT></FONT></P>
 <P CLASS="western" STYLE="font-style: normal">The interpretation of
@@ -802,6 +808,57 @@ has retained (see <FONT FACE="Courier"><A HREF="#NormObjectRetain()">NormObjectR
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">The function has no
 return value.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormStopInstance()">NormStopInstance()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
+NormStopInstance(<A HREF="#NormInstanceHandle">NormInstanceHandle</A> instance);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function
+immediately stops the NORM protocol engine thread corresponding to
+the given <FONT FACE="Courier"><U>instance</U></FONT> parameter.  It
+also posts a &quot;dummy&quot; notification event so that if another
+thread is blocked on a call to <FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT>,
+that thread will be released.  Hence, for some multithreaded uses of
+the NORM API, this function may be useful as a preliminary step to
+safely coordinate thread shutdown before a call is made to
+<FONT FACE="Courier"><A HREF="#NormDestroyInstance()">NormDestroyInstance()</A></FONT>.  After
+<FONT FACE="Courier"><A HREF="#NormStopInstance()">NormStopInstance()</A></FONT> is called and any
+pending events posted prior to its call have been retrieved,
+<FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT> will return a value of
+<FONT FACE="Courier"><I>false</I></FONT>.</P>
+<P CLASS="western" STYLE="font-style: normal">When this function is
+invoked, state for any <I>NormSessions</I> associated with the given
+<FONT FACE="Courier"><U>instance</U></FONT> is &quot;frozen&quot;. 
+The complementary function, <FONT FACE="Courier"><A HREF="#NormRestartInstance()">NormRestartInstance()</A></FONT>
+can be subsequently used to &quot;unfreeze&quot; and resume NORM
+protocol operation (a new thread is created and started).</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">The function has no
+return value.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormRestartInstance()">NormRestartInstance()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>bool
+NormRestartInstance(<A HREF="#NormInstanceHandle">NormInstanceHandle</A> instance);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function creates
+and starts an operating system thread to resume NORM protocol engine
+operation for the given <FONT FACE="Courier"><U>instance</U></FONT>
+that was previously stopped by a call to <FONT FACE="Courier"><A HREF="#NormStopInstance()">NormStopInstance()</A></FONT>.
+ It is not expected that this function will be used often, but there
+may be special application cases where &quot;freezing&quot; and later
+resuming NORM protocol operation may be useful.  
+</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">The function returns
+<FONT FACE="Courier"><I>true</I></FONT> when the NORM protocol engine
+thread is successfully restarted, and <FONT FACE="Courier"><I>false</I></FONT>
+otherwise.</P>
+<P CLASS="western" STYLE="font-style: normal"><BR>
+</P>
 <H3 CLASS="functionheading-western"><A NAME="NormSetCacheDirectory()">NormSetCacheDirectory()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -1142,7 +1199,7 @@ even when no event is pending.  In these cases, the return value is
 provide an option to have a user-defined Window message posted when a
 NORM API event is pending.  (Also some event filtering calls may be
 provided (e.g. avoid the potentially numerous <FONT FACE="Courier"><I>NORM_RX_OBJECT_UPDATED</I></FONT>
-events if undesired)).</P>
+events if not needed by the application)).</P>
 <H3 CLASS="functionheading-western"><A NAME="NormGetDescriptor()">NormGetDescriptor()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -1172,6 +1229,14 @@ returned which is valid until a call to <FONT FACE="Courier"><A HREF="#NormDestr
 is made.  Upon error, a value of <I><FONT FACE="Courier">NORM_DESCRIPTOR_INVALID</FONT></I>
 is returned.</P>
 <H2 CLASS="western"><A NAME="Session Creation and Control Functions">Session Creation and Control Functions</A></H2>
+<P CLASS="western" STYLE="font-style: normal">Whether participating
+in a NORM protocol session as a sender, receiver, or both, there are
+some common API calls used to instantiate a <I>NormSession</I> and
+set some common session parameters.  Functions are provided to
+control network socket and multicast parameters.  Additionally, a
+&quot;user data&quot; value may be associated with a
+<FONT FACE="Courier"><A HREF="#NormSessionHandle">NormSessionHandle</A></FONT> for programming
+convenience when dealing with multiple sessions.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormCreateSession()">NormCreateSession()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -1182,20 +1247,21 @@ char*&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;address,<BR>&nbsp;&nbsp;&nb
 short&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;port,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormNodeId">NormNodeId</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;localId);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function creates a
-NORM reliable multicast session (<I>NormSession</I>) using the
-address parameters provided.  While session state is allocated and
-initialized, active session participation does not begin until a call
-is made to <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT> and/or
-<FONT FACE="Courier"><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT> to join the specified
-multicast group (if applicable) and start protocol operation.  The
-following parameters are required in this function call:</P>
+NORM protocol session (<I>NormSession</I>) using the address
+(multicast or unicast) parameters provided.  While session state is
+allocated and initialized, active session participation does not
+begin until a call is made to <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT>
+and/or <FONT FACE="Courier"><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT> to join the
+specified multicast group (if applicable) and start protocol
+operation.  The following parameters are required in this function
+call:</P>
 <TABLE WIDTH=590 BORDER=0 CELLPADDING=7 CELLSPACING=0>
 	<COL WIDTH=101>
 	<COL WIDTH=461>
 	<TR VALIGN=TOP>
 		<TD WIDTH=101>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			<FONT FACE="Courier">instance</FONT></P>
+			<FONT FACE="Courier"><U>instance</U></FONT></P>
 		</TD>
 		<TD WIDTH=461>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
@@ -1206,7 +1272,7 @@ following parameters are required in this function call:</P>
 	<TR VALIGN=TOP>
 		<TD WIDTH=101>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			<FONT FACE="Courier">address</FONT></P>
+			<FONT FACE="Courier"><U>address</U></FONT></P>
 		</TD>
 		<TD WIDTH=461>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
@@ -1228,7 +1294,7 @@ following parameters are required in this function call:</P>
 	<TR VALIGN=TOP>
 		<TD WIDTH=101>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			<FONT FACE="Courier">port</FONT></P>
+			<FONT FACE="Courier"><U>port</U></FONT></P>
 		</TD>
 		<TD WIDTH=461>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
@@ -1240,7 +1306,7 @@ following parameters are required in this function call:</P>
 	<TR VALIGN=TOP>
 		<TD WIDTH=101>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			<FONT FACE="Courier">localId</FONT></P>
+			<FONT FACE="Courier"><U>localId</U></FONT></P>
 		</TD>
 		<TD WIDTH=461>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
@@ -1378,27 +1444,27 @@ return values.</P>
 &lt;normApi.h&gt;</FONT></FONT></P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
 NormSetRxPortReuse(<A HREF="#NormSessionHandle">NormSessionHandle</A>
-session,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bool
-             state);</FONT></FONT></P>
+session,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bool&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;enable,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bool&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bindToSessionAddr
+= true);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function allows
 the user to control the port reuse and binding behavior for the
 receive socket used for the given NORM <FONT FACE="Courier"><U>session</U></FONT>.
- When the <FONT FACE="Courier"><U>state</U></FONT> parameter is set
-to <FONT FACE="Courier"><I>true</I></FONT>:</P>
-<OL>
-	<LI><P CLASS="western" STYLE="font-style: normal">Reuse of the
-	<I>NormSession</I> port number is enabled, and</P>
-	<LI><P CLASS="western" STYLE="font-style: normal">the underlying
-	socket is also bound (see the <FONT FACE="Courier">bind()</FONT>
-	system call) to the <I>NormSession</I> destination address instead
-	of the default behavior of binding to INADDR_ANY.  
-	</P>
-</OL>
-<P CLASS="western" STYLE="font-style: normal">The default binding to
-INADDR_ANY (<FONT FACE="Courier"><U>state</U></FONT> equals <FONT FACE="Courier"><I>false</I></FONT>)
-allows the <I>NormSession</I> receive socket to receive any multicast
-or unicast transmissions to the given port number.  This allows a
+ When the <FONT FACE="Courier"><U>enable</U></FONT> parameter is set
+to <FONT FACE="Courier"><I>true</I></FONT>,  reuse of the <I>NormSession</I>
+port number is enabled, and, if the <FONT FACE="Courier"><U>bindToSessionAddr</U></FONT>
+is also set to <FONT FACE="Courier"><I>true</I></FONT> (default), the
+underlying socket is also bound (see the <FONT FACE="Courier">bind()</FONT>
+system call) to the <I>NormSession</I> destination address instead of
+the default behavior of binding to INADDR_ANY.  
+</P>
+<P CLASS="western" STYLE="font-style: normal">When this call is not
+made,  the default binding to IP address INADDR_ANY (equivalent to
+when this call is made and <FONT FACE="Courier"><U>bindToSessionAddr</U></FONT>
+is set to <FONT FACE="Courier"><I>false</I></FONT>) allows the
+<I>NormSession</I> receive socket to receive <I>any</I> multicast or
+unicast transmissions to the session port number provided in the call
+to <FONT FACE="Courier"><A HREF="#NormCreateSession()">NormCreateSession()</A></FONT>.  This allows a
 NORM receiver to receive from senders sending to a multicast session
 address or the receiver's unicast address.  Enabling port reuse and
 binding the session destination address allows multiple NORM sessions
@@ -1531,7 +1597,16 @@ created.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function has no
 return values.</P>
-<H2 CLASS="western"><A NAME="NORM Sender Functions">NORM Sender Functions</A></H2>
+<H2 CLASS="western"><A NAME="NORM<SPAN STYLE="font-style: normal"> </SPAN>Sender
+Functions">NORM<SPAN STYLE="font-style: normal"> </SPAN>Sender
+Functions</A></H2>
+<P CLASS="western" STYLE="font-style: normal">The functions described
+in this section apply only to NORM sender operation.  Applications
+may participate strictly as senders or as receivers, or may act as
+both in the context of a NORM protocol session.  The NORM sender is
+responsible for most parameters pertaining to its transmission of
+data.  This includes transmission rate, data segmentation sizes, FEC
+coding parameters, stream buffer sizes, etc.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormStartSender()">NormStartSender()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -2112,6 +2187,75 @@ values are 1.0 second and 30.0 seconds, respectively.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function has no
 return values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetBackoffFactor()">NormSetBackoffFactor()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
+NormSetBackoffFactor(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;session,
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;double&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;backoffFactor);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal"><A NAME="OLE_LINK3"></A><A NAME="OLE_LINK2"></A>
+This function sets the sender's &quot;backoff factor&quot; for the
+given <FONT FACE="Courier"><U>session</U></FONT>..  The backoff
+factor is used to scale various timeouts related to the NACK repair
+process.  The sender advertises its backoff factor setting to the
+receiver group in NORM protocol message headers.  The default backoff
+factor for NORM sessions is <FONT FACE="Courier"><I>4.0</I></FONT>. 
+The backoff factor is used to determine the maximum time that
+receivers may delay NACK transmissions (and other feedback messages)
+as part of NORM's probabilistic feedback suppression technique.  For
+example, the maximum NACK delay time is <FONT FACE="Courier"><U>backoffFactor</U></FONT><FONT FACE="Courier">*GRTT</FONT>.
+ Thus a large <FONT FACE="Courier"><U>backoffFactor</U></FONT> value
+introduces latency into the NORM repair process.  However, a small
+<FONT FACE="Courier"><U>backoffFactor</U></FONT> value causes
+feedback suppression to be less effective and increases the risk of
+feedback implosion for large receiver group sizes.  The default
+setting of <FONT FACE="Courier"><I>4.0</I></FONT> provides reasonable
+feedback suppression for moderate to large group sizes when multicast
+feedback is possible.  The NORM specification recommends a backoff
+factor value of <FONT FACE="Courier"><I>6.0</I></FONT> when unicast
+feedback is used.  However, for demanding applications (with respect
+to repair latency) when group sizes are modest, a small (even <FONT FACE="Courier"><I>0.0</I></FONT>)
+<FONT FACE="Courier"><U>backoffFactor</U></FONT> value can be
+specified to reduce the latency of reliable data delivery.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function has no
+return values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetGroupSize()">NormSetGroupSize()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
+NormSetGroupSize(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;session,
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
+int&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;groupSize);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function sets the
+sender's estimate of receiver group size for the given session.  The
+sender advertises its group size setting to the receiver group in
+NORM protocol message headers that, in turn, use this information to
+shape the distribution curve of their random timeouts for the
+timer-based, probabilistic feedback suppression technique used in the
+NORM protocol.  Note that the <FONT FACE="Courier"><U>groupSize</U></FONT>
+estimate does not have to be very accurate and values within an order
+of magnitude of the actual group size tend to produce acceptable
+performance.  The default group size setting in NORM is <FONT FACE="Courier"><I>1,000</I></FONT>
+and thus can work well for a wide range of actual receiver group
+sizes.  The penalty of an overly large estimate is statistically a
+little more latency in reliable data delivery with respect to the
+round trip time and some potential for excess feedback.  A
+substantial underestimation of group size increases the risk of
+feedback implosion.  Currently, the NORM implementation does not
+attempt to automatically measure group size from receiver feedback. 
+Applications could add their own mechanism for this (perhaps keeping
+explicit track of group membership), or it is possible that future
+versions of the NRL NORM implementation may have some provision for
+automatic group size estimation by the sender based on receiver
+feedback messages.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function has no
+return values.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormFileEnqueue()">NormFileEnqueue()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
@@ -2392,22 +2536,36 @@ previously enqueued data pending transmission (original or repair)
 being dropped by the NORM protocol engine.  While NORM NACK-based
 reliability does not provide explicit flow control, there is some
 degree of implicit flow control in limiting writing new data to the
-stream against pending repairs. 
-</P>
-<P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormEvent">NormEvent</A></FONT>
-NORM_TX_QUEUE_VACANCY is posted with its <I><A HREF="#NormEvent">NormEvent</A>::object</I>
-field set to a valid sender stream <FONT FACE="Courier"><A HREF="#NormObjectHandle">NormObjectHandle</A></FONT>
-to indicate when the stream is ready for writing via this function. 
-Note that, after this event type is posted, the application <I>must</I>
-make a call to <FONT FACE="Courier"><A HREF="#NormStreamWrite()">NormStreamWrite()</A></FONT> with a
-non-zero <FONT FACE="Courier"><U>numBytes</U></FONT> value before
-addition NORM_TX_QUEUE_VACANCY events are posted for the given
-<FONT FACE="Courier"><U>streamHandle</U></FONT>.</P>
+stream against pending repairs.  Other flow control strategies are
+possible using the <FONT FACE="Courier"><A HREF="#NormSetWatermark()">NormSetWatermark()</A></FONT>
+function.</P>
+<P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier">NormEvents
+</FONT><FONT FACE="Courier"><I>NORM_TX_QUEUE_EMPTY</I></FONT> and
+<FONT FACE="Courier"><I>NORM_TX_QUEUE_VACANCY</I></FONT> are posted
+with the <I><A HREF="#NormEvent">NormEvent</A>::object</I> field set to a valid sender stream
+<FONT FACE="Courier"><A HREF="#NormObjectHandle">NormObjectHandle</A></FONT> to indicate when the
+stream is ready for writing via this function.  Note that the
+<FONT FACE="Courier"><I>NORM_TX_QUEUE_VACANCY </I></FONT>event type
+is posted <I>only after</I> the stream's transmit buffer has been
+completely filled.  Thus, the application <I>must</I> make a call to
+<FONT FACE="Courier"><A HREF="#NormStreamWrite()">NormStreamWrite()</A></FONT> that copies less than
+the requested <FONT FACE="Courier"><U>numBytes</U></FONT> value
+(return value less than <FONT FACE="Courier"><U>numBytes</U></FONT>)
+before additional <FONT FACE="Courier"><I>NORM_TX_QUEUE_VACANCY</I></FONT>
+events are posted for the given <FONT FACE="Courier"><U>streamHandle</U></FONT>
+(i.e., the event type is not re-posted until the application has
+again filled the available stream transmit buffer space).  By cueing
+off of <FONT FACE="Courier"><I>NORM_TX_QUEUE_EMPTY</I></FONT>, the
+application can write its &quot;freshest&quot; available data to the
+stream, but by cueing off of <FONT FACE="Courier"><I>NORM_TX_QUEUE_VACANCY</I></FONT>,
+an application can keep the NORM protocol engine busiest, to achieve
+the maximum possible throughput at high data rates.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function returns
 the number of bytes of data successfully enqueued for NORM stream
 transmission.  If the underlying send stream buffer is full, this
-function may return zero.  
+function may return zero or a value less than the requested <FONT FACE="Courier"><U>numBytes</U></FONT>.
+ 
 </P>
 <H3 CLASS="functionheading-western"><A NAME="NormStreamFlush()">NormStreamFlush()</A></H3>
 <H4 CLASS="western">Synopsis</H4>

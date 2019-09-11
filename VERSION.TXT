@@ -1,5 +1,38 @@
 			           NORM Version History
 
+Version 1.3b7
+=============
+    - Deprecated NORM stream payload flags in favor of "payload_msg_start"
+      field per revised NORM specification (draft-ietf-rmt-pi-nom-revised-00)
+      This included interpreting NORM_DATA (source segment) messages for
+      NORM_OBJECT_STREAM with "payload_len" field value of ZERO as
+      "stream control" messages where the "payload_msg_start" field serves
+      as the stream control message type indications.  The "End-of-Stream"  
+      control message consists of "payload_msg_start" = 0 
+      when "payload_len" = 0.  No other stream control messages are yet
+      defined.  The next revision of the NORM spec will describe this.
+      (Thus for NORM stream purposes, this NORM version is _not_ interoperable 
+      with previous versions)
+    - Fixed problem where NormServerNode "retrieval_pool" had allocated
+      segments one byte too small (although this is OBE with the above
+      deprecation of stream flags which is what the byte was used for)
+    - Fixed bug where sender objects were not properly "closed" when the
+      object table was cleaned upon NormStopSender()
+    - Added support to VC++ .Net workspace for building "Norm.dll"
+      (NORM as a dynamic linked library) and similarly added option
+      to build "libnorm.dylib" for MacOS. ("libnorm.so" for other
+      Unix platforms should already work).
+    - Fixed NormSetTOS() call.
+    - Added option to NormSetPortReuse() to maintain INADDR_ANY binding
+      if desired.
+    - Refined management of NORM sender stream buffer so sender wouldn't
+      prematurely discard buffer stream blocks when alot of small
+      segments (smaller than segment_size) were buffered.
+    - Added NormStopInstance() call to provide means for multi-threaded
+      NORM apps to stop the NORM protocol engine and awake any other thread
+      blocked on NormGetNextEvent() to signal shutdown of NormInstance.
+    - Also updated code so ns-2 build works and tested w/ ns-2.29
+
 Version 1.3b6
 =============
     - Fixed some oversite bugs that crept in with changes in 1.3b5

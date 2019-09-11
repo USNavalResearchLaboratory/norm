@@ -1,0 +1,42 @@
+0) Fix implementation of NORM_DATA_FLAG_REPAIR.
+
+1) Implement unicast feedback of NACK messages and server
+   re-advertisement for suppressing the unicast feedback.
+   (COMPLETED)
+   
+2) Add mechanism to allow window-based control of NORM server
+   transmission rate.  
+   
+3) Implement TFMCC and/or PGM-CC congestion control mechanisms
+   within NORM. (TFMCC COMPLETED)
+
+4) A single squelch message should be sent per repair cycle?
+   The squelch works to "synchronize" clients to the server
+   repair window.  As the code is currently implemented, the 
+   server might generate a squelch per NACK.  This might be OK
+   since the occurrence of squelch _should_ be rare.  The 
+   debug statistics should keep a count of squelch events.
+   (COMPLETED)
+   
+5) Implement positive acknowledgement mechanism per the NORM spec.
+   (COMPLETED - needs more testing)
+
+6) Implement and document simple API to control and access NORM
+   features.  (COMPLETED and enhancement in progress)
+   
+7) Build "norm daemon" using API.
+
+8) JAVA API for NRL NORM Protocol library
+
+9) Correct/complete user guide for "norm" demo app
+
+10) Release wxNormChat project
+
+11) Test, release "naft" (updated "raft") for reliable streaming.
+
+12) Can we eliminate rapid clr norm-cc probing when data is
+    not being actively sent? (COMPLETED)
+    
+    
+
+   

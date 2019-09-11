@@ -153,7 +153,6 @@ void NormFile::Close()
         close(fd);
         fd = -1;
 #endif // if/else WIN32
-        
     }
 }  // end NormFile::Close()
 
@@ -332,35 +331,52 @@ bool NormFile::Rename(const char* oldName, const char* newName)
     }
 }  // end NormFile::Rename()
 
-int NormFile::Read(char* buffer, int len)
+size_t NormFile::Read(char* buffer, size_t len)
 {
     ASSERT(IsOpen());
 #ifdef WIN32
 #ifdef _WIN32_WCE
     size_t result = fread(buffer, 1, len, file_ptr);
 #else
-    int result = _read(fd, buffer, len);
+    size_t result = _read(fd, buffer, (unsigned int)len);
 #endif // if/else _WIN32_WCE
 #else
-    int result = read(fd, buffer, len);
+    ssize_t result = read(fd, buffer, len);
 #endif // if/else WIN32
-    if (result > 0) offset += (Offset)result;
-    return result;
+    if (result < 0)
+    {
+        DMSG(0, "NormFile::Read() read(%d) error: %s (fd = %d, offset:%d)\n", len, GetErrorString(), fd, offset);
+        return 0;
+    }
+    else
+    {
+        offset += (Offset)result;
+        return result;
+    }
 }  // end NormFile::Read()
 
-int NormFile::Write(const char* buffer, int len)
+size_t NormFile::Write(const char* buffer, size_t len)
 {
     ASSERT(IsOpen());
 #ifdef WIN32
 #ifdef _WIN32_WCE
     size_t result = fwrite(buffer, 1, len, file_ptr);
 #else
-    int result = _write(fd, buffer, len);
+    size_t result = _write(fd, buffer, (unsigned int)len);
 #endif // if/else _WIN32_WCE
 #else
-    int result = write(fd, buffer, len);
+    size_t result = write(fd, buffer, len);
 #endif // if/else WIN32
-    if (result > 0) offset += (Offset)result;
+    if (result < 0)
+    {
+        DMSG(0, "NormFile::Write() write() error: %s\n", GetErrorString());
+        return 0;
+    }
+    else
+    {
+        offset += (Offset)result;
+        return result;
+    }
     return result;
 }  // end NormFile::Write()
 
@@ -451,7 +467,7 @@ bool NormDirectoryIterator::Open(const char *thePath)
     current = new NormDirectory(thePath);
     if (current && current->Open())
     {
-        path_len = strlen(current->Path());
+        path_len = (int)strlen(current->Path());
         path_len = MIN(PATH_MAX, path_len);
         return true;
     }
@@ -555,7 +571,7 @@ bool NormDirectoryIterator::GetNextFile(char* fileName)
 			NormFile::Type type = NormFile::GetType(fileName);
 			if (NormFile::NORMAL == type)
 			{
-                int nameLen = strlen(fileName);
+                size_t nameLen = strlen(fileName);
                 nameLen = MIN(PATH_MAX, nameLen);
 				nameLen -= path_len;
 				memmove(fileName, fileName+path_len, nameLen);
@@ -682,7 +698,7 @@ NormDirectoryIterator::NormDirectory::NormDirectory(const char*    thePath,
 #endif // if/else WIN32 
 {
     strncpy(path, thePath, PATH_MAX);
-    int len  = MIN(PATH_MAX, strlen(path));
+    size_t len  = MIN(PATH_MAX, strlen(path));
     if ((len < PATH_MAX) && (PROTO_PATH_DELIMITER != path[len-1]))
     {
         path[len++] = PROTO_PATH_DELIMITER;
@@ -701,7 +717,7 @@ bool NormDirectoryIterator::NormDirectory::Open()
     char fullName[PATH_MAX];
     GetFullName(fullName);  
     // Get rid of trailing PROTO_PATH_DELIMITER
-    int len = MIN(PATH_MAX, strlen(fullName));
+    size_t len = MIN(PATH_MAX, strlen(fullName));
     if (PROTO_PATH_DELIMITER == fullName[len-1]) fullName[len-1] = '\0';
 #ifdef WIN32
 #ifdef _UNICODE
@@ -753,7 +769,7 @@ void NormDirectoryIterator::NormDirectory::GetFullName(char* ptr)
 void NormDirectoryIterator::NormDirectory::RecursiveCatName(char* ptr)
 {
     if (parent) parent->RecursiveCatName(ptr);
-    int len = MIN(PATH_MAX, strlen(ptr));
+    size_t len = MIN(PATH_MAX, strlen(ptr));
     strncat(ptr, path, PATH_MAX-len);
 }  // end NormDirectoryIterator::NormDirectory::RecursiveCatName()
 
@@ -1020,11 +1036,11 @@ bool NormFileList::Append(const char* path)
 bool NormFileList::Remove(const char* path)
 {
     FileItem* nextItem = head;
-    unsigned int pathLen = strlen(path);
+    size_t pathLen = strlen(path);
     pathLen = MIN(pathLen, PATH_MAX);
     while (nextItem)
     {
-        unsigned nameLen = strlen(nextItem->Path());
+        size_t nameLen = strlen(nextItem->Path());
         nameLen = MIN(nameLen, PATH_MAX);
         nameLen = MAX(nameLen, pathLen);
         if (!strncmp(path, nextItem->Path(), nameLen))
@@ -1087,7 +1103,7 @@ void NormFileList::GetCurrentBasePath(char* pathBuffer)
         if (NormFile::DIRECTORY == next->GetType())
         {
             strncpy(pathBuffer, next->Path(), PATH_MAX);
-            unsigned int len = strlen(pathBuffer);
+            size_t len = strlen(pathBuffer);
             len = MIN(len, PATH_MAX);
             if (PROTO_PATH_DELIMITER != pathBuffer[len-1])
             {
@@ -1100,7 +1116,7 @@ void NormFileList::GetCurrentBasePath(char* pathBuffer)
             const char* ptr = strrchr(next->Path(), PROTO_PATH_DELIMITER);
             if (ptr++)
             {
-                unsigned int len = ptr - next->Path();
+                size_t len = ptr - next->Path();
                 strncpy(pathBuffer, next->Path(), len);
                 pathBuffer[len] = '\0';
             }
@@ -1120,7 +1136,7 @@ void NormFileList::GetCurrentBasePath(char* pathBuffer)
 NormFileList::FileItem::FileItem(const char* thePath)
  : prev(NULL), next(NULL)
 {
-    unsigned int len = strlen(thePath);
+    size_t len = strlen(thePath);
     len = MIN(len, PATH_MAX);
     strncpy(path, thePath, PATH_MAX);
     size = NormFile::GetSize(thePath);    
@@ -1195,7 +1211,7 @@ bool NormFileList::DirectoryItem::GetNextFile(char*   thePath,
         } 
      }
      strncpy(thePath, path, PATH_MAX);
-     unsigned int len = strlen(thePath);
+     size_t len = strlen(thePath);
      len = MIN(len, PATH_MAX);
      if ((PROTO_PATH_DELIMITER != thePath[len-1]) && (len < PATH_MAX))
      {
@@ -1205,7 +1221,7 @@ bool NormFileList::DirectoryItem::GetNextFile(char*   thePath,
      char tempPath[PATH_MAX];
      while (diterator.GetNextFile(tempPath))
      {
-         unsigned int maxLen = PATH_MAX - len;
+         size_t maxLen = PATH_MAX - len;
          strncat(thePath, tempPath, maxLen);
          if (updatesOnly)
          {

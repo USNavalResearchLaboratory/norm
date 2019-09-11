@@ -29,7 +29,7 @@
 				UsePrecompiledHeader="2"
 				PrecompiledHeaderFile=".\Debug/NormLib.pch"
 				AssemblerListingLocation=".\Debug/"
-				ObjectFile=".\Debug/"
+				ObjectFile="Norm.lib"
 				ProgramDataBaseFileName=".\Debug/"
 				WarningLevel="3"
 				SuppressStartupBanner="TRUE"
@@ -38,7 +38,7 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLibrarianTool"
-				OutputFile=".\Debug\NormLib.lib"
+				OutputFile="$(OutDir)/NormLib.lib"
 				SuppressStartupBanner="TRUE"/>
 			<Tool
 				Name="VCMIDLTool"/>
@@ -81,7 +81,6 @@
 				UsePrecompiledHeader="2"
 				PrecompiledHeaderFile=".\Release/NormLib.pch"
 				AssemblerListingLocation=".\Release/"
-				ObjectFile=".\Release/"
 				ProgramDataBaseFileName=".\Release/"
 				WarningLevel="3"
 				SuppressStartupBanner="TRUE"
@@ -90,7 +89,7 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLibrarianTool"
-				OutputFile=".\Release\NormLib.lib"
+				OutputFile="$(OutDir)/NormLib.lib"
 				SuppressStartupBanner="TRUE"/>
 			<Tool
 				Name="VCMIDLTool"/>
