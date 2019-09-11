@@ -20,7 +20,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    rx_socket(ProtoSocket::UDP), local_node_id(localNodeId), 
    ttl(DEFAULT_TTL), loopback(false),
    tx_rate(DEFAULT_TRANSMIT_RATE/8.0), tx_rate_min(-1.0), tx_rate_max(-1.0),
-   backoff_factor(DEFAULT_BACKOFF_FACTOR), is_server(false), session_id(0),
+   backoff_factor(DEFAULT_BACKOFF_FACTOR), is_server(false), instance_id(0),
    ndata(DEFAULT_NDATA), nparity(DEFAULT_NPARITY), auto_parity(0), extra_parity(0),
    next_tx_object_id(0), tx_cache_count_min(8), tx_cache_count_max(256),
    tx_cache_size_max((UINT32)20*1024*1024),
@@ -269,7 +269,8 @@ void NormSession::SetTxRateBounds(double rateMin, double rateMax)
 }  // end NormSession::SetTxRateBounds()
         
 
-bool NormSession::StartServer(UINT32        bufferSpace,
+bool NormSession::StartServer(UINT16        instanceId,
+                              UINT32        bufferSpace,
                               UINT16        segmentSize,
                               UINT16        numData, 
                               UINT16        numParity,
@@ -337,6 +338,7 @@ bool NormSession::StartServer(UINT32        bufferSpace,
         }    
     }
     
+    instance_id = instanceId;
     segment_size = segmentSize;
     sent_rate = 0.0;
     prev_update_time.tv_sec = prev_update_time.tv_usec = 0;
@@ -622,6 +624,10 @@ void NormSession::Serve()
         {
             DMSG(6, "NormSession::Serve() node>%lu server flush complete ...\n",
                     LocalNodeId());
+            
+            Notify(NormController::TX_FLUSH_COMPLETED,
+                   (NormServerNode*)NULL,
+                   (NormObject*)NULL);
             flush_count++;   
         }
     }
@@ -993,7 +999,7 @@ bool NormSession::QueueTxObject(NormObject* obj)
         unsigned long count = tx_table.Count();
         while ((count >= tx_cache_count_min) &&
                ((count >= tx_cache_count_max) ||
-                ((tx_table.Size() + obj->GetSize()) > tx_cache_size_max)))
+                ((tx_table.GetSize() + obj->GetSize()) > tx_cache_size_max)))
         {
             // Remove oldest non-pending 
             NormObject* oldest = tx_table.Find(tx_table.RangeLo());
@@ -1172,10 +1178,7 @@ void NormTrace(const struct timeval&    currentTime,
         "CMD(REPAIR_ADV)",
         "CMD(ACK_REQ)",
         "CMD(APP)"
-    };      
-       
-                
-                  
+    };            
     static const char* REQ_NAME[] = 
     {
         "INVALID",
@@ -1202,26 +1205,26 @@ void NormTrace(const struct timeval&    currentTime,
 #else            
     struct tm* ct = gmtime((time_t*)&currentTime.tv_sec);
 #endif // if/else _WIN32_WCE
-    DMSG(0, "trace>%02d:%02d:%02d.%06lu node>%lu %s>%s seq>%hu ",
+    DMSG(0, "trace>%02d:%02d:%02d.%06lu node>%lu %s>%s ",
             ct->tm_hour, ct->tm_min, ct->tm_sec, currentTime.tv_usec,
-            (UINT32)localId, status, addr.GetHostString(), seq);
+            (UINT32)localId, status, addr.GetHostString());
     bool clrFlag = false;
     switch (msgType)
     {
         case NormMsg::INFO:
         {
             const NormInfoMsg& info = (const NormInfoMsg&)msg;
-            DMSG(0, "INFO obj>%hu ", (UINT16)info.GetObjectId());
+            DMSG(0, "inst>%hu seq>%hu INFO obj>%hu ", 
+                    info.GetInstanceId(), seq, (UINT16)info.GetObjectId());
             break;
         }
         case NormMsg::DATA:
         {
             const NormDataMsg& data = (const NormDataMsg&)msg;
-            if (data.IsData())
-                DMSG(0, "DATA ");
-            else
-                DMSG(0, "PRTY ");
-            DMSG(0, "obj>%hu blk>%lu seg>%hu ", 
+            DMSG(0, "inst>%hu seq>%hu %s obj>%hu blk>%lu seg>%hu ", 
+                    data.GetInstanceId(), 
+                    seq, 
+                    data.IsData() ? "DATA" : "PRTY",
                     (UINT16)data.GetObjectId(),
                     (UINT32)data.GetFecBlockId(),
                     (UINT16)data.GetFecSymbolId());
@@ -1242,8 +1245,9 @@ void NormTrace(const struct timeval&    currentTime,
         }
         case NormMsg::CMD:
         {
-            NormCmdMsg::Flavor flavor = ((const NormCmdMsg&)msg).GetFlavor();
-            DMSG(0, "%s ", CMD_NAME[flavor]);
+            const NormCmdMsg& cmd = static_cast<const NormCmdMsg&>(msg);
+            NormCmdMsg::Flavor flavor = cmd.GetFlavor();
+            DMSG(0, "inst>%hu seq>%hu %s ", cmd.GetInstanceId(), seq, CMD_NAME[flavor]);
             switch (flavor)
             {
                 case NormCmdMsg::ACK_REQ:
@@ -1255,7 +1259,8 @@ void NormTrace(const struct timeval&    currentTime,
                 }
                 case NormCmdMsg::SQUELCH:
                 {
-                    const NormCmdSquelchMsg& squelch = (const NormCmdSquelchMsg&)msg;
+                    const NormCmdSquelchMsg& squelch = 
+                        static_cast<const NormCmdSquelchMsg&>(msg);
                     DMSG(0, " obj>%hu blk>%lu seg>%hu ",
                             (UINT16)squelch.GetObjectId(),
                             (UINT32)squelch.GetFecBlockId(),
@@ -1264,7 +1269,8 @@ void NormTrace(const struct timeval&    currentTime,
                 }
                 case NormCmdMsg::FLUSH:
                 {
-                    const NormCmdFlushMsg& flush = (const NormCmdFlushMsg&)msg;
+                    const NormCmdFlushMsg& flush = 
+                        static_cast<const NormCmdFlushMsg&>(msg);
                     DMSG(0, " obj>%hu blk>%lu seg>%hu ",
                             (UINT16)flush.GetObjectId(),
                             (UINT32)flush.GetFecBlockId(),
@@ -1273,7 +1279,8 @@ void NormTrace(const struct timeval&    currentTime,
                 }
                 case NormCmdMsg::CC:
                 {
-                    const NormCmdCCMsg& cc = (const NormCmdCCMsg&)msg;
+                    const NormCmdCCMsg& cc =  
+                        static_cast<const NormCmdCCMsg&>(msg);
                     DMSG(0, " seq>%u ", cc.GetCCSequence());
                     NormHeaderExtension ext;
                     while (cc.GetNextExtension(ext))
@@ -1382,12 +1389,12 @@ void NormSession::ClientHandleObjectMessage(const struct timeval&   currentTime,
     NormServerNode* theServer = (NormServerNode*)server_tree.FindNodeById(sourceId);
     if (theServer)
     {
-        if (msg.GetSessionId() != theServer->GetSessionId())
+        if (msg.GetInstanceId() != theServer->GetInstanceId())
         {
-            DMSG(2, "NormSession::ClientHandleObjectMessage() node>%lu server>%lu sessionId change - resyncing.\n",
+            DMSG(2, "NormSession::ClientHandleObjectMessage() node>%lu server>%lu instanceId change - resyncing.\n",
                          LocalNodeId(), theServer->GetId());
             theServer->Close();   
-            if (!theServer->Open(msg.GetSessionId()))
+            if (!theServer->Open(msg.GetInstanceId()))
             {
                 DMSG(0, "NormSession::ClientHandleObjectMessage() node>%lu error re-opening NormServerNode\n");
                 // (TBD) notify application of error
@@ -1400,7 +1407,7 @@ void NormSession::ClientHandleObjectMessage(const struct timeval&   currentTime,
         if ((theServer = new NormServerNode(*this, msg.GetSourceId())))
         {
             Notify(NormController::REMOTE_SERVER_NEW, theServer, NULL);
-            if (theServer->Open(msg.GetSessionId()))
+            if (theServer->Open(msg.GetInstanceId()))
             {
                 server_tree.AttachNode(theServer);
                 theServer->Retain();
@@ -1438,12 +1445,12 @@ void NormSession::ClientHandleCommand(const struct timeval& currentTime,
     NormServerNode* theServer = (NormServerNode*)server_tree.FindNodeById(sourceId);
     if (theServer)
     {
-        if (cmd.GetSessionId() != theServer->GetSessionId())
+        if (cmd.GetInstanceId() != theServer->GetInstanceId())
         {
-            DMSG(2, "NormSession::ClientHandleCommand() node>%lu server>%lu sessionId change - resyncing.\n",
+            DMSG(2, "NormSession::ClientHandleCommand() node>%lu server>%lu instanceId change - resyncing.\n",
                          LocalNodeId(), theServer->GetId());
             theServer->Close();   
-            if (!theServer->Open(cmd.GetSessionId()))
+            if (!theServer->Open(cmd.GetInstanceId()))
             {
                 DMSG(0, "NormSession::ClientHandleCommand() node>%lu error re-opening NormServerNode\n");
                 // (TBD) notify application of error
@@ -1457,7 +1464,8 @@ void NormSession::ClientHandleCommand(const struct timeval& currentTime,
         //        LocalNodeId());   
         if ((theServer = new NormServerNode(*this, cmd.GetSourceId())))
         {
-            if (theServer->Open(cmd.GetSessionId()))
+            Notify(NormController::REMOTE_SERVER_NEW, theServer, NULL);
+            if (theServer->Open(cmd.GetInstanceId()))
             {
                 server_tree.AttachNode(theServer);
                 theServer->Retain();
@@ -2645,16 +2653,16 @@ bool NormSession::SendMessage(NormMsg& msg)
     bool isProbe = false;
     
     // Fill in any last minute timestamps
-    // (TBD) fill in SessionId fields on all messages as needed
+    // (TBD) fill in InstanceId fields on all messages as needed
     switch (msg.GetType())
     {
         case NormMsg::INFO:
         case NormMsg::DATA:
-            ((NormObjectMsg&)msg).SetSessionId(session_id);
+            ((NormObjectMsg&)msg).SetInstanceId(instance_id);
             msg.SetSequence(tx_sequence++);  // (TBD) set for session dst msgs
             break;
         case NormMsg::CMD:
-            ((NormCmdMsg&)msg).SetSessionId(session_id);
+            ((NormCmdMsg&)msg).SetInstanceId(instance_id);
             switch (((NormCmdMsg&)msg).GetFlavor())
             {
                 case NormCmdMsg::CC:

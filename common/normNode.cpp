@@ -43,7 +43,7 @@ NormCCNode::~NormCCNode()
 
 
 NormServerNode::NormServerNode(class NormSession& theSession, NormNodeId nodeId)
- : NormNode(theSession, nodeId), session_id(0), synchronized(false), sync_id(0),
+ : NormNode(theSession, nodeId), instance_id(0), synchronized(false), sync_id(0),
    max_pending_range(256), is_open(false), segment_size(0), ndata(0), nparity(0), 
    repair_boundary(BLOCK_BOUNDARY), erasure_loc(NULL),
    retrieval_loc(NULL), retrieval_pool(NULL),
@@ -100,9 +100,9 @@ NormServerNode::~NormServerNode()
     Close();
 }
 
-bool NormServerNode::Open(UINT16 sessionId)
+bool NormServerNode::Open(UINT16 instanceId)
 {
-    session_id = sessionId;
+    instance_id = instanceId;
     if (!rx_table.Init(max_pending_range))
     {
         DMSG(0, "NormServerNode::Open() rx_table init error\n");
@@ -123,6 +123,7 @@ bool NormServerNode::Open(UINT16 sessionId)
     }    
     is_open = true;
     synchronized = false;
+    resync_count = 0;  // reset resync_count 
     return true;
 }  // end NormServerNode::Open()
 
@@ -178,7 +179,7 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
     
     if (!block_pool.Init(numBlocks, blockSize))
     {
-        DMSG(0, "NormServerNode::Open() block_pool init error\n");
+        DMSG(0, "NormServerNode::AllocateBuffers() block_pool init error\n");
         Close();
         return false;
     }
@@ -188,7 +189,7 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
     // a NormStreamObject
     if (!segment_pool.Init(numSegments, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()+1))
     {
-        DMSG(0, "NormServerNode::Open() segment_pool init error\n");
+        DMSG(0, "NormServerNode::AllocateBuffers() segment_pool init error\n");
         Close();
         return false;
     }
@@ -198,7 +199,7 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
     // needed for block decoding  (new rx buffer mgmt scheme)
     if (!(retrieval_pool = new char*[numData]))
     {
-        DMSG(0, "NormServerNode::Open() new retrieval_pool error: %s\n", GetErrorString());
+        DMSG(0, "NormServerNode::AllocateBuffers() new retrieval_pool error: %s\n", GetErrorString());
         Close();
         return false;          
     }
@@ -208,7 +209,7 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
         char* s = new char[segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()];
         if (NULL == s)
         {
-            DMSG(0, "NormServerNode::Open() new retrieval segment error: %s\n", GetErrorString());
+            DMSG(0, "NormServerNode::AllocateBuffers() new retrieval segment error: %s\n", GetErrorString());
             Close();
             return false;
         }   
@@ -218,20 +219,20 @@ bool NormServerNode::AllocateBuffers(UINT16 segmentSize,
     
     if (!(retrieval_loc = new UINT16[numData]))
     {
-        DMSG(0, "NormServerNode::Open() retrieval_loc allocation error: %s\n", GetErrorString());
+        DMSG(0, "NormServerNode::AllocateBuffers() retrieval_loc allocation error: %s\n", GetErrorString());
         Close();
         return false;   
     }
     
     if (!decoder.Init(numParity, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()))
     {
-        DMSG(0, "NormServerNode::Open() decoder init error\n");
+        DMSG(0, "NormServerNode::AllocateBuffers() decoder init error\n");
         Close();
         return false; 
     }
     if (!(erasure_loc = new UINT16[numParity]))
     {
-        DMSG(0, "NormServerNode::Open() erasure_loc allocation error: %s\n",  GetErrorString());
+        DMSG(0, "NormServerNode::AllocateBuffers() erasure_loc allocation error: %s\n",  GetErrorString());
         Close();
         return false;   
     }
@@ -966,7 +967,7 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
             return;   
         }
     }    
-       
+    
     NormObject* obj = NULL;
     switch (status)
     {
@@ -1006,6 +1007,8 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
             
             if (obj)
             { 
+                rx_table.Insert(obj);
+                obj->Retain();  
                 NormFtiExtension fti;
                 while (msg.GetNextExtension(fti))
                 {
@@ -1021,8 +1024,6 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                             session.Notify(NormController::RX_OBJECT_NEW, this, obj);
                             if (obj->Accepted())
                             {
-                                rx_table.Insert(obj);
-                                obj->Retain();
                                 // (TBD) Do I _need_ to call "StreamUpdateStatus()" here?
                                 if (obj->IsStream()) 
                                     (static_cast<NormStreamObject*>(obj))->StreamUpdateStatus(blockId);
@@ -1031,12 +1032,14 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                             }
                             else
                             {
+                                DMSG(0, "NormServerNode::HandleObjectMessage() object not accepted\n");
                                 DeleteObject(obj);
                                 obj = NULL;    
                             }
                         }
                         else        
                         {
+                            DMSG(0, "NormServerNode::HandleObjectMessage() error opening object\n");
                             DeleteObject(obj);
                             obj = NULL;   
                         }
@@ -1608,7 +1611,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                     }
                     // Queue NACK for transmission
                     nack->SetServerId(GetId());
-                    nack->SetSessionId(session_id);
+                    nack->SetInstanceId(instance_id);
                     // GRTT response is deferred until transmit time
                     
                     if (unicast_nacks)
@@ -1742,7 +1745,7 @@ bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
             NormObject* objMax = rx_table.Find(max_pending_object);
             if (NULL != objMax)
             {
-                NormSegmentId segMax = objMax->GetMaxPendingSegmentId();
+                /*NormSegmentId segMax = objMax->GetMaxPendingSegmentId();
                 if (0 != segMax)
                     RepairCheck(NormObject::THRU_SEGMENT, 
                                 max_pending_object,
@@ -1752,7 +1755,10 @@ bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
                     RepairCheck(NormObject::TO_BLOCK, 
                                 max_pending_object,
                                 objMax->GetMaxPendingBlockId(), 
-                                0);
+                                0);*/
+                // Let's try this instead
+                RepairCheck(NormObject::THRU_OBJECT,   // (TBD) thru object???
+                            max_pending_object, 0, 0);
             }
             else
                 RepairCheck(NormObject::TO_BLOCK,   // (TBD) thru object???
@@ -1837,7 +1843,7 @@ bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
             }
             ack->Init();
             ack->SetServerId(GetId());
-            ack->SetSessionId(session_id);
+            ack->SetInstanceId(instance_id);
             ack->SetAckType(NormAck::CC);
             ack->SetAckId(0);
             
@@ -1878,7 +1884,7 @@ bool NormServerNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
     {
         ack->Init();
         ack->SetServerId(GetId());
-        ack->SetSessionId(session_id);
+        ack->SetInstanceId(instance_id);
         ack->SetAckId(0);
         AttachCCFeedback(*ack);
         ack->SetObjectId(watermark_object_id);

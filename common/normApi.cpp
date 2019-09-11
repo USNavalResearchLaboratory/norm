@@ -1,4 +1,3 @@
-
 #include "normApi.h"
 #include "normSession.h"
 
@@ -143,7 +142,9 @@ class NormInstance : public NormController
 NormInstance::Notification::Queue::Queue()
  : head(NULL), tail(NULL)
 {   
+    
 }
+
 
 NormInstance::Notification::Queue::~Queue()
 {
@@ -168,7 +169,7 @@ NormInstance::NormInstance()
 #else
     notify_fd[0] = notify_fd[1] = -1;
 #endif // if/else WIN32/UNIX
-    session_mgr.SetController(this);
+    session_mgr.SetController(static_cast<NormController*>(this));
 }
 
 NormInstance::~NormInstance()
@@ -314,6 +315,7 @@ void NormInstance::Notify(NormController::Event   event,
                     else
                     {
                         // we're ignoring files
+                        DMSG(8, "NormInstance::Notify() warning: receive file but no cache directory set, so ignoring file\n");
                         return;    
                     }                
                     break;
@@ -849,6 +851,7 @@ void NormSetRxLoss(NormSessionHandle sessionHandle, double percent)
 /** NORM Sender Functions */
 
 bool NormStartSender(NormSessionHandle  sessionHandle,
+                     NormSessionId      sessionId,
                      unsigned long      bufferSpace,
                      unsigned short     segmentSize,
                      unsigned char      numData,
@@ -860,7 +863,7 @@ bool NormStartSender(NormSessionHandle  sessionHandle,
     {
         NormSession* session = (NormSession*)sessionHandle;
         if (session)
-            result = session->StartServer(bufferSpace, segmentSize, numData, numParity);
+            result = session->StartServer(sessionId, bufferSpace, segmentSize, numData, numParity);
         else
             result = false;
         instance->dispatcher.ResumeThread();
@@ -1362,10 +1365,25 @@ unsigned short NormObjectGetInfo(NormObjectHandle objectHandle,
     return result;
 }  // end NormObjectGetInfo()
 
-off_t NormObjectGetSize(NormObjectHandle objectHandle)
+NormSize NormObjectGetSize(NormObjectHandle objectHandle)
 {
-    return ((NormObject*)objectHandle)->GetSize().GetOffset();
+    return ((NormSize)((NormObject*)objectHandle)->GetSize().GetOffset());
 }  // end NormObjectGetSize()
+
+NormSize NormObjectGetBytesPending(NormObjectHandle objectHandle)
+{
+    NormSize bytesPending = 0;
+    if (NORM_OBJECT_INVALID != objectHandle)
+    {
+        NormInstance* instance = NormInstance::GetInstanceFromObject(objectHandle);
+        if (instance && instance->dispatcher.SuspendThread())
+        {
+            bytesPending = ((NormSize)((NormObject*)objectHandle)->GetBytesPending().GetOffset());
+            instance->dispatcher.ResumeThread();
+        }
+    }
+    return bytesPending;
+}  // end NormObjectGetBytesPending()
 
 void NormObjectCancel(NormObjectHandle objectHandle)
 {

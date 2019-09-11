@@ -112,6 +112,8 @@ class NormObject
                                                             small_block_size);
         }
         
+        NormObjectSize GetBytesPending() const;
+        
         bool IsPending(bool flush = true) const;
         bool IsRepairPending() const;
         bool IsPendingInfo() {return pending_info;}
@@ -542,7 +544,7 @@ class NormObjectTable
         NormObjectId RangeHi() const {return range_hi;}
         bool IsEmpty() const {return (0 == range);}
         UINT32 Count() const {return count;}
-        const NormObjectSize& Size() const {return size;}
+        const NormObjectSize& GetSize() const {return size;}
         
         class Iterator
         {

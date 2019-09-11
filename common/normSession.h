@@ -16,6 +16,7 @@ class NormController
             EVENT_INVALID = 0,
             TX_QUEUE_VACANCY,
             TX_QUEUE_EMPTY,
+            TX_FLUSH_COMPLETED,
             TX_OBJECT_SENT,
             TX_OBJECT_PURGED,
             LOCAL_SERVER_CLOSED,
@@ -158,10 +159,11 @@ class NormSession
         void ServerSetBaseObjectId(NormObjectId baseId)
         {
             next_tx_object_id = IsServer() ? next_tx_object_id : baseId;   
-            session_id = IsServer() ? session_id : (UINT16)baseId;
+            //instance_id = IsServer() ? instance_id : (UINT16)baseId;
         }
         bool IsServer() {return is_server;}
-        bool StartServer(UINT32         bufferSpace,
+        bool StartServer(UINT16         instanceId,
+                         UINT32         bufferSpace,
                          UINT16         segmentSize,
                          UINT16         numData,
                          UINT16         numParity,
@@ -363,7 +365,7 @@ class NormSession
         
         // Server parameters and state
         bool                            is_server;
-        UINT16                          session_id;
+        UINT16                          instance_id;
         UINT16                          segment_size;
         UINT16                          ndata;
         UINT16                          nparity;

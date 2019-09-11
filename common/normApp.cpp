@@ -353,7 +353,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         len = strlen(buffer);
         len = (len > 8191) ? 8191 : len;
         buffer[len++] = '\0';
-        if (!control_pipe.Send(buffer, len))
+        if (!control_pipe.Send(buffer, (unsigned int)len))
         {
             DMSG(0, "NormApp::OnCommand() error sending command to remote instance\n");
             return false;
@@ -1104,10 +1104,10 @@ void NormApp::Notify(NormController::Event event,
                     // object Size() has recommended buffering size
                     NormObjectSize size;
                     if (silent_client)
-                        size = NormObjectSize((UINT32)rx_buffer_size);
+                        size =  rx_buffer_size;
                     else
-                        size = object->GetSize();
-                    
+                        size = (UINT32)object->GetSize().LSB();  
+                    ASSERT(0 == size.MSB());
                     if (((NormStreamObject*)object)->Accept(size.LSB()))
                     {
                         rx_stream = (NormStreamObject*)object;
@@ -1544,7 +1544,9 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
             session->SetBackoffFactor(backoff_factor);
             session->ServerSetGrtt(grtt_estimate);
             session->ServerSetGroupSize(group_size);
-            if (!session->StartServer(tx_buffer_size, segment_size, ndata, nparity, interface_name))
+            // We also use the baseId as our server's "instance id" for illustrative purposes
+            UINT16 instanceId = baseId;
+            if (!session->StartServer(instanceId, tx_buffer_size, segment_size, ndata, nparity, interface_name))
             {
                 DMSG(0, "NormApp::OnStartup() start server error!\n");
                 session_mgr.Destroy();

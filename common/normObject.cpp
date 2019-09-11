@@ -45,7 +45,10 @@ void NormObject::Release()
     if (reference_count)
         reference_count--;
     else
+    {
         DMSG(0, "NormObject::Release() releasing non-retained object?!\n");
+        ASSERT(0);
+    }
     if (0 == reference_count) delete this;      
 }  // end NormObject::Release()
 
@@ -109,11 +112,11 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     }
     
     // Compute number of segments and coding blocks for the object
-    // (Note NormObjectSize divide operator always rounds _up_)
-    NormObjectSize numSegments = objectSize / NormObjectSize(segmentSize);
+    // (Note NormObjectSize divide operator always rounds _upwards_)
+    NormObjectSize numSegments = objectSize / NormObjectSize(segmentSize);    
     NormObjectSize numBlocks = numSegments / NormObjectSize(numData);
     ASSERT(0 == numBlocks.MSB());
-    
+        
     if (!block_buffer.Init(numBlocks.LSB()))
     {
         DMSG(0, "NormObject::Open() init block_buffer error\n");  
@@ -124,7 +127,8 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     // Init pending_mask (everything pending)
     if (!pending_mask.Init(numBlocks.LSB(), 0xffffffff))
     {
-        DMSG(0, "NormObject::Open() init pending_mask error\n");  
+        DMSG(0, "NormObject::Open() init pending_mask (%lu) error: %s\n", 
+                numBlocks.GetOffset(), GetErrorString());  
         Close();
         return false; 
     }
@@ -206,7 +210,42 @@ void NormObject::Close()
     pending_mask.Destroy();
     block_buffer.Destroy();
     segment_size = 0;
-}  // end NormObject::Close();
+}  // end NormObject::Close()
+
+NormObjectSize NormObject::GetBytesPending() const
+{
+    NormObjectSize bytesCompleted;
+    NormBlockId nextId;
+    if (GetFirstPending(nextId))
+    {
+        NormObjectSize largeBlockBytes = NormObjectSize(large_block_size) * 
+                                         NormObjectSize(segment_size);
+        NormObjectSize smallBlockBytes = NormObjectSize(small_block_size) * 
+                                         NormObjectSize(segment_size);
+        NormObjectSize lastBlockBytes  = smallBlockBytes - NormObjectSize(segment_size) +
+                                         NormObjectSize(final_segment_size);
+        NormObjectSize pendingBytes(0);
+        do
+        {
+            NormBlock* block = block_buffer.Find(nextId);
+            if (block)
+                pendingBytes += block->GetBytesPending(GetBlockSize(nextId), segment_size, 
+                                                       final_block_id, final_segment_size);
+            else if ((UINT32)nextId < large_block_count)
+                pendingBytes += largeBlockBytes;
+            else if (nextId == final_block_id)
+                pendingBytes += lastBlockBytes;
+            else
+                pendingBytes += smallBlockBytes;  
+            nextId++;
+        } while (GetNextPending(nextId));
+        return pendingBytes;
+    }
+    else
+    {
+        return NormObjectSize(0);   
+    }    
+}  // end NormObject::GetBytesCompleted()
 
 // Used by server
 bool NormObject::HandleInfoRequest()
@@ -1732,7 +1771,7 @@ NormFileObject::NormFileObject(class NormSession&       theSession,
                                class NormServerNode*    theServer,
                                const NormObjectId&      objectId)
  : NormObject(FILE, theSession, theServer, objectId), 
-   large_block_length(0,0), small_block_length(0,0)
+   large_block_length(0), small_block_length(0)
 {
     path[0] = '\0';
 }
@@ -1775,7 +1814,7 @@ bool NormFileObject::Open(const char* thePath,
         // We're sending this file
         if (file.Open(thePath, O_RDONLY))
         {
-            off_t size = file.GetSize(); 
+			NormObjectSize::Offset size = file.GetSize(); 
             if (size)
             {
                 if (!NormObject::Open(NormObjectSize(size), 
@@ -1861,7 +1900,7 @@ bool NormFileObject::WriteSegment(NormBlockId   blockId,
         segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
                                         segmentSize*segmentId;
     }
-    off_t offset = segmentOffset.GetOffset();
+	NormFile::Offset offset = segmentOffset.GetOffset();
     if (offset != file.GetOffset())
     {
         if (!file.Seek(offset)) return false; 
@@ -1903,9 +1942,7 @@ UINT16 NormFileObject::ReadSegment(NormBlockId      blockId,
         segmentOffset = segmentOffset + small_block_length*smallBlockIndex +
                                         segmentSize*segmentId;
     }
-    //off_t offsetScaleMSB = 0xffffffff + 1;  // yuk! can't we do better
-    //off_t offset = (off_t)segmentOffset.LSB() + ((off_t)segmentOffset.MSB() * offsetScaleMSB);
-    off_t offset = segmentOffset.GetOffset();
+	NormFile::Offset offset = segmentOffset.GetOffset();
     if (offset != file.GetOffset())
     {
         if (!file.Seek(offset)) 
@@ -1952,7 +1989,7 @@ NormDataObject::NormDataObject(class NormSession&       theSession,
                                class NormServerNode*    theServer,
                                const NormObjectId&      objectId)
  : NormObject(DATA, theSession, theServer, objectId), 
-   large_block_length(0,0), small_block_length(0,0),
+   large_block_length(0), small_block_length(0),
    data_ptr(NULL), data_max(0), data_released(false)
 {
     
@@ -2709,9 +2746,9 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
 {
     if (stream_closing)
     {
-        DMSG(0, "NormStreamObject::Read() attempted to read from closed stream\n");
+        DMSG(4, "NormStreamObject::Read() attempted to read from closed stream\n");
         *buflen = 0;
-        return false;
+        return true;
     }   
     Retain();
     SetNotifyOnUpdate(true);  // reset notification when streams are read
@@ -3220,7 +3257,7 @@ char* NormSimObject::RetrieveSegment(NormBlockId   blockId,
 
 NormObjectTable::NormObjectTable()
  : table((NormObject**)NULL), range_max(0), range(0),
-   count(0), size(0,0)
+   count(0), size(0)
 {
 }
 

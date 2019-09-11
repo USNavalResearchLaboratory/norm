@@ -15,12 +15,7 @@
 #endif // UNIX
 int main(int argc, char* argv[])
 {
-    printf("normTest starting ...\n");
-    
-    
-    
-
-    
+    printf("normTest starting (sizeof(NormOffset) = %d)...\n", sizeof(NormOffset));
     
     NormInstanceHandle instance = NormCreateInstance();
 
@@ -40,17 +35,18 @@ int main(int argc, char* argv[])
     // NOTE: These are debugging routines available (not for normal app use)
     SetDebugLevel(2);
     // Uncomment to turn on debug NORM message tracing
-    NormSetMessageTrace(session, true);
+    //NormSetMessageTrace(session, true);
     // Uncomment to turn on some random packet loss
-    //NormSetTxLoss(session, 1.0);  // 10% packet loss
+    NormSetTxLoss(session, 10.0);  // 10% packet loss
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
     // Uncomment to get different packet loss patterns from run to run
-    //srand(currentTime.tv_sec);  // seed random number generator
+    // (and a different sender sessionId)
+    srand(currentTime.tv_sec);  // seed random number generator
     
     NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 60.0e+06);  // in bits/second
+    NormSetTransmitRate(session, 60.0e+03);  // in bits/second
     
     NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK); 
     
@@ -64,7 +60,7 @@ int main(int argc, char* argv[])
     NormSetLoopback(session, true);     
     
     // Uncomment this line to participate as a receiver
-    //NormStartReceiver(session, 1024*1024);
+    NormStartReceiver(session, 1024*1024);
     
     // Uncomment to set large rx socket buffer size
     // (might be needed for high rate sessions)
@@ -73,8 +69,12 @@ int main(int argc, char* argv[])
     // Uncomment to enable TCP-friendly congestion control
     //NormSetCongestionControl(session, true);
     
+    // We use a random "sessionId"
+    NormSessionId sessionId = (NormSessionId)rand();
+    
+    
     // Uncomment the following line to start sender
-    NormStartSender(session, 4096*1024, 1400, 64, 0);
+    NormStartSender(session, sessionId, 4096*1024, 1400, 64, 0);
 
     // Uncomment to set large tx socket buffer size
     // (might be needed for high rate sessions)
@@ -87,7 +87,7 @@ int main(int argc, char* argv[])
     const char* fileName = "ferrari.jpg";
     
     // Uncomment this line to send a stream instead of the file
-    stream = NormStreamOpen(session, 4096*1024);
+    //stream = NormStreamOpen(session, 4096*1024);
        
     // NORM_FLUSH_PASSIVE automatically flushes full writes to
     // the stream.

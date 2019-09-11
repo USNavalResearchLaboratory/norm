@@ -3,10 +3,10 @@
 <HEAD>
 	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-15">
 	<TITLE>NORM Developer&rsquo;s Guide</TITLE>
-	<META NAME="GENERATOR" CONTENT="OpenOffice.org 1.1.2  (Linux)">
+	<META NAME="GENERATOR" CONTENT="OpenOffice.org 1.1.3  (Linux)">
 	<META NAME="AUTHOR" CONTENT="Robert Adamson">
 	<META NAME="CREATED" CONTENT="20040824;15180000">
-	<META NAME="CHANGED" CONTENT="20050427;11094100">
+	<META NAME="CHANGED" CONTENT="20050609;13321500">
 	<META NAME="DESCRIPTION" CONTENT="NORM Object Functions	42NORM Object FunctionsNORM_OBJECT_STREAMNORM Sender Functions	19NORM Sender Functions">
 	<META NAME="KEYWORDS" CONTENT="norm object value application function ">
 	<STYLE>
@@ -70,7 +70,7 @@ Engineering Task Force RFC 3940.</P>
 <P CLASS="western" STYLE="font-style: normal">The NORM protocol is
 designed to provide end-to-end reliable transport of bulk data
 objects or streams over generic IP multicast routing and forwarding
-services.  NORM uses a selective, negative acknowledgment (NACK)
+services.  NORM uses a selective, negative acknowledgement (NACK)
 mechanism for transport reliability and offers additional protocol
 mechanisms to conduct reliable multicast sessions with limited &quot;a
 priori&quot; coordination among senders and receivers.  A congestion
@@ -84,6 +84,18 @@ to allow different types of applications or possibly other higher
 level transport protocols to utilize its service in different ways. 
 The protocol leverages the use of FEC-based repair and other proven
 reliable multicast transport techniques in its design.</P>
+<P CLASS="western" STYLE="font-style: normal">The NRL NORM library
+attempts to provide a general useful capability for development of
+reliable multicast applications for bulk file or other data delivery
+as well as support of stream-based transport with possible real-time
+delivery requirements.  The API allows access to many NORM protocol
+parameters and control functions to tailor performance for specific
+applications.  While default parameters, where provided, can be
+useful to a potential wide range of requirements, the many different
+possible group communication paradigms dictate different needs for
+different applications.  Even with NORM, the developer should have a
+thorough understanding of the specific application's group
+communication needs.</P>
 <H1 CLASS="western" ALIGN=CENTER STYLE="page-break-before: always">Table
 of Contents</H1>
 <DIV ID="Table of Contents1" DIR="LTR">
@@ -95,103 +107,113 @@ of Contents</H1>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>NORM
 	Data Transport</B></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2>NORM
-	Data Transmission	</FONT></P>
+	Data Transmission</FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2>NORM
-	Data Reception	</FONT></P>
+	Data Reception</FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>API
 	Event Notification</B></FONT></P>
+	<P STYLE="margin-top: 0.25in; font-style: normal"><FONT FACE="Helvetica, sans-serif"><B>Build
+	Notes</B></FONT></P>
+	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>Unix
+	Platforms</B></FONT></P>
+	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>Win32/WiNCE
+	Platforms</B></FONT></P>
 	<P STYLE="margin-top: 0.25in; font-style: normal"><FONT FACE="Helvetica, sans-serif"><B>API
 	Reference</B></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>API
 	Variable Types and Constants</B></FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormInstanceHandle">NormInstanceHandle</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSessionHandle">NormSessionHandle</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeHandle">NormNodeHandle</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeId">NormNodeId</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectHandle">NormObjectHandle</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectType">NormObjectType</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectTransportId">NormObjectTransportId</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormEventType">NormEventType</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormEvent">NormEvent</A>	</FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormInstanceHandle">NormInstanceHandle</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSessionHandle">NormSessionHandle</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSessionId">NormSessionId</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeHandle">NormNodeHandle</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeId">NormNodeId</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectHandle">NormObjectHandle</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectType">NormObjectType</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSize">NormSize</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectTransportId">NormObjectTransportId</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormEventType">NormEventType</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormEvent">NormEvent</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDescriptor">NormDescriptor</A></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>API
 	Initialization and Operation</B></FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormCreateInstance()">NormCreateInstance()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDestroyInstance()">NormDestroyInstance()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetCacheDirectory()">NormSetCacheDirectory()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetDescriptor()">NormGetDescriptor()</A>	</FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormCreateInstance()">NormCreateInstance()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDestroyInstance()">NormDestroyInstance()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetCacheDirectory()">NormSetCacheDirectory()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetDescriptor()">NormGetDescriptor()</A></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>Session
 	Creation and Control</B></FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormCreateSession()">NormCreateSession()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDestroySession()">NormDestroySession()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetUserData()">NormSetUserData()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetUserData()">NormGetUserData()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetLocalNodeId()">NormGetLocalNodeId()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTxPort()">NormSetTxPort()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetMulticastInterface()">NormSetMulticastInterface()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTTL()">NormSetTTL()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTOS()">NormSetTOS()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetLoopback()">NormSetLoopback()</A>	</FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormCreateSession()">NormCreateSession()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDestroySession()">NormDestroySession()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetUserData()">NormSetUserData()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetUserData()">NormGetUserData()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetLocalNodeId()">NormGetLocalNodeId()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTxPort()">NormSetTxPort()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetMulticastInterface()">NormSetMulticastInterface()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTTL()">NormSetTTL()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTOS()">NormSetTOS()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetLoopback()">NormSetLoopback()</A></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>NORM
 	Sender Functions</B></FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStartSender()">NormStartSender()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStopSender()">NormStopSender()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitRate()">NormSetTransmitRate()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTxSocketBuffer()">NormSetTxSocketBuffer()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetCongestionControl()">NormSetCongestionControl()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitRateBounds()">NormSetTransmitRateBounds()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetAutoParity()">NormSetAutoParity()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttEstimate()">NormSetGrttEstimate()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormAddAckingNode()">NormAddAckingNode()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormRemoveAckingNode()">NormRemoveAckingNode()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormFileEnqueue()">NormFileEnqueue()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDataEnqueue()">NormDataEnqueue()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamOpen()">NormStreamOpen()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamClose()">NormStreamClose()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamWrite()">NormStreamWrite()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamFlush()">NormStreamFlush()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamSetAutoFlush()">NormStreamSetAutoFlush()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamSetPushEnable()">NormStreamSetPushEnable()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamHasVacancy()">NormStreamHasVacancy()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamMarkEom()">NormStreamMarkEom()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetWatermark()">NormSetWatermark()</A>	</FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStartSender()">NormStartSender()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStopSender()">NormStopSender()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitRate()">NormSetTransmitRate()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTxSocketBuffer()">NormSetTxSocketBuffer()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetCongestionControl()">NormSetCongestionControl()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitRateBounds()">NormSetTransmitRateBounds()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetAutoParity()">NormSetAutoParity()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttEstimate()">NormSetGrttEstimate()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormAddAckingNode()">NormAddAckingNode()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormRemoveAckingNode()">NormRemoveAckingNode()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormFileEnqueue()">NormFileEnqueue()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDataEnqueue()">NormDataEnqueue()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamOpen()">NormStreamOpen()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamClose()">NormStreamClose()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamWrite()">NormStreamWrite()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamFlush()">NormStreamFlush()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamSetAutoFlush()">NormStreamSetAutoFlush()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamSetPushEnable()">NormStreamSetPushEnable()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamHasVacancy()">NormStreamHasVacancy()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamMarkEom()">NormStreamMarkEom()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetWatermark()">NormSetWatermark()</A></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>NORM
 	Receiver Functions</B></FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStartReceiver()">NormStartReceiver()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStopReceiver()">NormStopReceiver()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetRxSocketBuffer()">NormSetRxSocketBuffer()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetSilentReceiver()">NormSetSilentReceiver()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetDefaultUnicastNack()">NormSetDefaultUnicastNack()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeSetUnicastNack()">NormNodeSetUnicastNack()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetDefaultNackingMode()">NormSetDefaultNackingMode()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeSetNackingMode()">NormNodeSetNackingMode()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectSetNackingMode()">NormObjectSetNackingMode()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetDefaultRepairBoundary()">NormSetDefaultRepairBoundary()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeSetRepairBoundary()">NormNodeSetRepairBoundary()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamRead()">NormStreamRead()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamSeekMsgStart()">NormStreamSeekMsgStart()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamGetReadOffset()">NormStreamGetReadOffset()</A>	</FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStopReceiver()">NormStopReceiver()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetRxSocketBuffer()">NormSetRxSocketBuffer()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetSilentReceiver()">NormSetSilentReceiver()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetDefaultUnicastNack()">NormSetDefaultUnicastNack()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeSetUnicastNack()">NormNodeSetUnicastNack()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetDefaultNackingMode()">NormSetDefaultNackingMode()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeSetNackingMode()">NormNodeSetNackingMode()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectSetNackingMode()">NormObjectSetNackingMode()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetDefaultRepairBoundary()">NormSetDefaultRepairBoundary()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeSetRepairBoundary()">NormNodeSetRepairBoundary()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamRead()">NormStreamRead()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamSeekMsgStart()">NormStreamSeekMsgStart()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormStreamGetReadOffset()">NormStreamGetReadOffset()</A></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>NORM
 	Object Functions</B></FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetType()">NormObjectGetType()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectHasInfo()">NormObjectHasInfo()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetInfoLength()">NormObjectGetInfoLength()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetInfo()">NormObjectGetInfo()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetSize()">NormObjectGetSize()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectCancel()">NormObjectCancel()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectRetain()">NormObjectRetain()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectRelease()">NormObjectRelease()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormFileGetName()">NormFileGetName()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormFileRename()">NormFileRename()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDataAccessData()">NormDataAccessData()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDataDetachData()">NormDataDetachData()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetSender()">NormObjectGetSender()</A>	</FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetType()">NormObjectGetType()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectHasInfo()">NormObjectHasInfo()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetInfoLength()">NormObjectGetInfoLength()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetInfo()">NormObjectGetInfo()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetSize()">NormObjectGetSize()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetBytesPending()">NormObjectGetBytesPending()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectCancel()">NormObjectCancel()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectRetain()">NormObjectRetain()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectRelease()">NormObjectRelease()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormFileGetName()">NormFileGetName()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormFileRename()">NormFileRename()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDataAccessData()">NormDataAccessData()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDataDetachData()">NormDataDetachData()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormObjectGetSender()">NormObjectGetSender()</A></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>NORM
 	Node Functions</B></FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeGetId()">NormNodeGetId()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeGetAddress()">NormNodeGetAddress()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeRetain()">NormNodeRetain()</A>	</FONT></P>
-	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeRelease()">NormNodeRelease()</A>	</FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeGetId()">NormNodeGetId()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeGetAddress()">NormNodeGetAddress()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeRetain()">NormNodeRetain()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNodeRelease()">NormNodeRelease()</A></FONT></P>
 </DIV>
 <H1 CLASS="western" STYLE="page-break-before: always">Overview</H1>
 <P CLASS="western" STYLE="font-style: normal">The NORM API has been
@@ -358,7 +380,76 @@ disabling receiver feedback (silent receiver operation) entirely.</P>
 <H2 CLASS="western">API Event Notification</H2>
 <P CLASS="western" STYLE="font-style: normal">An asynchronous event
 dispatching mechanism is provided to notify the application of
-significant NORM protocol events ...</P>
+significant NORM protocol events.  The centerpiece of this is the
+<FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT> function which can be
+used to retrieve the next NORM protocol engine event in the form of a
+<FONT FACE="Courier"><A HREF="#NormEvent">NormEvent</A></FONT> structure.  This function will
+typically block until a <FONT FACE="Courier"><A HREF="#NormEvent">NormEvent</A></FONT> occurs.
+ However, non-blocking operation may be achieved by using the
+<FONT FACE="Courier"><A HREF="#NormGetDescriptor()">NormGetDescriptor()</A></FONT> call to get a value
+(file descriptor (Unix) or HANDLE (Win32) suitable for use in a
+asynchronous I/O monitoring functions such as <I>select()</I> (Unix)
+or <I>MsgWaitForMultipleObjects()</I> (Win32).  The descriptor will
+be signaled when  a <FONT FACE="Courier"><A HREF="#NormEvent">NormEvent</A></FONT> is
+available.  For Win32 platforms, dispatching of a user-defined
+Windows message for NORM event notification is also planned for a
+future update to the API.</P>
+<H1 CLASS="western">Build Notes</H1>
+<P CLASS="western" STYLE="font-style: normal">To build applications
+that use the NORM library, a path to the &quot;normApi.h&quot; header
+file must be provided and the linker step needs to reference the NORM
+library file (&quot;libnorm.a&quot; for Unix platforms and &quot;Norm.lib&quot;
+for Win32 platforms).  NORM also depends upon the NRL Protean
+Protocol Prototyping toolkit&quot;Protokit&quot; library (a.k.a
+&quot;Protolib&quot;) (static library files &quot;libProtokit.a&quot;
+for Unix and &quot;Protokit.lib&quot; for Win32).  Depending upon the
+platform, some additional library dependencies may be required to
+support the needs of NORM and/or Protokit.  These are described
+below.</P>
+<H2 CLASS="western">Unix Platforms</H2>
+<P CLASS="western" STYLE="font-style: normal">NORM has been built and
+tested on Linux (various architectures), MacOS (BSD), Solaris, and
+IRIX (SGI) platforms.  The code should be readily portable to other
+Unix platforms.</P>
+<P CLASS="western" STYLE="font-style: normal">To support IPv6
+operation, the NORM and the Protokit library must be compiled with
+the &quot;HAVE_IPV6&quot; macro defined.  This is default in the NORM
+and Protokit Makefiles for platforms that support IPv6.  It is
+important that NORM and Protokit be built with this macro defined the
+same.  With NORM, it is recommended that &quot;large file support&quot;
+options be enabled when possible.</P>
+<P CLASS="western" STYLE="font-style: normal">The NORM API uses
+threading so that the NORM protocol engine may run independent of the
+application.  Thus the &quot;Posix Threads&quot; library must be
+included (&quot;-'pthread&quot;) in the linking step.  MacOS/BSD also
+requires the addition of the &quot;-lresolv&quot; (resolver) library
+and Solaris requires the dynamic loader, network/socket, and resolver
+libraries (&quot;-ldl &ndash;lnsl &ndash;lsocket &ndash;lresolv&quot;)
+to achieve successful compilation.  The Makefiles in the NORM source
+code distribution are a reference for these requirements.</P>
+<H2 CLASS="western">Win32/WiNCE Platforms</H2>
+<P CLASS="western" STYLE="font-style: normal">NORM has been built
+using Microsoft's Visual C++ (6.0 and .NET) and Embedded VC++ 4.2
+environments.  In addition to proper macro definitions (e.g.,
+HAVE_IPV6, etc) that are included in the respective &quot;Protokit&quot;
+and &quot;NORM&quot; project files, it is important that common code
+generation settings be used when building the NORM application.  The
+NORM and Protokit projects are built with the &quot;Multithreading
+DLL&quot; library usage set.  The NORM API requires multithreading
+support.  This is a critical setting and numerous compiler and linker
+errors will result if this is not properly set for your application
+project.</P>
+<P CLASS="western" STYLE="font-style: normal">NORM and Protokit also
+depend on the Winsock 2.0 (&quot;ws2_32.lib&quot; (or &quot;ws2.lib&quot;
+(WinCE)) and the IP Helper API (&quot;iphlpapi.lib&quot;) libraries
+and these must be included in the project &quot;Link&quot;
+attributes.</P>
+<P CLASS="western" STYLE="font-style: normal">An additional note is
+that a bug in VC++ 6.0 and earlier compilers (includes embedded VC++
+4.x compilers) prevent compilation of Protokit-based code with
+debugging capabilities enabled.  However, this has been resolved in
+VC++ .NET and is hoped to be resolved in the future for the WinCE
+build tools.</P>
 <H1 CLASS="western">API Reference</H1>
 <P CLASS="western" STYLE="font-style: normal">This section provides a
 reference to the NORM API variable types, constants and functions.</P>
@@ -388,6 +479,22 @@ call.  Multiple <FONT FACE="Courier">NormSessionHandles</FONT> may be
 associated with a given <FONT FACE="Courier"><A HREF="#NormInstanceHandle">NormInstanceHandle</A></FONT>.
  The special value <FONT FACE="Courier">NORM_SESSION_INVALID </FONT>is
 used to refer to invalid session references.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSessionId">NormSessionId</A></H3>
+<P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormSessionId">NormSessionId</A></FONT>
+type is used by applications to uniquely identify their instance of
+participation as a sender within a <I>NormSession</I>.  This type is
+a parameter to the <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT>
+function.  Robust applications can use different <FONT FACE="Courier"><A HREF="#NormSessionId">NormSessionId</A></FONT>
+values when initiating sender operation so that receivers can
+discriminate when a sender has terminated and restarted (whether
+intentional or due to system failure).  For example, an application
+could cache its prior <FONT FACE="Courier"><A HREF="#NormSessionId">NormSessionId</A></FONT> value
+in non-volatile storage which could then be recovered and incremented
+(for example) upon system restart to produce a new value.  The
+<FONT FACE="Courier"><A HREF="#NormSessionId">NormSessionId</A></FONT> value is used for the value
+of the <I>instance_id</I> field in NORM protocol sender messages (see
+the NORM protocol specification) and receivers use this field to
+detect sender restart within a <I>NormSession</I>.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormNodeHandle">NormNodeHandle</A></H3>
 <P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormNodeHandle">NormNodeHandle</A>
 </FONT>type is used to reference state kept by the NORM
@@ -441,6 +548,17 @@ function call.  A special <FONT FACE="Courier"><A HREF="#NormObjectType">NormObj
 value, <I><FONT FACE="Courier">NORM_OBJECT_NONE</FONT></I>, indicates
 an invalid object type. 
 </P>
+<H3 CLASS="functionheading-western"><A NAME="NormSize">NormSize</A></H3>
+<P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormSize">NormSize</A></FONT>
+is the type used for <I>NormObject</I> size information.  For
+example, the <FONT FACE="Courier"><A HREF="#NormObjectGetSize()">NormObjectGetSize()</A></FONT> function
+returns a value of type <FONT FACE="Courier"><A HREF="#NormSize">NormSize</A></FONT>.  The
+range of <FONT FACE="Courier"><A HREF="#NormSize">NormSize</A></FONT> values depends upon the
+operating system and NORM library compilation settings.  With &quot;large
+file support&quot; enabled, as is the case with distributed NORM
+library &quot;Makefiles&quot;, the <FONT FACE="Courier"><A HREF="#NormSize">NormSize</A></FONT>
+type is a 64-bit integer.  However, some platforms may support only
+32-bit object sizes.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormObjectTransportId">NormObjectTransportId</A></H3>
 <P CLASS="western" STYLE="font-style: normal">The
 <FONT FACE="Courier"><A HREF="#NormObjectTransportId">NormObjectTransportId</A></FONT> type is a 16-bit
@@ -452,7 +570,7 @@ values in a monotonically increasing fashion during the course of a
 session as part of protocol operation.  Typically, the application
 should not need access to these values, but an API call
 <FONT FACE="Courier">NormObjectGetTransportId() </FONT>is provided to
-retrieve these values if needed.  (<I>Note this function may be
+retrieve these values if needed.  (<I>Note this type may be
 deprecated &ndash; it may not be needed at all if the
 NormObjectRequeue() function (TBD) is implemented using handles only,
 but _some_ applications requiring persistence even after a system
@@ -483,7 +601,17 @@ and <FONT FACE="Courier">object</FONT> fields indicate the applicable
 and <FONT FACE="Courier"><A HREF="#NormObjectHandle">NormObjectHandle</A></FONT>, respectively, to
 which the event applies.  NORM protocol events are made available to
 the application via the <FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT>
-function call.  
+function call.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormDescriptor">NormDescriptor</A></H3>
+<P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormDescriptor">NormDescriptor</A></FONT>
+type provides reference to a file descriptor (Unix) or HANDLE
+(Win32).  For a given <FONT FACE="Courier"><A HREF="#NormInstanceHandle">NormInstanceHandle</A></FONT>,
+the <FONT FACE="Courier"><A HREF="#NormGetDescriptor()">NormGetDescriptor()</A></FONT> function can be
+used to retrieve a <A HREF="#NormDescriptor">NormDescriptor</A> value that may, in turn, used in
+appropriate system calls (e.g. <I>select()</I> or
+<I>MsgWaitForMultipleObjects()</I>) to asynchronously monitor the
+NORM protocol engine for notification events (see <FONT FACE="Courier"><A HREF="#NormEvent">NormEvent</A></FONT>
+description). 
 </P>
 <H2 CLASS="western">API Initialization and Operation</H2>
 <P CLASS="western" STYLE="font-style: normal">The first step in using
@@ -638,6 +766,26 @@ function call.</P>
 			This event indicates the NORM protocol engine has no new data
 			pending transmission and the application may enqueue additional
 			objects for transmission.</P>
+		</TD>
+	</TR>
+	<TR VALIGN=TOP>
+		<TD WIDTH=269>
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			<FONT FACE="Courier"><I>NORM_TX_FLUSH_COMPLETED</I></FONT></P>
+		</TD>
+		<TD WIDTH=293>
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			This event indicates that the flushing process the NORM sender
+			observes when it no longer has data ready for transmission has
+			completed.  The completion of the flushing process is a reasonable
+			indicator (with a sufficient NORM &quot;robust factor&quot; value)
+			that the receiver set no longer has any pending repair requests. 
+			Note the use of NORM's optional positive acknowledgement feature
+			is more deterministic in this regards, but this notification is
+			useful when there are non-acking (NACK-only) receivers.  The
+			default NORM robust factor of 20 (20 flush messages are sent at
+			end-of-transmission) provides a high assurance of reliable
+			transmission, even with packet loss rates of 50%.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
@@ -843,14 +991,14 @@ events if undesired)).</P>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
 &lt;normApi.h&gt;</FONT></FONT></P>
-<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>NormDescriptor
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2><A HREF="#NormDescriptor">NormDescriptor</A>
 NormGetDescriptor(<A HREF="#NormInstanceHandle">NormInstanceHandle</A> instance);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function is used
-to retrieve a <FONT FACE="Courier">NormDescriptor</FONT> (integer
+to retrieve a <FONT FACE="Courier"><A HREF="#NormDescriptor">NormDescriptor</A></FONT> (integer
 file descriptor (UNIX) or HANDLE (WIN32)) suitable for asynchronous
 I/O notification to avoid blocking calls to <FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT>.
- A <FONT FACE="Courier">NormDescriptor</FONT> is available for each
+ A <FONT FACE="Courier"><A HREF="#NormDescriptor">NormDescriptor</A></FONT> is available for each
 protocol engine <U><FONT FACE="Courier">instance</FONT></U>.  The
 descriptor (or WIN32 HANDLE) is suitable for use as an input (or
 &quot;read&quot;) descriptor which is signaled when a NORM protocol
@@ -858,7 +1006,7 @@ event is ready for retrieval via <FONT FACE="Courier"><A HREF="#NormGetNextEvent
  Hence, a call to <FONT FACE="Courier"><A HREF="#NormGetNextEvent()">NormGetNextEvent()</A></FONT> will
 not block when the descriptor has been signaled.  The <I><FONT FACE="Courier">select()</FONT></I>
 system call (UNIX) (or <I><FONT FACE="Courier">WaitForMultipleObjects()</FONT></I>
-(WIN32)) can be used to detect when the returned <FONT FACE="Courier">NormDescriptor</FONT>
+(WIN32)) can be used to detect when the returned <FONT FACE="Courier"><A HREF="#NormDescriptor">NormDescriptor</A></FONT>
 is signaled.  For the <FONT FACE="Courier">select()</FONT> call
 usage, the NORM descriptor should be treated as a &quot;read&quot;
 descriptor.</P>
@@ -1186,7 +1334,7 @@ Functions</H2>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
 &lt;normApi.h&gt;</FONT></FONT></P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>bool
-NormStartSender(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;session<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
+NormStartSender(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;sessionHandle<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormSessionId">NormSessionId</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;sessionId<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
 long&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bufferSpace<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
 short&nbsp;&nbsp;&nbsp;&nbsp;segmentSize,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
 char&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;blockSize,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unsigned
@@ -1200,25 +1348,44 @@ feedback collection and application API activity such as posting of
 sender-related <I>NormEvents</I>.  The parameters required for this
 function call include:</P>
 <TABLE WIDTH=590 BORDER=0 CELLPADDING=7 CELLSPACING=0>
-	<COL WIDTH=106>
-	<COL WIDTH=456>
+	<COL WIDTH=125>
+	<COL WIDTH=437>
 	<TR VALIGN=TOP>
-		<TD WIDTH=106>
+		<TD WIDTH=125>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
-			<FONT FACE="Courier"><U>session</U></FONT></P>
+			<FONT FACE="Courier"><U>sessionHandle</U></FONT></P>
 		</TD>
-		<TD WIDTH=456>
+		<TD WIDTH=437>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This must be a valid <FONT FACE="Courier"><A HREF="#NormSessionHandle">NormSessionHandle</A></FONT>
 			previously obtained with a call to <FONT FACE="Courier"><A HREF="#NormCreateSession()">NormCreateSession()</A></FONT>.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=106>
+		<TD WIDTH=125>
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			<FONT FACE="Courier"><U>sessionId</U></FONT></P>
+		</TD>
+		<TD WIDTH=437>
+			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
+			Application-defined value used as the <I>instance_id</I> field of
+			NORM sender messages for the application's participation within a
+			session.  Receivers can detect when a sender has terminated and
+			restarted if the application uses different <FONT FACE="Courier"><U>sessionId</U></FONT>
+			values when initiating sender operation.  For example, a robust
+			application could cache previous <FONT FACE="Courier"><U>sessionId</U></FONT>
+			values in non-volatile storage and gracefully recover (without
+			confusing receivers) from a total system shutdown and reboot by
+			using a new <FONT FACE="Courier"><U>sessionId</U></FONT> value
+			upon restart.</P>
+		</TD>
+	</TR>
+	<TR VALIGN=TOP>
+		<TD WIDTH=125>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><U>bufferSpace</U></FONT></P>
 		</TD>
-		<TD WIDTH=456>
+		<TD WIDTH=437>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This specifies the maximum memory space the NORM protocol engine
 			is allowed to use to buffer any sender calculated FEC segments and
@@ -1236,11 +1403,11 @@ function call include:</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=106>
+		<TD WIDTH=125>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><U>segmentSize</U></FONT></P>
 		</TD>
-		<TD WIDTH=456>
+		<TD WIDTH=437>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This parameter sets the maximum <I>payload</I> size (in bytes) of
 			NORM sender messages (<I>not</I> including any NORM message header
@@ -1262,11 +1429,11 @@ function call include:</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=106>
+		<TD WIDTH=125>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><U>blockSize</U></FONT></P>
 		</TD>
-		<TD WIDTH=456>
+		<TD WIDTH=437>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This parameter sets the number of source symbol segments (packets)
 			per coding block, for the systematic Reed-Solomon FEC code used in
@@ -1286,11 +1453,11 @@ function call include:</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
-		<TD WIDTH=106>
+		<TD WIDTH=125>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			<FONT FACE="Courier"><U>numParity</U></FONT></P>
 		</TD>
-		<TD WIDTH=456>
+		<TD WIDTH=437>
 			<P CLASS="western" STYLE="font-style: normal; page-break-inside: avoid">
 			This parameter sets the maximum number of parity symbol segments
 			(packets) the sender is willing to <I>calculate</I> per FEC coding
@@ -2713,8 +2880,8 @@ yet been received (or is non-existent) for the specified object.</P>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
 &lt;normApi.h&gt;</FONT></FONT></P>
-<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>off_t
-NormObjectHasInfo(<A HREF="#NormObjectHandle">NormObjectHandle</A> objectHandle);</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2><A HREF="#NormSize">NormSize</A>
+NormObjectGetSize(<A HREF="#NormObjectHandle">NormObjectHandle</A> objectHandle);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function can be
 used to determine the size (in bytes) of the transport object
@@ -2724,11 +2891,9 @@ parameter.  NORM can support large object sizes for the
 typically the NORM library is built with any necessary, related
 macros defined such that operating system large file support is
 enabled (e.g., &quot;<FONT FACE="Courier">#define _FILE_OFFSET_BITS
-64</FONT>&quot; or equivalent).  Developers should configure their
-build environment to correspond with the NORM library used to ensure
-that the &quot;<FONT SIZE=2><FONT FACE="Courier">off_t</FONT></FONT>&quot;
-type is appropriately defined.  
-</P>
+64</FONT>&quot; or equivalent).  The <FONT FACE="Courier"><A HREF="#NormSize">NormSize</A></FONT>
+type is defined accordingly, so the application should be built with
+the same large file support configuration.</P>
 <P CLASS="western" STYLE="font-style: normal">For objects of type
 <FONT FACE="Courier"><I>NORM_OBJECT_STREAM</I></FONT>, the size
 returned here corresponds to the stream buffer size set by the sender
@@ -2738,6 +2903,28 @@ application when opening the referenced stream object.</P>
 content of the specified object, in bytes, is returned.  Note that it
 may be possible that some objects have zero data content, but do have
 NORM_INFO content available.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormObjectGetBytesPending()">NormObjectGetBytesPending()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2><A HREF="#NormSize">NormSize</A>
+NormObjectGetBytesPending(<A HREF="#NormObjectHandle">NormObjectHandle</A> objectHandle);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function can be
+used to determine the progress of reception of the NORM transport
+object identified by the <FONT FACE="Courier"><U>objectHandle</U></FONT>
+parameter.  This function indicates the number of bytes that are
+pending reception (I.e., when the object is completely received,
+&quot;bytes pending&quot; will equal ZERO).  This function is not
+necessarily applicable to objects of type NORM_OBJECT_STREAM which do
+not have a finite size.  Note it is possible that this function might
+also be useful to query the &quot;transmit pending&quot; status of
+sender objects, but it does not account for pending FEC repair
+transmissions and thus may not produce useful results for this
+purpose.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">A number of object
+source data bytes pending reception (or transmission) is returned.</P>
 <H3 CLASS="functionheading-western"><A NAME="NormObjectCancel()">NormObjectCancel()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include

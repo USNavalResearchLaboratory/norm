@@ -1,5 +1,14 @@
 			           NORM Version History
 
+Version 1.3b3
+=============
+    - Added NORM_TX_FLUSH_COMPLETE notification so the sender app
+      can make an educated guess as to when his receivers are
+      all happy.
+    - Added NORM API sample code in "examples" directory.
+    - Added NormObjectGetBytesPending() call for receivers to
+      use to monitor reception progress.
+
 Version 1.3b2
 =============
     - Added "graceful" stream shutdown option to

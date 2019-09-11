@@ -474,6 +474,34 @@ bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd,
     return true;
 }  // end NormBlock::AppendRepairAdv()
 
+NormObjectSize NormBlock::GetBytesPending(UINT16      numData,
+                                          UINT16      segmentSize,
+                                          NormBlockId finalBlockId,
+                                          UINT16      finalSegmentSize) const
+{
+    NormObjectSize pendingBytes(0);
+    NormSegmentId nextId;
+    if (GetFirstPending(nextId))
+    {
+        do
+        {
+            if (nextId < numData)
+                pendingBytes += NormObjectSize(segmentSize);
+            else
+                break;
+            nextId++;
+        } while (GetNextPending(nextId));        
+    }
+    // Correct for final_segment_size, if applicable
+    if ((id == finalBlockId) &&
+        (IsPending(numData - 1)))
+    {
+        pendingBytes -= NormObjectSize(segmentSize);
+        pendingBytes += NormObjectSize(finalSegmentSize);  
+    }
+    return pendingBytes;
+}  // end NormBlock::GetBytesPending()
+
 // Called by client
 // (TBD) this should return true iff something appended, false otherwise
 bool NormBlock::AppendRepairRequest(NormNackMsg&    nack, 

@@ -219,6 +219,11 @@ class NormBlock
         bool IsTransmitPending() const
             {return (pending_mask.IsSet() || repair_mask.IsSet());}
         
+        NormObjectSize GetBytesPending(UINT16      numData,
+                                       UINT16      segmentSize,
+                                       NormBlockId finalBlockId,
+                                       UINT16      finalSegmentSize) const;
+        
         bool AppendRepairRequest(NormNackMsg&    nack, 
                                  UINT16          numData, 
                                  UINT16          numParity,

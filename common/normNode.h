@@ -245,8 +245,8 @@ class NormServerNode : public NormNode
         void HandleNackMessage(const NormNackMsg& nack);
         void HandleAckMessage(const NormAckMsg& ack);
         
-        bool Open(UINT16 sessionId);
-        UINT16 GetSessionId() {return session_id;}
+        bool Open(UINT16 instanceId);
+        UINT16 GetInstanceId() {return instance_id;}
         bool IsOpen() const {return is_open;} 
         void Close();
         bool AllocateBuffers(UINT16 segmentSize, UINT16 numData, UINT16 numParity);
@@ -371,7 +371,7 @@ class NormServerNode : public NormNode
         void AttachCCFeedback(NormAckMsg& ack);
         void HandleRepairContent(const UINT32* buffer, UINT16 bufferLen);
             
-        UINT16                  session_id;
+        UINT16                  instance_id;
         bool                    synchronized;
         NormObjectId            sync_id;  // only valid if(synchronized)
         NormObjectId            next_id;  // only valid if(synchronized)

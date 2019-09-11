@@ -17,8 +17,6 @@
 
 #ifdef _WIN32_WCE
 #include <stdio.h>
-//typedef fpos_t off_t;
-typedef long off_t;
 #else
 #include <sys/types.h>
 #endif // if/else _WIN32_WCE
@@ -45,8 +43,12 @@ enum
         
 class NormFile
 {
-    // Methods 
     public:
+#ifdef WIN32
+		typedef __int64 Offset;
+#else
+		typedef off_t Offset;
+#endif // if/else WIN32/UNIX
         enum Type {INVALID, NORMAL, DIRECTORY};        
         NormFile();
         ~NormFile();
@@ -66,13 +68,13 @@ class NormFile
         }
         int Read(char* buffer, int len);
         int Write(const char* buffer, int len);
-        bool Seek(off_t theOffset);
-        off_t GetOffset() const {return (offset);}
-        off_t GetSize() const;
+        bool Seek(Offset theOffset);
+		NormFile::Offset GetOffset() const {return (offset);}
+		NormFile::Offset GetSize() const;
         
         // static helper methods
         static NormFile::Type GetType(const char *path);
-        static off_t GetSize(const char* path);
+		static NormFile::Offset GetSize(const char* path);
         static time_t GetUpdateTime(const char* path);
         static bool IsLocked(const char *path);
          
@@ -117,7 +119,11 @@ class NormFile
         int     fd;
 #endif // if/else _WIN32_WCE
         int     flags;
+#ifdef WIN32
+		__int64 offset;
+#else
         off_t   offset;
+#endif // if/else WIN32/UNIX
 };  // end class NormFile
 
 
@@ -204,7 +210,7 @@ class NormFileList
                 FileItem(const char* thePath);
                 virtual ~FileItem();
                 NormFile::Type GetType() {return NormFile::GetType(path);}
-                off_t Size() const {return size;}
+				NormFile::Offset Size() const {return size;}
                 virtual bool GetNextFile(char*   thePath,
                                          bool    reset,
                                          bool    updatesOnly,
@@ -215,10 +221,10 @@ class NormFileList
             protected:        
                 const char* Path() {return path;}
             
-                char        path[PATH_MAX];
-                off_t       size;
-                FileItem*   prev;
-                FileItem*   next;
+                char			 path[PATH_MAX];
+				NormFile::Offset size;
+                FileItem*		 prev;
+                FileItem*		 next;
         };
         class DirectoryItem : public FileItem
         {

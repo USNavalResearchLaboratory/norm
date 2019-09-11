@@ -4,15 +4,10 @@
 #ifdef WIN32
 #include <winsock2.h>
 #include <windows.h>
+#else
+#include <sys/types.h>  // for "off_t"
 #endif // WIN32
 
-#ifdef _WIN32_WCE
-#include <stdio.h>
-//typedef fpos_t off_t;
-typedef long off_t;
-#else
-#include <sys/types.h>  // for "off_t" type
-#endif // if/else _WIN32_WCE
 ////////////////////////////////////////////////////////////
 // IMPORTANT NOTICE
 //  The NORM API is _very_ much in a developmental phase
@@ -35,6 +30,7 @@ extern const NormInstanceHandle NORM_INSTANCE_INVALID;
 
 typedef const void* NormSessionHandle;
 extern const NormSessionHandle NORM_SESSION_INVALID;
+typedef unsigned short NormSessionId;
 
 typedef const void* NormNodeHandle;
 extern const NormNodeHandle NORM_NODE_INVALID;
@@ -45,6 +41,12 @@ extern const NormNodeId NORM_NODE_ANY;
 typedef const void* NormObjectHandle;
 extern const NormObjectHandle NORM_OBJECT_INVALID;
 typedef unsigned short NormObjectTransportId;
+
+#ifdef WIN32
+typedef __int64 NormSize;
+#else
+typedef off_t NormSize;
+#endif // WIN32
 
 enum NormObjectType
 {
@@ -80,6 +82,7 @@ enum NormEventType
     NORM_EVENT_INVALID = 0,
     NORM_TX_QUEUE_VACANCY,
     NORM_TX_QUEUE_EMPTY,
+    NORM_TX_FLUSH_COMPLETED,
     NORM_TX_OBJECT_SENT,
     NORM_TX_OBJECT_PURGED,
     NORM_LOCAL_SERVER_CLOSED,
@@ -172,6 +175,7 @@ void NormSetRxLoss(NormSessionHandle sessionHandle, double percent);
 /** NORM Sender Functions */
 
 bool NormStartSender(NormSessionHandle  sessionHandle,
+                     NormSessionId      sessionId,
                      unsigned long      bufferSpace,
                      unsigned short     segmentSize,
                      unsigned char      numData,
@@ -298,7 +302,9 @@ unsigned short NormObjectGetInfo(NormObjectHandle objectHandle,
                                   char*           buffer,
                                   unsigned short  bufferLen);
 
-off_t NormObjectGetSize(NormObjectHandle objectHandle);
+NormSize NormObjectGetSize(NormObjectHandle objectHandle);
+
+NormSize NormObjectGetBytesPending(NormObjectHandle objectHandle);
 
 void NormObjectCancel(NormObjectHandle objectHandle);
 

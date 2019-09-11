@@ -344,7 +344,7 @@ int NormFile::Read(char* buffer, int len)
 #else
     int result = read(fd, buffer, len);
 #endif // if/else WIN32
-    if (result > 0) offset += (off_t)result;
+    if (result > 0) offset += (Offset)result;
     return result;
 }  // end NormFile::Read()
 
@@ -360,24 +360,24 @@ int NormFile::Write(const char* buffer, int len)
 #else
     int result = write(fd, buffer, len);
 #endif // if/else WIN32
-    if (result > 0) offset += (off_t)result;
+    if (result > 0) offset += (Offset)result;
     return result;
 }  // end NormFile::Write()
 
-bool NormFile::Seek(off_t theOffset)
+bool NormFile::Seek(Offset theOffset)
 {
     ASSERT(IsOpen());
 #ifdef WIN32
 #ifdef _WIN32_WCE
     // (TBD) properly support big files on WinCE
-    off_t result = fseek(file_ptr, (long)theOffset, SEEK_SET);
+    Offset result = fseek(file_ptr, (long)theOffset, SEEK_SET);
 #else
-    off_t result = _lseek(fd, theOffset, SEEK_SET);
+    Offset result = _lseeki64(fd, theOffset, SEEK_SET);
 #endif // if/else _WIN32_WCE
 #else
-    off_t result = lseek(fd, theOffset, SEEK_SET);
+    Offset result = lseek(fd, theOffset, SEEK_SET);
 #endif // if/else WIN32
-    if (result == (off_t)-1)
+    if (result == (Offset)-1)
     {
         DMSG(0, "NormFile::Seek() lseek() error: %s", GetErrorString());
         return false;
@@ -389,12 +389,12 @@ bool NormFile::Seek(off_t theOffset)
     }
 }  // end NormFile::Seek()
 
-off_t NormFile::GetSize() const
+NormFile::Offset NormFile::GetSize() const
 {
     ASSERT(IsOpen());
 #ifdef _WIN32_WCE
     DWORD fileSize = GetFileSize(_fileno(file_ptr), NULL);
-    return ((off_t)fileSize);
+    return ((Offset)fileSize);
 #else
 #ifdef WIN32
     struct _stat info;
@@ -787,7 +787,7 @@ NormFile::Type NormFile::GetType(const char* path)
 #endif // if/else WIN32
 }  // end NormFile::GetType()
 
-off_t NormFile::GetSize(const char* path)
+NormFile::Offset NormFile::GetSize(const char* path)
 {
 #ifdef _WIN32_WCE
     WIN32_FIND_DATA findData;
@@ -799,7 +799,10 @@ off_t NormFile::GetSize(const char* path)
     if (INVALID_HANDLE_VALUE != FindFirstFile(path, &findData))
 #endif // if/else _UNICODE
     {
-        return ((off_t)findData.nFileSizeLow);  // (TBD) support big files
+		Offset fileSize = findData.nFileSizeLow;
+		if (sizeof(Offset) > 4)
+			fileSize |= ((Offset)findData.nFileSizeHigh) << (8*sizeof(DWORD));
+        return fileSize;
     }
     else
     {

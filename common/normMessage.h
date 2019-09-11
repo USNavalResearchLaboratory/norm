@@ -11,8 +11,6 @@
 
 #ifdef _WIN32_WCE
 #include <stdio.h>
-//typedef fpos_t off_t;
-typedef long off_t;
 #else
 #include <sys/types.h>  // for off_t
 #endif // if/else _WIN32_WCE
@@ -22,9 +20,6 @@ typedef long off_t;
 #endif // SIMULATE
 
 const UINT8 NORM_PROTOCOL_VERSION = 1;
-
-// (TBD) Alot of the "memcpy()" calls could be eliminated by
-//       taking advantage of the alignment of NORM messsages
 
 const int NORM_ROBUST_FACTOR = 20;  // default robust factor
 
@@ -101,85 +96,66 @@ inline double NormUnquantizeRate(unsigned short rate)
     return mantissa * pow(10.0, exponent);   
 }
 
-// This class is used to describe object "size" and/or "offset"
-// (TBD) This hokey implementation should just use "off_t" as it's
-// native storage format and get rid of this custom crap !!!
-// (We should just get rid of this class !!!!!!!!)
 class NormObjectSize
 {
     public:
-        NormObjectSize() : msb(0), lsb(0) {}
-        NormObjectSize(UINT16 upper, UINT32 lower) : msb(upper), lsb(lower) {}
-        NormObjectSize(UINT32 size) : msb(0), lsb(size) {}
-        NormObjectSize(UINT16 size) : msb(0), lsb(size) {}
-        NormObjectSize(const NormObjectSize& size) : msb(size.msb), lsb(size.lsb) {}
-        NormObjectSize(off_t size) 
+#ifdef WIN32
+		typedef __int64 Offset;
+#else
+		typedef off_t Offset;
+#endif
+        NormObjectSize() : size(0) {}
+        NormObjectSize(Offset theSize) : size(theSize) {}
+        NormObjectSize(UINT16 msb, UINT32 lsb)
         {
-            lsb = (unsigned long)(size & 0x00000000ffffffff);
-            size >>= 32;
-            ASSERT(0 == (size & 0xffff0000));   
-            msb = (unsigned short)(size & 0x0000ffff);
-            msb = 0;
+            size = (Offset)lsb;
+            size |= (sizeof(Offset) > 4) ? (((Offset)msb) << 32): (Offset)0;   
         }
+        Offset GetOffset() const {return size;}
+        UINT16 MSB() const
+            {return ((sizeof(Offset) > 4) ? (UINT16)((size >> 32) & 0x0000ffff) : 0);}
+        UINT32 LSB() const
+            {return ((UINT32)(size & 0xffffffff));}   
         
-        UINT16 MSB() const {return msb;}
-        UINT32 LSB() const {return lsb;}
-        bool operator==(const NormObjectSize& size) const
-            {return ((msb == size.msb) && (lsb == size.lsb));}
-        bool operator>(const NormObjectSize& size) const
+        // Operators
+        bool operator==(const NormObjectSize& b) const
+            {return (b.size == size);}
+        NormObjectSize operator+(const NormObjectSize& b) const
         {
-            return ((msb == size.msb) ? 
-                        (lsb > size.lsb) : 
-                        (msb > size.msb));
+            NormObjectSize result(size);
+            result.size += b.size;
+            return result;
         }
-        bool operator<(const NormObjectSize& size) const
+        void operator+=(const NormObjectSize& b)
+            {size += b.size;} 
+        NormObjectSize operator-(const NormObjectSize& b) const
         {
-            return ((msb == size.msb) ? 
-                        (lsb < size.lsb) : 
-                        (msb < size.msb));     
+            NormObjectSize result(size);
+            result.size -= b.size;
+            return result;
         }
-        bool operator<=(const NormObjectSize& size) const
-            {return ((*this == size) || (*this<size));}
-        bool operator>=(const NormObjectSize& size) const
-            {return ((*this == size) || (*this>size));}
-        bool operator!=(const NormObjectSize& size) const
-            {return ((lsb != size.lsb) || (msb != size.msb));}
-        NormObjectSize operator+(const NormObjectSize& size) const;
-        NormObjectSize operator-(const NormObjectSize& size) const;
-        void operator+=(UINT32 increment)
+        void operator-=(const NormObjectSize& b)
+            {size -= b.size;} 
+        void operator+=(Offset increment)
+            {size += increment;}    
+        bool operator>(const NormObjectSize& b) const
+            {return (size > b.size);}
+        NormObjectSize operator*(const NormObjectSize& b) const
         {
-            UINT32 temp32 = lsb + increment;
-            if (temp32 < lsb) msb++;
-            lsb = temp32;
+            NormObjectSize result(size);
+            result.size *= b.size;
+            return result;
         }
-        NormObjectSize operator+(UINT32 increment) const
+        // Note: this is a "round-upwards" division operator
+        NormObjectSize operator/(const NormObjectSize& b) const
         {
-            NormObjectSize total;
-            total.msb = msb;
-            total.lsb = lsb + increment;
-            if (total.lsb < lsb) total.msb++;
-            return total;
+            NormObjectSize result(size);
+            result.size /= b.size;
+            result.size = ((result.size * b.size) < size) ? result.size + 1 : result.size;
+            return result;      
         }
-        NormObjectSize& operator++(int) 
-        {
-            lsb++;
-            if (0 == lsb) msb++;
-            return (*this);
-        }
-        NormObjectSize operator*(const NormObjectSize& b) const;
-        NormObjectSize operator/(const NormObjectSize& b) const;
-        off_t GetOffset() const
-        {
-
-           off_t offset = msb;
-           offset <<= 32;
-           offset += lsb;
-           return offset;   
-        }
-        
     private:
-        UINT16  msb;
-        UINT32  lsb;  
+        Offset   size;
 };  // end class NormObjectSize
 
 #ifndef _NORM_API
@@ -426,9 +402,9 @@ class NormObjectMsg : public NormMsg
             FLAG_STREAM     = 0x20,
             FLAG_MSG_START  = 0x40
         }; 
-        UINT16 GetSessionId() const
+        UINT16 GetInstanceId() const
         {
-            return (ntohs(((UINT16*)buffer)[SESSION_ID_OFFSET]));
+            return (ntohs(((UINT16*)buffer)[INSTANCE_ID_OFFSET]));
         }
         UINT8 GetGrtt() const {return ((UINT8*)buffer)[GRTT_OFFSET];} 
         UINT8 GetBackoffFactor() const {return ((((UINT8*)buffer)[GSIZE_OFFSET] >> 4) & 0x0f);}
@@ -443,9 +419,9 @@ class NormObjectMsg : public NormMsg
         }
         
         // Message building routines
-        void SetSessionId(UINT16 sessionId)
+        void SetInstanceId(UINT16 instanceId)
         {
-            ((UINT16*)buffer)[SESSION_ID_OFFSET] = htons(sessionId);
+            ((UINT16*)buffer)[INSTANCE_ID_OFFSET] = htons(instanceId);
         }
         void SetGrtt(UINT8 grtt) {((UINT8*)buffer)[GRTT_OFFSET] = grtt;}
         void SetBackoffFactor(UINT8 backoff)
@@ -467,8 +443,8 @@ class NormObjectMsg : public NormMsg
     protected: 
         enum
         {
-            SESSION_ID_OFFSET   = MSG_OFFSET/2,
-            GRTT_OFFSET         = (SESSION_ID_OFFSET*2)+2,
+            INSTANCE_ID_OFFSET  = MSG_OFFSET/2,
+            GRTT_OFFSET         = (INSTANCE_ID_OFFSET*2)+2,
             BACKOFF_OFFSET      = GRTT_OFFSET+1,
             GSIZE_OFFSET        = BACKOFF_OFFSET,
             FLAGS_OFFSET        = GSIZE_OFFSET+1,
@@ -733,9 +709,9 @@ class NormCmdMsg : public NormMsg
         };
         
         // Message building
-        void SetSessionId(UINT16 sessionId)
+        void SetInstanceId(UINT16 instanceId)
         {
-            ((UINT16*)buffer)[SESSION_ID_OFFSET] = htons(sessionId);   
+            ((UINT16*)buffer)[INSTANCE_ID_OFFSET] = htons(instanceId);   
         }
         void SetGrtt(UINT8 quantizedGrtt) 
             {((UINT8*)buffer)[GRTT_OFFSET] = quantizedGrtt;}
@@ -751,7 +727,7 @@ class NormCmdMsg : public NormMsg
             {((UINT8*)buffer)[FLAVOR_OFFSET] = (UINT8)flavor;}
         
         // Message processing
-        UINT16 GetSessionId() const {return (ntohs(((UINT16*)buffer)[SESSION_ID_OFFSET]));}
+        UINT16 GetInstanceId() const {return (ntohs(((UINT16*)buffer)[INSTANCE_ID_OFFSET]));}
         UINT8 GetGrtt() const {return ((UINT8*)buffer)[GRTT_OFFSET];}
         UINT8 GetBackoffFactor() const {return ((((UINT8*)buffer)[GSIZE_OFFSET] >> 4) & 0x0f);}
         UINT8 GetGroupSize() const {return (((UINT8*)buffer)[GSIZE_OFFSET] & 0x0f);} 
@@ -761,8 +737,8 @@ class NormCmdMsg : public NormMsg
         friend class NormMsg;
         enum
         {
-            SESSION_ID_OFFSET    = MSG_OFFSET/2,
-            GRTT_OFFSET          = (SESSION_ID_OFFSET*2)+2,
+            INSTANCE_ID_OFFSET   = MSG_OFFSET/2,
+            GRTT_OFFSET          = (INSTANCE_ID_OFFSET*2)+2,
             BACKOFF_OFFSET       = GRTT_OFFSET + 1,
             GSIZE_OFFSET         = BACKOFF_OFFSET,
             FLAVOR_OFFSET        = GSIZE_OFFSET + 1
@@ -1396,9 +1372,9 @@ class NormNackMsg : public NormMsg
         {
             buffer[SERVER_ID_OFFSET] = htonl(serverId);
         }
-        void SetSessionId(UINT16 sessionId)
+        void SetInstanceId(UINT16 instanceId)
         {
-            ((UINT16*)buffer)[SESSION_ID_OFFSET] = htons(sessionId);
+            ((UINT16*)buffer)[INSTANCE_ID_OFFSET] = htons(instanceId);
         }
         void SetGrttResponse(const struct timeval& grttResponse)
         {
@@ -1424,9 +1400,9 @@ class NormNackMsg : public NormMsg
         {
             return (ntohl(buffer[SERVER_ID_OFFSET]));
         }
-        UINT16 GetSessionId() const
+        UINT16 GetInstanceId() const
         {
-            return (ntohs(((UINT16*)buffer)[SESSION_ID_OFFSET]));
+            return (ntohs(((UINT16*)buffer)[INSTANCE_ID_OFFSET]));
         }
         void GetGrttResponse(struct timeval& grttResponse) const
         {
@@ -1449,8 +1425,8 @@ class NormNackMsg : public NormMsg
         enum
         {
             SERVER_ID_OFFSET          = MSG_OFFSET/4,
-            SESSION_ID_OFFSET         = ((SERVER_ID_OFFSET*4)+4)/2,
-            RESERVED_OFFSET           = ((SESSION_ID_OFFSET*2)+2)/2,
+            INSTANCE_ID_OFFSET        = ((SERVER_ID_OFFSET*4)+4)/2,
+            RESERVED_OFFSET           = ((INSTANCE_ID_OFFSET*2)+2)/2,
             GRTT_RESPONSE_SEC_OFFSET  = ((RESERVED_OFFSET*2)+2)/4,
             GRTT_RESPONSE_USEC_OFFSET = ((GRTT_RESPONSE_SEC_OFFSET*4)+4)/4,
             NACK_HEADER_LEN           = (GRTT_RESPONSE_USEC_OFFSET*4)+4
@@ -1472,9 +1448,9 @@ class NormAckMsg : public NormMsg
         {
             buffer[SERVER_ID_OFFSET] = htonl(serverId);
         }
-        void SetSessionId(UINT16 sessionId)
+        void SetInstanceId(UINT16 instanceId)
         {
-            ((UINT16*)buffer)[SESSION_ID_OFFSET] = htons(sessionId);
+            ((UINT16*)buffer)[INSTANCE_ID_OFFSET] = htons(instanceId);
         }
         void SetAckType(NormAck::Type ackType) {((UINT8*)buffer)[ACK_TYPE_OFFSET] = (UINT8)ackType;}
         void SetAckId(UINT8 ackId) {((UINT8*)buffer)[ACK_ID_OFFSET] = ackId;}
@@ -1496,9 +1472,9 @@ class NormAckMsg : public NormMsg
         {
             return (ntohl(buffer[SERVER_ID_OFFSET]));
         }
-        UINT16 GetSessionId() const
+        UINT16 GetInstanceId() const
         {
-            return (ntohs(((UINT16*)buffer)[SESSION_ID_OFFSET]));
+            return (ntohs(((UINT16*)buffer)[INSTANCE_ID_OFFSET]));
         }
         void GetGrttResponse(struct timeval& grttResponse) const
         {
@@ -1514,8 +1490,8 @@ class NormAckMsg : public NormMsg
         enum
         {
             SERVER_ID_OFFSET          = MSG_OFFSET/4,
-            SESSION_ID_OFFSET         = ((SERVER_ID_OFFSET*4)+4)/2,
-            ACK_TYPE_OFFSET           = (SESSION_ID_OFFSET*2)+2,
+            INSTANCE_ID_OFFSET        = ((SERVER_ID_OFFSET*4)+4)/2,
+            ACK_TYPE_OFFSET           = (INSTANCE_ID_OFFSET*2)+2,
             ACK_ID_OFFSET             = ACK_TYPE_OFFSET + 1,
             GRTT_RESPONSE_SEC_OFFSET  = (ACK_ID_OFFSET + 1)/4,
             GRTT_RESPONSE_USEC_OFFSET = ((GRTT_RESPONSE_SEC_OFFSET*4)+4)/4,
