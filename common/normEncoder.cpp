@@ -62,6 +62,11 @@ bool NormEncoder::Init(int numParity, int vecSizeMax)
     ASSERT(vecSizeMax >= 0);    
     if (genPoly) Destroy();    
     npar = numParity;
+    
+#ifdef SIMULATE
+    vecSizeMax = MIN(SIM_PAYLOAD_MAX+1, vecSizeMax);
+#endif // SIMUATE
+    
     vector_size = vecSizeMax;    
     // Create generator polynomial 
     if(!CreateGeneratorPolynomial())
@@ -180,7 +185,7 @@ void NormEncoder::Encode(const char *data, char **pVec)
     // Copy pVec[0] for use in calculations 
     
 #ifdef SIMULATE    
-    UINT16  vecSize = MIN(SIM_PAYLOAD_MAX, vector_size);
+    UINT16  vecSize = MIN(SIM_PAYLOAD_MAX+1, vector_size);
 #else
     UINT16 vecSize = vector_size;
 #endif // if/else SIMULATE
@@ -229,6 +234,10 @@ bool NormDecoder::Init(int numParity, int vecSizeMax)
     // Debugging assertions
     ASSERT((numParity>=0)&&(numParity<=128));
     ASSERT(vecSizeMax >= 0);
+    
+#ifdef SIMULATE
+    vecSizeMax = MIN(SIM_PAYLOAD_MAX+1, vecSizeMax);
+#endif // SIMUATE  
     
     if (Lambda) Destroy();  // Check if already inited ...
     
@@ -328,8 +337,7 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
     // Debugging assertions
     ASSERT(Lambda);     
     ASSERT(erasureCount && (erasureCount<=npar));
-    
-    
+      
     // (A) Compute syndrome vectors 
     
     // First zero out erasure vectors (MDP provides zero-filled vecs) 
@@ -337,7 +345,7 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
 	// Then calculate syndrome (based on zero value erasures) 
     int nvecs = npar + ndata;
 #ifdef SIMULATE
-    int vecSize = MIN(SIM_PAYLOAD_MAX, vector_size);
+    int vecSize = MIN(SIM_PAYLOAD_MAX+1, vector_size);
 #else
     int vecSize = vector_size;
 #endif // if/else SIMUATE
@@ -347,8 +355,8 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
     {
 	    int X = gexp(i+1);
 	    unsigned char* synVec = sVec[i];
-	    memset(synVec, 0, vecSize*sizeof(char));
-	    for(int j = 0; j < nvecs; j++)
+        memset(synVec, 0, vecSize*sizeof(char));
+        for(int j = 0; j < nvecs; j++)
         {
 	        unsigned char* data = dVec[j] ? (unsigned char*)dVec[j] : scratch;
             unsigned char* S = synVec;

@@ -209,8 +209,30 @@ class NormServerNode : public NormNode
         bool SyncTest(const NormObjectMsg& msg) const;
         void Sync(NormObjectId objectId);
         ObjectStatus UpdateSyncStatus(const NormObjectId& objectId);
-        void SetPending(NormObjectId objectId);
         ObjectStatus GetObjectStatus(const NormObjectId& objectId) const;
+        
+        bool GetFirstPending(NormObjectId& objectId)
+        {
+            UINT32 index;
+            bool result = rx_pending_mask.GetFirstSet(index);
+            objectId = (UINT16)index;
+            return result;   
+        }
+        bool GetNextPending(NormObjectId& objectId)
+        {
+            UINT32 index = (UINT16)objectId;
+            bool result = rx_pending_mask.GetNextSet(index);
+            objectId = (UINT16)index;
+            return result;   
+        }
+        bool GetLastPending(NormObjectId& objectId)
+        {
+            UINT32 index;
+            bool result = rx_pending_mask.GetLastSet(index);
+            objectId = (UINT16)index;
+            return result;   
+        }
+        void SetPending(NormObjectId objectId);
         
         void DeleteObject(NormObject* obj);
         
@@ -237,7 +259,7 @@ class NormServerNode : public NormNode
             {return erasure_loc[index];} 
         UINT16 Decode(char** segmentList, UINT16 numData, UINT16 erasureCount)
         {
-            return decoder.Decode(segmentList, numData, erasureCount, erasure_loc);   
+            return decoder.Decode(segmentList, numData, erasureCount, erasure_loc);
         }
         
         void CalculateGrttResponse(const struct timeval& currentTime,

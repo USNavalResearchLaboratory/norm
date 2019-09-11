@@ -121,7 +121,7 @@ $norm(1) repeat 50
 $norm(1) interval 0.0
 $norm(1) txloss 10.0
 $norm(1) gsize $groupSize
-$norm(1) cc off
+$norm(1) cc on
 #$norm(1) trace on
 
 # 8) Configure NORM client agents at other nodes
@@ -141,7 +141,7 @@ for {set i 2} {$i <= $numNodes} {incr i} {
     $ns_ at 0.0 "$norm($i) start client"
 }
 
-$ns_ at 0.0 "$norm(1) sendFile 64000"
+$ns_ at 0.0 "$norm(1) sendFile 1000000"
 
 $ns_ at $duration "finish $ns_ $f $nf $nsTracing"
 

@@ -156,10 +156,36 @@ class NormBlock
         void IncrementParityCount() {parity_count++;}
         UINT16 ParityCount() const {return parity_count;}
         
-        NormSymbolId FirstPending() const
-            {return (NormSymbolId)pending_mask.FirstSet();}
-        NormSymbolId FirstRepair()  const
-            {return (NormSymbolId)repair_mask.FirstSet();}
+        bool GetFirstPending(NormSymbolId& symbolId) const
+        {
+            UINT32 index;
+            bool result = pending_mask.GetFirstSet(index);
+            symbolId = (UINT16)index;
+            return result;
+        }
+        bool GetNextPending(NormSymbolId& symbolId) const
+        {
+            UINT32 index = (UINT32)symbolId;
+            bool result = pending_mask.GetNextSet(index);
+            symbolId = (UINT16)index;
+            return result;
+        }
+        NormSymbolId GetFirstRepair(NormSymbolId& symbolId)  const
+        {
+            UINT32 index;
+            bool result = repair_mask.GetFirstSet(index);
+            symbolId = (UINT16)index;
+            return result;
+        }
+        
+        bool GetNextRepair(NormSymbolId& symbolId) const
+        {
+            UINT32 index = (UINT32)symbolId;
+            bool result = repair_mask.GetNextSet(index);
+            symbolId = (UINT16)index;
+            return result;
+        }
+        
         bool SetPending(NormSymbolId s) 
             {return pending_mask.Set(s);}
         bool SetPending(NormSymbolId firstId, UINT16 count)
@@ -189,11 +215,6 @@ class NormBlock
             {return repair_mask.IsSet();}
         bool IsTransmitPending() const
             {return (pending_mask.IsSet() || repair_mask.IsSet());}
-        
-            
-        NormSymbolId NextPending(NormSymbolId index) const
-            {return ((NormSymbolId)pending_mask.NextSet(index));}
-        
         
         bool AppendRepairRequest(NormNackMsg&    nack, 
                                  UINT16          ndata, 

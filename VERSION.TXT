@@ -1,0 +1,7 @@
+			           NORM Version History
+
+Version 1.1b3
+=============
+    - Started keeping version history.  This release includes
+      some bug fixes, smoother congestion control operation, etc
+      over some of the earlier releases.

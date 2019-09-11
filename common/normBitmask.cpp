@@ -199,10 +199,10 @@ void NormBitmask::Destroy()
 }  // end NormBitmask::Destroy()
 
 
-unsigned long NormBitmask::NextSet(unsigned long index) const
+bool NormBitmask::GetNextSet(unsigned long& index) const
 {   
-    if (index >= num_bits) return num_bits;
-    if (index < first_set) return first_set;
+    if (index >= num_bits) return false;
+    if (index < first_set) return GetFirstSet(index);
     unsigned long maskIndex = index >> 3;
     if (mask[maskIndex])
     {
@@ -211,22 +211,28 @@ unsigned long NormBitmask::NextSet(unsigned long index) const
         for (int i = 0; i < w; i++)
         {
             int loc = BITLOCS[mask[maskIndex]][i];
-            if (loc >= remainder) return (maskIndex << 3) + loc;
+            if (loc >= remainder) 
+            {
+                index = (maskIndex << 3) + loc;
+                return true;
+            }
         }
     }
     while(++maskIndex < mask_len)
     {
         if (mask[maskIndex])
-            return (maskIndex << 3) + 
-                   BITLOCS[mask[maskIndex]][0];
+        {
+            index = (maskIndex << 3) +  BITLOCS[mask[maskIndex]][0];
+            return true;
+        }
     }
-    return num_bits;
+    return false;
 }  // end NormBitmask::NextSet()
 
-unsigned long NormBitmask::PrevSet(unsigned long index) const
+bool NormBitmask::GetPrevSet(unsigned long& index) const
 {
     if (index >= num_bits) index = num_bits - 1;
-    if (index < first_set) return num_bits;
+    if (index < first_set) return false;
     unsigned long maskIndex = index >> 3;
     if (mask[maskIndex])
     {
@@ -237,7 +243,8 @@ unsigned long NormBitmask::PrevSet(unsigned long index) const
             int loc = BITLOCS[mask[maskIndex]][i];
             if (loc <= remainder) 
             {
-                return((maskIndex << 3) + loc);
+                index = ((maskIndex << 3) + loc);
+                return true;
             }
         }
     }
@@ -248,26 +255,32 @@ unsigned long NormBitmask::PrevSet(unsigned long index) const
         if (mask[maskIndex])
         {
             int w = WEIGHT[mask[maskIndex]] - 1;
-            return((maskIndex << 3) + BITLOCS[mask[maskIndex]][w]);
+            index = ((maskIndex << 3) + BITLOCS[mask[maskIndex]][w]);
+            return true;
         }
     }
-    return (num_bits);  // (nothing was set)
+    return false;  // (nothing prior was set)
 }  // end NormBitmask::PrevSet()
 
-unsigned long NormBitmask::NextUnset(unsigned long index) const
+bool NormBitmask::GetNextUnset(unsigned long& index) const
 {
-    if (index >= num_bits) return num_bits;
-    unsigned long maskIndex = index >> 3;
-    unsigned char bit = 0x80 >> (index & 0x07);
-    while (index < num_bits)
+    if (index >= num_bits) return false;
+    unsigned long next = index;
+    unsigned long maskIndex = next >> 3;
+    unsigned char bit = 0x80 >> (next & 0x07);
+    while (next < num_bits)
     {
         unsigned char val = mask[maskIndex];
         if (val)
         {
-            while (bit && (index < num_bits))
+            while (bit && (next < num_bits))
             {
-                if (0 == (val & bit)) return index;
-                index++;   
+                if (0 == (val & bit)) 
+                {
+                    index = next;
+                    return true;
+                }
+                next++;   
                 bit >>= 0x01;
             }
             bit = 0x80;
@@ -275,10 +288,11 @@ unsigned long NormBitmask::NextUnset(unsigned long index) const
         }
         else
         {
-            return index;
+            index = next;
+            return true;
         }
     }
-    return index;
+    return false;
 }  // end NormBitmask::NextUnset()
 
 
@@ -337,8 +351,11 @@ bool NormBitmask::UnsetBits(unsigned long index, unsigned long count)
         count &= 0x07;  
         if (count) mask[maskIndex+nbytes] &= 0xff >> count;
     }
-    if ((first_set >= index) && (end > first_set)) 
-        first_set = NextSet(end);
+    if ((first_set >= index) && (end > first_set))
+    { 
+        first_set = end;
+        if (!GetNextSet(first_set)) first_set = num_bits;
+    }
     return true;
 }  // end NormBitmask::UnsetBits()
 
@@ -370,7 +387,9 @@ bool NormBitmask::Subtract(const NormBitmask& b)
     for(unsigned long i = 0; i < len; i++)
         mask[i] &= ~b.mask[i];
     if (first_set >= b.first_set) 
-        first_set = NextSet(first_set);
+    {
+        if (!GetNextSet(first_set)) first_set = num_bits;
+    }
     return true;
 }  // end NormBitmask::Subtract()
 
@@ -386,9 +405,14 @@ bool NormBitmask::XCopy(const NormBitmask& b)
         mask[i] = b.mask[i] & ~mask[i];
     if (len < mask_len) memset(&mask[len], 0, mask_len - len);
     if (b.first_set < first_set)
+    {
         first_set = b.first_set;
+    }
     else
-        first_set = NextSet(b.first_set);
+    {
+        first_set = b.first_set;
+        GetNextSet(first_set);
+    }
     return true;
 }  // end NormBitmask::XCopy()
 
@@ -400,9 +424,14 @@ bool NormBitmask::Multiply(const NormBitmask& b)
         mask[i] |= b.mask[i];
     if (len < mask_len) memset(&mask[len], 0, mask_len - len);
     if (b.first_set > first_set)
-        first_set = NextSet(b.first_set);
+    {
+        first_set = b.first_set;
+        if (!GetNextSet(first_set)) first_set = num_bits;
+    }
     else if (first_set > b.first_set)
-        first_set = NextSet(first_set);
+    {
+        if (!GetNextSet(first_set)) first_set = num_bits;
+    }
     return true;
 }  // end NormBitmask::Multiply()
 
@@ -413,7 +442,7 @@ bool NormBitmask::Xor(const NormBitmask& b)
     for(unsigned int i = 0; i < b.mask_len; i++)
         mask[i] ^= b.mask[i];
     if (b.first_set == first_set)
-        first_set = NextSet(first_set);
+        GetNextSet(first_set);
     return true;
 }  // end NormBitmask::Xor()
 
@@ -445,7 +474,7 @@ NormSlidingMask::~NormSlidingMask()
     Destroy();
 }
 
-bool NormSlidingMask::Init(long numBits)
+bool NormSlidingMask::Init(long numBits, UINT32 rangeMask)
 {
     
     if (mask) Destroy();
@@ -453,6 +482,8 @@ bool NormSlidingMask::Init(long numBits)
     unsigned long len = (numBits + 7) >> 3;
     if ((mask = new unsigned char[len]))
     {
+        range_mask = rangeMask;
+        range_sign = (rangeMask ^ (rangeMask >> 1));
         mask_len = len;
         num_bits = numBits;
         Clear();
@@ -479,8 +510,8 @@ bool NormSlidingMask::CanSet(unsigned long index) const
     if (IsSet())
     {
         // Determine position with respect to current start
-        // and end, given the "offset" of the current start               
-        long pos = index - offset;        
+        // and end, given the "offset" of the current start  
+        long pos = Delta(index, offset);
         if (pos < 0)
         {
             // Precedes start.
@@ -505,11 +536,12 @@ bool NormSlidingMask::CanSet(unsigned long index) const
                 return true;
             } 
         }
+        else if (pos < num_bits)
+        {
+                return true;
+        }
         else
         {
-            if (pos < num_bits)
-                return true;
-            else
                 return false;  // out of range
         }
     }
@@ -526,12 +558,8 @@ bool NormSlidingMask::Set(unsigned long index)
     {        
         // Determine position with respect to current start
         // and end, given the "offset" of the current start               
-        long pos = index - offset;  
-        if (pos <= -num_bits)
-        {
-           return false; // out-of-range 
-        }
-        else if (pos < 0)
+        long pos = Delta(index , offset);  
+        if (pos < 0)
         {
             // Precedes start.
             pos += start;
@@ -557,11 +585,7 @@ bool NormSlidingMask::Set(unsigned long index)
                 offset = index;
             } 
         }
-        else if (pos >= num_bits) 
-        {
-            return false;  // out of range
-        }
-        else
+        else if (pos < num_bits)
         {
             pos += start;
             if (pos >= num_bits) pos -= num_bits;
@@ -573,6 +597,10 @@ bool NormSlidingMask::Set(unsigned long index)
             {
                 if ((pos > end) || (pos < start)) end = pos;
             }
+        }
+        else
+        {
+            return false;  // out of range
         }
         ASSERT((pos >> 3) >= 0);
         ASSERT((pos >> 3) < (long)mask_len);
@@ -592,11 +620,14 @@ bool NormSlidingMask::Unset(unsigned long index)
     //ASSERT(CanSet(index));
     if (IsSet())
     {
-        long pos = index - offset;
-        if (pos >= 0)
+        long pos = Delta(index, offset);
+        if (pos < 0)
         {
-            // Is it in range?
-            if (pos >= num_bits) return true;  
+            return true;  // out-of-range
+        }
+        else if (pos < num_bits)
+        {
+            // Is it in current range of set bits?
             pos += start;
             if (pos >= num_bits) pos -= num_bits;
             if (end < start)
@@ -607,6 +638,7 @@ bool NormSlidingMask::Unset(unsigned long index)
             {
                 if ((pos < start) || (pos > end)) return true;   
             }
+            // Yes, it was in range.
             // Unset the corresponding bit
             ASSERT((pos >> 3) >= 0);
             ASSERT((pos >> 3) < (long)mask_len);
@@ -619,28 +651,27 @@ bool NormSlidingMask::Unset(unsigned long index)
             }
             if (start == pos) 
             {
-                unsigned long next = NextSet(index);
-                long delta = next - offset + start;   
-                if (delta >= num_bits)
-                    start = delta - num_bits;
-                else if (start < 0)
-                    start = delta + num_bits;
-                else
-                    start = delta;
+                unsigned long next = index;
+                if (!GetNextSet(next)) ASSERT(0);
+                long delta = Delta(next, offset);
+                ASSERT(delta >= 0);
+                start += delta;
+                if (start >= num_bits) start -= num_bits;
                 offset = next;
             }
-            
             if (pos == end) 
             {
-                unsigned long prev = PrevSet(index);
-                long delta = prev - offset + start;
-                if (delta >= num_bits)
-                    end = delta - num_bits;
-                else if (delta < 0) 
-                    end = delta + num_bits;
-                else
-                    end = delta;   
+                unsigned long prev = index;
+                if (!GetPrevSet(prev)) ASSERT(0);
+                long delta = Delta(prev, offset);
+                ASSERT(delta >= 0);
+                end = start + delta;
+                if (end >= num_bits) end -= num_bits;
             }
+        }
+        else
+        {
+            return true; // out-of-range   
         }
     }
     return true;
@@ -658,8 +689,8 @@ bool NormSlidingMask::SetBits(unsigned long index, long count)
         long last = index + count - 1;
         if (!CanSet(index)) return false;
         if (!CanSet(last)) return false; 
-        // Calculate first set bit position       
-        firstPos = index - offset;
+        // Calculate first set bit position  
+        firstPos = Delta(index, offset);
         if (firstPos < 0)
         {
             // precedes start
@@ -674,7 +705,7 @@ bool NormSlidingMask::SetBits(unsigned long index, long count)
             if (firstPos >= num_bits) firstPos -= num_bits;
         }
         // Calculate last set bit position
-        lastPos = last - offset;
+        lastPos = Delta(last , offset);
         if (lastPos > 0)
         {
             // Is post start, post end?  
@@ -775,7 +806,7 @@ bool NormSlidingMask::UnsetBits(unsigned long index, long count)
         long firstPos;
         if (count <= 0) return true;
         if (count > num_bits) count = num_bits;
-        long delta = index - offset;
+        long delta = Delta(index , offset);
         if (delta >= num_bits)
         {
             return true;
@@ -791,7 +822,9 @@ bool NormSlidingMask::UnsetBits(unsigned long index, long count)
             firstPos = start + delta;
             if (firstPos >= num_bits) firstPos -= num_bits;
         }
-        delta = index + count - 1 - LastSet();
+        UINT32 lastSet;
+        if (!GetLastSet(lastSet)) ASSERT(0);
+        delta = Delta((index+count-1), lastSet);
         long lastPos;
         if (delta < 0)
         { 
@@ -863,17 +896,23 @@ bool NormSlidingMask::UnsetBits(unsigned long index, long count)
                 mask[maskIndex+nbytes] &= 0xff >> count;
             }
         }
-        // Calling these will update the start/end state
+        // Calling these will properly update the offset/start/end state
         if (start == firstPos) 
         {
             if (end == lastPos)
+            {
                 start = end = num_bits;
+            }
             else
-                Unset(FirstSet());
+            {
+                Unset(offset);
+            }
         }
         else if (end == lastPos) 
         {
-            Unset(LastSet());
+            UINT32 lastSet;
+            GetLastSet(lastSet);
+            Unset(lastSet);
         }
     }
     return true;
@@ -883,7 +922,7 @@ bool NormSlidingMask::Test(unsigned long index) const
 {
     if (IsSet())
     {
-        long pos = index - offset;
+        long pos = Delta(index , offset);
         if (pos >= 0)
         {
             // Is it in range?
@@ -907,25 +946,26 @@ bool NormSlidingMask::Test(unsigned long index) const
 }  // end NormSlidingMask::Test()
 
 
-unsigned long NormSlidingMask::NextSet(unsigned long index) const
+bool NormSlidingMask::GetNextSet(unsigned long& index) const
 {
     if (IsSet())
     {
-        long pos = index - offset;
+        unsigned long next = index;
+        long pos = Delta(next, offset);
         if (pos >= 0)
         {
             // Is it in range?
-            if (pos >= num_bits) return (offset + num_bits);
+            if (pos >= num_bits) return false;
             pos += start;
             if (pos >= num_bits) pos -= num_bits;
             
             if (end < start)
             {
-                if ((pos > end) && (pos < start)) return (offset + num_bits);   
+                if ((pos > end) && (pos < start)) return false;
             }
             else
             {
-                if ((pos < start) || (pos > end)) return (offset + num_bits);   
+                if ((pos < start) || (pos > end)) return false;
             }
             // Seek next set bit
             unsigned long maskIndex = pos >> 3;
@@ -941,7 +981,8 @@ unsigned long NormSlidingMask::NextSet(unsigned long index) const
                         pos = (maskIndex << 3) + loc;
                         pos -= start;
                         if (pos < 0) pos += num_bits;
-                        return (offset + pos);
+                        index = offset + pos;
+                        return true;
                     }
                 }
             }
@@ -955,7 +996,8 @@ unsigned long NormSlidingMask::NextSet(unsigned long index) const
                         pos = (maskIndex << 3) + BITLOCS[mask[maskIndex]][0];
                         pos -= start;
                         if (pos < 0) pos += num_bits;
-                        return (offset + pos);
+                        index =  offset + pos;
+                        return true;
                     }
                 }
                 maskIndex = 0;
@@ -968,36 +1010,41 @@ unsigned long NormSlidingMask::NextSet(unsigned long index) const
                     pos = (maskIndex << 3) + BITLOCS[mask[maskIndex]][0];
                     pos -= start;
                     if (pos < 0) pos += num_bits;
-                    return (offset + pos);
+                    index = offset + pos;
+                    return true;
                 }
             }
         }
         else
         {
-            return offset;
+            return false;
         }
     }
-    return (offset + num_bits);  // indicates nothing was set
-}  // end NormSlidingMask::NextSet()
+    return false;  // indicates nothing was set
+}  // end NormSlidingMask::GetNextSet()
 
-unsigned long NormSlidingMask::PrevSet(unsigned long index) const
+bool NormSlidingMask::GetPrevSet(unsigned long& index) const
 {
     if (IsSet())
     {
-        long pos = index - offset;
+        unsigned long prev = index;
+        long pos = Delta(prev, offset);
         if (pos >= 0)
         {
             // Is it in range?
-            if (pos >= num_bits) return (offset + num_bits);
+            if (pos >= num_bits) 
+            {
+                return false;
+            }
             pos += start;
             if (pos >= num_bits) pos -= num_bits;
             if (end < start)
             {
-                if ((pos > end) && (pos < start)) return (offset + num_bits);   
+                if ((pos > end) && (pos < start)) return false;
             }
             else
             {
-                if ((pos < start) || (pos > end)) return (offset + num_bits);   
+                if ((pos < start) || (pos > end)) return false;
             }
             // Seek prev set bits, starting with index   
             long maskIndex = pos >> 3;
@@ -1013,7 +1060,8 @@ unsigned long NormSlidingMask::PrevSet(unsigned long index) const
                         pos = (maskIndex << 3) + loc;
                         pos -= start;
                         if (pos < 0) pos += num_bits;
-                        return (offset + pos);
+                        index = offset + pos;
+                        return true;
                     }
                 }
             }
@@ -1029,7 +1077,8 @@ unsigned long NormSlidingMask::PrevSet(unsigned long index) const
                         pos =  (maskIndex << 3) + BITLOCS[mask[maskIndex]][w];
                         pos -= start;
                         if (pos < 0) pos += num_bits;
-                        return (offset + pos);  
+                        index = offset + pos;
+                        return true;  
                     }
                 } 
                 maskIndex = mask_len - 1;  
@@ -1043,15 +1092,16 @@ unsigned long NormSlidingMask::PrevSet(unsigned long index) const
                     pos =  (maskIndex << 3) + BITLOCS[mask[maskIndex]][w];
                     pos -= start;
                     if (pos < 0) pos += num_bits;
-                    return (offset + pos);  
+                    index = offset + pos;
+                    return true;  
                 }
             }
         }
     }
-    return (offset + num_bits);  // indicates nothing was set
-}  // end NormSlidingMask::PrevSet()
+    return false;  // indicates nothing prior was set
+}  // end NormSlidingMask::GetPrevSet()
 
-unsigned long NormSlidingMask::RawNextSet(const char* mask, long index, long end)
+/*unsigned long NormSlidingMask::RawNextSet(const char* mask, long index, long end)
 {
     // Seek next set bit
     unsigned long maskIndex = index >> 3;
@@ -1104,7 +1154,7 @@ unsigned long NormSlidingMask::RawPrevSet(const char* mask, long index, long sta
         }
     }
     return (index+1);  // (nothing was set)
-}  // end NormSlidingMask::RawPrevSet()
+}  // end NormSlidingMask::RawPrevSet()*/
 
 bool NormSlidingMask::Copy(const NormSlidingMask& b)
 {
@@ -1115,7 +1165,11 @@ bool NormSlidingMask::Copy(const NormSlidingMask& b)
         if (range <= num_bits)
         {
             start = b.start & 0x07;
-            end = b.LastSet() - b.FirstSet() + start;
+            UINT32 bLastSet;
+            b.GetLastSet(bLastSet);
+            UINT32 bFirstSet;
+            b.GetFirstSet(bFirstSet);
+            end = bLastSet - bFirstSet + start;
             offset = b.offset;
             // Copy start to mask_len
             long startIndex = b.start >> 3;
@@ -1166,11 +1220,16 @@ bool NormSlidingMask::Add(const NormSlidingMask& b)
     {
         if (IsSet())
         {
-            if (!CanSet(b.FirstSet())) return false;
-            if (!CanSet(b.LastSet())) return false;
+            UINT32 bFirstSet;
+            b.GetFirstSet(bFirstSet);
+            if (!CanSet(bFirstSet)) return false;
+            UINT32 bLastSet;
+            b.GetFirstSet(bLastSet);
+            if (!CanSet(bLastSet)) return false;
             long range = b.end - b.start;
             if (range < 0) range += b.num_bits;
-            unsigned long index = b.FirstSet();
+            unsigned long index;
+            b.GetFirstSet(index);
             for (long i = 0; i < range; i++)
             {
                 // (TBD) Improve performance by getting/setting
@@ -1206,10 +1265,6 @@ bool NormSlidingMask::Subtract(const NormSlidingMask& b)
             }
         } 
     }
-    else
-    {
-        Copy(b);
-    }
     return true;
 }  // end NormSlidingMask::Subtract()
 
@@ -1221,9 +1276,14 @@ bool NormSlidingMask::XCopy(const NormSlidingMask& b)
     {
         if (IsSet())
         {
-            if (!CanSet(b.FirstSet())) return false;
-            if (!CanSet(b.LastSet())) return false;
-            unsigned long index = b.FirstSet();
+            UINT32 bFirstSet;
+            b.GetFirstSet(bFirstSet);
+            if (!CanSet(bFirstSet)) return false;
+            UINT32 bLastSet;
+            b.GetFirstSet(bLastSet);
+            if (!CanSet(bLastSet)) return false;
+            unsigned long index;
+            b.GetFirstSet(index);
             long range = b.end - b.start;
             if (range < 0) range += b.num_bits;
             for (long i = 0; i < range; i++)
@@ -1237,8 +1297,12 @@ bool NormSlidingMask::XCopy(const NormSlidingMask& b)
         }
         else
         {
-            Copy(b);   
+            return Copy(b);   
         } 
+    }
+    else
+    {
+        Clear();
     }
     return true;
 }  // end NormSlidingMask::XCopy()
@@ -1268,13 +1332,19 @@ bool NormSlidingMask::Multiply(const NormSlidingMask& b)
 }  // end NormSlidingMask::Multiply()
 
 // Logically XOR two bit mask such that "this = (this ^ b)"
+// (TBD) rewrite for byte-based operation for better efficiency
 bool NormSlidingMask::Xor(const NormSlidingMask& b)
 {
     if (b.IsSet())
     {
-        if (!CanSet(b.FirstSet())) return false;
-        if (!CanSet(b.LastSet())) return false;
-        unsigned long index = b.FirstSet();
+        UINT32 bFirstSet;
+        b.GetFirstSet(bFirstSet);
+        if (!CanSet(bFirstSet)) return false;
+        UINT32 bLastSet;
+        b.GetFirstSet(bLastSet);
+        if (!CanSet(bLastSet)) return false;
+        unsigned long index;
+        b.GetFirstSet(index);
         long range = b.end - b.start;
         if (range < 0) range += b.num_bits;
         for (long i = 0; i < range; i++)
@@ -1310,4 +1380,4 @@ void NormSlidingMask::Debug(long theCount)
         if (0x3f == (i & 0x3f)) DMSG(0, "\n   ");
     }
     if (0x3f != (i & 0x3f)) DMSG(0, "\n");
-}  // end NormSlidingMask::Display()
+}  // end NormSlidingMask::Debug()

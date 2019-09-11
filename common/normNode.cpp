@@ -82,13 +82,13 @@ bool NormServerNode::Open(UINT16 sessionId, UINT16 segmentSize, UINT16 numData, 
         Close();
         return false;
     }
-    if (!rx_pending_mask.Init(256))
+    if (!rx_pending_mask.Init(256, 0x0000ffff))
     {
         DMSG(0, "NormServerNode::Open() rx_pending_mask init error\n");
         Close();
         return false;
     }
-    if (!rx_repair_mask.Init(256))
+    if (!rx_repair_mask.Init(256, 0x0000ffff))
     {
         DMSG(0, "NormServerNode::Open() rx_repair_mask init error\n");
         Close();
@@ -271,7 +271,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                     }
                     else if (!cc_timer.IsActive())
                     {
-                        double backoffFactor = session->BackoffFactor();
+                        double backoffFactor = backoff_factor;
                         backoffFactor = MAX(backoffFactor, 4.0);
                         double maxBackoff = grtt_estimate*backoffFactor;
                         // (TBD) don't backoff for unicast sessions
@@ -312,6 +312,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
         case NormCmdMsg::FLUSH:
             // (TBD) should we force synchronize if we're expected
             // to positively acknowledge the FLUSH
+            
             if (synchronized) 
             {
                 const NormCmdFlushMsg& flush = (const NormCmdFlushMsg&)cmd;
@@ -397,7 +398,7 @@ void NormServerNode::HandleCCFeedback(UINT8 ccFlags, double ccRate)
         if (suppressed)
         {
             if (cc_timer.IsActive()) cc_timer.Deactivate();
-            cc_timer.SetInterval(grtt_estimate*session->BackoffFactor());
+            cc_timer.SetInterval(grtt_estimate*backoff_factor);  // (TBD) ???
             session->ActivateTimer(cc_timer);
             cc_timer.DecrementRepeatCount();
         }
@@ -910,11 +911,12 @@ void NormServerNode::Sync(NormObjectId objectId)
 {
     if (synchronized)
     {
-        if (rx_pending_mask.IsSet())
+        NormObjectId firstPending;
+        if (GetFirstPending(firstPending))
         {
-            NormObjectId firstSet = NormObjectId((UINT16)rx_pending_mask.FirstSet());
-            if ((objectId > NormObjectId((UINT16)rx_pending_mask.LastSet())) ||
-                ((next_id - objectId) > 256))
+            NormObjectId lastPending;
+            GetLastPending(lastPending);
+            if ((objectId > lastPending) || ((next_id - objectId) > 256))
             {
                 NormObject* obj;
                 while ((obj = rx_table.Find(rx_table.RangeLo()))) 
@@ -924,7 +926,7 @@ void NormServerNode::Sync(NormObjectId objectId)
                 }
                 rx_pending_mask.Clear(); 
             }
-            else if (objectId > firstSet)
+            else if (objectId > firstPending)
             {
                NormObject* obj;
                while ((obj = rx_table.Find(rx_table.RangeLo())) &&
@@ -933,12 +935,11 @@ void NormServerNode::Sync(NormObjectId objectId)
                    DeleteObject(obj);
                    failure_count++;
                }
-               unsigned long numBits = (UINT16)(objectId - firstSet) + 1;
-               rx_pending_mask.UnsetBits(firstSet, numBits); 
+               unsigned long numBits = (UINT16)(objectId - firstPending) + 1;
+               rx_pending_mask.UnsetBits(firstPending, numBits); 
             }
         }  
-        if ((next_id < objectId) ||
-            ((next_id - objectId) > 256))
+        if ((next_id < objectId) || ((next_id - objectId) > 256))
         {
             max_pending_object = next_id = objectId;
         }
@@ -963,7 +964,7 @@ NormServerNode::ObjectStatus NormServerNode::UpdateSyncStatus(const NormObjectId
             // (TBD) We may want to control re-sync policy options
             //       or revert to fresh sync if sync is totally lost,
             //       otherwise SQUELCH process will get things in order
-            DMSG(2, "NormServerNode::HandleObjectMessage() node>%lu re-syncing to server>%lu...\n",
+            DMSG(2, "NormServerNode::UpdateSyncStatus() node>%lu re-syncing to server>%lu...\n",
                     LocalNodeId(), GetId());
             Sync(objectId);
             resync_count++;
@@ -990,7 +991,7 @@ void NormServerNode::SetPending(NormObjectId objectId)
         rx_pending_mask.SetBits(next_id, objectId - next_id + 1);
         next_id = objectId + 1; 
         // This prevents the "sync_id" from getting stale
-        sync_id = (UINT16)rx_pending_mask.FirstSet();
+        GetFirstPending(sync_id);
     }
 }  // end NormServerNode::SetPending()
 
@@ -1068,19 +1069,18 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
     if (!repair_timer.IsActive())
     {
         bool startTimer = false;
-        if (rx_pending_mask.IsSet())
+        NormObjectId nextId;
+        if (GetFirstPending(nextId))
         {
             if (rx_repair_mask.IsSet()) rx_repair_mask.Clear();
-            NormObjectId nextId = (UINT16)rx_pending_mask.FirstSet();
-            NormObjectId lastId = (UINT16)rx_pending_mask.LastSet();
-            if (objectId < lastId) lastId = objectId;
-            while (nextId <= lastId)
+            do
             {
+                if (nextId > objectId) break;
                 NormObject* obj = rx_table.Find(nextId);
                 if (obj)
                 {
                     NormObject::CheckLevel level;
-                    if (nextId < lastId)
+                    if (nextId < objectId)
                         level = NormObject::THRU_OBJECT;
                     else
                         level = checkLevel;
@@ -1092,18 +1092,17 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
                     startTimer = true;
                 }
                 nextId++;
-                nextId = (UINT16)rx_pending_mask.NextSet(nextId);
-            }
+            } while (GetNextPending(nextId));
             current_object_id = objectId;
             if (startTimer)
             {
                 // BACKOFF related code
                 double backoffInterval = 
-                    (session->Address().IsMulticast() && (session->BackoffFactor() > 0.0)) ?
-                        ExponentialRand(grtt_estimate*session->BackoffFactor(), gsize_estimate) : 
+                    (session->Address().IsMulticast() && (backoff_factor > 0.0)) ?
+                        ExponentialRand(grtt_estimate*backoff_factor, gsize_estimate) : 
                         0.0;
                 repair_timer.SetInterval(backoffInterval);
-                DMSG(3, "NormServerNode::RepairCheck() node>%lu begin NACK back-off: %lf sec)...\n",
+                DMSG(4, "NormServerNode::RepairCheck() node>%lu begin NACK back-off: %lf sec)...\n",
                         LocalNodeId(), backoffInterval);
                 session->ActivateTimer(repair_timer);  
             }
@@ -1155,14 +1154,15 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
             DMSG(4, "NormServerNode::OnRepairTimeout() node>%lu end NACK back-off ...\n",
                     LocalNodeId());
             // 1) Were we suppressed? 
-            if (rx_pending_mask.IsSet())
+            NormObjectId nextId;
+            if (GetFirstPending(nextId))
             {
+                // This loop checks to see if we have any repair pending objects
+                // (If we don't have any, that means we were suppressed)
                 bool repairPending = false;
-                NormObjectId nextId = (UINT16)rx_pending_mask.FirstSet();
-                NormObjectId lastId = (UINT16)rx_pending_mask.LastSet();
-                if (current_object_id < lastId) lastId = current_object_id;
-                while (nextId <= lastId)
+                do
                 {
+                    if (nextId > current_object_id) break;
                     if (!rx_repair_mask.Test(nextId)) 
                     {
                         NormObject* obj = rx_table.Find(nextId);
@@ -1173,8 +1173,8 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         }                        
                     }
                     nextId++;
-                    nextId = (UINT16)rx_pending_mask.NextSet(nextId);
-                } // end while (nextId <= current_block_id)
+                } while (GetNextPending(nextId));
+                
                 if (repairPending)
                 {
                     // We weren't completely suppressed, so build NACK
@@ -1222,38 +1222,34 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         if (cc_timer.IsActive())
                         {
                             cc_timer.Deactivate();
-                            cc_timer.SetInterval(grtt_estimate*session->BackoffFactor());
+                            cc_timer.SetInterval(grtt_estimate*backoff_factor);
                             session->ActivateTimer(cc_timer);
                             cc_timer.DecrementRepeatCount();   
                         }
                     }
                     
+                    // Iterate through rx pending object list, appending repair requests as needed
                     NormRepairRequest req;
-                    NormObjectId prevId;
-                    UINT16 reqCount = 0;
                     NormRepairRequest::Form prevForm = NormRepairRequest::INVALID;
-                    nextId = (UINT16)rx_pending_mask.FirstSet();
-                    lastId = (UINT16)rx_pending_mask.LastSet();
-                    if (max_pending_object < lastId) lastId = max_pending_object;
-                    lastId++;  // force loop to fully flush nack building.
-                    while ((nextId <= lastId) || (reqCount > 0))
+                    bool iterating = GetFirstPending(nextId);
+                    iterating = iterating && (nextId <= max_pending_object);
+                    NormObjectId prevId = nextId;
+                    UINT16 consecutiveCount = 0;
+                    while (iterating || (0 != consecutiveCount))
                     {
-                        NormObject* obj = NULL;
-                        bool objPending = false;
-                        if (nextId == lastId)
-                            nextId++;  // force break of possible ending consecutive series
+                        bool appendRequest = false;
+                        NormObject* obj = iterating ? rx_table.Find(nextId) : NULL;
+                        if (obj)
+                            appendRequest = true;
+                        else if (iterating && ((nextId - prevId) == consecutiveCount))
+                            consecutiveCount++;  // consecutive series of missing objs starts/continues 
                         else
-                            obj = rx_table.Find(nextId);
-                        if (obj) objPending = obj->IsPending(nextId != max_pending_object);
+                            appendRequest = true;  // consecutive series broken or finished
                         
-                        if (!objPending && reqCount && (reqCount == (nextId - prevId)))
-                        {
-                            reqCount++;  // consecutive series of missing objs continues  
-                        }
-                        else                        
+                        if (appendRequest)
                         {
                             NormRepairRequest::Form nextForm;
-                            switch (reqCount)
+                            switch (consecutiveCount)
                             {
                                 case 0:
                                     nextForm = NormRepairRequest::INVALID;
@@ -1265,7 +1261,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                 default:
                                     nextForm = NormRepairRequest::RANGES;
                                     break;
-                            }    
+                            }  
                             if (prevForm != nextForm)
                             {
                                 if (NormRepairRequest::INVALID != prevForm)
@@ -1280,41 +1276,47 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                 }
                                 prevForm = nextForm;
                             }
-                            if (NormRepairRequest::INVALID != nextForm)
-                                DMSG(6, "NormServerNode::AppendRepairRequest() OBJECT request\n");
                             switch (nextForm)
                             {
                                 case NormRepairRequest::ITEMS:
                                     req.AppendRepairItem(prevId, 0, ndata, 0);
-                                    if (2 == reqCount)
+                                    if (2 == consecutiveCount)
                                         req.AppendRepairItem(prevId+1, 0, ndata, 0);
                                     break;
                                 case NormRepairRequest::RANGES:
-                                    req.AppendRepairItem(prevId, 0, ndata, 0);
-                                    req.AppendRepairItem(prevId+reqCount-1, 0, ndata, 0);
+                                    req.AppendRepairRange(prevId, 0, ndata, 0,
+                                                          prevId+consecutiveCount-1, 0, ndata, 0);
                                     break;
                                 default:
                                     break;  
                             }
-                            prevId = nextId;
-                            if (obj || (nextId >= lastId))
-                                reqCount = 0;
+                            
+                            if (obj)
+                            {
+                                if (obj->IsPending(nextId != max_pending_object))
+                                {
+                                    if (NormRepairRequest::INVALID != prevForm)
+                                        nack->PackRepairRequest(req);  // (TBD) error check
+                                    prevForm = NormRepairRequest::INVALID; 
+                                    bool flush = (nextId != max_pending_object);
+                                    obj->AppendRepairRequest(*nack, flush);  // (TBD) error check
+                                }
+                                consecutiveCount = 0;
+                            }
+                            else if (iterating)
+                            {
+                                consecutiveCount = 1;
+                            }
                             else
-                                reqCount = 1;
-                        }  // end if/else (!objPending && reqCount && (reqCount == (nextId - prevId)))
-                        if (objPending)
-                        {
-                            if (NormRepairRequest::INVALID != prevForm)
-                                nack->PackRepairRequest(req);  // (TBD) error check
-                            prevForm = NormRepairRequest::INVALID; 
-                            reqCount = 0;
-                            bool flush = (nextId != max_pending_object);
-                            obj->AppendRepairRequest(*nack, flush);  // (TBD) error check
-                        }
+                            {
+                                consecutiveCount = 0;  // we're all done
+                            }
+                            prevId = nextId;
+                        }  // end if (appendRequest)
                         nextId++;
-                        if (nextId <= lastId) 
-                            nextId = (UINT16)rx_pending_mask.NextSet(nextId);
-                    }  // end while(nextId <= lastId)
+                        iterating = GetNextPending(nextId);
+                    } while (iterating || (0 != consecutiveCount));
+                    // Now that all repair requests have been appended, pack the nack
                     if (NormRepairRequest::INVALID != prevForm)
                         nack->PackRepairRequest(req);  // (TBD) error check 
                     // Queue NACK for transmission
@@ -1338,9 +1340,9 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                 }  // end if/else(repairPending)
                 // BACKOFF related code
                 double holdoffInterval = 
-                    session->Address().IsMulticast() ? grtt_estimate*(session->BackoffFactor() + 2.0) : 
+                    session->Address().IsMulticast() ? grtt_estimate*(backoff_factor + 2.0) : 
                                                        grtt_estimate;
-                holdoffInterval = (session->BackoffFactor() > 0.0) ? holdoffInterval : 1.01*grtt_estimate;
+                holdoffInterval = (backoff_factor > 0.0) ? holdoffInterval : 1.01*grtt_estimate;
                 
                 repair_timer.SetInterval(holdoffInterval);
                 DMSG(4, "NormServerNode::OnRepairTimeout() node>%lu begin NACK hold-off: %lf sec ...\n",
@@ -1514,7 +1516,7 @@ bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
             }
             
             // Begin cc_timer "holdoff" phase
-            cc_timer.SetInterval(grtt_estimate*session->BackoffFactor());
+            cc_timer.SetInterval(grtt_estimate*backoff_factor);
             return true;
         }
         

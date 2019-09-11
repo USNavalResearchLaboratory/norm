@@ -154,6 +154,14 @@ class NormSession
         void ServerSetExtraParity(UINT16 extraParity)
             {extra_parity = extraParity;}
         
+        bool ServerGetFirstPending(NormObjectId& objectId)
+        {
+            UINT32 index;
+            bool result = tx_pending_mask.GetFirstSet(index);
+            objectId = (UINT16)index;
+            return result;   
+        }
+        
         double ServerGroupSize() {return gsize_measured;}
         void ServerSetGroupSize(double gsize)
         {

@@ -70,7 +70,50 @@ class NormObject
         bool IsPending(bool flush = true) const;
         bool IsRepairPending() const;
         bool IsPendingInfo() {return pending_info;}
-        NormBlockId FirstPending() {return pending_mask.FirstSet();}
+        bool GetFirstPending(NormBlockId& blockId) const 
+        {
+            unsigned long index = 0;
+            bool result = pending_mask.GetFirstSet(index);
+            blockId = NormBlockId(index);
+            return result;
+        }
+        bool GetNextPending(NormBlockId& blockId) const
+        {
+            unsigned long index = (UINT32)blockId;
+            bool result = pending_mask.GetNextSet(index);
+            blockId = NormBlockId(index);
+            return result;
+        }
+        bool GetLastPending(NormBlockId& blockId) const
+        {
+            unsigned long index = 0;
+            bool result = pending_mask.GetLastSet(index);
+            blockId = NormBlockId(index);
+            return result;
+        }
+        bool GetFirstRepair(NormBlockId& blockId) const 
+        {
+            unsigned long index = 0;
+            bool result = repair_mask.GetFirstSet(index);
+            blockId = NormBlockId(index);
+            return result;
+        }
+        
+        bool GetNextRepair(NormBlockId& blockId) const
+        {
+            unsigned long index = (UINT32)blockId;
+            bool result = repair_mask.GetNextSet(index);
+            blockId = NormBlockId(index);
+            return result;
+        }
+        bool GetLastRepair(NormBlockId& blockId) const
+        {
+            unsigned long index = 0;
+            bool result = repair_mask.GetLastSet(index);
+            blockId = NormBlockId(index);
+            return result;
+        }
+        
         
         // Methods available to server for transmission
         bool NextServerMsg(NormObjectMsg* msg);

@@ -966,7 +966,10 @@ void NormApp::Notify(NormController::Event event,
                         else
                         {
                             if (readLength > 0)
-                                output_msg_sync = true;   
+                                output_msg_sync = true;
+                            
+                            TRACE("read %d bytes (index:%d) %hu...\n", readLength, output_index,
+                                    *((UINT16*)(output_buffer+output_index)));   
                         }
                         
                         if (readLength)
@@ -1110,7 +1113,7 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
         if (tx_repeat_interval > tx_object_interval)
         {
             if (interval_timer.IsActive()) interval_timer.Deactivate();
-            interval_timer.SetInterval(tx_repeat_interval = tx_object_interval);
+            interval_timer.SetInterval(tx_repeat_interval - tx_object_interval);
             ActivateTimer(interval_timer);
             return false;       
         }

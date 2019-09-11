@@ -170,13 +170,13 @@ bool NormSession::StartServer(unsigned long bufferSpace,
         StopServer();
         return false;   
     }
-    if (!tx_pending_mask.Init(256))
+    if (!tx_pending_mask.Init(256, 0x0000ffff))
     {
         DMSG(0, "NormSession::StartServer() tx_pending_mask.Init() error!\n");
         StopServer();
         return false; 
     }
-    if (!tx_repair_mask.Init(256))
+    if (!tx_repair_mask.Init(256, 0x0000ffff))
     {
         DMSG(0, "NormSession::StartServer() tx_repair_mask.Init() error!\n");
         StopServer();
@@ -278,9 +278,9 @@ void NormSession::Serve()
            
     NormObject* obj = NULL;
     // Queue next server message
-    if (tx_pending_mask.IsSet())
+    NormObjectId objectId;
+    if (ServerGetFirstPending(objectId))
     {
-        NormObjectId objectId((unsigned short)tx_pending_mask.FirstSet());
         obj = tx_table.Find(objectId);
         ASSERT(obj);
     }
@@ -937,12 +937,9 @@ void NormSession::HandleReceiveMessage(NormMsg& msg, bool wasUnicast)
             if (IsClient()) ClientHandleNackMessage((NormNackMsg&)msg);
             break;
         case NormMsg::ACK:
-            DMSG(4, "NormSession::HandleReceiveMessage(NormMsg::ACK) node>%lu ...\n",
-                        LocalNodeId());
             if (IsServer() && (((NormAckMsg&)msg).GetServerId() == LocalNodeId())) 
                 ServerHandleAckMessage(currentTime, (NormAckMsg&)msg, wasUnicast);
-            if (IsClient()) 
-                ClientHandleAckMessage((NormAckMsg&)msg);
+            if (IsClient()) ClientHandleAckMessage((NormAckMsg&)msg);
             break;
             
         case NormMsg::REPORT: 
@@ -1048,7 +1045,6 @@ double NormSession::CalculateRtt(const struct timeval& currentTime,
 
 void NormSession::ServerUpdateGrttEstimate(double clientRtt)
 {
-    
     grtt_response = true;
     if (clientRtt > grtt_current_peak)
     {
@@ -1361,23 +1357,19 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
     
     NormObjectId txObjectIndex;
     NormBlockId txBlockIndex;
-    if (tx_pending_mask.IsSet())
+    if (ServerGetFirstPending(txObjectIndex))
     {
-        txObjectIndex = NormObjectId((unsigned short)tx_pending_mask.FirstSet());
         NormObject* obj = tx_table.Find(txObjectIndex);
-        ASSERT(obj);
-        if (obj->IsPending())
+        ASSERT(obj && obj->IsPending());
+        if (obj->IsPendingInfo())
         {
-            if (obj->IsPendingInfo())
-                txBlockIndex = 0;
-            else
-                txBlockIndex = obj->FirstPending() + 1;
+            txBlockIndex = 0;
         }
         else
         {
-            txObjectIndex = txObjectIndex + 1;
-            txBlockIndex = 0;   
-        }        
+            obj->GetFirstPending(txBlockIndex);
+            txBlockIndex++;
+        }
     }
     else
     {
@@ -1447,8 +1439,7 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                             ServerQueueSquelch(nextObjectId);
                             squelchQueued = true;
                         }
-                        if ((OBJECT == requestLevel) ||
-                            (INFO == requestLevel))
+                        if ((OBJECT == requestLevel) || (INFO == requestLevel))
                         {
                             nextObjectId++;
                             if (nextObjectId > lastObjectId) inRange = false;
@@ -1481,6 +1472,8 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                 switch (requestLevel)
                 {
                     case OBJECT:
+                        DMSG(8, "NormSession::ServerHandleNackMessage(OBJECT) objs>%hu:%hu\n", 
+                                (UINT16)nextObjectId, (UINT16)lastObjectId);
                         if (holdoff)
                         {
                             if (nextObjectId > txObjectIndex)
@@ -1504,6 +1497,9 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         break;
                         
                     case BLOCK:
+                        DMSG(8, "NormSession::ServerHandleNackMessage(BLOCK) obj>%hu blks>%lu:%lu\n", 
+                                (UINT16)nextObjectId, (UINT32)nextBlockId, (UINT32)lastBlockId);
+                        
                         // (TBD) if entire object is TxReset(), continue
                         if (object->IsStream())
                         {
@@ -1577,6 +1573,9 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                         inRange = false;
                         break;
                     case SEGMENT:
+                        DMSG(8, "NormSession::ServerHandleNackMessage(SEGMENT) obj>%hu blk>%lu segs>%hu:%hu\n", 
+                                (UINT16)nextObjectId, (UINT32)nextBlockId, 
+                                (UINT32)nextSegmentId, (UINT32)lastSegmentId);
                         if (nextBlockId != prevBlockId) freshBlock = true;
                         if (freshBlock)
                         {
@@ -1635,7 +1634,9 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                         if (1 == (txBlockIndex - nextBlockId))
                                         {
                                             // We're currently sending this block
-                                            NormSegmentId firstPending = block->FirstPending();
+                                            ASSERT(block->IsPending());
+                                            NormSegmentId firstPending = 0;
+                                            block->GetFirstPending(firstPending);
                                             if (lastLockId <= firstPending)
                                                 attemptLock = false;
                                             else if (nextSegmentId < firstPending)
@@ -1696,7 +1697,8 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                 } 
                                 else if (1 == (txBlockIndex - nextBlockId))
                                 {
-                                    NormSegmentId firstPending = block->FirstPending();
+                                    NormSegmentId firstPending = 0;
+                                    if (!block->GetFirstPending(firstPending)) ASSERT(0);
                                     if (nextSegmentId > firstPending)
                                         object->TxUpdateBlock(block, nextSegmentId, lastSegmentId, numErasures);
                                     else if (lastSegmentId > firstPending)
@@ -2223,8 +2225,12 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
     }  
     
     // 2) Update grtt_estimate _if_ sufficient time elapsed.
+    // This new code allows more liberal downward adjustment of
+    // of grtt when congestion control is enabled. 
     grtt_age += probe_timer.GetInterval();
-    if (grtt_age >= grtt_interval)
+    double ageMax = 3 * grtt_advertised;
+    ageMax = ageMax > grtt_interval_min ? ageMax : grtt_interval_min;
+    if (grtt_age >= ageMax)//grtt_interval)
     {
         if (grtt_response)
         {
@@ -2266,7 +2272,7 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
     if (grtt_interval < grtt_interval_min)
         grtt_interval = grtt_interval_min;
     else
-        grtt_interval *= 2.0;
+        grtt_interval *= 1.5;
     if (grtt_interval > grtt_interval_max)
         grtt_interval = grtt_interval_max;    
     
@@ -2417,13 +2423,19 @@ bool NormSession::OnReportTimeout(ProtoTimer& /*theTimer*/)
     struct tm* ct = gmtime((time_t*)&currentTime.tv_sec);
     DMSG(2, "Report time>%02d:%02d:%02d.%06lu node>%lu ***************************************\n", 
             ct->tm_hour, ct->tm_min, ct->tm_sec, currentTime.tv_usec, LocalNodeId());
+    if (IsServer())
+    {
+        DMSG(2, "Local server:\n");
+        DMSG(2, "   tx_rate>%9.3lf kbps grtt>%lf\n", 
+                 ((double)tx_rate)*8.0/1000.0, grtt_advertised);
+    }
     if (IsClient())
     {
         NormNodeTreeIterator iterator(server_tree);
         NormServerNode* next;
         while ((next = (NormServerNode*)iterator.GetNextNode()))
         {
-            DMSG(2, "Remote server:%lu\n", next->GetId());
+            DMSG(2, "Remote server>%lu\n", next->GetId());
             double rxRate = 8.0e-03*((double)next->RecvTotal()) / report_timer.GetInterval();  // kbps
             double rxGoodput = 8.0e-03*((double)next->RecvGoodput()) / report_timer.GetInterval();  // kbps
             next->ResetRecvStats();

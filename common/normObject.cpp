@@ -102,7 +102,7 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     }
     
     // Init pending_mask (everything pending)
-    if (!pending_mask.Init(numBlocks.LSB()))
+    if (!pending_mask.Init(numBlocks.LSB(), 0xffffffff))
     {
         DMSG(0, "NormObject::Open() init pending_mask error\n");  
         Close();
@@ -112,7 +112,7 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     pending_mask.SetBits(0, numBlocks.LSB());
     
     // Init repair_mask
-    if (!repair_mask.Init(numBlocks.LSB()))
+    if (!repair_mask.Init(numBlocks.LSB(), 0xffffffff))
     {
         DMSG(0, "NormObject::Open() init pending_mask error\n");  
         Close();
@@ -152,8 +152,8 @@ bool NormObject::Open(const NormObjectSize& objectSize,
             ASSERT(0 == smallBlockCount.MSB());
             small_block_count = smallBlockCount.LSB();
         }
-        
-        final_block_id = large_block_count + small_block_count - 1;  // not used for STREAM objects
+        // not used for STREAM objects
+        final_block_id = large_block_count + small_block_count - 1;  
         NormObjectSize finalSegmentSize = 
             objectSize - (numSegments - NormObjectSize((UINT32)1))*segmentSize;
         ASSERT(0 == finalSegmentSize.MSB());
@@ -291,26 +291,24 @@ bool NormObject::ActivateRepairs()
         repairsActivated = true;
     }
     // Activate any complete block repairs
-    if (repair_mask.IsSet())
+    NormBlockId nextId;
+    if (GetFirstRepair(nextId))
     {
+        NormBlockId lastId;
+        ASSERT(GetLastRepair(lastId));
+        DMSG(6, "NormObject::ActivateRepairs() node>%lu obj>%hu activating blk>%lu->%lu repairs\n",
+                LocalNodeId(), (UINT16)id, (UINT32)nextId, (UINT32)lastId);
         repairsActivated = true;
-        NormBlockId nextId = repair_mask.FirstSet();
-        NormBlockId lastId = repair_mask.LastSet();
-        DMSG(6, "NormObject::ActivateRepairs() node>%lu obj>%hu activated blk>%lu->%lu repairs\n",
-                LocalNodeId(), (UINT16)id,
-                (UINT32)nextId, (UINT32)lastId);
         UINT16 autoParity = session->ServerAutoParity();
-        while (nextId <= lastId)
+        do
         {
             NormBlock* block = block_buffer.Find(nextId);
             if (block) block->TxReset(GetBlockSize(nextId), nparity, autoParity, segment_size);
             // (TBD) This check can be eventually eliminated if everything else is done right
             if (!pending_mask.Set(nextId)) 
-                DMSG(0, "NormObject::ActivateRepairs() pending_mask.Set(%lu) error!\n",
-                        (UINT32)nextId);
-            nextId++; 
-            nextId =  repair_mask.NextSet(nextId); 
-        } 
+                DMSG(0, "NormObject::ActivateRepairs() pending_mask.Set(%lu) error!\n", (UINT32)nextId);
+            nextId++;
+        } while (GetNextRepair(nextId));
         repair_mask.Clear();  
     }
     // Activate partial block (segment) repairs
@@ -335,8 +333,10 @@ bool NormObject::ActivateRepairs()
 bool NormObject::AppendRepairAdv(NormCmdRepairAdvMsg& cmd)
 {
     // Determine range of blocks possibly pending repair
-    NormBlockId nextId = repair_mask.FirstSet();
-    NormBlockId endId = repair_mask.LastSet();
+    NormBlockId nextId;
+    GetFirstRepair(nextId);
+    NormBlockId endId;
+    GetLastRepair(endId);
     if (block_buffer.IsEmpty())
     {
         if (repair_mask.IsSet()) endId++;
@@ -466,9 +466,9 @@ bool NormObject::IsPending(bool flush) const
     }
     else
     {
-        if (pending_mask.IsSet())
+        NormBlockId firstId;
+        if (GetFirstPending(firstId))
         {
-            NormBlockId firstId = pending_mask.FirstSet();
             if (firstId < max_pending_block)
             {
                 return true;
@@ -484,7 +484,10 @@ bool NormObject::IsPending(bool flush) const
                     NormBlock* block = block_buffer.Find(max_pending_block);
                     if (block)
                     {
-                        if (block->FirstPending() < max_pending_segment)
+                        ASSERT(block->IsPending());
+                        NormSegmentId firstPending = 0;
+                        block->GetFirstPending(firstPending);
+                        if (firstPending < max_pending_segment)
                             return true;
                         else
                             return false;
@@ -552,6 +555,7 @@ bool NormObject::ClientRepairCheck(CheckLevel    level,
             else if (blockId > max_pending_block)
                 max_pending_block = blockId;
             max_pending_segment = GetBlockSize(max_pending_block);
+            break;
         default:
             break;
     }  // end switch (level)
@@ -605,37 +609,43 @@ bool NormObject::ClientRepairCheck(CheckLevel    level,
     if ((level > THRU_INFO) && pending_mask.IsSet())
     {
         if (repair_mask.IsSet()) repair_mask.Clear();
-        NormBlockId nextId = pending_mask.FirstSet();
-        NormBlockId lastId = pending_mask.LastSet();
-        if ((level < THRU_OBJECT) && (blockId < lastId))
-            lastId = blockId;
-        if (level > TO_BLOCK) lastId++;
-        while (nextId < lastId)  
-        { 
-            NormBlock* block = block_buffer.Find(nextId);
-            if (block)
+        NormBlockId nextId;
+        if (GetFirstPending(nextId))
+        {
+            NormBlockId lastId;
+            GetLastPending(lastId);
+            if ((level < THRU_OBJECT) && (blockId < lastId)) lastId = blockId;
+            if (level > TO_BLOCK) lastId++;
+            while (nextId < lastId)
             {
-                if ((nextId == blockId) && (THRU_SEGMENT == level))
+                if (nextId > lastId) break;
+                NormBlock* block = block_buffer.Find(nextId);
+                if (block)
                 {
-                    if (block->FirstPending() <= segmentId)
+                    if ((nextId == blockId) && (THRU_SEGMENT == level))
+                    {
+                        NormSymbolId firstPending = 0;
+                        if (!block->GetFirstPending(firstPending)) ASSERT(0);
+                        if (firstPending <= segmentId)
+                        {
+                            block->ClearRepairs();
+                            needRepair = true;
+                        }
+                    }
+                    else
                     {
                         block->ClearRepairs();
                         needRepair = true;
                     }
-                }
+                }  
                 else
                 {
-                    block->ClearRepairs();
                     needRepair = true;
                 }
-            }  
-            else
-            {
-                needRepair = true;
-            } 
-            nextId++;
-            nextId = pending_mask.NextSet(nextId);
-        }
+                nextId++;
+                if (!GetNextPending(nextId)) break;
+            }  // end while (nextId < lastId) 
+        } 
     }
     switch (level)
     {
@@ -674,19 +684,18 @@ bool NormObject::IsRepairPending(bool flush)
     if (pending_info && !repair_info) return true;
     // Calculate repair_mask = pending_mask - repair_mask 
     repair_mask.XCopy(pending_mask);
-    if (repair_mask.IsSet())
+    NormBlockId nextId;
+    if (GetFirstRepair(nextId))
     {
-        NormBlockId nextId = repair_mask.FirstSet();
-        NormBlockId lastId = repair_mask.LastSet();
-        if (!flush && (current_block_id < lastId)) lastId = current_block_id;
-        while (nextId <= lastId)
+        do
         {
+            if (!flush && (nextId > current_block_id)) break;
             NormBlock* block = block_buffer.Find(nextId);
             if (block)
             {
                 bool isPending;
                 UINT16 numData = GetBlockSize(nextId);
-                if (flush || (nextId < lastId))
+                if (flush || (nextId < current_block_id))
                 {
                     isPending = block->IsRepairPending(numData, nparity);
                 }
@@ -704,8 +713,7 @@ bool NormObject::IsRepairPending(bool flush)
                 return true;  // We need the whole thing
             }
             nextId++;
-            nextId = repair_mask.NextSet(nextId);
-        }
+        } while (GetNextRepair(nextId));
     }
     return false;
 }  // end NormObject::IsRepairPending()
@@ -716,48 +724,34 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
     // If !flush, we request only up _to_ max_pending_block::max_pending_segment.
     NormRepairRequest req;
     NormRepairRequest::Form prevForm = NormRepairRequest::INVALID;
-    NormBlockId prevId;
-    UINT16 reqCount = 0;
-    if (pending_mask.IsSet())
+    NormBlockId nextId;
+    bool iterating = GetFirstPending(nextId);
+    if (iterating)
     {
-       NormBlockId nextId = pending_mask.FirstSet();
-       NormBlockId lastId = pending_mask.LastSet();
-       if (!flush && (max_pending_block < lastId)) lastId = max_pending_block;
-       lastId++;
-       DMSG(6, "NormObject::AppendRepairRequest() node>%lu obj>%hu, blk>%lu->%lu (maxPending:%lu)\n",
-               LocalNodeId(), (UINT16)id,
-               (UINT32)nextId, (UINT32)lastId, (UINT32)max_pending_block);
-       
-       // (TBD) simplify this loop code
-       while ((nextId <= lastId) || (reqCount > 0))
-       {
-            NormBlock* block = NULL;
-            bool blockPending = false;
-            if (nextId == lastId)
-               nextId++;  // force break of possible ending consec. series
-            else
-                block = block_buffer.Find(nextId);
+        iterating = iterating && (flush || (nextId <= max_pending_block));
+        NormBlockId prevId = nextId;
+        UINT32 consecutiveCount = 0;
+        while (iterating || (0 != consecutiveCount))
+        {
+            NormBlockId lastId;
+            ASSERT(GetLastPending(lastId));
+            DMSG(6, "NormObject::AppendRepairRequest() node>%lu obj>%hu, blk>%lu->%lu (maxPending:%lu)\n",
+                   LocalNodeId(), (UINT16)id,
+                   (UINT32)nextId, (UINT32)lastId, (UINT32)max_pending_block);
+            bool appendRequest = false;
+            NormBlock* block = iterating ? block_buffer.Find(nextId) : NULL;
             if (block)
+                appendRequest = true;
+            else if (iterating && ((UINT32)(nextId - prevId) == consecutiveCount))
             {
-                if (nextId == max_pending_block)
-                {
-                    if (block->FirstPending() < max_pending_segment)
-                        blockPending = true;
-                }
-                else
-                {
-                    blockPending = true;
-                }
-            }  // end if (block)
-            
-            if (!blockPending && reqCount && (reqCount == (nextId - prevId)))
-            {
-                reqCount++;  // consecutive series of missing blocks continues
+                consecutiveCount++;
             }
             else
+                appendRequest = true;
+            if (appendRequest)
             {
                 NormRepairRequest::Form nextForm;
-                switch(reqCount)
+                switch(consecutiveCount)
                 {
                     case 0:
                         nextForm = NormRepairRequest::INVALID;
@@ -789,64 +783,89 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
                 switch (nextForm)
                 {
                     case NormRepairRequest::ITEMS:
-                        req.AppendRepairItem(id, prevId, ndata, 0);  // (TBD) error check
-                        if (2 == reqCount)
-                            req.AppendRepairItem(id, prevId+1, ndata, 0); // (TBD) error check
+                        req.AppendRepairItem(id, prevId, GetBlockSize(prevId), 0);  // (TBD) error check
+                        if (2 == consecutiveCount)
+                        {
+                            prevId++;
+                            req.AppendRepairItem(id, prevId, GetBlockSize(prevId), 0); // (TBD) error check
+                        }
                         break;
                     case NormRepairRequest::RANGES:
-                        req.AppendRepairItem(id, prevId, ndata, 0); // (TBD) error check
-                        req.AppendRepairItem(id, prevId+reqCount-1, ndata, 0); // (TBD) error check
+                    {
+                        NormBlockId lastId = prevId+consecutiveCount-1;
+                        req.AppendRepairRange(id, prevId, GetBlockSize(prevId), 0, 
+                                              id, lastId, GetBlockSize(lastId), 0); // (TBD) error check
                         break;
+                    }
                     default:
                         break;
                 }  // end switch(nextForm)
-                prevId = nextId;
-                if (block || (nextId >= lastId))
-                    reqCount = 0;
-                else
-                    reqCount = 1;
-            }  // end if/else (!blockPending && reqCount && (reqCount == (nextId - prevId)))
-            if (blockPending)
-            {
-                UINT16 numData = GetBlockSize(nextId);
-                if (NormRepairRequest::INVALID != prevForm)
-                    nack.PackRepairRequest(req);  // (TBD) error check
-                reqCount = 0;
-                prevForm = NormRepairRequest::INVALID; 
-                if (flush || (nextId != max_pending_block))
+                if (block)
                 {
-                    block->AppendRepairRequest(nack, numData, nparity, id, 
-                                               pending_info, segment_size); // (TBD) error check
-                }
-                else
-                {
-                    if (max_pending_segment < numData)
-                        block->AppendRepairRequest(nack, max_pending_segment, 0, id,
-                                                    pending_info, segment_size); // (TBD) error check
+                    bool blockPending = false;
+                    if (nextId == max_pending_block)
+                    {
+                        NormSymbolId firstPending = 0;
+                        if (!block->GetFirstPending(firstPending)) ASSERT(0);
+                        if (firstPending < max_pending_segment) blockPending = true;
+                    }
                     else
-                        block->AppendRepairRequest(nack, numData, nparity, id, 
-                                                   pending_info, segment_size); // (TBD) error check
+                    {
+                        blockPending = true;   
+                    }
+                    if (blockPending)
+                    {
+                        UINT16 numData = GetBlockSize(nextId);
+                        if (NormRepairRequest::INVALID != prevForm)
+                            nack.PackRepairRequest(req);  // (TBD) error check
+                        if (flush || (nextId != max_pending_block))
+                        {
+                            block->AppendRepairRequest(nack, numData, nparity, id, 
+                                                       pending_info, segment_size); // (TBD) error check
+                        }
+                        else
+                        {
+                            if (max_pending_segment < numData)
+                                block->AppendRepairRequest(nack, max_pending_segment, 0, id,
+                                                            pending_info, segment_size); // (TBD) error check
+                            else
+                                block->AppendRepairRequest(nack, numData, nparity, id, 
+                                                           pending_info, segment_size); // (TBD) error check
+                        }
+                    }
+                    consecutiveCount = 0;
+                    prevForm = NormRepairRequest::INVALID;
                 }
-            }
+                else if (iterating)
+                {
+                    consecutiveCount = 1;
+                }
+                else
+                {
+                    consecutiveCount = 0;  // we're all done
+                }
+                prevId = nextId;
+            }  // end if (appendRequest)
             nextId++;
-            if (nextId <= lastId)
-                nextId = pending_mask.NextSet(nextId);
-        }  // end while (nextId <= lastId)
-        if (NormRepairRequest::INVALID != prevForm)
-            nack.PackRepairRequest(req);  // (TBD) error check
-    }  
+            iterating = GetNextPending(nextId);
+            //TRACE("got next pending>%lu result:%d\n", (UINT32)nextId, iterating);
+            iterating = iterating && (flush || (nextId <= max_pending_block));
+        }  // end while (iterating || (0 != consecutiveCount))
+        //TRACE("bailed ...\n");
+    } 
     else
     {
         // INFO_ONLY repair request
         ASSERT(pending_info);
         nack.AttachRepairRequest(req, segment_size);
+        prevForm = NormRepairRequest::ITEMS;
         req.SetForm(NormRepairRequest::ITEMS);
         req.ResetFlags();
         req.SetFlag(NormRepairRequest::INFO); 
-        req.AppendRepairItem(id, 0, ndata, 0);  // (TBD) error check
-        nack.PackRepairRequest(req);  // (TBD) error check
-    }  // end if/else pending_mask.IsSet()
-    
+        req.AppendRepairItem(id, 0, 0, 0);  // (TBD) error check
+    }   // end if/else (iterating)     
+    if (NormRepairRequest::INVALID != prevForm)
+        nack.PackRepairRequest(req);  // (TBD) error check     
     return true;
 }  // end NormObject::AppendRepairRequest()
 
@@ -900,9 +919,9 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 while (!stream->StreamUpdateStatus(blockId))
                 {
                     // Server is too far ahead of me ...
-                    if (pending_mask.IsSet())
+                    NormBlockId firstId;
+                    if (GetFirstPending(firstId))
                     {
-                        NormBlockId firstId = pending_mask.FirstSet();
                         NormBlock* block = block_buffer.Find(firstId);
                         if (block)
                         {
@@ -959,10 +978,11 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
 #ifdef SIMULATE
                 // For simulations, we may need to cap the payloadLength
                 payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
+                payloadLength = MIN(payloadLength, SIM_PAYLOAD_MAX);
 #endif // SIMULATE
+                memcpy(segment, data.GetPayload(), payloadLength);
                 if (payloadLength < payloadMax)
                     memset(segment+payloadLength, 0, payloadMax-payloadLength);
-                memcpy(segment, data.GetPayload(), payloadLength);
                 if (data.FlagIsSet(NormObjectMsg::FLAG_MSG_START))
                     segment[payloadMax] = NormObjectMsg::FLAG_MSG_START;
                 else
@@ -987,33 +1007,35 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                     // and write any decoded data segments to object
                     DMSG(8, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu blk>%lu "
                             "completed block ...\n", LocalNodeId(), server->GetId(), 
-                            (UINT16)id, (UINT32)block->Id()); 
-                    UINT16 nextErasure = block->FirstPending();
-                    UINT16 erasureCount = 0;
-                    if (nextErasure < numData)
+                            (UINT16)id, (UINT32)block->Id());
+                    UINT16 erasureCount = 0; 
+                    UINT16 nextErasure = 0;
+                    if (block->GetFirstPending(nextErasure))
                     {
-                        UINT16 blockLen = numData + nparity;
-                        while (nextErasure < blockLen)
+                        if (nextErasure < numData)
                         {
-                            server->SetErasureLoc(erasureCount++, nextErasure);
-                            if (nextErasure < numData)
+                            do
                             {
-                                if (!(segment = server->GetFreeSegment(id, blockId)))
+                                server->SetErasureLoc(erasureCount++, nextErasure);
+                                if (nextErasure < numData)
                                 {
-                                    DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
-                                            "Warning! no free segments ...\n", LocalNodeId(), server->GetId(), 
-                                            (UINT16)id);  
-                                    // (TBD) Dump the block ...???
-                                    return;
-                                }
-                                UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
+                                    if (!(segment = server->GetFreeSegment(id, blockId)))
+                                    {
+                                        DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
+                                                "Warning! no free segments ...\n", LocalNodeId(), server->GetId(), 
+                                                (UINT16)id);  
+                                        // (TBD) Dump the block ...???
+                                        return;
+                                    }
+                                    UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
 #ifdef SIMULATE                               
-                                payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
+                                    payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
 #endif // SIMULATE
-                                memset(segment, 0, payloadMax+1);
-                                block->SetSegment(nextErasure, segment);
-                            }
-                            nextErasure = block->NextPending(nextErasure+1);   
+                                    memset(segment, 0, payloadMax+1);
+                                    block->SetSegment(nextErasure, segment);
+                                }
+                                nextErasure++;   
+                            } while (block->GetNextPending(nextErasure));
                         }
                     }
                     if (erasureCount)
@@ -1188,11 +1210,10 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
         pending_info = false;
         return true;
     }
-    if (!pending_mask.IsSet()) return false;
+    NormBlockId blockId;
+    if (!GetFirstPending(blockId)) return false;
     
     NormDataMsg* data = (NormDataMsg*)msg;
-    
-    NormBlockId blockId = pending_mask.FirstSet();
     UINT16 numData = GetBlockSize(blockId);
     NormBlock* block = block_buffer.Find(blockId);
     if (!block)
@@ -1239,8 +1260,8 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
            ASSERT(success);
        }
     }
-    ASSERT(block->IsPending());
-    NormSegmentId segmentId = block->FirstPending();
+    NormSegmentId segmentId = 0;
+    if (!block->GetFirstPending(segmentId)) ASSERT(0);
     
     // Try to read segment 
     if (segmentId < numData)
@@ -1264,7 +1285,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
 #ifdef SIMULATE
             payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);            
 #endif // SIMULATE   
-            if (buffer[payloadMax]) data->SetFlag(NormObjectMsg::FLAG_MSG_START);         
+            if (buffer[payloadMax]) data->SetFlag(NormObjectMsg::FLAG_MSG_START);
         }
         
         // Perform incremental FEC encoding as needed
@@ -1596,7 +1617,6 @@ UINT16 NormFileObject::ReadSegment(NormBlockId      blockId,
         len = segment_size;
     }
     
-    
     // Determine segment offset from blockId::segmentId
     NormObjectSize segmentOffset;
     NormObjectSize segmentSize = NormObjectSize(segment_size);
@@ -1800,7 +1820,7 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
                         // Handle potential sync block id wrap
                         NormBlockId delta = stream_next_id - stream_sync_id;
                         if (delta > NormBlockId(2*pending_mask.Size()))
-                            stream_sync_id = NormBlockId(pending_mask.FirstSet());
+                            GetFirstPending(stream_sync_id);
                         return true;
                     }
                     else
@@ -1870,16 +1890,16 @@ UINT16 NormStreamObject::ReadSegment(NormBlockId      blockId,
     ASSERT(segment != NULL);    
     UINT16 segmentLength = NormDataMsg::ReadStreamPayloadLength(segment);
     ASSERT(segmentLength <= segment_size);
-#ifdef SIMULATE
-    UINT16 simLen = segmentLength + NormDataMsg::GetStreamPayloadHeaderLength();
-    simLen = MIN(simLen, SIM_PAYLOAD_MAX);
-    buffer[simLen] = segment[simLen];        
-#else    
-    buffer[segment_size+NormDataMsg::GetStreamPayloadHeaderLength()] =
-        segment[segment_size+NormDataMsg::GetStreamPayloadHeaderLength()];
-#endif // if/else SIMULATE
+    UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
     UINT16 payloadLength = segmentLength+NormDataMsg::GetStreamPayloadHeaderLength();
+#ifdef SIMULATE    
+    payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
+    UINT16 copyMax = MIN(payloadMax, payloadLength);
+    memcpy(buffer, segment, copyMax); 
+#else
     memcpy(buffer, segment, payloadLength);
+#endif // SIMULATE
+    buffer[payloadMax] = segment[payloadMax];      
     return payloadLength;
 }  // end NormStreamObject::ReadSegment()
 
@@ -1920,7 +1940,7 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
             {             
                 // Notify app for stream data salvage  
                 read_index.block = block->Id();
-                read_index.segment = block->FirstPending();
+                block->GetFirstPending(read_index.segment);
                 NormBlock* tempBlock = block;
                 UINT32 tempOffset = read_offset;
                 session->Notify(NormController::RX_OBJECT_UPDATE, server, this);
@@ -1974,14 +1994,14 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
     {
         char* s = segment_pool.Get();
         ASSERT(s != NULL);  // for now, this should always succeed
-        UINT16 segmentLength = NormDataMsg::ReadStreamPayloadLength(segment);
-        UINT16 flagsOffset = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
+        UINT16 payloadLength = NormDataMsg::ReadStreamPayloadLength(segment);
+        UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
 #ifdef SIMULATE
-        flagsOffset = MIN(SIM_PAYLOAD_MAX, flagsOffset);
-        segmentLength = MIN((SIM_PAYLOAD_MAX-NormDataMsg::GetStreamPayloadHeaderLength()), segmentLength);  
+        payloadMax = MIN(SIM_PAYLOAD_MAX, payloadMax);
+        payloadLength = MIN(payloadMax, payloadLength);  
 #endif // SIMULATE
-        s[flagsOffset] = segment[flagsOffset];
-        memcpy(s, segment, segmentLength + NormDataMsg::GetStreamPayloadHeaderLength());
+        memcpy(s, segment, payloadLength);
+        s[payloadMax] = segment[payloadMax];
         block->AttachSegment(segmentId, s);
         block->SetPending(segmentId);
         ASSERT(block->Segment(segmentId) == s);
@@ -2007,9 +2027,9 @@ void NormStreamObject::Prune(NormBlockId blockId)
             break;
         }
     }
-    if (pending_mask.IsSet())
+    NormBlockId firstId;
+    if (GetFirstPending(firstId))
     {
-        NormBlockId firstId = pending_mask.FirstSet();
         if (firstId < blockId)
         {
             resync = true;
@@ -2079,11 +2099,11 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
             }
             else
             {
-                UINT16 flagsOffset = segment_size+NormDataMsg::GetStreamPayloadHeaderLength();
+                UINT16 payloadMax = segment_size+NormDataMsg::GetStreamPayloadHeaderLength();
 #ifdef SIMULATE
-                flagsOffset = MIN(flagsOffset, SIM_PAYLOAD_MAX);
+                payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
 #endif // if/else SIMULATE               
-                msgStart = (NormObjectMsg::FLAG_MSG_START == segment[flagsOffset]);
+                msgStart = (NormObjectMsg::FLAG_MSG_START == segment[payloadMax]);
             }
             if (!msgStart)
             {
@@ -2103,9 +2123,8 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool findMsgStar
         }
         
 #ifdef SIMULATE
-        UINT16 simCount = ((index+count) < SIM_PAYLOAD_MAX) ? 
-                            count : ((index < SIM_PAYLOAD_MAX) ?
-                                        (SIM_PAYLOAD_MAX - index) : 0);
+        UINT16 simCount = index + count + NormDataMsg::GetStreamPayloadHeaderLength();
+        simCount = (simCount < SIM_PAYLOAD_MAX) ? (SIM_PAYLOAD_MAX - simCount) : 0;
         memcpy(buffer+bytesRead, segment+index+NormDataMsg::GetStreamPayloadHeaderLength(), simCount);
 #else
         memcpy(buffer+bytesRead, segment+index+NormDataMsg::GetStreamPayloadHeaderLength(), count);
@@ -2187,7 +2206,7 @@ unsigned long NormStreamObject::Write(const char* buffer, unsigned long len,
                     if (c)
                     {
                         block_buffer.Remove(c);
-                        session->ServerPutFreeBlock(c); 
+                        session->ServerPutFreeBlock(c);
                     }  
                 }
                 else if (b->IsPending())
@@ -2217,11 +2236,11 @@ unsigned long NormStreamObject::Write(const char* buffer, unsigned long len,
                 msgStartValue = NormObjectMsg::FLAG_MSG_START; 
                 msg_start = false;
             }
-            UINT16 flagsOffset = segment_size+NormDataMsg::GetStreamPayloadHeaderLength();
+            UINT16 payloadMax = segment_size+NormDataMsg::GetStreamPayloadHeaderLength();
 #ifdef SIMULATE
-            flagsOffset = MIN(SIM_PAYLOAD_MAX, flagsOffset);
-#endif // SIMULATE  
-            segment[flagsOffset] = msgStartValue;
+            payloadMax = MIN(SIM_PAYLOAD_MAX, payloadMax);
+#endif // SIMULATE 
+            segment[payloadMax] = msgStartValue;
         }
         else
         {
@@ -2232,11 +2251,13 @@ unsigned long NormStreamObject::Write(const char* buffer, unsigned long len,
         UINT16 space = segment_size - index;
         count = MIN(count, space);
 #ifdef SIMULATE
-        UINT16 simCount = ((index+count) < SIM_PAYLOAD_MAX) ? 
-                            count : ((index < SIM_PAYLOAD_MAX) ?
-                                        (SIM_PAYLOAD_MAX - index) : 0);
+        UINT16 simCount = index + NormDataMsg::GetStreamPayloadHeaderLength();
+        simCount = (simCount < SIM_PAYLOAD_MAX) ? (SIM_PAYLOAD_MAX - simCount) : 0;
+        simCount = MIN(count, simCount);
         memcpy(segment+index+NormDataMsg::GetStreamPayloadHeaderLength(), buffer+nBytes, simCount);
 #else
+        TRACE("stream write copying %d bytes:index>%d nBytes>%d segment_size>%d space>%d\n", 
+                count, index, nBytes, segment_size, space);
         memcpy(segment+index+NormDataMsg::GetStreamPayloadHeaderLength(), buffer+nBytes, count);
 #endif // if/else SIMULATE
         NormDataMsg::WriteStreamPayloadLength(segment, index+count);
@@ -2275,7 +2296,7 @@ unsigned long NormStreamObject::Write(const char* buffer, unsigned long len,
 #ifdef SIMULATE
 /////////////////////////////////////////////////////////////////
 //
-// NormSimObject Implementation
+// NormSimObject Implementation (dummy NORM_OBJECT_FILE or NORM_OBJECT_DATA)
 //
 
 NormSimObject::NormSimObject(class NormSession*       theSession,

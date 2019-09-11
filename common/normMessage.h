@@ -106,15 +106,24 @@ class NormObjectSize
         
         UINT16 MSB() const {return msb;}
         UINT32 LSB() const {return lsb;}
-        
-        bool operator<(const NormObjectSize& size) const;
-        bool operator<=(const NormObjectSize& size) const
-            {return ((*this == size) || (*this<size));}
-        bool operator>(const NormObjectSize& size) const;
-        bool operator>=(const NormObjectSize& size) const
-            {return ((*this == size) || (*this>size));}
         bool operator==(const NormObjectSize& size) const
             {return ((msb == size.msb) && (lsb == size.lsb));}
+        bool operator>(const NormObjectSize& size) const
+        {
+            return ((msb == size.msb) ? 
+                        (lsb > size.lsb) : 
+                        (msb > size.msb));
+        }
+        bool operator<(const NormObjectSize& size) const
+        {
+            return ((msb == size.msb) ? 
+                        (lsb < size.lsb) : 
+                        (msb < size.msb));     
+        }
+        bool operator<=(const NormObjectSize& size) const
+            {return ((*this == size) || (*this<size));}
+        bool operator>=(const NormObjectSize& size) const
+            {return ((*this == size) || (*this>size));}
         bool operator!=(const NormObjectSize& size) const
             {return ((lsb != size.lsb) || (msb != size.msb));}
         NormObjectSize operator+(const NormObjectSize& size) const;
@@ -158,17 +167,26 @@ class NormObjectId
         NormObjectId(UINT16 id) {value = id;}
         NormObjectId(const NormObjectId& id) {value = id.value;}
         operator UINT16() const {return value;}
-        bool operator<(const NormObjectId& id) const;
+        int operator-(const NormObjectId& id) const
+        {
+            int result = value - id.value;
+            return ((0 == (result & 0x00008000)) ? 
+                        (result & 0x0000ffff) :
+                        (((result != 0x00008000) || (value < id.value)) ? 
+                            result | 0xffff0000 : result));
+        }
+        bool operator<(const NormObjectId& id) const
+            {return ((*this - id) < 0);}
+        bool operator>(const NormObjectId& id) const
+            {return ((*this - id) > 0);}
         bool operator<=(const NormObjectId& id) const
             {return ((value == id.value) || (*this<id));}
-        bool operator>(const NormObjectId& id) const;
         bool operator>=(const NormObjectId& id) const
             {return ((value == id.value) || (*this>id));}
         bool operator==(const NormObjectId& id) const
             {return (value == id.value);}
         bool operator!=(const NormObjectId& id) const
             {return (value != id.value);}
-        int operator-(const NormObjectId& id) const;
         NormObjectId& operator++(int ) {value++; return *this;}
         
     private:
@@ -182,13 +200,16 @@ class NormBlockId
         NormBlockId(UINT32 id) {value = id;}
         NormBlockId(const NormObjectId& id) {value = (UINT32)id;}
         operator UINT32() const {return value;}
-        bool operator<(const NormBlockId& id) const;
-        bool operator>(const NormBlockId& id) const;
         bool operator==(const NormBlockId& id) const
             {return (value == (UINT32)id);}
         bool operator!=(const NormBlockId& id) const
             {return (value != (UINT32)id);}
-        long operator-(const NormBlockId& id) const;
+        long operator-(const NormBlockId& id) const
+            {return ((long)value - id.value);}
+        bool operator<(const NormBlockId& id) const
+            {return ((*this - id) < 0);}
+        bool operator>(const NormBlockId& id) const
+            {return ((*this - id) > 0);}
         NormBlockId& operator++(int ) {value++; return *this;}
         
     private:

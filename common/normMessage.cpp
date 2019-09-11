@@ -425,30 +425,6 @@ unsigned char NormQuantizeRtt(double rtt)
         return ((unsigned char)(ceil(255.0 - (13.0*log(NORM_RTT_MAX/rtt)))));
 }  // end NormQuantizeRtt()
 
-bool NormObjectSize::operator<(const NormObjectSize& size) const
-{
-    UINT16 diff = msb - size.msb;
-    if (0 == diff)
-        return (lsb < size.lsb);
-    else if ((diff > 0x8000) ||
-        ((0x8000 == diff) && (msb > size.msb)))
-        return true;
-    else
-        return false;
-}  // end NormObjectSize::operator<(NormObjectSize size)
-
-bool NormObjectSize::operator>(const NormObjectSize& size) const
-{
-    UINT16 diff = size.msb - msb;
-    if (0 == diff)
-        return (lsb > size.lsb);
-    else if ((diff > 0x8000) ||
-        ((0x8000 == diff) && (size.msb > msb)))
-        return true;
-    else
-        return false;
-}  // end NormObjectSize::operator>(NormObjectSize id)
-
 NormObjectSize NormObjectSize::operator+(const NormObjectSize& size) const
 {
     NormObjectSize total;
@@ -557,64 +533,3 @@ NormObjectSize NormObjectSize::operator/(const NormObjectSize& b) const
     return result;
 }  // end NormObjectSize::operator/(NormObjectSize b)
 
-
-bool NormObjectId::operator<(const NormObjectId& id) const
-{
-    UINT16 diff = value - id.value;
-    if ((diff > 0x8000) ||
-        ((0x8000 == diff) && (value > id.value)))
-        return true;
-    else
-        return false;
-}  // end NormObjectId::operator<(NormObjectId id)
-
-bool NormObjectId::operator>(const NormObjectId& id) const
-{
-    UINT16 diff = id.value - value;;
-    if ((diff > 0x8000) ||
-        ((0x8000 == diff) && (id.value > value)))
-        return true;
-    else
-        return false;
-}  // end NormObjectId::operator>(NormObjectId id)
-
-int NormObjectId::operator-(const NormObjectId& id) const
-{
-    UINT16 diff = value - id.value;
-    if ((diff > 0x8000) ||
-        ((0x8000 == diff) && (value > id.value)))
-        return ((INT16)(value - id.value));
-    else
-        return (-(INT16)(id.value - value));
-}  // end NormObjectId::operator-(NormObjectId id) const
-
-
-bool NormBlockId::operator<(const NormBlockId& id) const
-{
-    UINT32 diff = value - id.value;
-    if ((diff > 0x80000000) ||
-        ((0x80000000 == diff) && (value > id.value)))
-        return true;
-    else
-        return false;
-}  // end NormBlockId::operator<(NormBlockId id)
-
-bool NormBlockId::operator>(const NormBlockId& id) const
-{
-    UINT32 diff = id.value - value;;
-    if ((diff > 0x80000000) ||
-        ((0x80000000 == diff) && (id.value > value)))
-        return true;
-    else
-        return false;
-}  // end NormBlockId::operator>(NormBlockId id)
-
-long NormBlockId::operator-(const NormBlockId& id) const
-{
-    UINT32 diff = value - id.value;
-    if ((diff > 0x80000000) ||
-        ((0x80000000 == diff) && (value > id.value)))
-        return ((INT32)(value - id.value));
-    else
-        return (-(INT32)(id.value - value));
-}  // end NormBlockId::operator-(NormBlockId id) const
