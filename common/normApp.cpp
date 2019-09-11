@@ -928,7 +928,7 @@ void NormApp::Notify(NormController::Event event,
                     if (silent_client)
                         size = NormObjectSize((UINT32)rx_buffer_size);
                     else
-                        size = object->Size();
+                        size = object->GetSize();
                     
                     if (((NormStreamObject*)object)->Accept(size.LSB()))
                     {
@@ -993,7 +993,7 @@ void NormApp::Notify(NormController::Event event,
                     strncpy(fileName, rx_cache_path, PATH_MAX);
                     UINT16 pathLen = strlen(rx_cache_path);
                     pathLen = MIN(pathLen, PATH_MAX);
-                    UINT16 len = object->InfoLength();
+                    UINT16 len = object->GetInfoLength();
                     len = MIN(len, (PATH_MAX - pathLen));
                     strncat(fileName, object->GetInfo(), len);
                     // Convert '/' in file info to directory delimiters

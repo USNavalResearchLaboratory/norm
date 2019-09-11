@@ -162,6 +162,14 @@ class NormSession
             return result;   
         }
         
+        double ServerGrtt() {return grtt_advertised;}
+        void ServerSetGrtt(double grttValue)
+        {
+            double grttMin = 2.0 * ((double)(44+segment_size))/tx_rate;
+            grttValue = (grttValue < grttMin) ? grttMin : grttValue;
+            grtt_quantized = NormQuantizeRtt(grttValue);
+            grtt_measured = grtt_advertised = NormUnquantizeRtt(grtt_quantized);      
+        }
         double ServerGroupSize() {return gsize_measured;}
         void ServerSetGroupSize(double gsize)
         {
@@ -267,11 +275,9 @@ class NormSession
         
         // Client message handling routines
         void ClientHandleObjectMessage(const struct timeval& currentTime, 
-                                       const NormObjectMsg&  msg, 
-                                       NormServerNode*       theServer);
+                                       const NormObjectMsg&  msg);
         void ClientHandleCommand(const struct timeval& currentTime,
-                                 const NormCmdMsg&     msg, 
-                                 NormServerNode*       theServer);
+                                 const NormCmdMsg&     msg);
         void ClientHandleNackMessage(const NormNackMsg& nack);
         void ClientHandleAckMessage(const NormAckMsg& ack);
         

@@ -262,49 +262,51 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
                     {
                         is_clr = is_plr = false;
                     }
-                    if (is_clr || is_plr)
+                    double maxBackoff;
+                    if (is_clr || is_plr || !session->Address().IsMulticast())
                     {
                         // Respond immediately
+                        maxBackoff = 0.0;
                         if (cc_timer.IsActive()) cc_timer.Deactivate();
-                        cc_timer.ResetRepeat();
-                        OnCCTimeout(cc_timer);
                     }
-                    else if (!cc_timer.IsActive())
+                    else
                     {
+                        if (cc_timer.IsActive()) break;
                         double backoffFactor = backoff_factor;
                         backoffFactor = MAX(backoffFactor, 4.0);
-                        double maxBackoff = grtt_estimate*backoffFactor;
-                        // (TBD) don't backoff for unicast sessions
-                        double backoffTime = (maxBackoff > 0.0) ?
-                            ExponentialRand(maxBackoff, gsize_estimate) : 0.0;
-                        // Bias backoff timeout based on our rate 
-                        double r;
-                        if (slow_start)
-                        {
-                            r = recv_rate / send_rate;
-                            cc_rate = 2.0 * recv_rate;
-                        }
-                        else
-                        {
-                            cc_rate = NormSession::CalculateRate(nominal_packet_size,
-                                                                 rtt_estimate,
-                                                                 LossEstimate());
-                            r = cc_rate / send_rate;
-                            r = MIN(r, 0.9);
-                            r = MAX(r, 0.5);
-                            r = (r - 0.5) / 0.4;
-                        }
-                        //TRACE("NormServerNode::HandleCommand(CC) node>%lu bias:%lf recv_rate:%lf send_rate:%lf "
-                        //      "grtt:%lf gsize:%lf\n",
-                        //        LocalNodeId(), r, recv_rate*(8.0/1000.0), send_rate*(8.0/1000.0),
-                        // 
+                        maxBackoff = grtt_estimate*backoffFactor;
 
-                        backoffTime = 0.25 * r * maxBackoff + 0.75 * backoffTime;
-                        cc_timer.SetInterval(backoffTime);
-                        DMSG(4, "NormServerNode::HandleCommand() node>%lu begin CC back-off: %lf sec)...\n",
-                                LocalNodeId(), backoffTime);
-                        session->ActivateTimer(cc_timer);    
                     }
+                    double backoffTime = (maxBackoff > 0.0) ?
+                                            ExponentialRand(maxBackoff, gsize_estimate) : 
+                                            0.0;
+                    // Bias backoff timeout based on our rate 
+                    double r;
+                    if (slow_start)
+                    {
+                        r = recv_rate / send_rate;
+                        cc_rate = 2.0 * recv_rate;
+                    }
+                    else
+                    {
+                        cc_rate = NormSession::CalculateRate(nominal_packet_size,
+                                                             rtt_estimate,
+                                                             LossEstimate());
+                        r = cc_rate / send_rate;
+                        r = MIN(r, 0.9);
+                        r = MAX(r, 0.5);
+                        r = (r - 0.5) / 0.4;
+                    }
+                    //DMSG(0, "NormServerNode::HandleCommand(CC) node>%lu bias:%lf recv_rate:%lf send_rate:%lf "
+                    //      "grtt:%lf gsize:%lf\n",
+                    //        LocalNodeId(), r, recv_rate*(8.0/1000.0), send_rate*(8.0/1000.0),
+                    // 
+
+                    backoffTime = 0.25 * r * maxBackoff + 0.75 * backoffTime;
+                    cc_timer.SetInterval(backoffTime);
+                    DMSG(6, "NormServerNode::HandleCommand() node>%lu begin CC back-off: %lf sec)...\n",
+                            LocalNodeId(), backoffTime);
+                    session->ActivateTimer(cc_timer);
                 }  // end if (CC_RATE == ext.GetType())
             }  // end while (GetNextExtension())
             break;
@@ -598,7 +600,7 @@ void NormServerNode::DeleteObject(NormObject* obj)
     // (TBD) Notify app of object's closing/demise?
     obj->Close();
     rx_table.Remove(obj);
-    rx_pending_mask.Unset(obj->Id());
+    rx_pending_mask.Unset(obj->GetId());
     delete obj;
 }  // end NormServerNode::DeleteObject()
 
@@ -615,13 +617,13 @@ NormBlock* NormServerNode::GetFreeBlock(NormObjectId objectId, NormBlockId block
             NormObject* obj;
             while ((obj = iterator.GetNextObject()))
             {
-                if (obj->Id() > objectId)
+                if (obj->GetId() > objectId)
                 {
                     break;   
                 }
                 else
                 {
-                    if (obj->Id() < objectId)
+                    if (obj->GetId() < objectId)
                         b = obj->StealOldestBlock(false);
                     else
                         b = obj->StealOldestBlock(true, blockId); 
@@ -640,13 +642,13 @@ NormBlock* NormServerNode::GetFreeBlock(NormObjectId objectId, NormBlockId block
             NormObject* obj;
             while ((obj = iterator.GetPrevObject()))
             {
-                if (obj->Id() < objectId) 
+                if (obj->GetId() < objectId) 
                 {
                     break;
                 }
                 else
                 {
-                    if (obj->Id() > objectId)
+                    if (obj->GetId() > objectId)
                         b = obj->StealNewestBlock(false); 
                     else 
                         b = obj->StealNewestBlock(true, blockId); 
@@ -930,7 +932,7 @@ void NormServerNode::Sync(NormObjectId objectId)
             {
                NormObject* obj;
                while ((obj = rx_table.Find(rx_table.RangeLo())) &&
-                      (obj->Id() < objectId)) 
+                      (obj->GetId() < objectId)) 
                {
                    DeleteObject(obj);
                    failure_count++;
@@ -1367,28 +1369,30 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
 
 void NormServerNode::UpdateRecvRate(const struct timeval& currentTime, unsigned short msgSize)
 {
-    double interval;
     if (prev_update_time.tv_sec || prev_update_time.tv_usec)
     {
-        interval = (double)(currentTime.tv_sec - prev_update_time.tv_sec);
+        double interval = (double)(currentTime.tv_sec - prev_update_time.tv_sec);
         if (currentTime.tv_usec > prev_update_time.tv_sec)
             interval += 1.0e-06*(double)(currentTime.tv_usec - prev_update_time.tv_usec);
         else
-            interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);
-    }
-    else
-    {
-        recv_rate = ((double)msgSize) / grtt_estimate;
-        interval = 0.0;
-        prev_update_time = currentTime;
-    }
-    if (interval < grtt_estimate)
-    {
+            interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);      
         recv_accumulator += msgSize;
-    }   
+        
+        double rttEstimate = rtt_confirmed ? rtt_estimate : grtt_estimate;
+        
+        if (interval >= rttEstimate)
+        {
+            recv_rate = ((double)(recv_accumulator)) / interval;
+            prev_update_time = currentTime;
+            recv_accumulator = 0;
+        }
+    }
     else
     {
-        recv_rate = ((double)(recv_accumulator+msgSize)) / interval;
+        if (send_rate > 0.0)
+            recv_rate = send_rate;
+        else
+            recv_rate = ((double)msgSize) / grtt_estimate;
         prev_update_time = currentTime;
         recv_accumulator = 0;
     }
@@ -1497,7 +1501,7 @@ bool NormServerNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
                                                            rtt_estimate, ccLoss);
                 ext.SetCCRate(NormQuantizeRate(ccRate));
             }
-            //TRACE("NormServerNode::OnCCTimeout() node>%lu sending ACK rate:%lf kbps (rtt:%lf loss:%lf s:%lf recvRate:%lf) slow_start:%d\n",
+            //DMSG(0, "NormServerNode::OnCCTimeout() node>%lu sending ACK rate:%lf kbps (rtt:%lf loss:%lf s:%lf recvRate:%lf) slow_start:%d\n",
             //               LocalNodeId(), NormUnquantizeRate(ext.GetCCRate()) * (8.0/1000.0), 
             //               rtt_estimate, ccLoss, nominal_packet_size, recv_rate*(8.0/1000.), slow_start);
             ext.SetCCSequence(cc_sequence);

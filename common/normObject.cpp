@@ -6,9 +6,9 @@
 NormObject::NormObject(NormObject::Type      theType, 
                        class NormSession*    theSession, 
                        class NormServerNode* theServer,
-                       const NormObjectId&   objectId)
+                       const NormObjectId&   transportId)
  : type(theType), session(theSession), server(theServer),
-   id(objectId), segment_size(0), pending_info(false), repair_info(false),
+   transport_id(transportId), segment_size(0), pending_info(false), repair_info(false),
    current_block_id(0), next_segment_id(0), 
    max_pending_block(0), max_pending_segment(0),
    info(NULL), info_len(0), accepted(false)
@@ -34,8 +34,6 @@ NormNodeId NormObject::LocalNodeId() const
 {
     return session->LocalNodeId();    
 }
-
-
 
 bool NormObject::Open(const NormObjectSize& objectSize, 
                       const char*           infoPtr, 
@@ -248,7 +246,7 @@ bool NormObject::TxReset(NormBlockId firstBlock)
     NormBlock* block;
     while ((block = iterator.GetNextBlock()))
     {
-        NormBlockId blockId = block->Id();
+        NormBlockId blockId = block->GetId();
         if (blockId >= firstBlock)
         {
             increasedRepair |= block->TxReset(GetBlockSize(blockId), 
@@ -274,7 +272,7 @@ bool NormObject::TxResetBlocks(NormBlockId nextId, NormBlockId lastId)
         }
         NormBlock* block = block_buffer.Find(nextId);
         if (block) 
-            increasedRepair |= block->TxReset(GetBlockSize(block->Id()), nparity, autoParity, segment_size);
+            increasedRepair |= block->TxReset(GetBlockSize(block->GetId()), nparity, autoParity, segment_size);
         nextId++;
     }
     return increasedRepair;
@@ -297,7 +295,7 @@ bool NormObject::ActivateRepairs()
         NormBlockId lastId;
         ASSERT(GetLastRepair(lastId));
         DMSG(6, "NormObject::ActivateRepairs() node>%lu obj>%hu activating blk>%lu->%lu repairs\n",
-                LocalNodeId(), (UINT16)id, (UINT32)nextId, (UINT32)lastId);
+                LocalNodeId(), (UINT16)transport_id, (UINT32)nextId, (UINT32)lastId);
         repairsActivated = true;
         UINT16 autoParity = session->ServerAutoParity();
         do
@@ -320,10 +318,10 @@ bool NormObject::ActivateRepairs()
         {
             repairsActivated = true;
             DMSG(6, "NormObject::ActivateRepairs() node>%lu obj>%hu activated blk>%lu segment repairs ...\n",
-                LocalNodeId(), (UINT16)id, (UINT32)block->Id());
+                LocalNodeId(), (UINT16)transport_id, (UINT32)block->GetId());
             // (TBD) This check can be eventually eliminated if everything else is done right
-            if (!pending_mask.Set(block->Id()))
-                DMSG(0, "NormObject::ActivateRepairs() pending_mask.Set(%lu) error!\n", (UINT32)block->Id());
+            if (!pending_mask.Set(block->GetId()))
+                DMSG(0, "NormObject::ActivateRepairs() pending_mask.Set(%lu) error!\n", (UINT32)block->GetId());
         }
     }
     return repairsActivated;
@@ -408,13 +406,13 @@ bool NormObject::AppendRepairAdv(NormCmdRepairAdvMsg& cmd)
                     ASSERT(0);  // can't happen
                     break;
                 case NormRepairRequest::ITEMS:
-                    req.AppendRepairItem(id, firstId, ndata, 0);
+                    req.AppendRepairItem(transport_id, firstId, GetBlockSize(firstId), 0);
                     if (2 == blockCount) 
-                        req.AppendRepairItem(id, currentId, ndata, 0);
+                        req.AppendRepairItem(transport_id, currentId, GetBlockSize(currentId), 0);
                     break;
                 case NormRepairRequest::RANGES:
-                    req.AppendRepairRange(id, firstId, ndata, 0,
-                                          id, currentId, ndata, 0);
+                    req.AppendRepairRange(transport_id, firstId, GetBlockSize(firstId), 0,
+                                          transport_id, currentId, GetBlockSize(currentId), 0);
                     break;
                 case NormRepairRequest::ERASURES:
                     // erasure counts not used
@@ -432,7 +430,7 @@ bool NormObject::AppendRepairAdv(NormCmdRepairAdvMsg& cmd)
                     cmd.PackRepairRequest(req); // (TBD) error check 
                     prevForm = NormRepairRequest::INVALID;
                 }
-                block->AppendRepairAdv(cmd, id, repair_info, ndata, segment_size);  // (TBD) error check        
+                block->AppendRepairAdv(cmd, transport_id, repair_info, GetBlockSize(currentId), segment_size);  // (TBD) error check        
             }
         }
     }  // end while(nextId < endId)
@@ -736,7 +734,7 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
             NormBlockId lastId;
             ASSERT(GetLastPending(lastId));
             DMSG(6, "NormObject::AppendRepairRequest() node>%lu obj>%hu, blk>%lu->%lu (maxPending:%lu)\n",
-                   LocalNodeId(), (UINT16)id,
+                   LocalNodeId(), (UINT16)transport_id,
                    (UINT32)nextId, (UINT32)lastId, (UINT32)max_pending_block);
             bool appendRequest = false;
             NormBlock* block = iterating ? block_buffer.Find(nextId) : NULL;
@@ -783,18 +781,18 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
                 switch (nextForm)
                 {
                     case NormRepairRequest::ITEMS:
-                        req.AppendRepairItem(id, prevId, GetBlockSize(prevId), 0);  // (TBD) error check
+                        req.AppendRepairItem(transport_id, prevId, GetBlockSize(prevId), 0);  // (TBD) error check
                         if (2 == consecutiveCount)
                         {
                             prevId++;
-                            req.AppendRepairItem(id, prevId, GetBlockSize(prevId), 0); // (TBD) error check
+                            req.AppendRepairItem(transport_id, prevId, GetBlockSize(prevId), 0); // (TBD) error check
                         }
                         break;
                     case NormRepairRequest::RANGES:
                     {
                         NormBlockId lastId = prevId+consecutiveCount-1;
-                        req.AppendRepairRange(id, prevId, GetBlockSize(prevId), 0, 
-                                              id, lastId, GetBlockSize(lastId), 0); // (TBD) error check
+                        req.AppendRepairRange(transport_id, prevId, GetBlockSize(prevId), 0, 
+                                              transport_id, lastId, GetBlockSize(lastId), 0); // (TBD) error check
                         break;
                     }
                     default:
@@ -820,16 +818,16 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
                             nack.PackRepairRequest(req);  // (TBD) error check
                         if (flush || (nextId != max_pending_block))
                         {
-                            block->AppendRepairRequest(nack, numData, nparity, id, 
+                            block->AppendRepairRequest(nack, numData, nparity, transport_id, 
                                                        pending_info, segment_size); // (TBD) error check
                         }
                         else
                         {
                             if (max_pending_segment < numData)
-                                block->AppendRepairRequest(nack, max_pending_segment, 0, id,
+                                block->AppendRepairRequest(nack, max_pending_segment, 0, transport_id,
                                                             pending_info, segment_size); // (TBD) error check
                             else
-                                block->AppendRepairRequest(nack, numData, nparity, id, 
+                                block->AppendRepairRequest(nack, numData, nparity, transport_id, 
                                                            pending_info, segment_size); // (TBD) error check
                         }
                     }
@@ -862,7 +860,7 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
         req.SetForm(NormRepairRequest::ITEMS);
         req.ResetFlags();
         req.SetFlag(NormRepairRequest::INFO); 
-        req.AppendRepairItem(id, 0, 0, 0);  // (TBD) error check
+        req.AppendRepairItem(transport_id, 0, 0, 0);  // (TBD) error check
     }   // end if/else (iterating)     
     if (NormRepairRequest::INVALID != prevForm)
         nack.PackRepairRequest(req);  // (TBD) error check     
@@ -885,7 +883,8 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             {
                 info_len = segment_size;
                 DMSG(0, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
-                    "Warning! info too long.\n", LocalNodeId(), server->GetId(), (UINT16)id);   
+                    "Warning! info too long.\n", LocalNodeId(), server->GetId(),
+                         (UINT16)transport_id);   
             }
             memcpy(info, infoMsg.GetInfo(), info_len);
             pending_info = false;
@@ -896,7 +895,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             // (TBD) Verify info hasn't changed?   
             DMSG(6, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                     "received duplicate info ...\n", LocalNodeId(),
-                     server->GetId(), (UINT16)id);
+                     server->GetId(), (UINT16)transport_id);
         }
     }
     else  // NORM_MSG_DATA
@@ -909,7 +908,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             if (!stream->StreamUpdateStatus(blockId))
             {
                 DMSG(4, "NormObject::HandleObjectMessage() node:%lu server:%lu obj>%hu blk>%lu "
-                        "broken stream ...\n", LocalNodeId(), server->GetId(), (UINT16)id, (UINT32)blockId);
+                        "broken stream ...\n", LocalNodeId(), server->GetId(), (UINT16)transport_id, (UINT32)blockId);
                 
                 //ASSERT(0);
                 // ??? Ignore this new packet and try to fix stream ???
@@ -943,11 +942,11 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             NormBlock* block = block_buffer.Find(blockId);
             if (!block)
             {
-                if (!(block = server->GetFreeBlock(id, blockId)))
+                if (!(block = server->GetFreeBlock(transport_id, blockId)))
                 {
                     DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                             "Warning! no free blocks ...\n", LocalNodeId(), server->GetId(), 
-                            (UINT16)id);  
+                            (UINT16)transport_id);  
                     return;
                 }
                 block->RxInit(blockId, numData, nparity);
@@ -956,12 +955,12 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             if (block->IsPending(segmentId))
             {
                 // 1) Cache segment in block buffer in case its needed for decoding
-                char* segment = server->GetFreeSegment(id, blockId);
+                char* segment = server->GetFreeSegment(transport_id, blockId);
                 if (!segment)
                 {
                     DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                             "Warning! no free segments ...\n", LocalNodeId(), server->GetId(), 
-                            (UINT16)id);  
+                            (UINT16)transport_id);  
                     return;
                 }
                 UINT16 segmentLength = data.GetPayloadDataLength();
@@ -969,7 +968,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 {
                     DMSG(0, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                             "Error! segment too large ...\n", LocalNodeId(), server->GetId(), 
-                            (UINT16)id);  
+                            (UINT16)transport_id);  
                     server->PutFreeSegment(segment);
                     return;  
                 }
@@ -1011,7 +1010,7 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                     // and write any decoded data segments to object
                     DMSG(8, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu blk>%lu "
                             "completed block ...\n", LocalNodeId(), server->GetId(), 
-                            (UINT16)id, (UINT32)block->Id());
+                            (UINT16)transport_id, (UINT32)block->GetId());
                     UINT16 erasureCount = 0; 
                     UINT16 nextErasure = 0;
                     if (block->GetFirstPending(nextErasure))
@@ -1023,11 +1022,11 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                                 server->SetErasureLoc(erasureCount++, nextErasure);
                                 if (nextErasure < numData)
                                 {
-                                    if (!(segment = server->GetFreeSegment(id, blockId)))
+                                    if (!(segment = server->GetFreeSegment(transport_id, blockId)))
                                     {
                                         DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                                                 "Warning! no free segments ...\n", LocalNodeId(), server->GetId(), 
-                                                (UINT16)id);  
+                                                (UINT16)transport_id);  
                                         // (TBD) Dump the block ...???
                                         return;
                                     }
@@ -1076,14 +1075,14 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             {
                 DMSG(6, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                     "received duplicate segment ...\n", LocalNodeId(),
-                     server->GetId(), (UINT16)id);
+                     server->GetId(), (UINT16)transport_id);
             }
         }
         else
         {
             DMSG(6, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
                     "received duplicate block message ...\n", LocalNodeId(),
-                     server->GetId(), (UINT16)id);
+                     server->GetId(), (UINT16)transport_id);
         }  // end if/else pending_mask.Test(blockId)
     }  // end if/else (NORM_MSG_INFO)
 }  // end NormObject::HandleObjectMessage()
@@ -1104,7 +1103,7 @@ NormBlock* NormObject::StealNonPendingBlock(bool excludeBlock, NormBlockId exclu
         NormBlock* block;
         while ((block = iterator.GetNextBlock()))
         {
-            NormBlockId bid = block->Id();
+            NormBlockId bid = block->GetId();
             if (block->IsTransmitPending() ||
                 pending_mask.Test(bid) ||
                 repair_mask.Test(bid) ||
@@ -1134,7 +1133,7 @@ NormBlock* NormObject::StealNewestBlock(bool excludeBlock, NormBlockId excludeId
     else
     {
         NormBlock* block = block_buffer.Find(block_buffer.RangeHi());
-        if (excludeBlock && (excludeId == block->Id()))
+        if (excludeBlock && (excludeId == block->GetId()))
         {
             return NULL;
         }
@@ -1158,7 +1157,7 @@ NormBlock* NormObject::StealOldestBlock(bool excludeBlock, NormBlockId excludeId
     else
     {
         NormBlock* block = block_buffer.Find(block_buffer.RangeLo());
-        if (excludeBlock && (excludeId == block->Id()))
+        if (excludeBlock && (excludeId == block->GetId()))
         {
             return NULL;
         }
@@ -1195,7 +1194,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
     }
     if (info) msg->SetFlag(NormObjectMsg::FLAG_INFO);
     msg->SetFecId(129);
-    msg->SetObjectId(id);
+    msg->SetObjectId(transport_id);
     
     // We currently always apply the FTI extension
     NormFtiExtension fti;
@@ -1222,7 +1221,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
     NormBlock* block = block_buffer.Find(blockId);
     if (!block)
     {
-       if (!(block = session->ServerGetFreeBlock(id, blockId)))
+       if (!(block = session->ServerGetFreeBlock(transport_id, blockId)))
        {
             DMSG(2, "NormObject::NextServerMsg() node>%lu Warning! server resource " 
                     "constrained (no free blocks).\n", LocalNodeId());
@@ -1232,7 +1231,7 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
        UINT16 totalBlockLen = numData + nparity;
        for (UINT16 i = numData; i < totalBlockLen; i++)
        {
-            char* s = session->ServerGetFreeSegment(id, blockId);
+            char* s = session->ServerGetFreeSegment(transport_id, blockId);
             if (s)
             {
                 UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();
@@ -1378,7 +1377,7 @@ void NormStreamObject::StreamAdvance()
             else
             {
                DMSG(4, "NormStreamObject::StreamAdvance() node>%lu Pending segment repairs (blk>%lu) "
-                       "delaying stream advance ...\n", LocalNodeId(), (UINT32)block->Id());
+                       "delaying stream advance ...\n", LocalNodeId(), (UINT32)block->GetId());
             } 
         }
     }
@@ -1391,10 +1390,10 @@ void NormStreamObject::StreamAdvance()
 bool NormObject::CalculateBlockParity(NormBlock* block)
 {
     char buffer[NormMsg::MAX_SIZE];
-    UINT16 numData = GetBlockSize(block->Id());
+    UINT16 numData = GetBlockSize(block->GetId());
     for (UINT16 i = 0; i < numData; i++)
     {
-        UINT16 payloadLength = ReadSegment(block->Id(), i, buffer);
+        UINT16 payloadLength = ReadSegment(block->GetId(), i, buffer);
         if (0 != payloadLength)
         {
             UINT16 payloadMax = segment_size+NormDataMsg::GetStreamPayloadHeaderLength();
@@ -1416,7 +1415,7 @@ bool NormObject::CalculateBlockParity(NormBlock* block)
 
 NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
 {
-    NormBlock* block = session->ServerGetFreeBlock(id, blockId);
+    NormBlock* block = session->ServerGetFreeBlock(transport_id, blockId);
     if (block)
     {
         UINT16 numData = GetBlockSize(blockId);  
@@ -1426,7 +1425,7 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
         UINT16 totalBlockLen = numData + nparity;
         for (UINT16 i = numData; i < totalBlockLen; i++)
         {
-            char* s = session->ServerGetFreeSegment(id, blockId);
+            char* s = session->ServerGetFreeSegment(transport_id, blockId);
             if (s)
             {
                 UINT16 payloadMax = segment_size + NormDataMsg::GetStreamPayloadHeaderLength();                
@@ -1952,7 +1951,7 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
             while (block->IsPending())
             {             
                 // Notify app for stream data salvage  
-                read_index.block = block->Id();
+                read_index.block = block->GetId();
                 block->GetFirstPending(read_index.segment);
                 NormBlock* tempBlock = block;
                 UINT32 tempOffset = read_offset;
@@ -1995,9 +1994,9 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
         if (broken)
         {
             DMSG(4, "NormStreamObject::WriteSegment() node>%lu obj>%hu blk>%lu seg>%hu broken stream ...\n",
-                     LocalNodeId(), (UINT16)id, (UINT32)blockId, (UINT16)segmentId);
+                     LocalNodeId(), (UINT16)transport_id, (UINT32)blockId, (UINT16)segmentId);
             NormBlock* first = stream_buffer.Find(stream_buffer.RangeLo());
-            read_index.block = first->Id();
+            read_index.block = first->GetId();
             read_index.segment = 0;   
         }
     }
@@ -2029,10 +2028,10 @@ void NormStreamObject::Prune(NormBlockId blockId)
     NormBlock* block;
     while ((block = block_buffer.Find(block_buffer.RangeLo())))
     {
-        if (block->Id() < blockId)
+        if (block->GetId() < blockId)
         {
             resync = true;
-            pending_mask.Unset(block->Id()); 
+            pending_mask.Unset(block->GetId()); 
             block_buffer.Remove(block);
             server->PutFreeBlock(block);
         }   
@@ -2183,7 +2182,7 @@ unsigned long NormStreamObject::Write(const char* buffer, unsigned long len,
                 ASSERT(block);
                 if (push)
                 {
-                    NormBlockId blockId = block->Id();
+                    NormBlockId blockId = block->GetId();
                     pending_mask.Unset(blockId);
                     repair_mask.Unset(blockId);
                     NormBlock* b = FindBlock(blockId);
@@ -2215,7 +2214,7 @@ unsigned long NormStreamObject::Write(const char* buffer, unsigned long len,
                 ASSERT(b != block);
                 if (push)
                 {
-                    NormBlockId blockId = block->Id();
+                    NormBlockId blockId = block->GetId();
                     pending_mask.Unset(blockId);
                     repair_mask.Unset(blockId);
                     NormBlock* c = FindBlock(blockId);
@@ -2404,7 +2403,7 @@ NormObject* NormObjectTable::Find(const NormObjectId& objectId) const
     {
         if ((objectId < range_lo)  || (objectId > range_hi)) return (NormObject*)NULL;
         NormObject* theObject = table[((UINT16)objectId) & hash_mask];
-        while (theObject && (objectId != theObject->Id())) theObject = theObject->next;
+        while (theObject && (objectId != theObject->GetId())) theObject = theObject->next;
         return theObject;
     }
     else
@@ -2445,7 +2444,7 @@ bool NormObjectTable::CanInsert(NormObjectId objectId) const
 
 bool NormObjectTable::Insert(NormObject* theObject)
 {
-    const NormObjectId& objectId = theObject->Id();
+    const NormObjectId& objectId = theObject->GetId();
     if (!range)
     {
         range_lo = range_hi = objectId;
@@ -2468,7 +2467,7 @@ bool NormObjectTable::Insert(NormObject* theObject)
     UINT16 index = ((UINT16)objectId) & hash_mask;
     NormObject* prev = NULL;
     NormObject* entry = table[index];
-    while (entry && (entry->Id() < objectId)) 
+    while (entry && (entry->GetId() < objectId)) 
     {
         prev = entry;
         entry = entry->next;
@@ -2477,24 +2476,24 @@ bool NormObjectTable::Insert(NormObject* theObject)
         prev->next = theObject;
     else
         table[index] = theObject;
-    ASSERT((entry ? (objectId != entry->Id()) : true));
+    ASSERT((entry ? (objectId != entry->GetId()) : true));
     theObject->next = entry;
     count++;
-    size = size + theObject->Size();
+    size = size + theObject->GetSize();
     return true;
 }  // end NormObjectTable::Insert()
 
 bool NormObjectTable::Remove(const NormObject* theObject)
 {
     ASSERT(theObject);
-    const NormObjectId& objectId = theObject->Id();
+    const NormObjectId& objectId = theObject->GetId();
     if (range)
     {
         if ((objectId < range_lo) || (objectId > range_hi)) return false;
         UINT16 index = ((UINT16)objectId) & hash_mask;
         NormObject* prev = NULL;
         NormObject* entry = table[index];
-        while (entry && (entry->Id() != objectId))
+        while (entry && (entry->GetId() != objectId))
         {
             prev = entry;
             entry = entry->next;
@@ -2525,10 +2524,10 @@ bool NormObjectTable::Remove(const NormObject* theObject)
                     if ((entry = table[i]))
                     {
                         NormObjectId id = (UINT16)index + offset;
-                        while(entry && (entry->Id() != id)) 
+                        while(entry && (entry->GetId() != id)) 
                         {
-                            if ((entry->Id() > objectId) && 
-                                (entry->Id() < nextId)) nextId = entry->Id();
+                            if ((entry->GetId() > objectId) && 
+                                (entry->GetId() < nextId)) nextId = entry->GetId();
                             entry = entry->next;
                                
                         }
@@ -2536,7 +2535,7 @@ bool NormObjectTable::Remove(const NormObject* theObject)
                     }
                 } while (i != endex);
                 if (entry)
-                    range_lo = entry->Id();
+                    range_lo = entry->GetId();
                 else
                     range_lo = nextId;
                 range = range_hi - range_lo + 1;
@@ -2561,18 +2560,18 @@ bool NormObjectTable::Remove(const NormObject* theObject)
                     if ((entry = table[i]))
                     {
                         NormObjectId id = (UINT16)index - offset;
-                        //printf("Looking for id:%lu at index:%lu\n", (UINT16)id, i);
-                        while(entry && (entry->Id() != id)) 
+                        //printf("Looking for id:%lu at index:%lu\n", (UINT16)transport_id, i);
+                        while(entry && (entry->GetId() != id)) 
                         {
-                            if ((entry->Id() < objectId) && 
-                                (entry->Id() > prevId)) prevId = entry->Id();
+                            if ((entry->GetId() < objectId) && 
+                                (entry->GetId() > prevId)) prevId = entry->GetId();
                             entry = entry->next;
                         }
                         if (entry) break;    
                     }
                 } while (i != endex);
                 if (entry)
-                    range_hi = entry->Id();
+                    range_hi = entry->GetId();
                 else
                     range_hi = prevId;
                 range = range_hi - range_lo + 1;
@@ -2583,7 +2582,7 @@ bool NormObjectTable::Remove(const NormObject* theObject)
             range = 0;
         }  
         count--;
-        size = size - theObject->Size();
+        size = size - theObject->GetSize();
         return true;
     }
     else
@@ -2633,15 +2632,15 @@ NormObject* NormObjectTable::Iterator::GetNextObject()
                 offset++;
                 NormObjectId id = (UINT16)index + offset;
                 NormObject* entry = table.table[i];
-                while ((NULL != entry) && (entry->Id() != id)) 
+                while ((NULL != entry) && (entry->GetId() != id)) 
                 {
-                    if ((entry->Id() > index) && (entry->Id() < nextId))
-                        nextId = entry->Id();
+                    if ((entry->GetId() > index) && (entry->GetId() < nextId))
+                        nextId = entry->GetId();
                     entry = table.Next(entry);
                 }
                 if (entry)
                 {
-                    index = entry->Id();
+                    index = entry->GetId();
                     return entry;   
                 } 
             } while (i != endex);
@@ -2692,15 +2691,15 @@ NormObject* NormObjectTable::Iterator::GetPrevObject()
                 offset--;
                 NormObjectId id = (UINT16)index + offset;
                 NormObject* entry = table.table[i];
-                while ((NULL != entry ) && (entry->Id() != id)) 
+                while ((NULL != entry ) && (entry->GetId() != id)) 
                 {
-                    if ((entry->Id() > index) && (entry->Id() < nextId))
-                        nextId = entry->Id();
+                    if ((entry->GetId() > index) && (entry->GetId() < nextId))
+                        nextId = entry->GetId();
                     entry = table.Next(entry);
                 }
                 if (entry)
                 {
-                    index = entry->Id();
+                    index = entry->GetId();
                     return entry;   
                 } 
             } while (i != endex);

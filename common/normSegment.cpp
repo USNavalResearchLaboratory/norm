@@ -104,28 +104,28 @@ NormBlock::~NormBlock()
     Destroy();
 }
 
-bool NormBlock::Init(UINT16 blockSize)
+bool NormBlock::Init(UINT16 totalSize)
 {
     if (segment_table) Destroy();
-    if (!(segment_table = new char*[blockSize]))
+    if (!(segment_table = new char*[totalSize]))
     {
         DMSG(0, "NormBlock::Init() segment_table allocation error: %s\n", strerror(errno));
         return false;   
     }
-    memset(segment_table, 0, blockSize*sizeof(char*));
-    if (!pending_mask.Init(blockSize))
+    memset(segment_table, 0, totalSize*sizeof(char*));
+    if (!pending_mask.Init(totalSize))
     {
         DMSG(0, "NormBlock::Init() pending_mask allocation error: %s\n", strerror(errno));
         Destroy();
         return false;   
     }
-    if (!repair_mask.Init(blockSize))
+    if (!repair_mask.Init(totalSize))
     {
         DMSG(0, "NormBlock::Init() repair_mask allocation error: %s\n", strerror(errno));
         Destroy();
         return false;   
     }
-    size = blockSize;
+    size = totalSize;
     erasure_count = 0;
     parity_count = 0;
     parity_offset = 0;;
@@ -173,16 +173,16 @@ bool NormBlock::IsEmpty() const
 
 // Used by client side to determine if NACK should be sent
 // Note: This invalidates the block's "repair_mask" state
-bool NormBlock::IsRepairPending(UINT16 ndata, UINT16 nparity)
+bool NormBlock::IsRepairPending(UINT16 numData, UINT16 numParity)
 {
     // Clients ask for a block of parity to fulfill their
     // repair needs (erasure_count), but if there isn't 
     // enough parity, they ask for some data segments, too
-    if (erasure_count > nparity)
+    if (erasure_count > numParity)
     {
-        if (nparity)
+        if (numParity)
         {
-            UINT16 i = nparity;
+            UINT16 i = numParity;
             NormSegmentId nextId = 0;
             GetFirstPending(nextId);
             while (i--)
@@ -194,44 +194,44 @@ bool NormBlock::IsRepairPending(UINT16 ndata, UINT16 nparity)
                 GetNextPending(nextId);  
             } 
         }
-        else if (size > ndata)
+        else if (size > numData)
         {
-            repair_mask.SetBits(ndata, size-ndata);   
+            repair_mask.SetBits(numData, size-numData);   
         }  
     }
     else
     {
-        repair_mask.SetBits(0, ndata);
-        repair_mask.SetBits(ndata+erasure_count, nparity-erasure_count);
+        repair_mask.SetBits(0, numData);
+        repair_mask.SetBits(numData+erasure_count, numParity-erasure_count);
     }
     repair_mask.XCopy(pending_mask);
     return (repair_mask.IsSet());
 }  // end NormBlock::IsRepairPending()
 
 // Called by server
-bool NormBlock::TxReset(UINT16 ndata, 
-                        UINT16 nparity, 
+bool NormBlock::TxReset(UINT16 numData, 
+                        UINT16 numParity, 
                         UINT16 autoParity, 
                         UINT16 segmentSize)
 {
     bool increasedRepair = false;
-    repair_mask.SetBits(0, ndata+autoParity);
-    repair_mask.UnsetBits(ndata+autoParity, nparity-autoParity);
+    repair_mask.SetBits(0, numData+autoParity);
+    repair_mask.UnsetBits(numData+autoParity, numParity-autoParity);
     repair_mask.Xor(pending_mask);
     if (repair_mask.IsSet()) 
     {
         increasedRepair = true;
         repair_mask.Clear();
-        pending_mask.SetBits(0, ndata+autoParity);
-        pending_mask.UnsetBits(ndata+autoParity, nparity-autoParity);
+        pending_mask.SetBits(0, numData+autoParity);
+        pending_mask.UnsetBits(numData+autoParity, numParity-autoParity);
         parity_offset = autoParity;  // reset parity since we're resending this one
-        parity_count = nparity;      // no parity repair this repair cycle
+        parity_count = numParity;      // no parity repair this repair cycle
         SetFlag(IN_REPAIR);
-        if (!ParityReady(ndata))  // (TBD) only when incrementalParity == true
+        if (!ParityReady(numData))  // (TBD) only when incrementalParity == true
         {
             // Clear _any_ existing incremental parity state
-            char** ptr = segment_table+ndata;
-            while (nparity--)
+            char** ptr = segment_table+numData;
+            while (numParity--)
             {
                 if (*ptr) memset(*ptr, 0, segmentSize);
                 ptr++;
@@ -242,7 +242,7 @@ bool NormBlock::TxReset(UINT16 ndata,
     return increasedRepair;
 }  // end NormBlock::TxReset()
 
-bool NormBlock::ActivateRepairs(UINT16 nparity)
+bool NormBlock::ActivateRepairs(UINT16 numParity)
 {
     if (repair_mask.IsSet())
     {
@@ -260,14 +260,14 @@ bool NormBlock::ActivateRepairs(UINT16 nparity)
 // (we directly update the "pending_mask" for blocks/segments
 //  greater than our current transmit index)
 bool NormBlock::TxUpdate(NormSegmentId nextId, NormSegmentId lastId,
-                         UINT16 ndata, UINT16 nparity, UINT16 erasureCount)
+                         UINT16 numData, UINT16 numParity, UINT16 erasureCount)
 {
     bool increasedRepair = false;
         
-    if (nextId < ndata)
+    if (nextId < numData)
     {
         // Explicit data repair request
-        parity_offset = parity_count = nparity;
+        parity_offset = parity_count = numParity;
         while (nextId <= lastId)
         {
             if (!pending_mask.Test(nextId))
@@ -281,13 +281,13 @@ bool NormBlock::TxUpdate(NormSegmentId nextId, NormSegmentId lastId,
     else
     {
         // parity repair request
-        UINT16 parityAvailable = nparity - parity_offset;
+        UINT16 parityAvailable = numParity - parity_offset;
         if (erasureCount <= parityAvailable)
         {
            // Use fresh parity for repair
            if (erasureCount > parity_count)
            {
-               pending_mask.SetBits(ndata+parity_offset+parity_count, 
+               pending_mask.SetBits(numData+parity_offset+parity_count, 
                                     erasureCount - parity_count);
                parity_count = erasureCount;
                increasedRepair = true; 
@@ -299,7 +299,7 @@ bool NormBlock::TxUpdate(NormSegmentId nextId, NormSegmentId lastId,
             if (parity_count < parityAvailable)
             {
                 UINT16 count = parityAvailable - parity_count;
-                pending_mask.SetBits(ndata+parity_offset+parity_count, count); 
+                pending_mask.SetBits(numData+parity_offset+parity_count, count); 
                 parity_count = parityAvailable;  
                 nextId += parityAvailable;
                 increasedRepair = true;
@@ -320,15 +320,15 @@ bool NormBlock::TxUpdate(NormSegmentId nextId, NormSegmentId lastId,
 }  // end NormBlock::TxUpdate()
 
 bool NormBlock::HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
-                                     UINT16 ndata, UINT16 nparity, UINT16 erasureCount)
+                                     UINT16 numData, UINT16 numParity, UINT16 erasureCount)
 {
     DMSG(6, "NormBlock::HandleSegmentRequest() blk>%lu seg>%hu:%hu erasures:%hu\n",
             (UINT32)id, (UINT16)nextId, (UINT16)lastId, erasureCount);
     bool increasedRepair = false;
-    if (nextId < ndata)
+    if (nextId < numData)
     {
         // Explicit data repair request
-        parity_count = parity_offset = nparity;
+        parity_count = parity_offset = numParity;
         while (nextId <= lastId)
         {
             if (!repair_mask.Test(nextId))
@@ -342,13 +342,13 @@ bool NormBlock::HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
     else
     {
         // parity repair request
-        UINT16 parityAvailable = nparity - parity_offset;
+        UINT16 parityAvailable = numParity - parity_offset;
         if (erasureCount <= parityAvailable)
         {
            // Use fresh parity for repair
            if (erasureCount > parity_count)
            {
-               repair_mask.SetBits(ndata+parity_offset+parity_count, 
+               repair_mask.SetBits(numData+parity_offset+parity_count, 
                                    erasureCount - parity_count);
                parity_count = erasureCount;
                increasedRepair = true; 
@@ -360,7 +360,7 @@ bool NormBlock::HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
             if (parity_count < parityAvailable)
             {
                 UINT16 count = parityAvailable - parity_count;
-                repair_mask.SetBits(ndata+parity_offset+parity_count, count); 
+                repair_mask.SetBits(numData+parity_offset+parity_count, count); 
                 parity_count = parityAvailable;  
                 nextId += parityAvailable;
                 increasedRepair = true;
@@ -384,7 +384,7 @@ bool NormBlock::HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
 bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd, 
                                 NormObjectId         objectId,
                                 bool                 repairInfo,
-                                UINT16               ndata,
+                                UINT16               numData,
                                 UINT16               segmentSize)
 {
     NormRepairRequest req;
@@ -393,18 +393,18 @@ bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd,
     NormSymbolId nextId = 0;
     if (GetFirstRepair(nextId))
     {
-        UINT16 blockSize = size;
+        UINT16 totalSize = size;
         NormRepairRequest::Form prevForm = NormRepairRequest::INVALID;
         UINT16 segmentCount = 0;
         UINT16 firstId = 0;
-        while (nextId < blockSize)
+        while (nextId < totalSize)
         {
             UINT16 currentId = nextId;
-            if (!GetNextRepair(++nextId)) nextId = blockSize;
+            if (!GetNextRepair(++nextId)) nextId = totalSize;
             if (!segmentCount) firstId = currentId;
             segmentCount++;
             // Check for break in consecutive series or end
-            if (((nextId  - currentId) > 1) || (nextId >= blockSize))
+            if (((nextId  - currentId) > 1) || (nextId >= totalSize))
             {
                 NormRepairRequest::Form form;
                 switch (segmentCount)
@@ -434,13 +434,13 @@ bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd,
                         ASSERT(0);  // can't happen
                         break;
                     case NormRepairRequest::ITEMS:
-                        req.AppendRepairItem(objectId, id, ndata, firstId);
+                        req.AppendRepairItem(objectId, id, numData, firstId);
                         if (2 == segmentCount) 
-                            req.AppendRepairItem(objectId, id, ndata, currentId);
+                            req.AppendRepairItem(objectId, id, numData, currentId);
                         break;
                     case NormRepairRequest::RANGES:
-                        req.AppendRepairRange(objectId, id, ndata, firstId,
-                                              objectId, id, ndata, currentId);
+                        req.AppendRepairRange(objectId, id, numData, firstId,
+                                              objectId, id, numData, currentId);
                         break;
                     case NormRepairRequest::ERASURES:
                         // erasure counts not used
@@ -448,7 +448,7 @@ bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd,
                 } 
                 segmentCount = 0;  
             }
-        }  // end while (nextId < blockSize)
+        }  // end while (nextId < totalSize)
         if (NormRepairRequest::INVALID != prevForm) 
             cmd.PackRepairRequest(req); // (TBD) error check
     }
@@ -457,32 +457,32 @@ bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd,
 
 // Called by client
 bool NormBlock::AppendRepairRequest(NormNackMsg&    nack, 
-                                    UINT16          ndata, 
-                                    UINT16          nparity,
+                                    UINT16          numData, 
+                                    UINT16          numParity,
                                     NormObjectId    objectId,
                                     bool            pendingInfo,
                                     UINT16          segmentSize)
 {
     NormSegmentId nextId = 0;
     NormSegmentId endId;
-    if (erasure_count > nparity)
+    if (erasure_count > numParity)
     {
         // Request explicit repair 
         GetFirstPending(nextId);
-        UINT16 i = nparity;
-        // Skip nparity missing data segments
+        UINT16 i = numParity;
+        // Skip numParity missing data segments
         while (i--)
         {
             nextId++;
             GetNextPending(nextId);
         }
-        endId = ndata + nparity;
+        endId = numData + numParity;
     }
     else
     {
-        nextId = ndata;
+        nextId = numData;
         GetNextPending(nextId);
-        endId = ndata + erasure_count;   
+        endId = numData + erasure_count;   
     }
     NormRepairRequest req;
     req.SetFlag(NormRepairRequest::SEGMENT);                  
@@ -528,13 +528,13 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
                     ASSERT(0);
                     break;
                 case NormRepairRequest::ITEMS:
-                    req.AppendRepairItem(objectId, id, ndata, firstId);       // (TBD) error check
+                    req.AppendRepairItem(objectId, id, numData, firstId);       // (TBD) error check
                     if (2 == segmentCount)
-                        req.AppendRepairItem(objectId, id, ndata, currentId); // (TBD) error check
+                        req.AppendRepairItem(objectId, id, numData, currentId); // (TBD) error check
                     break;
                 case NormRepairRequest::RANGES:
-                    req.AppendRepairRange(objectId, id, ndata, firstId,       // (TBD) error check
-                                          objectId, id, ndata, currentId);    // (TBD) error check
+                    req.AppendRepairRange(objectId, id, numData, firstId,       // (TBD) error check
+                                          objectId, id, numData, currentId);    // (TBD) error check
                     break;
                 case NormRepairRequest::ERASURES:
                     // erasure counts not used
@@ -627,7 +627,7 @@ NormBlockPool::~NormBlockPool()
     Destroy();
 }
 
-bool NormBlockPool::Init(UINT32 numBlocks, UINT16 blockSize)
+bool NormBlockPool::Init(UINT32 numBlocks, UINT16 totalSize)
 {
     if (head) Destroy();
     for (UINT32 i = 0; i < numBlocks; i++)
@@ -635,7 +635,7 @@ bool NormBlockPool::Init(UINT32 numBlocks, UINT16 blockSize)
         NormBlock* b = new NormBlock();
         if (b)
         {
-            if (!b->Init(blockSize))
+            if (!b->Init(totalSize))
             {
                 DMSG(0, "NormBlockPool::Init() block init error\n");
                 delete b;
@@ -723,7 +723,7 @@ NormBlock* NormBlockBuffer::Find(const NormBlockId& blockId) const
         if ((blockId < range_lo)  || (blockId > range_hi)) 
             return (NormBlock*)NULL;
         NormBlock* theBlock = table[((UINT32)blockId) & hash_mask];
-        while (theBlock && (blockId != theBlock->Id())) 
+        while (theBlock && (blockId != theBlock->GetId())) 
             theBlock = theBlock->next;
         return theBlock;
     }
@@ -766,7 +766,7 @@ bool NormBlockBuffer::CanInsert(NormBlockId blockId) const
 
 bool NormBlockBuffer::Insert(NormBlock* theBlock)
 {
-    const NormBlockId& blockId = theBlock->Id();
+    const NormBlockId& blockId = theBlock->GetId();
     if (!range)
     {
         range_lo = range_hi = blockId;
@@ -789,7 +789,7 @@ bool NormBlockBuffer::Insert(NormBlock* theBlock)
     UINT32 index = ((UINT32)blockId) & hash_mask;
     NormBlock* prev = NULL;
     NormBlock* entry = table[index];
-    while (entry && (entry->Id() < blockId)) 
+    while (entry && (entry->GetId() < blockId)) 
     {
         prev = entry;
         entry = entry->next;
@@ -799,7 +799,7 @@ bool NormBlockBuffer::Insert(NormBlock* theBlock)
     else
         table[index] = theBlock;
     
-    ASSERT((entry ? (blockId != entry->Id()) : true));
+    ASSERT((entry ? (blockId != entry->GetId()) : true));
     
     theBlock->next = entry;
     return true;
@@ -810,12 +810,12 @@ bool NormBlockBuffer::Remove(const NormBlock* theBlock)
     ASSERT(theBlock);
     if (range)
     {
-        const NormBlockId& blockId = theBlock->Id();
+        const NormBlockId& blockId = theBlock->GetId();
         if ((blockId < range_lo) || (blockId > range_hi)) return false;
         UINT32 index = ((UINT32)blockId) & hash_mask;
         NormBlock* prev = NULL;
         NormBlock* entry = table[index];
-        while (entry && (entry->Id() != blockId))
+        while (entry && (entry->GetId() != blockId))
         {
             prev = entry;
             entry = entry->next;
@@ -847,10 +847,10 @@ bool NormBlockBuffer::Remove(const NormBlock* theBlock)
                     if ((entry = table[i]))
                     {
                         NormBlockId id = (UINT32)index + offset;
-                        while(entry && (entry->Id() != id)) 
+                        while(entry && (entry->GetId() != id)) 
                         {
-                            if ((entry->Id() > blockId) && 
-                                (entry->Id() < nextId)) nextId = entry->Id();
+                            if ((entry->GetId() > blockId) && 
+                                (entry->GetId() < nextId)) nextId = entry->GetId();
                             entry = entry->next;
                                
                         }
@@ -858,7 +858,7 @@ bool NormBlockBuffer::Remove(const NormBlock* theBlock)
                     }
                 } while (i != endex);
                 if (entry)
-                    range_lo = entry->Id();
+                    range_lo = entry->GetId();
                 else
                     range_lo = nextId;
                 range = range_hi - range_lo + 1; 
@@ -884,17 +884,17 @@ bool NormBlockBuffer::Remove(const NormBlock* theBlock)
                     {
                         NormBlockId id = (UINT32)index - offset;
                         //printf("Looking for id:%lu at index:%lu\n", (UINT32)id, i);
-                        while(entry && (entry->Id() != id)) 
+                        while(entry && (entry->GetId() != id)) 
                         {
-                            if ((entry->Id() < blockId) && 
-                                (entry->Id() > prevId)) prevId = entry->Id();
+                            if ((entry->GetId() < blockId) && 
+                                (entry->GetId() > prevId)) prevId = entry->GetId();
                             entry = entry->next;
                         }
                         if (entry) break;    
                     }
                 } while (i != endex);
                 if (entry)
-                    range_hi = entry->Id();
+                    range_hi = entry->GetId();
                 else 
                     range_hi = prevId;
                 range = range_hi - range_lo + 1;
@@ -954,15 +954,15 @@ NormBlock* NormBlockBuffer::Iterator::GetNextBlock()
                 NormBlockId id = (UINT32)index + offset;
                 ASSERT(i < 256);
                 NormBlock* entry = buffer.table[i];
-                while ((NULL != entry ) && (entry->Id() != id)) 
+                while ((NULL != entry ) && (entry->GetId() != id)) 
                 {
-                    if ((entry->Id() > index) && (entry->Id() < nextId))
-                        nextId = entry->Id();
+                    if ((entry->GetId() > index) && (entry->GetId() < nextId))
+                        nextId = entry->GetId();
                     entry = NormBlockBuffer::Next(entry);
                 }
                 if (entry)
                 {
-                    index = entry->Id();
+                    index = entry->GetId();
                     return entry;   
                 } 
             } while (i != endex);

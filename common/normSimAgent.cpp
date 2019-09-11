@@ -15,8 +15,10 @@ NormSimAgent::NormSimAgent(ProtoTimerMgr&         timerMgr,
    backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
    segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
    group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
+   grtt_estimate(NormSession::DEFAULT_GRTT_ESTIMATE),
    tx_buffer_size(1024*1024), rx_buffer_size(1024*1024),
    tx_object_size(0), tx_object_interval(0.0), 
+   tx_object_size_min(0), tx_object_size_max(0), 
    tx_repeat_count(0), tx_repeat_interval(0.0),
    stream(NULL), auto_stream(false), push_stream(false),
    flush_mode(NormStreamObject::FLUSH_PASSIVE),
@@ -62,11 +64,13 @@ const char* const NormSimAgent::cmd_list[] =
     "+auto",         // server auto parity count
     "+extra",        // server extra parity count
     "+gsize",        // group size estimate
+    "+grtt",         // grtt estimate
     "+txbuffer",     // tx buffer size (bytes)
     "+rxbuffer",     // rx buffer size (bytes)
     "+start",        // open session and beging activity
     "-stop",         // cease activity and close session
-    "+sendFile",     // queue a "sim" file for transmission
+    "+sendFile",     // queue a "sim" file of <size> bytes for transmission
+    "+sendRandomFile",  // queue random-size file size range <sizeMin>:<sizeMax>
     "+sendStream",   // send a simulated NORM stream
     "+openStream",   // open a stream object for messaging
     "+push",         // "on" means real-time push stream advancement (non-blocking)
@@ -285,6 +289,15 @@ bool NormSimAgent::ProcessCommand(const char* cmd, const char* val)
         }
         if (session) session->ServerSetGroupSize(group_size);
     }
+    else if (!strncmp("grtt", cmd, len))
+    {
+        if (1 != sscanf(val, "%lf", &grtt_estimate))
+        {
+            DMSG(0, "NormSimAgent::ProcessCommand(gize) invalid value!\n");   
+            return false;
+        }
+        if (session) session->ServerSetGroupSize(grtt_estimate);
+    }
     else if (!strncmp("txbuffer", cmd, len))
     {
         if (1 != sscanf(val, "%lu", &tx_buffer_size))
@@ -337,6 +350,33 @@ bool NormSimAgent::ProcessCommand(const char* cmd, const char* val)
             DMSG(0, "NormSimAgent::ProcessCommand(sendFile) no session started!\n");
             return false;
         }   
+    }  
+    else if (!strncmp("sendRandomFile", cmd, len))
+    {
+        if (2 != sscanf(val, "%lu:%lu", &tx_object_size_min, &tx_object_size_max))
+        {
+            DMSG(0, "NormSimAgent::ProcessCommand(sendRandomFile) invalid size!\n");   
+            return false;
+        }
+        if (tx_object_size_min > tx_object_size_max)
+        {
+            unsigned int tempSize = tx_object_size_min;
+            tx_object_size_min = tx_object_size_max;
+            tx_object_size_max = tempSize;
+        }
+        tx_object_size = tx_object_size_max - tx_object_size_min;
+        tx_object_size = (unsigned long)(tx_object_size * UniformRand(1.0));
+        tx_object_size += tx_object_size_min;
+        if (session)
+        {
+            TRACE("Queued file size: %lu bytes\n", tx_object_size);
+            return (NULL != session->QueueTxSim(tx_object_size));
+        }
+        else
+        {
+            DMSG(0, "NormSimAgent::ProcessCommand(sendRandomFile) no session started!\n");
+            return false;
+        }  
     }  
     else if (!strncmp("sendStream", cmd, len))
     {
@@ -422,7 +462,7 @@ bool NormSimAgent::ProcessCommand(const char* cmd, const char* val)
         }
         else
         {
-            DMSG(0, "NormSimAgent::ProcessCommand(flushStream) session not started!\n");
+            DMSG(0, "NormSimAgent::ProcessCommand(doFlush) session not started!\n");
             return false;
         }          
     }
@@ -532,8 +572,8 @@ bool NormSimAgent::SendMessage(unsigned int len, const char* txBuffer)
         else
         {
             // Message still pending, can't send yet
-            DMSG(0, "NormSimAgent::SendMessage() input overflow!\n");
-            ASSERT(0);
+            DMSG(0, "NormSimAgent::SendMessage() warning: input overflow!\n");
+            //ASSERT(0);
             return false;
         }
     }
@@ -564,11 +604,12 @@ void NormSimAgent::OnInputReady()
     }
 }  // end NormSimAgent::InputReady()
 
+// Do an _active_ flush of the stream (for use at end-of-transmission)
 bool NormSimAgent::FlushStream()
 {
     if (stream && session && session->IsServer())
     {
-        stream->Write(NULL, 0, flush_mode, false, false);
+        stream->Write(NULL, 0, NormStreamObject::FLUSH_ACTIVE, false, false);
         return true;
     }
     else
@@ -631,7 +672,7 @@ void NormSimAgent::Notify(NormController::Event event,
                     if (silent_client)
                         size = NormObjectSize(rx_buffer_size);
                     else
-                        size = object->Size();
+                        size = object->GetSize();
                     if (!((NormStreamObject*)object)->Accept(size.LSB()))
                     {
                         DMSG(0, "NormSimAgent::Notify(RX_OBJECT_NEW) stream object accept error!\n");
@@ -822,11 +863,18 @@ bool NormSimAgent::OnIntervalTimeout(ProtoTimer& theTimer)
         else
         {
             // Queue a NORM_OBJECT_SIM as long as there are repeats
-            if (tx_repeat_count > 0) tx_repeat_count--;  
+            if (tx_repeat_count > 0) tx_repeat_count--;
+            if (tx_object_size_min > 0)
+            {
+                tx_object_size = tx_object_size_max - tx_object_size_min;
+                tx_object_size = (unsigned long)(tx_object_size * UniformRand(1.0));
+                tx_object_size += tx_object_size_min;
+            }
             if (!session->QueueTxSim(tx_object_size))
             {
                 DMSG(0, "NormSimAgent::OnIntervalTimeout() Error queueing tx object.\n");
             }
+            TRACE("Queued file size: %lu bytes\n", tx_object_size);
         }
         interval_timer.SetInterval(tx_object_interval);
         return true;
@@ -837,7 +885,6 @@ bool NormSimAgent::OnIntervalTimeout(ProtoTimer& theTimer)
         if (interval_timer.IsActive()) interval_timer.Deactivate();
         return false;
     }
-    
 }  // end NormSimAgent::OnIntervalTimeout()
     
 
@@ -866,7 +913,8 @@ bool NormSimAgent::StartServer()
         session->SetTrace(tracing);
         session->SetTxLoss(tx_loss);
         session->SetRxLoss(rx_loss);
-        session->ServerSetGroupSize(group_size);        
+        session->ServerSetGroupSize(group_size);
+        session->ServerSetGrtt(grtt_estimate);        
         // StartServer(bufferMax, segmentSize, fec_ndata, fec_nparity)
         if (!session->StartServer(tx_buffer_size, segment_size, ndata, nparity))
         {

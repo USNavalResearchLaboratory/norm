@@ -32,11 +32,11 @@ class NormObject
         
         // Object information
         NormObject::Type GetType() const {return type;}
-        const NormObjectId& Id() const {return id;}  
-        const NormObjectSize& Size() const {return object_size;}
+        const NormObjectId& GetId() const {return transport_id;}  
+        const NormObjectSize& GetSize() const {return object_size;}
         bool HaveInfo() const {return (info_len > 0);}
         const char* GetInfo() const {return info;}
-        UINT16 InfoLength() const {return info_len;}
+        UINT16 GetInfoLength() const {return info_len;}
         bool IsStream() const {return (STREAM == type);}
         
         NormNodeId LocalNodeId() const;
@@ -127,7 +127,7 @@ class NormObject
                            NormSegmentId    lastSegmentId,
                            UINT16           numErasures)
         {
-            NormBlockId blockId = theBlock->Id();
+            NormBlockId blockId = theBlock->GetId();
             bool result = theBlock->TxUpdate(firstSegmentId, lastSegmentId, 
                                              GetBlockSize(blockId), nparity, 
                                              numErasures);
@@ -184,7 +184,7 @@ class NormObject
         NormObject::Type      type;
         class NormSession*    session;
         class NormServerNode* server;  // NULL value indicates local (tx) object
-        NormObjectId          id;
+        NormObjectId          transport_id;
         
         NormObjectSize        object_size;
         UINT16                segment_size;

@@ -64,12 +64,15 @@ class NormSimAgent : public NormController
         UINT8                       auto_parity;
         UINT8                       extra_parity;
         double                      group_size;
+        double                      grtt_estimate;
         unsigned long               tx_buffer_size; // bytes
         unsigned long               rx_buffer_size; // bytes
 
         // for simulated transmission (streams or files)
         unsigned long               tx_object_size;
         double                      tx_object_interval;
+        unsigned long               tx_object_size_min;
+        unsigned long               tx_object_size_max;
         int                         tx_repeat_count;
         double                      tx_repeat_interval;
 

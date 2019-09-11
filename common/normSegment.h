@@ -56,9 +56,9 @@ class NormBlock
             
         NormBlock();
         ~NormBlock();
-        const NormBlockId& Id() const {return id;}
+        const NormBlockId& GetId() const {return id;}
         void SetId(NormBlockId& x) {id = x;}
-        bool Init(UINT16 blockSize);
+        bool Init(UINT16 totalSize);
         void Destroy();   
         
         void SetFlag(NormBlock::Flag flag) {flags |= flag;}
@@ -134,7 +134,7 @@ class NormBlock
         bool AppendRepairAdv(NormCmdRepairAdvMsg& cmd, 
                              NormObjectId         objectId,
                              bool                 repairInfo,
-                             UINT16               ndata,
+                             UINT16               numData,
                              UINT16               segmentSize);
         
         // Client routines
@@ -217,8 +217,8 @@ class NormBlock
             {return (pending_mask.IsSet() || repair_mask.IsSet());}
         
         bool AppendRepairRequest(NormNackMsg&    nack, 
-                                 UINT16          ndata, 
-                                 UINT16          nparity,
+                                 UINT16          numData, 
+                                 UINT16          numParity,
                                  NormObjectId    objectId,
                                  bool            pendingInfo,
                                  UINT16          segmentSize);
@@ -248,7 +248,7 @@ class NormBlockPool
     public:
         NormBlockPool();
         ~NormBlockPool();
-        bool Init(UINT32 numBlocks, UINT16 blockSize);
+        bool Init(UINT32 numBlocks, UINT16 totalSize);
         void Destroy();
         bool IsEmpty() const {return (NULL == head);}
         NormBlock* Get()
