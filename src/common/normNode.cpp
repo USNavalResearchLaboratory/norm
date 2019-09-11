@@ -68,9 +68,9 @@ const double NormSenderNode::ACTIVITY_INTERVAL_MIN = 1.0;  // 1 second min activ
 NormSenderNode::NormSenderNode(class NormSession& theSession, NormNodeId nodeId)
  : NormNode(SENDER, theSession, nodeId), instance_id(0), robust_factor(session.GetRxRobustFactor()),
    synchronized(false), sync_id(0),
-   is_open(false), segment_size(0), fec_m(0), ndata(0), nparity(0), 
+   is_open(false), segment_size(0), fec_m(0), ndata(0), nparity(0), preset_stream(NULL),
    repair_boundary(BLOCK_BOUNDARY), decoder(NULL), erasure_loc(NULL),
-   retrieval_loc(NULL), retrieval_pool(NULL), ack_pending(false),
+   retrieval_loc(NULL), retrieval_pool(NULL), ack_pending(false), notify_on_grtt_update(true),
    cc_sequence(0), cc_enable(false), cc_feedback_needed(false), cc_rate(0.0), 
    rtt_confirmed(false), is_clr(false), is_plr(false),
    slow_start(true), send_rate(0.0), recv_rate(0.0), recv_rate_prev(0.0),
@@ -84,7 +84,7 @@ NormSenderNode::NormSenderNode(class NormSession& theSession, NormNodeId nodeId)
     unicast_nacks = session.ReceiverGetUnicastNacks();
     
     max_pending_range = session.GetRxCacheMax();
-            
+    
     repair_timer.SetListener(this, &NormSenderNode::OnRepairTimeout);
     repair_timer.SetInterval(0.0);
     repair_timer.SetRepeat(1);
@@ -152,7 +152,7 @@ bool NormSenderNode::Open(UINT16 instanceId)
     }    
     is_open = true;
     synchronized = false;
-    resync_count = 0;  // reset resync_count 
+    //resync_count = 0;  // reset resync_count 
     return true;
 }  // end NormSenderNode::Open()
 
@@ -178,24 +178,21 @@ void NormSenderNode::Close()
         cmd_buffer_pool = buf->GetNext();
         delete buf;
     }
-    
     rx_repair_mask.Destroy();
     rx_pending_mask.Destroy();
     rx_table.Destroy();
-    if (NULL != decoder) {
-        delete decoder;
-    }
     synchronized = false;
     is_open = false;
     
 }  // end NormSenderNode::Close()
 
-bool NormSenderNode::AllocateBuffers(UINT8  fecId,
-                                     UINT16 fecInstanceId,
-                                     UINT8  fecM,
-                                     UINT16 segmentSize, 
-                                     UINT16 numData, 
-                                     UINT16 numParity)
+bool NormSenderNode::AllocateBuffers(unsigned int   bufferSpace,
+                                     UINT8          fecId,
+                                     UINT16         fecInstanceId,
+                                     UINT8          fecM,
+                                     UINT16         segmentSize, 
+                                     UINT16         numData, 
+                                     UINT16         numParity)
 {    
     ASSERT(IsOpen());
     // Calculate how much memory each buffered block will require
@@ -203,8 +200,6 @@ bool NormSenderNode::AllocateBuffers(UINT8  fecId,
     unsigned long maskSize = blockSize >> 3;
     if (0 != (blockSize & 0x07)) maskSize++;
     unsigned long blockStateSpace = sizeof(NormBlock) +  blockSize * sizeof(char*) + 2*maskSize;
-    unsigned long bufferSpace = session.RemoteSenderBufferSize();
-
     // The "bufferFactor" weight determines the ratio of segment buffers (blockSegmentSpace) to
     // allocated NormBlock (blockStateSpace).  
     // If "bufferFactor = 1.0", this is equivalent to the old scheme, where every allocated
@@ -426,7 +421,7 @@ void NormSenderNode::FreeBuffers()
     segment_size = ndata = nparity = 0; 
 }  // end NormSenderNode::FreeBuffers()
 
-unsigned long NormSenderNode::CurrentStreamBufferUsage() const
+unsigned long NormSenderNode::CurrentStreamBufferUsage() 
 {
     unsigned long usage = 0;
     NormObjectTable::Iterator it(rx_table);
@@ -439,7 +434,7 @@ unsigned long NormSenderNode::CurrentStreamBufferUsage() const
     return usage;
 }  // end NormSenderNode::CurrentStreamBufferUsage()
 
-unsigned long NormSenderNode::PeakStreamBufferUsage() const
+unsigned long NormSenderNode::PeakStreamBufferUsage() 
 {
     unsigned long usage = 0;
     NormObjectTable::Iterator it(rx_table);
@@ -452,7 +447,7 @@ unsigned long NormSenderNode::PeakStreamBufferUsage() const
     return usage;
 }  // end NormSenderNode::PeakStreamBufferUsage()
 
-unsigned long NormSenderNode::StreamBufferOverunCount() const
+unsigned long NormSenderNode::StreamBufferOverunCount() 
 {
     unsigned long count = 0;
     NormObjectTable::Iterator it(rx_table);
@@ -471,13 +466,17 @@ bool NormSenderNode::ReadNextCmd(char* buffer, unsigned int* buflen)
     if (NULL == buflen) return false;  // (TBD) indicate error type
     if (NULL != cmd_buffer_head)
     {
-        if ((NULL == buffer) ||
-            (*buflen < cmd_buffer_head->GetContentLength()))
+        if (NULL == buffer)
         {
             // User is just querying for content length size.
             *buflen = cmd_buffer_head->GetContentLength();
-            return false;
+            return true;
         }   
+        else if (*buflen < cmd_buffer_head->GetContentLength())
+        {
+            *buflen = cmd_buffer_head->GetContentLength();
+            return false;
+        }
         else
         {
             // a) remove cmd from cmd_buffer queue
@@ -519,7 +518,7 @@ void NormSenderNode::UpdateGrttEstimate(UINT8 grttQuantized)
     grtt_quantized = grttQuantized;
     grtt_estimate = NormUnquantizeRtt(grttQuantized);
     PLOG(PL_DEBUG, "NormSenderNode::UpdateGrttEstimate() node>%lu sender>%lu new grtt: %lf sec\n",
-            LocalNodeId(), GetId(), grtt_estimate);
+                    (unsigned long)LocalNodeId(), (unsigned long)GetId(), grtt_estimate);
     // activity timer depends upon sender's grtt estimate
     // (TBD) do a proper rescaling here instead?
     double activityInterval = 2*session.GetTxRobustFactor()*grtt_estimate;
@@ -527,7 +526,11 @@ void NormSenderNode::UpdateGrttEstimate(UINT8 grttQuantized)
     activity_timer.SetInterval(activityInterval);
     if (activity_timer.IsActive()) activity_timer.Reschedule();
     // (TBD) Scale/reschedule repair_timer and/or cc_timer???
-    session.Notify(NormController::GRTT_UPDATED, this, (NormObject*)NULL);
+    if (notify_on_grtt_update)
+    {
+        notify_on_grtt_update = false;
+        session.Notify(NormController::GRTT_UPDATED, this, (NormObject*)NULL);
+    }
 }  // end NormSenderNode::UpdateGrttEstimate()
 
 
@@ -542,7 +545,7 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
         gsize_quantized = gsizeQuantized;
         gsize_estimate = NormUnquantizeGroupSize(gsizeQuantized);
         PLOG(PL_DEBUG, "NormSenderNode::HandleCommand() node>%lu sender>%lu new group size:%lf\n",
-                LocalNodeId(), GetId(), gsize_estimate);
+                        (unsigned long)LocalNodeId(), (unsigned long)GetId(), gsize_estimate);
     }
     backoff_factor = (double)cmd.GetBackoffFactor();
         
@@ -574,6 +577,8 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
             if ((NULL != obj) && (NormObject::STREAM == obj->GetType()))
             {
                 NormBlockId blockId = squelch.GetFecBlockId(fec_m);
+                //NormStreamObject* stream = (NormStreamObject*)obj;
+                //TRACE("Prune(%u) 8 (read_index = %u.%hu)...\n", (UINT32)blockId, (UINT32)stream->GetNextBlockId(), stream->GetNextSegmentId());
                 static_cast<NormStreamObject*>(obj)->Prune(blockId, true);   
             }
             // 3) Discard any invalidated objects (those listed in the squelch)
@@ -676,15 +681,15 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
                         r = MAX(r, 0.5);
                         r = (r - 0.5) / 0.4;
                     }
-                    //DMSG(0, "NormSenderNode::HandleCommand(CC) node>%lu bias:%lf recv_rate:%lf send_rate:%lf "
-                    //      "grtt:%lf gsize:%lf\n",
-                    //        LocalNodeId(), r, 8.0e-03*recv_rate, 8.0e-03*send_rate,
+                    //DMSG(0, "NormSenderNode::HandleCommand(CC) node>%lu bias:%lf "
+                    //        "recv_rate:%lf send_rate:%lf grtt:%lf gsize:%lf\n",
+                    //        (unsigned long)LocalNodeId(), r, 8.0e-03*recv_rate, 8.0e-03*send_rate,
                     // 
 
                     backoffTime = 0.25 * r * maxBackoff + 0.75 * backoffTime;
                     cc_timer.SetInterval(backoffTime);
                     PLOG(PL_TRACE, "NormSenderNode::HandleCommand() node>%lu begin CC back-off: %lf sec)...\n",
-                            LocalNodeId(), backoffTime);
+                                    (unsigned long)LocalNodeId(), backoffTime);
                     session.ActivateTimer(cc_timer);
                     break;
                 }  // end if (CC_RATE == ext.GetType())
@@ -756,7 +761,8 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
                        watermark_segment_id = symbolId;
                        if (!ack_timer.IsActive())
                        {
-                            double ackBackoff = session.Address().IsMulticast() ? UniformRand(grtt_estimate) : 0.0;
+                            double ackBackoff = (session.Address().IsMulticast() && (backoff_factor > 0.0)) ? 
+                                                    UniformRand(grtt_estimate) : 0.0;
                             ack_timer.SetInterval(ackBackoff);
                             ack_pending = true;
                             session.ActivateTimer(ack_timer); 
@@ -793,13 +799,11 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
                                     repairAdv.GetRepairContentLength());
             }
             break;
-        }
-        
-           
+        }  
         case NormCmdMsg::APPLICATION:
         {
             PLOG(PL_TRACE, "NormSenderNode::HandleCommand(APPLICATION) node>%lu recvd app-defined cmd...\n",
-                            LocalNodeId());
+                            (unsigned long)LocalNodeId());
             const NormCmdAppMsg& appCmd = static_cast<const NormCmdAppMsg&>(cmd);
             // 1) Buffer the received command either using a buffer structure
             //    cmd_buffer pool or allocating a new one as needed.
@@ -811,7 +815,7 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
             if (NULL == buf)
             {
                 PLOG(PL_ERROR, "NormSenderNode::HandleCommand(APPLICATION) node>%lu NewCmdCBuffer() error: %s\n", 
-                        GetErrorString()); 
+                               (unsigned long)LocalNodeId(), GetErrorString()); 
             }
             else 
             {
@@ -836,7 +840,8 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
                 else
                 {
                     PLOG(PL_ERROR, "NormSenderNode::HandleCommand(APPLICATION) node>%lu error: "
-                            "cmd content greater than sender's segment_size?!\n"); 
+                                   "cmd content greater than sender's segment_size?!\n", 
+                                   (unsigned long)LocalNodeId()); 
                     buf->Append(cmd_buffer_pool);
                     cmd_buffer_pool = buf;
                 }
@@ -997,7 +1002,7 @@ void NormSenderNode::HandleRepairContent(const UINT32* buffer, UINT16 bufferLen)
                                              &lastBlockLen, &lastSegmentId))
                 {
                     PLOG(PL_ERROR, "NormSenderNode::HandleRepairContent() node>%lu recvd incomplete RANGE request!\n",
-                            LocalNodeId());
+                                    (unsigned long)LocalNodeId());
                     continue;  // (TBD) break/return instead???  
                 }  
                 // (TBD) test for valid range form/level
@@ -1114,7 +1119,9 @@ void NormSenderNode::DeleteObject(NormObject* obj)
 NormBlock* NormSenderNode::GetFreeBlock(NormObjectId objectId, NormBlockId blockId)
 {
     NormBlock* b = block_pool.Get();
-    if (!b)
+    //TRACE("enter NormSenderNode::GetFreeBlock() empty:%d\n", (NULL == b));
+    
+    if (NULL == b)
     {
         if (session.ReceiverIsSilent() || session.RcvrIsRealtime())
         {
@@ -1200,6 +1207,129 @@ char* NormSenderNode::GetFreeSegment(NormObjectId objectId, NormBlockId blockId)
     return result;
 }  // end NormSenderNode::GetFreeSegment()
 
+bool NormSenderNode::PreallocateRxStream(unsigned int   bufferSize,
+                                         UINT16         segmentSize, 
+                                         UINT16         numData, 
+                                         UINT16         numParity)
+{
+    if (NULL!= preset_stream) delete preset_stream;
+    if (NULL == (preset_stream = new NormStreamObject(session, this, 0)))
+    {
+        PLOG(PL_ERROR, "NormSenderNode::PreallocateRxStream() new NormStreamObject error: %s\n",
+                       GetErrorString());
+        return false;
+    }
+    UINT8 fecId;
+    UINT8 fecM = 8;
+    if ((numData + numParity) > 255)
+    {
+        fecId = 2;
+        fecM = 16;
+    }
+    else
+    {
+        fecId = 5;
+    }
+    UINT32 blockSize = segmentSize * numData;
+    UINT32 numBlocks = bufferSize / blockSize;
+    // Buffering requires at least 2 blocks
+    numBlocks = MAX(2, numBlocks);
+    // Recompute "bufferSize" to match any adjustments
+    bufferSize = numBlocks * blockSize;
+    if (!preset_stream->RxOpen(NormObjectSize(bufferSize), 
+                               true,
+                               segmentSize, 
+                               fecId, 
+                               fecM,
+                               numData,
+                               numParity))
+    {
+        PLOG(PL_ERROR, "NormSenderNode::PreallocateRxStream() error: RxOpen() failure\n");
+        delete preset_stream;
+        preset_stream = NULL;
+        return false;
+    }
+    if (!preset_stream->Accept(bufferSize, true))
+    {
+        PLOG(PL_ERROR, "NormSenderNode::PreallocateRxStream() error: Accept() failure\n");
+        delete preset_stream;
+        preset_stream = NULL;
+        return false;
+    }
+    return true;
+}  // end NormSenderNode::PreallocateRxStream()
+
+
+bool NormSenderNode::GetFtiData(const NormObjectMsg& msg, NormFtiData& ftiData)
+{
+    UINT8 fecId = msg.GetFecId();
+    switch (fecId)
+    {
+        case 2:
+        {
+            NormFtiExtension2 fti;
+            while (msg.GetNextExtension(fti))
+            {
+                if (NormHeaderExtension::FTI == fti.GetType())
+                {
+                    ASSERT(1 == fti.GetFecGroupSize());  // TBD - allow for different groupings
+                    ftiData.SetFecInstanceId(0);
+                    ftiData.SetFecFieldSize(fti.GetFecFieldSize());
+                    ftiData.SetSegmentSize(fti.GetSegmentSize());
+                    ftiData.SetFecMaxBlockLen(fti.GetFecMaxBlockLen());
+                    ftiData.SetFecNumParity(fti.GetFecNumParity());
+                    ftiData.SetObjectSize(fti.GetObjectSize());
+                    return true;
+                }
+            }
+            break;
+        }
+        case 5:
+        {
+            NormFtiExtension5 fti;
+            while (msg.GetNextExtension(fti))
+            {
+                if (NormHeaderExtension::FTI == fti.GetType())
+                {
+                    ftiData.SetFecInstanceId(0);
+                    ftiData.SetFecFieldSize(8);
+                    ftiData.SetSegmentSize(fti.GetSegmentSize());
+                    ftiData.SetFecMaxBlockLen(fti.GetFecMaxBlockLen());
+                    ftiData.SetFecNumParity(fti.GetFecNumParity());
+                    ftiData.SetObjectSize(fti.GetObjectSize());
+                    return true;
+                }
+            }
+            break;
+        }
+        case 129:
+        {
+            NormFtiExtension129 fti;
+            while (msg.GetNextExtension(fti))
+            {
+                if (NormHeaderExtension::FTI == fti.GetType())
+                {
+                    ftiData.SetFecInstanceId(fti.GetFecInstanceId());
+                    ftiData.SetFecFieldSize(8);
+                    ftiData.SetSegmentSize(fti.GetSegmentSize());
+                    ftiData.SetFecMaxBlockLen(fti.GetFecMaxBlockLen());
+                    ftiData.SetFecNumParity(fti.GetFecNumParity());
+                    ftiData.SetObjectSize(fti.GetObjectSize());
+                    return true;
+                }
+            }
+            break;
+        }
+        default:
+            PLOG(PL_ERROR, "NormSenderNode::GetFtiData() node>%lu sender>%lu unknown fec_id type:%d\n",
+                            (unsigned long)LocalNodeId(), (unsigned long)GetId(), (int)fecId);
+            break;
+    }  // end switch (fecId)
+    PLOG(PL_ERROR, "NormSenderNode::GetFtiData() node>%lu sender>%lu unknown fec_id type:%d\n",
+                   (unsigned long)LocalNodeId(), (unsigned long)GetId(), (int)fecId);
+    return false;
+}  // end NormSenderNode::GetFtiData()
+
 void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
 {
     UINT8 grttQuantized = msg.GetGrtt();
@@ -1210,7 +1340,7 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
         gsize_quantized = gsizeQuantized;
         gsize_estimate = NormUnquantizeGroupSize(gsizeQuantized);
         PLOG(PL_DEBUG, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu new group size: %lf\n",
-                LocalNodeId(), GetId(), gsize_estimate);
+                        (unsigned long)LocalNodeId(), (unsigned long)GetId(), gsize_estimate);
     }
     backoff_factor = (double)msg.GetBackoffFactor();
     
@@ -1226,16 +1356,47 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
     //    2) When the FEC parameters have changed (TBD)
     //
     bool allocateBuffers = true;
+    bool gotFTI = false;
+    NormFtiData ftiData;
+    
+    
     if (BuffersAllocated())
     {
-        if (fec_id == fecId)
-            allocateBuffers = false;  // TBD - validate fec params?
+        // Validate that allocated buffers match object FEC params
+        if (fecId == fec_id)
+        {
+            if (GetFtiData(msg, ftiData))
+            {
+                gotFTI = true;
+                if ((ftiData.GetSegmentSize() != segment_size) ||
+                    (ftiData.GetFecFieldSize() != fec_m) ||
+                    (ftiData.GetFecMaxBlockLen() != ndata) ||
+                    (ftiData.GetFecNumParity() != nparity))
+                {
+                    FreeBuffers(); // force reallocation because fec params changed
+                }  
+                else
+                {               
+                    allocateBuffers = false;  // FEC params match
+                }
+            }
+            else
+            {
+                // TBD - handle case where only NORM_INFO carries FTI Info to reduce overhead
+                PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu - no FTI provided!\n",
+                                (unsigned long)LocalNodeId(), (unsigned long)GetId());
+                return;  // (TBD) notify app of error ??
+            }
+        }
         else
+        {
             FreeBuffers(); // force reallocation because fec id changed
+        }
     }
     
     NormBlockId blockId;
     NormSegmentId segmentId;
+    
     if (NormMsg::INFO == msgType)
     {
         fec_id = fecId;
@@ -1258,86 +1419,30 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
         if (allocateBuffers)
         {
             PLOG(PL_DEBUG, "NormSenderNode::HandleObjectMessage() node>%lu allocating sender>%lu buffers ...\n",
-                    LocalNodeId(), GetId());
+                            (unsigned long)LocalNodeId(), (unsigned long)GetId());
             // Currently,, our implementation requires the FEC Object Transmission Information
             // to properly allocate resources for FEC buffering and decoding
-            UINT16 fecInstanceId = 0;
-            UINT8 fecM = 8;
-            UINT16 segmentSize = 0;
-            UINT16 fecMaxBlockLen = 0;
-            UINT16 fecNumParity = 0;
-            bool noFTI = true;
-            switch (fecId)
+            // So, get the FEC Transport Information (FTI) from header extension
+            // TBD - allow for application preset FTI
+            if (!gotFTI)
             {
-                case 2:
+                if (GetFtiData(msg, ftiData))
                 {
-                    NormFtiExtension2 fti;
-                    while (msg.GetNextExtension(fti))
-                    {
-                        if (NormHeaderExtension::FTI == fti.GetType())
-                        {
-                            ASSERT(1 == fti.GetFecGroupSize());  // TBD - allow for different groupings
-                            fecM = fti.GetFecFieldSize();
-                            segmentSize = fti.GetSegmentSize();
-                            fecMaxBlockLen = fti.GetFecMaxBlockLen();
-                            fecNumParity = fti.GetFecNumParity();
-                            noFTI = false;
-                            break;
-                        }
-                    }
-                    break;
+                    gotFTI = true;
                 }
-                case 5:
+                else
                 {
-                    NormFtiExtension5 fti;
-                    while (msg.GetNextExtension(fti))
-                    {
-                        if (NormHeaderExtension::FTI == fti.GetType())
-                        {
-                            segmentSize = fti.GetSegmentSize();
-                            fecMaxBlockLen = fti.GetFecMaxBlockLen();
-                            fecNumParity = fti.GetFecNumParity();
-                            noFTI = false;
-                            break;
-                        }
-                    }
-                    break;
+                    PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu - no FTI provided!\n",
+                                    (unsigned long)LocalNodeId(), (unsigned long)GetId());
+                    // (TBD) notify app of error ??
+                    return;  
                 }
-                case 129:
-                {
-                    NormFtiExtension129 fti;
-                    while (msg.GetNextExtension(fti))
-                    {
-                        if (NormHeaderExtension::FTI == fti.GetType())
-                        {
-                            fecInstanceId = fti.GetFecInstanceId();
-                            segmentSize = fti.GetSegmentSize();
-                            fecMaxBlockLen = fti.GetFecMaxBlockLen();
-                            fecNumParity = fti.GetFecNumParity();
-                            noFTI = false;
-                            break;
-                        }
-                    }
-                    break;
-                }
-                default:   
-                    PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu unknown fec_id type:%d\n",
-                                LocalNodeId(), GetId(), fecId);
-                    return;
-                
-            }  // end switch (fecId)
-            
-            if (noFTI)
-            {
-                PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu - no FTI provided!\n",
-                         LocalNodeId(), GetId());
-                // (TBD) notify app of error ??
-                return;  
             }
-            if (!AllocateBuffers(fecId, fecInstanceId, fecM, segmentSize, fecMaxBlockLen, fecNumParity))
+            if (!AllocateBuffers(session.RemoteSenderBufferSize(), fecId, ftiData.GetFecInstanceId(), ftiData.GetFecFieldSize(), 
+                                 ftiData.GetSegmentSize(), ftiData.GetFecMaxBlockLen(), ftiData.GetFecNumParity()))
             {
                 PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu buffer allocation error\n",
-                        LocalNodeId(), GetId());
+                                (unsigned long)LocalNodeId(), (unsigned long)GetId());
                 // (TBD) notify app of error ??
                 return;
             }    
@@ -1378,7 +1483,7 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
             return;   
         }
     }    
-    
+    bool presetStream = false;
     NormObject* obj = NULL;
     switch (status)
     {
@@ -1389,10 +1494,53 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
         {
             if (msg.FlagIsSet(NormObjectMsg::FLAG_STREAM))
             {
-                if (!(obj = new NormStreamObject(session, this, objectId)))
+                if (NULL != preset_stream)
                 {
-                    PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() new NORM_OBJECT_STREAM error: %s\n",
-                            GetErrorString());
+                    obj = static_cast<NormObject*>(preset_stream);
+                    // Validate FTI params
+                    if (!gotFTI)
+                    {
+                        // need to get FTI data
+                        if (GetFtiData(msg, ftiData))
+                        {
+                            gotFTI = true;
+                        }
+                        else
+                        {
+                            PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu - no FTI provided!\n",
+                                           (unsigned long)LocalNodeId(), (unsigned long)GetId());
+                            // (TBD) notify app of error ??
+                            return;  
+                        }
+                    }
+                    if ((obj->GetSize() != ftiData.GetObjectSize()) ||
+                        (obj->GetFecId() != fecId) ||
+                        (obj->GetSegmentSize() != ftiData.GetSegmentSize()) || 
+                        (obj->GetFecMaxBlockLen() != ftiData.GetFecMaxBlockLen()) ||
+                        (obj->GetFecNumParity() != ftiData.GetFecNumParity()) ||
+                        (obj->GetFecFieldSize() != ftiData.GetFecFieldSize()))
+                    {
+                        PLOG(PL_WARN, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu warning: "
+                                      "FTI does not match preset_stream!\n",
+                                      (unsigned long)LocalNodeId(), (unsigned long)GetId());
+                        obj = NULL;
+                    }
+                    else
+                    {
+                        // Init preset_stream objectId and INFO status
+                        obj->SetId(objectId);
+                        if (!msg.FlagIsSet(NormObjectMsg::FLAG_INFO))
+                            obj->ClearInfo();
+                        presetStream = true;
+                    }
+                }
+                if (NULL == obj) 
+                {
+                    if (NULL == (obj = new NormStreamObject(session, this, objectId)))
+                    {
+                        PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() new NORM_OBJECT_STREAM error: %s\n",
+                                        GetErrorString());
+                    }
                 }
             }
             else if (msg.FlagIsSet(NormObjectMsg::FLAG_FILE))
@@ -1409,7 +1557,7 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
             }
             else
             {
-                if (!(obj = new NormDataObject(session, this, objectId)))
+                if (!(obj = new NormDataObject(session, this, objectId, session.GetSessionMgr().GetDataFreeFunction())))
                 {
                     PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() new NORM_OBJECT_DATA error: %s\n",
                             GetErrorString());
@@ -1424,118 +1572,74 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
                 ASSERT(rx_table.CanInsert(objectId));
                 ASSERT(rx_pending_mask.Test(objectId));
                 rx_table.Insert(obj);
-                UINT8 fecId = msg.GetFecId();
-                UINT8 fecM = 8;
-                UINT16 segmentSize = 0;
-                UINT16 fecMaxBlockLen = 0;
-                UINT16 fecNumParity = 0;
-                NormObjectSize objectSize;
-                bool noFTI = true;
-                switch (fecId)
-                {
-                    case 2:
-                    {
-                        NormFtiExtension2 fti;
-                        while (msg.GetNextExtension(fti))
-                        {
-                            if (NormHeaderExtension::FTI == fti.GetType())
-                            {
-                                ASSERT(1 == fti.GetFecGroupSize());  // TBD - allow for different groupings
-                                fecM = fti.GetFecFieldSize();
-                                segmentSize = fti.GetSegmentSize();
-                                fecMaxBlockLen = fti.GetFecMaxBlockLen();
-                                fecNumParity = fti.GetFecNumParity();
-                                objectSize = fti.GetObjectSize();
-                                noFTI = false;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                    case 5:
-                    {
-                        NormFtiExtension5 fti;
-                        while (msg.GetNextExtension(fti))
-                        {
-                            if (NormHeaderExtension::FTI == fti.GetType())
-                            {
-                                segmentSize = fti.GetSegmentSize();
-                                fecMaxBlockLen = fti.GetFecMaxBlockLen();
-                                fecNumParity = fti.GetFecNumParity();
-                                objectSize = fti.GetObjectSize();
-                                noFTI = false;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                    case 129:
-                    {
-                        NormFtiExtension129 fti;
-                        while (msg.GetNextExtension(fti))
-                        {
-                            if (NormHeaderExtension::FTI == fti.GetType())
-                            {
-                                segmentSize = fti.GetSegmentSize();
-                                fecMaxBlockLen = fti.GetFecMaxBlockLen();
-                                fecNumParity = fti.GetFecNumParity();
-                                objectSize = fti.GetObjectSize();
-                                noFTI = false;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                    default:   
-                        segmentSize = fecMaxBlockLen = fecNumParity = 0;
-                        PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu unknown fec_id type:%d\n",
-                                    LocalNodeId(), GetId(), fecId);
-                        return;
-
-                }  // end switch (fecId)
-                
-                if (noFTI)
+                // Pull out FTI parameters from header extension if we didn't get it above
+                if (!gotFTI && !GetFtiData(msg, ftiData))
                 {
                     PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu "
-                                "new obj>%hu - no FTI provided!\n", LocalNodeId(), GetId(), (UINT16)objectId);
-                    DeleteObject(obj);
+                                   "new obj>%hu - no FTI provided!\n", (unsigned long)LocalNodeId(), 
+                                   (unsigned long)GetId(), (UINT16)objectId);
+                    if (!presetStream) DeleteObject(obj);
                     obj = NULL;
                 }
-                else if (obj->RxOpen(objectSize, 
-                                     msg.FlagIsSet(NormObjectMsg::FLAG_INFO),
-                                     segmentSize, 
-                                     fecId, 
-                                     fecM,
-                                     fecMaxBlockLen,
-                                     fecNumParity))
+                else 
                 {
-                    session.Notify(NormController::RX_OBJECT_NEW, this, obj);
-                    if (obj->Accepted())
+                    if (presetStream || 
+                        obj->RxOpen(ftiData.GetObjectSize(), 
+                                    msg.FlagIsSet(NormObjectMsg::FLAG_INFO),
+                                    ftiData.GetSegmentSize(), 
+                                    fecId, 
+                                    ftiData.GetFecFieldSize(),
+                                    ftiData.GetFecMaxBlockLen(),
+                                    ftiData.GetFecNumParity()))
                     {
-                        if (obj->IsStream()) 
+                        session.Notify(NormController::RX_OBJECT_NEW, this, obj);
+                        if (obj->Accepted())
                         {
-                            // This initial "StreamUpdateStatus()" syncs the stream according to our sync policy
-                            NormStreamObject* stream = static_cast<NormStreamObject*>(obj);
-                            if (SYNC_CURRENT != sync_policy)
-                                stream->StreamResync(NormBlockId(0));
+                            if (obj->IsStream()) 
+                            {
+                                if (presetStream) preset_stream = NULL;  // we're using it up
+                                // This initial "StreamUpdateStatus()" syncs the stream according to our sync policy
+                                NormStreamObject* stream = static_cast<NormStreamObject*>(obj);
+                                if (SYNC_CURRENT == sync_policy)
+                                {
+                                    // Just "sync" to first received blockId 
+                                    stream->StreamUpdateStatus(blockId);
+                                }
+                                else
+                                {
+                                    // This forces the sender to do a maximum "rewind"
+                                    // If the resultant "syncId" is close to zero, assume
+                                    // we are "in-range" of sender initial (block zero) stream start
+                                    NormBlockId syncId = blockId;
+                                    stream->Decrement(syncId, stream->GetPendingMaskSize() - 1);
+                                    if ((stream->Compare(blockId, NormBlockId(0)) >= 0) &&
+                                        (stream->Compare(syncId, NormBlockId(0)) <= 0))
+                                    {
+                                        // Assume we are "in-range" of sender initial stream startup
+                                        syncId = NormBlockId(0);
+                                    }
+                                    stream->StreamUpdateStatus(syncId);
+                                }
+                            }    
+                            PLOG(PL_DETAIL, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu new obj>%hu\n", 
+                                            (unsigned long)LocalNodeId(), (unsigned long)GetId(), (UINT16)objectId);
+                        }
+                        else
+                        {
+                            PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() object not accepted\n");
+                            if (presetStream) 
+                                rx_table.Remove(obj);
                             else
-                                stream->StreamUpdateStatus(blockId);
-                        }    
-                        PLOG(PL_DETAIL, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu new obj>%hu\n", 
-                            LocalNodeId(), GetId(), (UINT16)objectId);
+                                DeleteObject(obj);
+                            obj = NULL;    
+                        }
                     }
-                    else
+                    else        
                     {
-                        PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() object not accepted\n");
+                        PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() error opening object\n");
                         DeleteObject(obj);
-                        obj = NULL;    
+                        obj = NULL;   
                     }
-                }
-                else        
-                {
-                    PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() error opening object\n");
-                    DeleteObject(obj);
-                    obj = NULL;   
                 }
             }
             break;
@@ -1551,7 +1655,6 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
     if (NULL != obj)
     {
         obj->HandleObjectMessage(msg, msgType, blockId, segmentId);
-        
         bool objIsPending = obj->IsPending();
         
         // Silent receivers may be configured to allow obj completion w/out INFO
@@ -1608,7 +1711,7 @@ bool NormSenderNode::SyncTest(const NormObjectMsg& msg) const
             bool result = msg.FlagIsSet(NormObjectMsg::FLAG_STREAM);
             // Allow sync on INFO or block zero DATA message 
             result = result || (NormMsg::INFO == msg.GetType()) ? 
-                                    true : (0 == ((const NormDataMsg&)msg).GetFecBlockId(fec_m));
+                                    true : (NormBlockId(0) == ((const NormDataMsg&)msg).GetFecBlockId(fec_m));
             // Never sync on repair messages
             result = result && !msg.FlagIsSet(NormObjectMsg::FLAG_REPAIR);
             return result;
@@ -1666,25 +1769,29 @@ void NormSenderNode::Sync(NormObjectId objectId)
             GetLastPending(lastPending);
             if ((objectId > lastPending) || ((next_id - objectId) > max_pending_range))
             {
+                bool incrementResyncCount = objectId <= lastPending;  // may just be a squelch trim
                 NormObject* obj;
                 while ((obj = rx_table.Find(rx_table.RangeLo()))) 
                 {
+                    incrementResyncCount = true;
                     AbortObject(obj);
                 }
                 rx_pending_mask.Clear(); 
-                resync_count++;
+                if (incrementResyncCount) IncrementResyncCount();
             }
             else if (objectId > firstPending)
             {
+               bool incrementResyncCount = false;  // may just be a squelch trim
                NormObject* obj;
                while ((obj = rx_table.Find(rx_table.RangeLo())) &&
                       (obj->GetId() < objectId)) 
                {
                    AbortObject(obj);
+                   incrementResyncCount = true;  // more than just a trim
                }
                unsigned long numBits = (UINT16)(objectId - firstPending);
                rx_pending_mask.UnsetBits(firstPending, numBits); 
-               resync_count++;
+               if (incrementResyncCount) IncrementResyncCount();
             }
         }  
         if ((next_id < objectId) || ((next_id - objectId) > max_pending_range))
@@ -1726,11 +1833,11 @@ NormSenderNode::ObjectStatus NormSenderNode::UpdateSyncStatus(const NormObjectId
             // (TBD) We may want to control resync policy options
             //       or revert to fresh sync if sync is totally lost,
             //       otherwise SQUELCH process will get things in order
-            PLOG(PL_INFO, "NormSenderNode::UpdateSyncStatus() node>%lu resync to sender>%lu obj>%hu...\n",
-                    LocalNodeId(), GetId(), (UINT16)objectId);
+            PLOG(PL_DEBUG, "NormSenderNode::UpdateSyncStatus() node>%lu resync to sender>%lu obj>%hu...\n",
+                          (unsigned long)LocalNodeId(), (unsigned long)GetId(), (UINT16)objectId);
             
             NormObjectId syncId = objectId;
-            /*
+            
             // This code avoids grosser resyncs (if uncommented) ...
             // However, attempts at finer-grained resync 
             // (i.e. preserving some partially-received objects)
@@ -1740,7 +1847,7 @@ NormSenderNode::ObjectStatus NormSenderNode::UpdateSyncStatus(const NormObjectId
             // and experiment!
             if (rx_pending_mask.IsSet())
             {
-                NormObjectId lastPending(65535);
+                NormObjectId lastPending;//(65535);
                 GetLastPending(lastPending);
                 if (syncId > lastPending)
                 {
@@ -1751,11 +1858,8 @@ NormSenderNode::ObjectStatus NormSenderNode::UpdateSyncStatus(const NormObjectId
                     }
                 }
             }
-            */
             Sync(syncId);
-            //resync_count++;  (this is now incremented in NormNode::Sync())
-            status = OBJ_NEW;
-            break;
+            return UpdateSyncStatus(objectId);
         }
         case OBJ_NEW:
             SetPending(objectId);
@@ -1798,8 +1902,9 @@ NormSenderNode::ObjectStatus NormSenderNode::GetObjectStatus(const NormObjectId&
            // this is too aggressive a resync rule?
            if ((sync_id - objectId) > 2*max_pending_range)
            {
-                PLOG(PL_WARN, "NormSenderNode::GetObjectStatus() INVALID object>%hu sync_id>%hu\n", 
-                              (UINT16)objectId, (UINT16)sync_id);
+               // This can happen with NORM_SYNC_ALL sync policy
+                PLOG(PL_DEBUG, "NormSenderNode::GetObjectStatus() INVALID object>%hu sync_id>%hu\n", 
+                               (UINT16)objectId, (UINT16)sync_id);
                 return OBJ_INVALID;
            }
            else
@@ -1833,8 +1938,8 @@ NormSenderNode::ObjectStatus NormSenderNode::GetObjectStatus(const NormObjectId&
                     {
                         NormObjectId fp;
                         GetFirstPending(fp);
-                        PLOG(PL_WARN, "NormSenderNode::GetObjectStatus() INVALID object>%hu firstPending>%hu\n", 
-                              (UINT16)objectId, (UINT16)fp);
+                        PLOG(PL_DEBUG, "NormSenderNode::GetObjectStatus() INVALID object>%hu firstPending>%hu\n", 
+                                      (UINT16)objectId, (UINT16)fp);
                         return OBJ_INVALID;
                     }
                 }
@@ -1843,8 +1948,8 @@ NormSenderNode::ObjectStatus NormSenderNode::GetObjectStatus(const NormObjectId&
                     NormObjectId delta = objectId - next_id + 1;
                     if (delta > NormObjectId((UINT16)rx_pending_mask.GetSize()))
                     {
-                        PLOG(PL_WARN, "NormSenderNode::GetObjectStatus() INVALID object>%hu next_id>%hu\n", 
-                              (UINT16)objectId, (UINT16)next_id);
+                        PLOG(PL_DEBUG, "NormSenderNode::GetObjectStatus() INVALID object>%hu next_id>%hu\n", 
+                                       (UINT16)objectId, (UINT16)next_id);
                         
                         return OBJ_INVALID;
                     }
@@ -1943,7 +2048,7 @@ void NormSenderNode::RepairCheck(NormObject::CheckLevel checkLevel,
                         ExponentialRand(grtt_estimate*backoff_factor, gsize_estimate) : 
                         0.0;
                 PLOG(PL_DEBUG, "NormSenderNode::RepairCheck() node>%lu begin NACK backoff: %lf sec)...\n",
-                        LocalNodeId(), backoffInterval);
+                                (unsigned long)LocalNodeId(), backoffInterval);
                 // Here, we clear NormSenderNode repair_mask
                 // that is used for NACK suppression.
                 // (object/block repair_masks are cleared as needed in NormObject::ReceiverRepairCheck
@@ -1979,7 +2084,7 @@ void NormSenderNode::RepairCheck(NormObject::CheckLevel checkLevel,
         {
             repair_timer.Deactivate();
             PLOG(PL_DEBUG, "NormSenderNode::RepairCheck() node>%lu sender rewind detected, ending NACK holdoff ...\n",
-                    LocalNodeId());
+                           (unsigned long)LocalNodeId());
             // Immediately do a repair check to see if rewind was sufficient
             // TBD - will we get too much unnecessary NACKing with out-of-order packet delivery ???
             RepairCheck(checkLevel, objectId, blockId, segmentId);
@@ -1995,14 +2100,14 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
     switch(repair_timer.GetRepeatCount())
     {
         case 0:  // hold-off time complete
-            PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu end NACK hold-off ...\n",
-                    LocalNodeId());
+            PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu sender>%lu end NACK hold-off ...\n",
+                           (unsigned long)LocalNodeId(), (unsigned long)GetId());
             break;
             
         case 1:  // back-off timeout complete
         {
-            PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu end NACK back-off ...\n",
-                    LocalNodeId());
+            PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu sender>%lu end NACK back-off ...\n",
+                           (unsigned long)LocalNodeId(), (unsigned long)GetId());
             // 1) Were we suppressed? 
             NormObjectId nextId;
             if (GetFirstPending(nextId))
@@ -2028,15 +2133,19 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                 if (repairPending)
                 {
                     // We weren't completely suppressed, so build NACK
-                    NormNackMsg* nack = (NormNackMsg*)session.GetMessageFromPool();
-                    if (!nack)
+                    NormNackMsg* nack = static_cast<NormNackMsg*>(session.GetMessageFromPool());
+                    if (NULL == nack)
                     {
                         PLOG(PL_WARN, "NormSenderNode::OnRepairTimeout() node>%lu Warning! "
-                                "message pool empty ...\n", LocalNodeId());
+                                      "message pool empty ...\n", (unsigned long)LocalNodeId());
                         repair_timer.Deactivate();
                         return false;   
                     }
                     nack->Init();
+                    UINT16 payloadMax = 4*segment_size;
+                    // If we sync'd to non-DATA, we don't yet know the sender segment_size
+                    if (0 == payloadMax) 
+                        payloadMax = 4*NormNackMsg::DEFAULT_LENGTH_MAX;
                     bool nackAppended = false;
                     
                     if (cc_enable)
@@ -2068,6 +2177,7 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         else
                         {
                             double nominalSize = (nominal_packet_size > segment_size) ? nominal_packet_size : segment_size;
+                            if (0 == nominalSize) nominalSize = 512;  // TBD - what should this really be
                             double ccRate = NormSession::CalculateRate(nominalSize,
                                                                        rtt_estimate,
                                                                        ccLoss);
@@ -2086,8 +2196,8 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                             ext.SetCCRate(NormQuantizeRate(ccRate));
                         }
                         PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu sending NACK rate:%lf kbps (rtt:%lf loss:%lf s:%hu) slow_start:%d\n",
-                                 LocalNodeId(), 8.0e-03*NormUnquantizeRate(ext.GetCCRate()), 
-                                 rtt_estimate, ccLoss, (UINT16)nominal_packet_size, slow_start);
+                                        (unsigned long)LocalNodeId(), 8.0e-03*NormUnquantizeRate(ext.GetCCRate()), 
+                                        rtt_estimate, ccLoss, (UINT16)nominal_packet_size, slow_start);
                         ext.SetCCSequence(cc_sequence);
                         // Cancel potential pending NORM_ACK(CC) since we are NACKing 
                         if (cc_timer.IsActive())
@@ -2111,13 +2221,13 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                     {
                         bool appendRequest = false;
                         NormObject* obj = iterating ? rx_table.Find(nextId) : NULL;
+                        UINT16 diff = nextId - prevId;
                         if (obj)
                             appendRequest = true;
-                        else if (iterating && ((nextId - prevId) == consecutiveCount))
+                        else if (iterating && (diff == consecutiveCount))
                             consecutiveCount++;  // consecutive series of missing objs starts/continues 
                         else
                             appendRequest = true;  // consecutive series broken or finished
-                        
                         if (appendRequest)
                         {
                             NormRepairRequest::Form nextForm;
@@ -2133,7 +2243,7 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                 default:
                                     nextForm = NormRepairRequest::RANGES;
                                     break;
-                            }  
+                            } 
                             if (prevForm != nextForm)
                             {
                                 if ((NormRepairRequest::INVALID != prevForm) &&
@@ -2148,10 +2258,7 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                 }
                                 if (NormRepairRequest::INVALID != nextForm)
                                 {
-                                    if (0 != segment_size)
-                                        nack->AttachRepairRequest(req, segment_size); // (TBD) error check
-                                    else
-                                        nack->AttachRepairRequest(req, NormNackMsg::DEFAULT_LENGTH_MAX);
+                                    nack->AttachRepairRequest(req, payloadMax); // (TBD) error check
                                     req.SetForm(nextForm);
                                     req.ResetFlags();
                                     // Set flags for missing objects according to
@@ -2193,7 +2300,7 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                     }
                                     prevForm = NormRepairRequest::INVALID; 
                                     bool flush = (nextId != max_pending_object);
-                                    nackAppended |= obj->AppendRepairRequest(*nack, flush); 
+                                    nackAppended |= obj->AppendRepairRequest(*nack, flush, payloadMax); 
                                 }
                                 consecutiveCount = 0;
                             }
@@ -2233,8 +2340,16 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         ASSERT(nack->GetRepairContentLength() > 0);
                         if (!session.ReceiverIsSilent())
                         {
-                            session.SendMessage(*nack);
-                            nack_count++;
+                            UINT16 singleNackSize = segment_size ? segment_size : NormNackMsg::DEFAULT_LENGTH_MAX;
+                            if (nack->GetRepairContentLength() <= singleNackSize)
+                            {
+                                session.SendMessage(*nack);
+                                nack_count++;
+                            }
+                            else
+                            {
+                                FragmentNack(*nack);
+                            }
                         }
                         session.ReturnMessageToPool(nack);
                     }
@@ -2244,8 +2359,8 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         // perhaps because of our "nacking mode"
                         // even though there were pending objects
                         // TBD - should we avoid NACK hold-off when this happens?
-                        PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu zero content nack ...\n",
-                            LocalNodeId());
+                        PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu sender>%lu zero content nack ...\n",
+                                        (unsigned long)LocalNodeId(), (unsigned long)GetId());
                         session.ReturnMessageToPool(nack);
                     }
                 }
@@ -2254,8 +2369,8 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                     if (!session.ReceiverIsSilent())
                     {
                         suppress_count++;
-                        PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu NACK SUPPRESSED ...\n",
-                                LocalNodeId());
+                        PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu sender>%lu NACK SUPPRESSED ...\n",
+                                        (unsigned long)LocalNodeId(), (unsigned long)GetId());
                     }
                 }  // end if/else(repairPending)
                 // BACKOFF related code
@@ -2277,16 +2392,17 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         holdoffInterval += grtt_estimate;
                     }
                 }
-                //holdoffInterval = (backoff_factor > 0.0) ? holdoffInterval : 1.0*grtt_estimate;
+                // Uncommenting the line below treats ((0 == nparity) && 0.0 == backoff_factor)
+                // as a special case (assumes zero sender aggregateInterval)
+                holdoffInterval = ((0 != nparity) || (backoff_factor > 0.0)) ? holdoffInterval : grtt_estimate;
                 repair_timer.SetInterval(holdoffInterval);
-                PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu begin NACK hold-off: %lf sec ...\n",
-                         LocalNodeId(), holdoffInterval);
-                
+                PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu sender>%lu begin NACK hold-off: %lf sec ...\n",
+                                (unsigned long)LocalNodeId(), (unsigned long)GetId(), holdoffInterval);
             }
             else
             {
-                PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu nothing pending ...\n",
-                        LocalNodeId());
+                PLOG(PL_DEBUG, "NormSenderNode::OnRepairTimeout() node>%lu sender>%lu nothing pending ...\n",
+                                (unsigned long)LocalNodeId(), (unsigned long)GetId());
                 // (TBD) cancel hold-off timeout ???  
             }  // end if/else (repair_mask.IsSet())       
         }
@@ -2298,6 +2414,104 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
     }
     return true;
 }  // end NormSenderNode::OnRepairTimeout()
+
+void NormSenderNode::FragmentNack(NormNackMsg& superNack)
+{
+    // Parse a "super" NACK and refactor it into a series of smaller
+    // NACK messages as needed (per "segment_size" constraint)
+    // and send them.
+    NormNackMsg* nack = (NormNackMsg*)session.GetMessageFromPool();
+    if (!nack)
+    {
+        PLOG(PL_WARN, "NormSenderNode::FragmentNack() node>%lu Warning! "
+                      "message pool empty ...\n", (unsigned long)LocalNodeId());
+        return;   
+    }
+    nack->InitFrom(superNack);
+    // GRTT response is deferred until transmit time
+    if (unicast_nacks)
+        nack->SetDestination(GetAddress());
+    else
+        nack->SetDestination(session.Address());
+    
+    UINT16 payloadLength = 0;
+    NormRepairRequest superReq;
+    UINT16 requestOffset = 0;
+    UINT16 requestLength = 0;
+    while (0 != (requestLength = superNack.UnpackRepairRequest(superReq, requestOffset)))
+    {
+        const UINT16 REQ_HDR_LEN = 4;  // TBD - get from normMessage.h instead
+        requestOffset += requestLength;
+        if ((payloadLength + requestLength) <= segment_size)
+        {
+            // Copy whole request over
+            nack->AppendRepairRequest(superReq);
+            payloadLength += requestLength;
+        }
+        else if ((payloadLength + REQ_HDR_LEN) < segment_size)
+        {
+            // Duplicate request and add individual repair items
+            NormRepairRequest::Form requestForm = superReq.GetForm();
+            NormRepairRequest req;
+            nack->AttachRepairRequest(req, segment_size);
+            req.SetForm(requestForm);
+            req.SetFlags(superReq.GetFlags());
+            payloadLength += REQ_HDR_LEN;
+            
+            NormRepairRequest::Iterator iterator(superReq, fec_id, fec_m);
+            NormObjectId objectId, lastObjectId;
+            NormBlockId blockId, lastBlockId;
+            UINT16  blockLen, lastBlockLen;
+            NormSegmentId segmentId, lastSegmentId;
+            UINT16 itemLength;
+            while (0 != (itemLength = iterator.NextRepairItem(&objectId, &blockId, &blockLen, &segmentId)))
+            {
+                if (NormRepairRequest::RANGES == requestForm)
+                {
+                    itemLength += iterator.NextRepairItem(&lastObjectId, &lastBlockId, 
+                                                          &lastBlockLen, &lastSegmentId);
+                }
+                if ((payloadLength + itemLength) > segment_size)
+                {
+                    // We have filled the NACK, so pack, send, and reset request
+                    nack->PackRepairRequest(req);
+                    session.SendMessage(*nack);
+                    nack_count++;
+                    nack->ResetPayload();
+                    nack->AttachRepairRequest(req, segment_size);
+                    payloadLength = REQ_HDR_LEN;
+                }
+                if (NormRepairRequest::RANGES == requestForm)
+                {
+                    req.AppendRepairRange(fec_id, fec_m, objectId, blockId, blockLen, segmentId,
+                                          lastObjectId, lastBlockId, lastBlockLen, lastSegmentId);
+                }
+                else
+                {
+                    req.AppendRepairItem(fec_id, fec_m, objectId, blockId, blockLen, segmentId);
+                }   
+                payloadLength += itemLength;
+            }
+            nack->PackRepairRequest(req);
+            ASSERT(nack->GetRepairContentLength() == payloadLength);
+        }
+        else
+        {
+            session.SendMessage(*nack);
+            nack_count++;
+            nack->ResetPayload();
+            payloadLength = 0;
+        }
+    }
+    if (0 != payloadLength)
+    {
+        ASSERT(nack->GetRepairContentLength() == payloadLength);
+        session.SendMessage(*nack);
+        nack_count++;
+    }
+    session.ReturnMessageToPool(nack);
+    
+}  // end NormSenderNode::FragmentNack()
 
 void NormSenderNode::UpdateRecvRate(const struct timeval& currentTime, unsigned short msgSize)
 {
@@ -2400,14 +2614,14 @@ bool NormSenderNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
     {
         // Remote sender completely inactive?
         PLOG(PL_INFO, "NormSenderNode::OnActivityTimeout() node>%lu sender>%lu gone inactive?\n",
-                LocalNodeId(), GetId());
+                        (unsigned long)LocalNodeId(), (unsigned long)GetId());
         //FreeBuffers();  This now needs to be done by the app as of norm version 1.4b3
         session.Notify(NormController::REMOTE_SENDER_INACTIVE, this, NULL);
     }
     else
     {
         PLOG(PL_INFO, "NormSenderNode::OnActivityTimeout() node>%lu for sender>%lu\n",
-            LocalNodeId(), GetId());
+                        (unsigned long)LocalNodeId(), (unsigned long)GetId());
         struct timeval currentTime;
         ::ProtoSystemTime(currentTime);
         UpdateRecvRate(currentTime, 0);
@@ -2569,9 +2783,12 @@ void NormSenderNode::AttachCCFeedback(NormAckMsg& ack)
 #endif // LIMIT_CC_RATE
         ext.SetCCRate(NormQuantizeRate(ccRate));
     }
-    PLOG(PL_DEBUG, "NormSenderNode::AttachCCFeedback() node>%lu sending ACK rate:%lf kbps (rtt:%lf loss:%lf s:%lf recvRate:%lf) slow_start:%d\n",
-                   LocalNodeId(), 8.0e-03*NormUnquantizeRate(ext.GetCCRate()) , 
-                   rtt_estimate, ccLoss, nominal_packet_size, 8.0e-03*recv_rate, slow_start);
+    PLOG(PL_DEBUG, "NormSenderNode::AttachCCFeedback() node>%lu sender>%lu sending ACK rate:%lf kbps "
+                   "(rtt:%lf loss:%lf s:%lf recvRate:%lf) slow_start:%d\n",
+                   (unsigned long)LocalNodeId(), (unsigned long)GetId(), 
+                    8.0e-03*NormUnquantizeRate(ext.GetCCRate()) , 
+                   rtt_estimate, ccLoss, nominal_packet_size, 
+                    8.0e-03*recv_rate, slow_start);
     ext.SetCCSequence(cc_sequence);
 }  // end NormSenderNode::AttachCCFeedback()
 
@@ -2580,7 +2797,7 @@ bool NormSenderNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
     // Build and send NORM_ACK(CC)
     if (ack_pending && (1 == cc_timer.GetRepeatCount()))
     {
-        // Send ACK flush right away (CC feedback is included
+        // Send ACK flush right away (CC feedback is included)
         if (ack_timer.IsActive()) ack_timer.Deactivate();
         if (cc_timer.IsActive()) cc_timer.Deactivate();  // will be reactivated if needed
         OnAckTimeout(ack_timer);
@@ -2598,8 +2815,8 @@ bool NormSenderNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
             NormAckMsg* ack = (NormAckMsg*)session.GetMessageFromPool();
             if (!ack)
             {
-                PLOG(PL_WARN, "NormSenderNode::OnCCTimeout() node>%lu warning: "
-                        "message pool empty ...\n", LocalNodeId());
+                PLOG(PL_WARN, "NormSenderNode::OnCCTimeout() node>%lu sender>%lu warning: message pool empty ...\n", 
+                              (unsigned long)LocalNodeId(), (unsigned long)GetId());
                 if (cc_timer.IsActive()) cc_timer.Deactivate();
                 return false;   
             }
@@ -2611,6 +2828,7 @@ bool NormSenderNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
             
             AttachCCFeedback(*ack);  // cc feedback extension
             
+            // TBD - we need to provide a multicast_acks option
             if (unicast_nacks)
                 ack->SetDestination(GetAddress());
             else
@@ -2671,7 +2889,7 @@ bool NormSenderNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
             blockLen = ndata;
         else
             blockLen = watermark_segment_id;
-        ack->SetFecPayloadId(fec_id, watermark_block_id, watermark_segment_id, blockLen, fec_m);
+        ack->SetFecPayloadId(fec_id, watermark_block_id.GetValue(), watermark_segment_id, blockLen, fec_m);
         
         if (unicast_nacks)
             ack->SetDestination(GetAddress());
@@ -2793,7 +3011,6 @@ void NormNodeTree::AttachNode(NormNode *node)
 void NormNodeTree::DetachNode(NormNode* node)
 {
     ASSERT(NULL != node);
-    node->Release();
     NormNode* x;
     NormNode* y;
     if (!node->left || !node->right)
@@ -2845,7 +3062,8 @@ void NormNodeTree::DetachNode(NormNode* node)
         }
         if ((y->left = node->left)) y->left->parent = y;
         if ((y->right = node->right)) y->right->parent = y;
-    }        
+    }      
+    node->Release();  
 }  // end NormNodeTree::DetachNode()
 
 
@@ -3217,8 +3435,6 @@ bool NormLossEstimator2::Update(const struct timeval&   currentTime,
         double windowScale = ignore_loss ? 2.0 : 1.0;
         if (deltaTime > windowScale*event_window)
         { 
-            //if (CONFIRMING == seeking_loss_event)
-            //    TRACE("Clearing unconfirmed loss event ...\n");
             seeking_loss_event = SEEKING;
         }
     }

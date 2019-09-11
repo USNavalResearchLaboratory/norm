@@ -133,6 +133,12 @@ class Session(object):
     def streamOpen(self, bufferSize, info=""):
         return Object(libnorm.NormStreamOpen(self, bufferSize, info, len(info)))
 
+    def sendCommand(self, cmdBuffer, robust=False):
+        return libnorm.NormSendCommand(self, cmdBuffer, len(cmdBuffer), robust)
+	
+    def cancelCommand(self):
+        libnorm.NormCancelCommand(self)
+
     def setWatermark(self, normObject, overrideFlush=False):
         libnorm.NormSetWatermark(self, normObject, overrideFlush)
         

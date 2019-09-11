@@ -36,14 +36,27 @@
 //    socket" approach could be supported for unicast and SSM streams without too much
 //    difficulty.
 
-#include "normSocket.h"
-#include <arpa/inet.h>  // for inet_ntoa
 #include <stdio.h>      // for fprintf()
 #include <string.h>     // for memcmp()
 #include <map>          // for std::map<>
+#include <assert.h>     // more obvious
+
+#include "normSocket.h"
+#ifdef WIN32
+#include "win32InputHandler.cpp"  // to include full implementation
+#include <Winsock2.h>             // for inet_ntoa()
+#include <Ws2tcpip.h>             // for inet_ntop()
+#else
+#include <arpa/inet.h>  // for inet_ntoa
 #include <sys/select.h>
 #include <fcntl.h>       // for, well, fnctl()
 #include <errno.h>       // obvious child
+#endif // if/else WIN32/UNIX
+
+void Usage()
+{
+    fprintf(stderr, "Usage: normServer [listen [<groupAddr>/]<port>][debug <level>][trace]\n");
+}
 
 // Our "server" indexes clients by their source addr/port
 class ClientInfo
@@ -58,11 +71,11 @@ class ClientInfo
         UINT16 GetPort() const
             {return client_port;}
         
-        const char* GetAddressString() const;
-        void Print(FILE* filePtr) const;
+        const char* GetAddressString();
+        void Print(FILE* filePtr);
         
     private:
-        UINT8               addr_version;  // 4 or 6
+        UINT8               addr_version;    // 4 or 6
         char                client_addr[16]; // big enough for IPv6
         UINT16              client_port;
         
@@ -110,7 +123,7 @@ int ClientInfo::GetAddressFamily() const
 }  // end ClientInfo::GetAddressFamily()
 
 
-const char* ClientInfo::GetAddressString() const
+const char* ClientInfo::GetAddressString() 
 {
     static char text[64];
     text[63] = '\0';    
@@ -123,7 +136,7 @@ const char* ClientInfo::GetAddressString() const
     return text;
 }  // end ClientInfo::GetAddressString() 
 
-void ClientInfo::Print(FILE* filePtr) const
+void ClientInfo::Print(FILE* filePtr)
 {
     char text[64];
     text[63] = '\0';    
@@ -136,9 +149,45 @@ void ClientInfo::Print(FILE* filePtr) const
     fprintf(filePtr, "%s/%hu", text, client_port);
 }  // end ClientInfo::Print()
 
+class Client
+{
+    public:
+        Client(NormSocketHandle clientSocket);
+        ~Client();
+        
+        NormSocketHandle GetSocket() const
+            {return client_socket;}
+        
+        bool GetWriteReady() const
+            {return write_ready;}
+        void SetWriteReady(bool state)
+            {write_ready = state;}
+        
+        unsigned int GetBytesWritten() const
+            {return bytes_written;}
+        void SetBytesWritten(unsigned long numBytes)
+            {bytes_written = numBytes;}
+               
+    private:
+        NormSocketHandle   client_socket;
+        // These are state variables for unicast server -> client communication
+        bool                write_ready;
+        unsigned int        bytes_written;
+        
+};  // end class Client
+
+Client::Client(NormSocketHandle clientSocket)
+ : client_socket(clientSocket), 
+   write_ready(true), bytes_written(0)
+{
+}
+
+Client::~Client()
+{
+}
 
 // C++ map used to index client sessions by the client source addr/port
-typedef std::map<ClientInfo, NormSocketHandle> ClientMap;
+typedef std::map<ClientInfo, Client*> ClientMap;
 
 ClientInfo NormGetClientInfo(NormNodeHandle client)
 {
@@ -146,31 +195,45 @@ ClientInfo NormGetClientInfo(NormNodeHandle client)
     unsigned int addrLen = 16;
     UINT16 port;
     NormNodeGetAddress(client, addr, &addrLen, &port);
-    int addrFamily;
     UINT8 version;
     if (4 == addrLen)
-    {
-        addrFamily = AF_INET;
         version = 4;
-    }
     else
-    {
-        addrFamily = AF_INET6;
         version = 6;
-    }
     return ClientInfo(version, addr, port);
-}  // end NormGetClientInfo()
+}  // end NormGetClientInfo(NormNodeHandle)
 
-NormSocketHandle FindClientSocket(ClientMap& clientMap, const ClientInfo& clientInfo)
+ClientInfo NormGetSocketInfo(NormSocketHandle socket)
+{
+    char addr[16]; // big enough for IPv6
+    unsigned int addrLen = 16;
+    UINT16 port;
+    NormGetPeerName(socket, addr, &addrLen, &port);
+    UINT8 version;
+    if (4 == addrLen)
+        version = 4;
+    else
+        version = 6;
+    return ClientInfo(version, addr, port);
+}  // end NormGetSocketInfo(NormSocketHandle)
+
+Client* FindClient(ClientMap& clientMap, const ClientInfo& clientInfo)
 {
     ClientMap::iterator it = clientMap.find(clientInfo);
     if (clientMap.end() != it) 
-        return &(it->second);
+        return it->second;
     else
+        return NULL;
+}  // end FindClient()
+
+NormSocketHandle FindClientSocket(ClientMap& clientMap, const ClientInfo& clientInfo)
+{
+    Client* client = FindClient(clientMap, clientInfo);
+    if (NULL == client)
         return NORM_SOCKET_INVALID;
+    else
+        return client->GetSocket();
 }  // end FindClientSocket()
-
-
 
 int main(int argc, char* argv[])
 {
@@ -184,7 +247,6 @@ int main(int argc, char* argv[])
     
     bool trace = false;
     unsigned int debugLevel = 0;
-    
     
     for (int i = 1; i < argc; i++)
     {
@@ -210,11 +272,13 @@ int main(int argc, char* argv[])
             if (1 != sscanf(portPtr, "%hu", &serverPort))
             {
                 fprintf(stderr, "normServer error: invalid <port> \"%s\"\n", portPtr);
+                Usage();
                 return -1;
             }
         }
         else if (0 == strncmp(cmd, "interface", len))
         {
+            // Note the NormSocket code does not yet expose mcast interface
             mcastInterface = argv[++i];
         }
         else if (0 == strncmp(cmd, "trace", len))
@@ -226,37 +290,42 @@ int main(int argc, char* argv[])
             if (1 != sscanf(argv[++i], "%u", &debugLevel))
             {
                 fprintf(stderr, "normServer error: invalid debug level\n");
+                Usage();
                 return -1;
             }
         }
         else
         {
             fprintf(stderr, "normServer error: invalid command \"%s\"\n", cmd);
+            Usage();
             return -1;
         }
     }    
     
-    // For unicast operation in this demo app, the server only "talks back"
-    // to one client on a first come, first serve basis. (Multiple clients
-    // can connect and send data _to_ the server, but in this simple example,
-    // the server only sends to one at a time. For the multicast server case,
-    // the server multicasts to the entire group.
-    NormSocketHandle firstClientSocket = NORM_SOCKET_INVALID;
-    
     NormInstanceHandle instance = NormCreateInstance();
     
-    NormSocketHandle serverSocket = NormListen(instance, serverPort, groupAddrPtr);
+    NormSocketHandle serverSocket = NormOpen(instance);
     
-    if (trace) NormSetMessageTrace(NormGetSession(serverSocket), true);
+    NormListen(serverSocket, serverPort, groupAddrPtr);
+    
+    if (trace) NormSetMessageTrace(NormGetSocketSession(serverSocket), true);
     if (0 != debugLevel) NormSetDebugLevel(debugLevel);
     
     //NormSetDebugLevel(8);
-    //NormSetMessageTrace(NormGetSession(serverSocket), true);
+    //NormSetMessageTrace(NormGetSocketSession(serverSocket), true);
     
+    
+#ifdef WIN32
+    HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    Win32InputHandler inputHandler;
+    inputHandler.Open();
+    HANDLE handleArray[2];
+    handleArray[0] = NormGetDescriptor(instance);
+    handleArray[1] = inputHandler.GetEventHandle();
+#else    
     // We use a select() call to multiplex input reading and NormSocket handling
     fd_set fdset;
     FD_ZERO(&fdset);
-    
     // Get our input (STDIN) descriptor and set non-blocking
     FILE* inputFile = stdin;
     int inputfd = fileno(inputFile);
@@ -264,15 +333,48 @@ int main(int argc, char* argv[])
         perror("normClient: fcntl(inputfd, O_NONBLOCK) error");
     // Get our NormInstance descriptor
     int normfd = NormGetDescriptor(instance);
+#endif // if/else WIN32/UNIX
+    
     bool keepGoing = true;
     bool writeReady = false;
-    unsigned int inputLength = 0;
+    int inputLength = 0;
     unsigned int bytesWritten = 0;
     const unsigned int BUFFER_LENGTH = 2048;
     char inputBuffer[BUFFER_LENGTH];
     bool inputNeeded = false;  // will be set to "true" upon CONNECT
+    bool inputClosed = false;
+    unsigned int clientCount = 0;
     while (keepGoing)
     {
+        bool normEventPending = false;
+        bool inputEventPending = false;
+#ifdef WIN32
+        DWORD handleCount = inputNeeded ? 2 : 1;
+        DWORD waitStatus =  
+            MsgWaitForMultipleObjectsEx(handleCount,   // number of handles in array
+                                        handleArray,   // object-handle array
+                                        INFINITE,           // time-out interval
+                                        QS_ALLINPUT,   // input-event type
+                                        0);
+        if ((WAIT_OBJECT_0 <= waitStatus) && (waitStatus < (WAIT_OBJECT_0 + handleCount)))
+        {
+            if (0 == (waitStatus - WAIT_OBJECT_0))
+                normEventPending = true;
+            else
+                inputEventPending = true;
+        }
+        else if (-1 == waitStatus)
+        {
+            perror("normServer: MsgWaitForMultipleObjectsEx() error");
+            break;
+        }
+        else
+        {
+            // TBD - any other status we should handle?
+            // (e.g. WAIT_TIMEOUT, WAIT_ABANDONED or WAIT_IO_COMPLETION)
+            continue;  // ignore for now
+        }
+#else
         FD_SET(normfd, &fdset);
         int maxfd = normfd;
         if (inputNeeded)
@@ -287,12 +389,33 @@ int main(int argc, char* argv[])
         int result = select(maxfd+1, &fdset, NULL, NULL, NULL);
         if (result <= 0)
         {
-            perror("normClient: select() error");
+            perror("normServer: select() error");
             break;
         }
         if (FD_ISSET(inputfd, &fdset))
+            inputEventPending = true;
+        if (FD_ISSET(normfd, &fdset))
+            normEventPending = true;
+#endif  // if/else WIN32/UNIX
+        
+        if (inputEventPending)
         {
             // Read input into our txBuffer
+#ifdef WIN32
+            inputLength = inputHandler.ReadData(inputBuffer, BUFFER_LENGTH);
+            if (inputLength > 0)
+            {
+				// We got our input
+				bytesWritten = 0;
+                inputNeeded = false;
+            }
+            else if (inputLength < 0)
+            {
+                inputHandler.Close();
+                inputClosed = true;
+            }
+            // else zero bytes read, still need input
+#else
             inputLength = fread(inputBuffer, 1, BUFFER_LENGTH, inputFile);
             if (inputLength > 0)
             {
@@ -302,10 +425,13 @@ int main(int argc, char* argv[])
             }
             else if (feof(inputFile))
             {
-                // TBD - initiate server shutdown if it's job is
-                // only until the input is closed
-                // Meanwhile, we just stick around to receive stuff from the clients
-                inputNeeded = false;  // TBD - should also fclose(inputFile)??
+                if (stdin != inputFile)
+                {
+                    fclose(inputFile);
+                    inputFile = NULL;
+                }
+                inputClosed = true;
+                
             }
             else if (ferror(inputFile))
             {
@@ -318,12 +444,35 @@ int main(int argc, char* argv[])
                         // input starved, wait for next notification
                         break;
                     default:
-                        perror("normClient: error reading input");
+                        perror("normServer: error reading input?!");
                         break;
                 }
             }
-        }
-        if (FD_ISSET(normfd, &fdset))
+#endif // if/else WIN32/UNIX
+            if (inputClosed)
+            {
+                inputNeeded = false;
+                // Gracefully shutdown any connected clients
+                // TBD - set state variable to indicate exit upon all closed?
+                if (clientMap.empty())
+                {
+                    keepGoing = false;
+                    continue;
+                }
+                else
+                {
+                    ClientMap::iterator it;
+                    for (it = clientMap.begin(); it != clientMap.end(); it++)
+                    {
+                        Client* client = it->second;
+                        NormSocketHandle clientSocket = client->GetSocket();
+                        NormShutdown(clientSocket);
+                    }
+                }
+            }
+        }  // end if inputEventPending
+        
+        if (normEventPending)
         {
 
             // There's a NORM event pending
@@ -333,6 +482,8 @@ int main(int argc, char* argv[])
                 ClientInfo clientInfo;
                 if (NORM_NODE_INVALID != event.sender)
                     clientInfo = NormGetClientInfo(event.sender);
+                else
+                    clientInfo = NormGetSocketInfo(event.socket);
                 switch (event.type)
                 {           
                     case NORM_SOCKET_ACCEPT:
@@ -344,26 +495,44 @@ int main(int argc, char* argv[])
                             if (NORM_SOCKET_INVALID != FindClientSocket(clientMap, clientInfo))
                             {
                                 // We think we're already connected to this client
-                                fprintf(stderr, "normServer: duplicative %s client ...\n",
-                                        (NORM_REMOTE_SENDER_NEW == event.event.type) ? "new" : "reset");
+                                fprintf(stderr, "normServer: duplicative %s from client %s/%hu...\n",
+                                        (NORM_REMOTE_SENDER_NEW == event.event.type) ? "new" : "reset",
+                                        clientInfo.GetAddressString(), clientInfo.GetPort());
                                 continue;
                             }
                             NormSocketHandle clientSocket = NormAccept(serverSocket, event.sender);
                             
-                            // TBD - For multicast, if we are sending a tx_stream, we could flush it here to 
+                            Client* client = new Client(clientSocket);
+                            if (NULL == client)
+                            {
+                                perror("normServer: new Client() error");
+                                NormClose(clientSocket);
+                                continue;
+                            }
+
+							// TBD - For multicast, if we are sending a tx_stream, we could flush it here to 
                             // bring the new receiver "up to date" ... probably would be best to
                             // do this on some sort of timer-basis in the case of a bunch of receivers
                             // joining in a short window of time ...
                             
                             if (trace)  // note we're already tracing the mcast session
-                                NormSetMessageTrace(NormGetSession(clientSocket), true);
-                            //NormSetMessageTrace(NormGetSession(clientSocket), true);
-                            clientMap[clientInfo] = clientSocket;
+                                NormSetMessageTrace(NormGetSocketSession(clientSocket), true);
+                            //NormSetMessageTrace(NormGetSocketSession(clientSocket), true);
+                            clientMap[clientInfo] = client;
+                            
+                            // ACCEPTED is good as CONNECTED, so enable writing right away
+                            client->SetWriteReady(true);
+                            if (0 == clientCount)
+                            {
+                                // We have at least one client, so lets serve up some juicy input
+                                inputNeeded = true;
+                                writeReady = true;
+                            }
+                            clientCount++;
                             fprintf(stderr, "normServer: ACCEPTED connection from %s/%hu\n",
                                             clientInfo.GetAddressString(), clientInfo.GetPort());
-                            // We have at least one client, so lets serve up some juicy input
-                            inputNeeded = true;
-                            writeReady = true;
+                            // Note that an ACCEPTED socket is essentially CONNECTED, so we could
+                            // go ahead and set writeReady to true, etc here
                         }
                         else
                         {
@@ -375,8 +544,8 @@ int main(int argc, char* argv[])
                     {
                         fprintf(stderr, "normServer: CONNECTED to %s/%hu ...\n",
                                         clientInfo.GetAddressString(), clientInfo.GetPort());
-                        if (NORM_SOCKET_INVALID == firstClientSocket)
-                                firstClientSocket = event.socket;
+                        Client* client = FindClient(clientMap, clientInfo);
+                        assert(NULL != client);
                         break;   
                     }
                     case NORM_SOCKET_READ:
@@ -395,36 +564,60 @@ int main(int argc, char* argv[])
                                     continue;
                                 }
                                 if (bytesRead > 0)
+                                
+                                {
+#ifdef WIN32
+                                    // Use WriteFile() so there is no buffer delay
+                                    DWORD dwWritten;
+                                    WriteFile(hStdout, buffer, bytesRead, &dwWritten, NULL);
+#else
                                     fwrite(buffer, sizeof(char), bytesRead, stdout);
+#endif // if/else WIN32
+                                }
                                 if (bytesRead < 1024) rxReady = false;
                             }
+                            // Following lines are test code (to immediately close connection after first reaad)
+                            // (tests server stale connection "reject" command)
+                            //clientMap.erase(clientInfo);
+                            //NormClose(event.socket);
 				        break;
                     }      
                     case NORM_SOCKET_WRITE:
-                        // We only demo server data transmission for the multicast server case
-                        // (see comment below)
-                        if ((NULL != groupAddrPtr) || (event.socket == firstClientSocket)) 
+                    {
+                        if (NULL != groupAddrPtr)
+                        {
+                            // We are a multicast server
                             writeReady = true;
-				        break;     
+                        }
+                        else
+                        {
+                            Client* client = FindClient(clientMap, clientInfo);
+                            assert(NULL != client);
+                            client->SetWriteReady(true);
+                        }
+                        break;     
+                    }
                     case NORM_SOCKET_CLOSING:
+                    {
                         fprintf(stderr, "normServer: client %s/%hu CLOSING connection ...\n",
                                             clientInfo.GetAddressString(), clientInfo.GetPort());
-                        if (event.socket == firstClientSocket)
-                            firstClientSocket = NORM_SOCKET_INVALID;
-                        
-				        break;   
-                    case NORM_SOCKET_CLOSED:
+                        Client* client = FindClient(clientMap, clientInfo);
+                        assert(NULL != client);
+                        client->SetWriteReady(false);
+                        break;   
+                    }
+                    case NORM_SOCKET_CLOSE:
                     {
                         fprintf(stderr, "normServer: connection to client %s/%hu CLOSED ...\n",
                                             clientInfo.GetAddressString(), clientInfo.GetPort());
-                        if (event.socket == firstClientSocket)
-                            firstClientSocket = NORM_SOCKET_INVALID;
                         clientMap.erase(clientInfo);
-				        break;   
+                        NormClose(event.socket);
+                        if (inputClosed && clientMap.empty())
+                            keepGoing = false;
+                        break;   
                     }
                     case NORM_SOCKET_NONE:
 				        break; 
-                        break;
                 }  // end switch(event.type)   
             }
             else
@@ -433,31 +626,96 @@ int main(int argc, char* argv[])
             }
         }  // end if FD_ISSET(normfd)
         
-        // For our _multicast_ "normServer" example, the server can send to the group                        
-        // (For a unicast "normServer", we would need to do something more complex
-        //  to manage sending data to each individual client that connects to us.
-        //  So, for the moment, the unicast "normServer" only sends to the "firstClientSocket"
-        NormSocketHandle sendSocket = (NULL != groupAddrPtr) ? serverSocket : firstClientSocket;
-        if (NORM_SOCKET_INVALID != sendSocket)
+        // If the normServer app has unsent data from STDIN, send it to the clients.
+        // Note that a _multicast_ server multicasts to all clients at once while a 
+        // unicast server sends to each connected client individually
+        if ((inputLength > 0) && !inputNeeded)
         {
-            if (writeReady && (inputLength > 0))
+            // There is inputBuffer data for the server to send to the client(s)
+            if (NULL == groupAddrPtr)
             {
-                // We have data in our inputBuffer and the NormSocket is "writeReady", so send it
-                bytesWritten += NormWrite(sendSocket, inputBuffer + bytesWritten, inputLength - bytesWritten);
-                if (bytesWritten < inputLength)
+                // Unicast the data to each connected client individually by iterating
+                // over the clientMap and sending data out to each pending client socket
+                // (inputNeeded is reset to "true" when _all_ clients are non-pending)
+                bool clientPending = false;
+                ClientMap::iterator it;
+                for (it = clientMap.begin(); it != clientMap.end(); it++)
                 {
-                    // Couldn't write whole inputBuffer, need to wait for NORM_SOCKET_WRITE event
-                    writeReady = false;
-                }
-                else
+                    Client* client = it->second;
+                    if (!client->GetWriteReady())
+                    {
+                        clientPending = true;
+                        continue;
+                    }
+                    unsigned int numBytes = client->GetBytesWritten();
+                    if (numBytes < inputLength)
+                    {
+                        NormSocketHandle clientSocket = client->GetSocket();
+                        bytesWritten += NormWrite(clientSocket, inputBuffer + numBytes, inputLength - numBytes);
+                        client->SetBytesWritten(numBytes);
+                        if (bytesWritten < inputLength)
+                        {
+                            // Couldn't write whole inputBuffer, need to wait for NORM_SOCKET_WRITE event
+                            // for this client socket
+                            client->SetWriteReady(false);
+                            clientPending = true;
+                        }
+                        else
+                        {
+                            // inputBuffer has been completely written to this client
+                            NormFlush(clientSocket);
+                        }
+                    }
+                }  
+                if (!clientPending)
                 {
-                    // inputBuffer has been completely written
+                    // inputBuffer was sent to _all_ clients, so reset 
                     inputLength = 0;
                     inputNeeded = true;
-                    NormFlush(sendSocket);
+                    // Reset all client "bytes_written" to zero for next chunk of data
+                    for (it = clientMap.begin(); it != clientMap.end(); it++)
+                        it->second->SetBytesWritten(0);
                 }
             }
-        }
+            else
+            {
+                // Multicast the data out the "serverSocket" to all clients
+                // (Use the 'writeReady' and 'bytesWritten' state variables)
+                NormSocketHandle sendSocket = serverSocket;
+                if (NORM_SOCKET_INVALID != sendSocket)
+                {
+                    if (writeReady && (inputLength > 0))
+                    {
+						// We have data in our inputBuffer and the NormSocket is "writeReady", so send it
+                        bytesWritten += NormWrite(sendSocket, inputBuffer + bytesWritten, inputLength - bytesWritten);
+                        if (bytesWritten < inputLength)
+                        {
+                            // Couldn't write whole inputBuffer, need to wait for NORM_SOCKET_WRITE event
+                            writeReady = false;
+                        }
+                        else
+                        {
+                            // inputBuffer has been completely written
+                            inputLength = 0;
+                            inputNeeded = true;
+							NormFlush(sendSocket);
+                        }
+                    }
+                }
+            }
+        }  // end if ((inputLength > 0) && !inputNeeded)
+        
         
     }  // end while (keepGoing)
+#ifdef WIN32
+    inputHandler.Close();
+#else
+    if ((stdin != inputFile) && (NULL != inputFile))
+    {
+        fclose(inputFile);
+        inputFile = NULL;
+    }
+#endif // if/else WIN32
+    NormClose(serverSocket);
+    serverSocket = NORM_SOCKET_INVALID;
 }  // end main()

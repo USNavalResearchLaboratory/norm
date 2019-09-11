@@ -68,6 +68,13 @@ class NormInstance : public NormController
         bool GetNextEvent(NormEvent* theEvent);
         bool SetCacheDirectory(const char* cachePath);
         
+        void SetAllocationFunctions(NormAllocFunctionHandle allocFunc, 
+                                    NormFreeFunctionHandle  freeFunc)
+        {
+            data_alloc_func = allocFunc;
+            session_mgr.SetDataFreeFunction(freeFunc);
+        }
+        
         void ReleasePreviousEvent();
         
         bool NotifyQueueIsEmpty() const 
@@ -158,14 +165,15 @@ class NormInstance : public NormController
         
         ProtoDispatcher             dispatcher;
         bool                        priority_boost;
-        NormSessionMgr              session_mgr;    
+        NormSessionMgr              session_mgr;   
+        NormAllocFunctionHandle     data_alloc_func;
         
     private:
         void ResetNotificationEvent()
         {
 #ifdef WIN32
             if (0 == ResetEvent(notify_event))
-                PLOG(PL_ERROR, "NormInstance::GetNextEvent() ResetEvent error: %s\n", GetErrorString());
+                PLOG(PL_ERROR, "NormInstance::ResetNotificationEvent() ResetEvent error: %s\n", GetErrorString());
 #else
            char byte[32];
            while (read(notify_fd[0], byte, 32) > 0);  // TBD - error check
@@ -190,7 +198,7 @@ class NormInstance : public NormController
 NormInstance::Notification::Queue::Queue()
  : head(NULL), tail(NULL)
 {   
-    
+   
 }
 
 
@@ -212,13 +220,14 @@ NormInstance::NormInstance()
    session_mgr(static_cast<ProtoTimerMgr&>(dispatcher), 
                static_cast<ProtoSocket::Notifier&>(dispatcher),
                static_cast<ProtoChannel::Notifier*>(&dispatcher)),
-   previous_notification(NULL), rx_cache_path(NULL)
+   data_alloc_func(NULL), previous_notification(NULL), rx_cache_path(NULL)
 {
 #ifdef WIN32
     notify_event = NULL;
 #else
     notify_fd[0] = notify_fd[1] = -1;
 #endif // if/else WIN32/UNIX
+    dispatcher.SetUserData(&session_mgr);  // for debugging
     session_mgr.SetController(static_cast<NormController*>(this));
 }
 
@@ -374,7 +383,7 @@ void NormInstance::Notify(NormController::Event   event,
                 {
                     NormDataObject* dataObj = static_cast<NormDataObject*>(object);
                     unsigned int dataLen = (unsigned int)(object->GetSize().GetOffset());
-                    char* dataPtr = new char[dataLen];
+                    char* dataPtr = (NULL != data_alloc_func) ? data_alloc_func(dataLen) : new char[dataLen];
                     if (NULL == dataPtr)
                     {
                         PLOG(PL_FATAL, "NormInstance::Notify(RX_OBJECT_NEW) new dataPtr error: %s\n",
@@ -474,7 +483,7 @@ void NormInstance::PurgeObjectNotifications(NormObjectHandle objectHandle)
     // TBD - check if event queue is emptied and reset event/fd
 }  // end NormInstance::PurgeObjectNotifications()
 
-// Purge any notifications associated with a specific object
+// Purge any notifications associated with a specific remote sender node
 void NormInstance::PurgeNodeNotifications(NormNodeHandle nodeHandle)
 {
     if (NORM_NODE_INVALID == nodeHandle) return;
@@ -507,7 +516,7 @@ void NormInstance::PurgeNodeNotifications(NormNodeHandle nodeHandle)
         // "Release" any previously-retained object or node handle
         if (NORM_OBJECT_INVALID != previous_notification->event.object)
             ((NormObject*)(previous_notification->event.object))->Release();
-        else if (NORM_NODE_INVALID != previous_notification->event.sender)
+        else
             ((NormNode*)(previous_notification->event.sender))->Release();
         notify_pool.Append(previous_notification);   
         previous_notification = NULL;   
@@ -648,8 +657,6 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
             ResetNotificationEvent();
     return (NULL != n); 
 }  // end NormInstance::GetNextEvent()
-
-
 
 bool NormInstance::WaitForEvent()
 {
@@ -924,6 +931,16 @@ NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle)
 }  // end NormGetDescriptor()
 
 
+NORM_API_LINKAGE
+void NormSetAllocationFunctions(NormInstanceHandle      instanceHandle, 
+                                NormAllocFunctionHandle allocFunc, 
+                                NormFreeFunctionHandle  freeFunc)
+{
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    instance->SetAllocationFunctions(allocFunc, freeFunc);
+}  // end NormSetAllocationFunctions()
+
+
 // if "waitForEvent" is false, this is a non-blocking call
 // (TBD) add a timeout option to this?
 
@@ -986,7 +1003,7 @@ NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
         NormSession* session = 
             instance->session_mgr.NewSession(sessionAddr, sessionPort, localNodeId);
         instance->dispatcher.ResumeThread();
-        if (session) 
+        if (NULL != session) 
             return ((NormSessionHandle)session);
     }
     return NORM_SESSION_INVALID;
@@ -1067,7 +1084,7 @@ NORM_API_LINKAGE
 void NormCancelUserTimer(NormSessionHandle sessionHandle)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
-    if (instance)
+    if (NULL != instance)
     {
         if (instance->dispatcher.SuspendThread())
         {    
@@ -1089,6 +1106,38 @@ NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle)
     else
         return NORM_NODE_NONE;      
 }  // end NormGetLocalNodeId()
+
+NORM_API_LINKAGE
+bool NormGetAddress(NormSessionHandle   sessionHandle,
+                    char*               addrBuffer, 
+                    unsigned int*       bufferLen,
+                    UINT16*             port)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (NULL != instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {    
+            NormSession* session = (NormSession*)sessionHandle;
+            const ProtoAddress& sessionAddr = session->Address();
+            unsigned int addrLen = sessionAddr.GetLength();
+            if (addrBuffer && bufferLen && (addrLen <= *bufferLen))
+            {
+                memcpy(addrBuffer, sessionAddr.GetRawHostAddress(), addrLen);
+                result = true;
+            } 
+            else if (NULL == addrBuffer)
+            {
+                result = true; // just a query for addrLen and/or port
+            }      
+            if (bufferLen) *bufferLen = addrLen;
+            if (port) *port = sessionAddr.GetPort();
+            instance->dispatcher.ResumeThread();  
+        }
+    }
+    return result;
+}  // end NormGetAddress()
 
 NORM_API_LINKAGE
 UINT16 NormGetRxPort(NormSessionHandle sessionHandle)
@@ -1146,22 +1195,44 @@ void NormSetTxOnly(NormSessionHandle sessionHandle,
     }
 }  // end NormSetTxOnly()
 
+// These functions are used internally by the NormSocket API extensiont
+
 NORM_API_LINKAGE
-bool NormChangeDestination(NormSessionHandle sessionHandle,
-                           const char*       sessionAddress,
-                           UINT16            sessionPort,
-                           bool              connectToSessionAddress)
+void NormSetId(NormSessionHandle sessionHandle, NormNodeId normId)
 {
-    // First, see if we can make a valid ProtoAddress
-    ProtoAddress dest;
-    if (!dest.ResolveFromString(sessionAddress))
-        return false;
-    dest.SetPort(sessionPort);
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
     if (instance && instance->dispatcher.SuspendThread())
     {
         NormSession* session = (NormSession*)sessionHandle;
-        if (session) 
+        if (NULL != session) session->SetNodeId(normId);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetId()
+
+NORM_API_LINKAGE
+bool NormChangeDestination(NormSessionHandle sessionHandle,
+	                       const char*       sessionAddress,
+	                       UINT16            sessionPort,
+	                       bool              connectToSessionAddress)
+{
+	NormSession* session = (NormSession*)sessionHandle;
+	if (NULL == session) return false;
+	// First, see if we can make a valid ProtoAddress
+	ProtoAddress dest;
+	if (NULL != sessionAddress)
+	{
+		if (!dest.ResolveFromString(sessionAddress))
+			return false;
+	}
+	else
+	{
+		dest = session->Address();
+	}
+    dest.SetPort(sessionPort);
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        if (NULL != session) 
         {
             session->SetAddress(dest);
             if (connectToSessionAddress)
@@ -1171,6 +1242,46 @@ bool NormChangeDestination(NormSessionHandle sessionHandle,
     }
     return true;
 }  // end NormChangeDestination()
+
+NORM_API_LINKAGE
+void NormSetServerListener(NormSessionHandle sessionHandle, bool state)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (NULL != instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {    
+            NormSession* session = (NormSession*)sessionHandle;
+            if (session) session->SetServerListener(state);
+            instance->dispatcher.ResumeThread();
+        }
+    } 
+}  // end NormSetServerListener()
+
+
+NORM_API_LINKAGE
+bool NormTransferSender(NormSessionHandle sessionHandle, NormNodeHandle senderHandle)
+{
+	bool result = false;
+    NormInstance* dstInstance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (NULL != dstInstance)
+    {
+        if (dstInstance->dispatcher.SuspendThread())
+        {
+            NormInstance* srcInstance = NormInstance::GetInstanceFromNode(senderHandle);
+            if (srcInstance->dispatcher.SuspendThread())
+            {
+                NormSession* session = (NormSession*)sessionHandle;
+                NormSenderNode* sender = (NormSenderNode*)senderHandle;
+                if ((NULL != session) && (NULL != sender))
+                    result = session->InsertRemoteSender(*sender);
+                srcInstance->dispatcher.ResumeThread();
+            }
+            dstInstance->dispatcher.ResumeThread();
+        }
+    }
+	return result;
+}  // end NormTransferSender()
 
 NORM_API_LINKAGE
 void NormSetRxPortReuse(NormSessionHandle sessionHandle,
@@ -1447,7 +1558,8 @@ bool NormStartSender(NormSessionHandle  sessionHandle,
                      UINT32             bufferSpace,
                      UINT16             segmentSize,
                      UINT16             numData,
-                     UINT16             numParity)
+                     UINT16             numParity,
+                     UINT8              fecId)
 {
     bool result = false;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -1455,7 +1567,7 @@ bool NormStartSender(NormSessionHandle  sessionHandle,
     {
         NormSession* session = (NormSession*)sessionHandle;
         if (session)
-            result = session->StartSender(sessionId, bufferSpace, segmentSize, numData, numParity);
+            result = session->StartSender(sessionId, bufferSpace, segmentSize, numData, numParity, fecId);
         else
             result = false;
         instance->dispatcher.ResumeThread();
@@ -1596,18 +1708,16 @@ void NormSetGrttEstimate(NormSessionHandle sessionHandle,
 NORM_API_LINKAGE
 double NormGetGrttEstimate(NormSessionHandle sessionHandle)
 {
-    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
-    if (instance && instance->dispatcher.SuspendThread())
+    if (NORM_SESSION_INVALID != sessionHandle)
     {
         NormSession* session = (NormSession*)sessionHandle;
-        if (session) session->SenderGrtt();
-        instance->dispatcher.ResumeThread();
+        session->ResetGrttNotification();
+        return (session->SenderGrtt());
     }
-    
-    if (NORM_SESSION_INVALID != sessionHandle)
-        return (((NormSession*)sessionHandle)->SenderGrtt());
     else
+    {
         return -1.0;
+    }
 }  // end NormGetGrttEstimate()
 
 NORM_API_LINKAGE
@@ -1728,7 +1838,7 @@ NormObjectHandle NormDataEnqueue(NormSessionHandle  sessionHandle,
         {
             NormObject* obj = 
                 static_cast<NormObject*>(session->QueueTxData(dataPtr, dataLen, infoPtr, infoLen));
-            if (obj) objectHandle = (NormObjectHandle)obj;
+            if (NULL != obj) objectHandle = (NormObjectHandle)obj;
         }
         instance->dispatcher.ResumeThread();
     }
@@ -1803,6 +1913,8 @@ NORM_API_LINKAGE
 unsigned int NormGetStreamBufferSegmentCount(unsigned int bufferBytes, UINT16 segmentSize, UINT16 blockSize)
 {
     // This same computation is performed in NormStreamObject::Open() in "normObject.cpp"
+    // (Note the number of stream buffer segments is always smaller than the 
+    //  blockSize*pending_mask.GetSize())
     unsigned int numBlocks = bufferBytes / (blockSize * segmentSize);
     if (numBlocks < 2) numBlocks = 2; // NORM enforces a 2-block minimum buffer size
     return (numBlocks * blockSize);
@@ -1813,14 +1925,13 @@ unsigned int NormStreamWrite(NormObjectHandle   streamHandle,
                              const char*        buffer,
                              unsigned int       numBytes)
 {
-    // TBD - the thread suspend/resume here may _not_ be sufficient.
-    //       we may need to do something to make sure the NORM thread
-    //       wakes up right away (i.e. SignalThread()
-    //       Also so the same for flush, send command, and data/file enqueue calls!
-    //       (i.e. in any case where immediate data send action may be invoked)
+    // Note: Since an underlying issue with ProtoDispatcher::SignalThread() had been resolved,
+    //       using  ProtoDispatcher::SuspendThread() should be sufficient since the underlying
+    //       protolib time scheduling, etc. code actually invokes SignalThread() on an
+    //       as-needed basis.  Thus, using SuspendThread() (lighter weight) should suffice
     unsigned int result = 0;
     NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
-    if (instance && instance->dispatcher.SuspendThread())
+    if ((NULL != instance) && instance->dispatcher.SuspendThread())
     {
         NormStreamObject* stream = 
             static_cast<NormStreamObject*>((NormObject*)streamHandle);
@@ -1836,7 +1947,7 @@ void NormStreamFlush(NormObjectHandle streamHandle,
                      NormFlushMode    flushMode)
 {
     NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
-    if (instance && instance->dispatcher.SuspendThread())
+    if ((NULL != instance) && instance->dispatcher.SuspendThread())
     {
         NormStreamObject* stream = 
             static_cast<NormStreamObject*>((NormObject*)streamHandle);
@@ -1908,7 +2019,7 @@ bool NormSetWatermark(NormSessionHandle  sessionHandle,
         NormObject* obj = (NormObject*)objectHandle;
         if (session && obj)
         {
-            // Purge any existing to NORM_TX_WATERMARK_COMPLETED notification to be safe
+            // Purge any existing NORM_TX_WATERMARK_COMPLETED notifications to be safe
             instance->PurgeNotifications(sessionHandle, NORM_TX_WATERMARK_COMPLETED);
             // (segmentId doesn't matter for non-stream)
             if (obj->IsStream())
@@ -1941,6 +2052,8 @@ bool NormResetWatermark(NormSessionHandle  sessionHandle)
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
     if (instance && instance->dispatcher.SuspendThread())
     {
+        // Purge any existing NORM_TX_WATERMARK_COMPLETED notifications to be safe
+        instance->PurgeNotifications(sessionHandle, NORM_TX_WATERMARK_COMPLETED);
         NormSession* session = (NormSession*)sessionHandle;
         session->SenderResetWatermark();
         instance->dispatcher.ResumeThread();
@@ -1997,12 +2110,17 @@ NORM_API_LINKAGE
 NormNodeHandle NormGetAckingNodeHandle(NormSessionHandle  sessionHandle,
                                        NormNodeId         nodeId)
 {
-    if (NORM_SESSION_INVALID != sessionHandle)
+	if (NORM_SESSION_INVALID != sessionHandle)
     {
-        NormSession* session = (NormSession*)sessionHandle;
-        NormAckingNode* acker = session->SenderFindAckingNode(nodeId);
-        if (NULL != acker)
-            return ((NormNodeHandle)static_cast<NormNode*>(acker));
+        NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+        if (instance && instance->dispatcher.SuspendThread())
+        {
+            NormSession* session = (NormSession*)sessionHandle;
+            NormAckingNode* acker = session->SenderFindAckingNode(nodeId);
+			instance->dispatcher.ResumeThread();
+            if (NULL != acker)
+                return ((NormNodeHandle)static_cast<NormNode*>(acker));
+        }
     }
     return NORM_NODE_INVALID;
 }  // end NormGetAckingNodeHandle()
@@ -2104,6 +2222,19 @@ void NormCancelCommand(NormSessionHandle sessionHandle)
     }
 }  // end NormCancelCommand()
 
+NORM_API_LINKAGE 
+void NormSetSynStatus(NormSessionHandle sessionHandle, bool state)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        session->SenderSetSynStatus(state);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetSynStatus()
+
+
 /** NORM Receiver Functions */
 
 NORM_API_LINKAGE
@@ -2138,8 +2269,6 @@ NORM_API_LINKAGE
 void NormSetRxCacheLimit(NormSessionHandle sessionHandle,
                          unsigned short    countMax)
 {
-    // We limit this to 1/4 of the 16-bit NormObjectId space
-    if (countMax > 16384) countMax = 16384;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
     if (instance && instance->dispatcher.SuspendThread())
     {
@@ -2289,6 +2418,25 @@ void NormNodeSetRxRobustFactor(NormNodeHandle   nodeHandle,
         }
     }
 }  // end NormNodeSetRxRobustFactor()
+
+NORM_API_LINKAGE
+bool NormPreallocateRemoteSender(NormSessionHandle  sessionHandle,
+                                 unsigned long      bufferSize,
+                                 UINT16             segmentSize, 
+                                 UINT16             numData, 
+                                 UINT16             numParity,
+                                 unsigned int       streamBufferSize)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        result = session->PreallocateRemoteSender(bufferSize, segmentSize, numData, numParity, streamBufferSize);
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+}  // end NormPreallocateRemoteSender()
 
 NORM_API_LINKAGE
 bool NormStreamRead(NormObjectHandle   streamHandle,
@@ -2545,6 +2693,19 @@ char* NormDataDetachData(NormObjectHandle dataHandle)
     return ptr;
 }  // end NormDataDetachData()
 
+NORM_API_LINKAGE 
+char* NormAlloc(size_t numBytes)
+{
+    return new char[numBytes];
+}  // end NormAlloc()
+
+NORM_API_LINKAGE 
+void NormFree(char* dataPtr)
+{
+    if (NULL != dataPtr)
+        delete[] dataPtr;
+}  // end NormFree()
+
 NORM_API_LINKAGE
 NormNodeHandle NormObjectGetSender(NormObjectHandle objectHandle)
 {
@@ -2576,7 +2737,7 @@ bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
         //NormInstance* instance = NormInstance::GetInstanceFromNode(nodeHandle);
         //if (instance && instance->dispatcher.SuspendThread())
         {
-            NormNode* node = (NormSenderNode*)nodeHandle;
+            NormNode* node = (NormNode*)nodeHandle;
             const ProtoAddress& nodeAddr = node->GetAddress();
             unsigned int addrLen = nodeAddr.GetLength();
             if (addrBuffer && bufferLen && (addrLen <= *bufferLen))
@@ -2623,6 +2784,7 @@ double NormNodeGetGrtt(NormNodeHandle nodeHandle)
     if ((NULL != node) && (NormNode::SENDER == node->GetType()))
     {
         NormSenderNode* sender = static_cast<NormSenderNode*>(node);
+        sender->ResetGrttNotification();
         return sender->GetGrttEstimate();
     }
     else

@@ -19,7 +19,7 @@
 //
 // 0) Make "NormInstanceHandle" optional for Listen/Connect/Accept
 //    (for eventual blocking usage, it wouldn't be needed)
-// 1) Support asymmetric server->multicast, client->unicast model
+// 1) Support asymmetric server->multicast, client->unicast model (DONE)
 // 2) Provide non-blocking option for read/write calls
 // 3) leverage ICMP (e.g., port unreachable) feedback to detect connect() failure (DONE)
 // 4) provide means for connect() to time out??? (DONE)
@@ -41,6 +41,12 @@
 // f) Buffer size (sender, stream, receiver)
 // g) cache bounds / limits
 
+
+#ifdef WIN32
+#include <BaseTsd.h>    // for SSIZE_T
+typedef SSIZE_T ssize_t;
+#endif // WIN32
+
 #include "normApi.h"
 
 typedef const void* NormSocketHandle;
@@ -55,42 +61,55 @@ extern const double NORM_DEFAULT_CONNECT_TIMEOUT;
 
 // Main NormSocket API Functions
 
-NormSocketHandle NormOpen(NormInstanceHandle instance = NORM_INSTANCE_INVALID);
+NormSocketHandle NormOpen(NormInstanceHandle instance);
 
-NormSocketHandle NormListen(NormInstanceHandle instance, UINT16 serverPort, const char* groupAddr = NULL);
+bool NormListen(NormSocketHandle    normSocket, 
+                UINT16              serverPort, 
+                const char*         groupAddr = NULL,
+                const char*         serverAddr = NULL);  
 
-NormSocketHandle NormConnect(NormInstanceHandle instance, 
-                             const char*        serverAddr, 
-                              UINT16            serverPort, 
-                             const char*        groupAddr = NULL, 
-                             NormNodeId         clientId = NORM_NODE_NONE);
+bool NormConnect(NormSocketHandle   normSocket, 
+                 const char*        serverAddr, 
+                 UINT16             serverPort, 
+                 UINT16             localPort = 0,
+                 const char*        groupAddr = NULL, 
+                 NormNodeId         clientId = NORM_NODE_ANY);
 
-NormSocketHandle NormAccept(NormSocketHandle serverSocket, NormNodeHandle clientNode, NormInstanceHandle instance = NORM_INSTANCE_INVALID);
+NormSocketHandle NormAccept(NormSocketHandle    serverSocket, 
+                            NormNodeHandle      clientNode, 
+                            NormInstanceHandle  instance = NORM_INSTANCE_INVALID);
         
 void NormShutdown(NormSocketHandle normSocket);
 
 void NormClose(NormSocketHandle normSocket);
 
-ssize_t NormRead(NormSocketHandle normSocket, void *buf, size_t nbyte);
+ssize_t NormRead(NormSocketHandle normSocket, void* buf, size_t nbyte);
 
-ssize_t NormWrite(NormSocketHandle normSocket, const void *buf, size_t nbyte);
+ssize_t NormWrite(NormSocketHandle normSocket, const void* buf, size_t nbyte);
 
 int NormFlush(NormSocketHandle normSocket);
 
-// Helper API functions
+// NormSocket helper functions
 
-NormSessionHandle NormGetSession(NormSocketHandle normSocket);
-NormSessionHandle NormGetMulticastSession(NormSocketHandle normSocket);
+void NormSetSocketUserData(NormSocketHandle normSocket, const void* userData);
+const void* NormGetSocketUserData(NormSocketHandle normSocket);
+        
+NormInstanceHandle NormGetSocketInstance(NormSocketHandle normSocket);
+NormSessionHandle NormGetSocketSession(NormSocketHandle normSocket);
+NormSessionHandle NormGetSocketMulticastSession(NormSocketHandle normSocket);
+void NormGetPeerName(NormSocketHandle normSocket, char* addr, unsigned int* addrLen, UINT16* port);
+
+void NormSetSocketTrace(NormSocketHandle normSocket, bool enable);
 
 typedef enum NormSocketEventType
 {
-    NORM_SOCKET_NONE = 0,
+    NORM_SOCKET_NONE = 0,       // applications should generally ignore these
     NORM_SOCKET_ACCEPT,         // only issued for listening server sockets
     NORM_SOCKET_CONNECT,        // notification confirming connection to server
     NORM_SOCKET_READ,           // edge-triggered notification that socket is ready for reading
     NORM_SOCKET_WRITE,          // edge-triggered notification that socket is ready for writing
     NORM_SOCKET_CLOSING,        // indicates remote endpoint is closing socket (only read data at this point)
-    NORM_SOCKET_CLOSED          // indicates socket is now closed (invalid for further operations)
+    NORM_SOCKET_CLOSE           // indicates socket is now closed (invalid for further operations)
 } NormSocketEventType;
 
 typedef struct
@@ -114,7 +133,6 @@ typedef struct
 } NormSocketEvent;
     
 bool NormGetSocketEvent(NormInstanceHandle normInstance, NormSocketEvent* event, bool waitForEvent = true);
-
 
 
 #endif // !_NORM_SOCKET

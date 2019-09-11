@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <pcap.h>
+#include <sys/socket.h>  // for PF_ types (protocol family)
 #include "protoPktETH.h" // for Ethernet frame parsing
 #include "protoPktIP.h"  // for IP packet parsing
 #include "protoPktARP.h"
@@ -68,8 +69,9 @@ int main(int argc, char* argv[])
         return -1;
     }
     
+    int deviceType = pcap_datalink(pcapDevice);
     
-    UINT32 alignedBuffer[4096/4];   // 128 buffer for packet parsing
+    UINT32 alignedBuffer[4096/4];   // 4096 byte buffer for packet parsing
     UINT16* ethBuffer = ((UINT16*)alignedBuffer) + 1; 
     unsigned int maxBytes = 4096 - 2;  // due to offset, can only use 4094 bytes of buffer
     
@@ -79,21 +81,47 @@ int main(int argc, char* argv[])
     {
         unsigned int numBytes = maxBytes;
         if (hdr.caplen < numBytes) numBytes = hdr.caplen;
-        memcpy(ethBuffer, pktData, numBytes);
-        ProtoPktETH ethPkt((UINT32*)ethBuffer, maxBytes);
-        if (!ethPkt.InitFromBuffer(hdr.len))
+        ProtoPktETH::Type ethType;
+        unsigned int payloadLength;
+        UINT32* payloadPtr;
+        if (DLT_NULL == deviceType)
         {
-            fprintf(stderr, "pcap2norm error: invalid Ether frame in pcap file\n");
-            continue;
-        }    
+            // pcap was captured from "loopback" device
+            memcpy(alignedBuffer, pktData, numBytes);
+            switch (alignedBuffer[0])
+            {
+                case PF_INET:
+                    ethType = ProtoPktETH::IP;
+                    break;
+                case PF_INET6:
+                    ethType = ProtoPktETH::IPv6;
+                    break;
+                default:
+                    continue;  // not an IP packet
+            }
+            payloadLength = numBytes - 4;
+            payloadPtr = alignedBuffer + 1;
+        }
+        else
+        {
+            memcpy(ethBuffer, pktData, numBytes);
+            ProtoPktETH ethPkt((UINT32*)ethBuffer, maxBytes);
+            if (!ethPkt.InitFromBuffer(hdr.len))
+            {
+                fprintf(stderr, "pcap2norm error: invalid Ether frame in pcap file\n");
+                continue;
+            }    
+            ethType = ethPkt.GetType();
+            payloadLength = ethPkt.GetPayloadLength();
+            payloadPtr = (UINT32*)ethPkt.AccessPayload();
+        }
+        
         ProtoPktIP ipPkt;
         ProtoAddress srcAddr, dstAddr;
-        ProtoPktETH::Type ethType = ethPkt.GetType();
         if ((ProtoPktETH::IP == ethType) ||
             (ProtoPktETH::IPv6 == ethType))
         {
-            unsigned int payloadLength = ethPkt.GetPayloadLength();
-            if (!ipPkt.InitFromBuffer(payloadLength, (UINT32*)ethPkt.AccessPayload(), payloadLength))
+            if (!ipPkt.InitFromBuffer(payloadLength, payloadPtr, payloadLength))
             {
                 fprintf(stderr, "pcap2norm error: bad IP packet\n");
                 continue;
@@ -122,6 +150,10 @@ int main(int argc, char* argv[])
             }
             //PLOG(PL_ALWAYS, "pcap2norm IP packet dst>%s ", dstAddr.GetHostString());
             //PLOG(PL_ALWAYS," src>%s length>%d\n", srcAddr.GetHostString(), ipPkt.GetLength());
+        }
+        else
+        {
+            fprintf(stderr, "eth type = %d\n", ethType);
         }
         if (!srcAddr.IsValid()) continue;  // wasn't an IP packet
         
@@ -153,7 +185,7 @@ void NormTrace2(const struct timeval&    currentTime,
                 const ProtoAddress&      dstAddr)
 {
     
-    UINT8 fecM = 16;  // NOTE - this assumes 16-bit RS code for fec_id == 2
+    UINT8 fecM = 8;  // NOTE - this assumes 16-bit RS code for fec_id == 2
     
     static const char* MSG_NAME[] =
     {
@@ -227,7 +259,7 @@ void NormTrace2(const struct timeval&    currentTime,
         {
             const NormDataMsg& data = (const NormDataMsg&)msg;
             lastFecId = data.GetFecId();
-            PLOG(PL_ALWAYS, "inst>%hu seq>%hu DATA obj>%hu blk>%lu seg>%hu ", 
+            PLOG(PL_ALWAYS, "inst>%hu seq>%hu DATA obj>%hu blk>%u seg>%04hu ", 
                     data.GetInstanceId(), 
                     seq, 
                     //data.IsData() ? "DATA" : "PRTY",

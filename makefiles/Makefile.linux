@@ -35,15 +35,18 @@ SYSTEM_LIBS = -ldl
 # (We export these for other Makefiles as needed)
 #
 
-SYSTEM_HAVES = -DLINUX -DECN_SUPPORT -DHAVE_IPV6 -DHAVE_GETLOGIN -D_FILE_OFFSET_BITS=64 -DHAVE_LOCKF \
--DHAVE_OLD_SIGNALHANDLER -DHAVE_DIRFD -DHAVE_ASSERT
+SYSTEM_HAVES = -DLINUX -DECN_SUPPORT  -DHAVE_IPV6 -DHAVE_GETLOGIN -D_FILE_OFFSET_BITS=64 -DHAVE_LOCKF \
+-DHAVE_OLD_SIGNALHANDLER -DHAVE_DIRFD -DHAVE_ASSERT -DNO_SCM_RIGHTS -DHAVE_SCHED -DUNIX \
+-DUSE_SELECT -DUSE_TIMERFD -DUSE_EVENTFD -DHAVE_PSELECT
+
+
 
 SYSTEM_SRC = ../protolib/src/linux/linuxCap.cpp
 
 SYSTEM = linux
 
 export CC = g++
-export SYSTEM_CFLAGS = -Wall -Wcast-align -pedantic -fPIC
+export SYSTEM_CFLAGS = -Wall -Wcast-align -pedantic -fPIC -Wno-variadic-macros
 export SYSTEM_SOFLAGS = -shared -Wl,-soname,libnorm.so.1
 SYSTEM_SOEXT = so
 export RANLIB = ranlib

@@ -1,8 +1,6 @@
 
 #include "normApi.h"
-
-#include "protoCheck.h"
-
+#include <unistd.h>      // for read() and write()
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for srand()
 #include <string.h>      // for strrchr(), memset(), etc
@@ -11,6 +9,10 @@
 #include <fcntl.h>       // for, well, fnctl()
 #include <errno.h>       // obvious child
 #include <assert.h>      // embarrassingly obvious
+
+#define SHOOT_NOW 1
+
+#include "protoCheck.h"
 
 class NormMsgr
 {
@@ -87,11 +89,17 @@ class NormMsgr
                 
                 void Destroy();
                 
+                unsigned int GetCount() const
+                    {return msg_count;}
+                
             private:
-                Message*    head;
-                Message*    tail;
+                Message*        head;
+                Message*        tail;
+                unsigned int    msg_count;
         };  // end class NormMsgr::MessageQueue
         Message* NewMessage(unsigned int size);
+        
+        void Destroy();
             
         bool OpenNormSession(NormInstanceHandle instance, 
                              const char*        addr,
@@ -110,6 +118,12 @@ class NormMsgr
             assert(NORM_SESSION_INVALID != norm_session);
             NormSetMulticastInterface(norm_session, ifaceName);
         } 
+        void SetLoopback(bool state)
+        {
+            loopback = state;
+            if (NORM_SESSION_INVALID != norm_session)
+                NormSetMulticastLoopback(norm_session, state);
+        }   
         void SetNormMessageTrace(bool state)
         {
             assert(NORM_SESSION_INVALID != norm_session);
@@ -121,36 +135,57 @@ class NormMsgr
             NormAddAckingNode(norm_session, ackId);
             norm_acking = true;  // invoke ack-based flow control
         }
+        void SetFlushing(bool state)
+            {norm_flushing = state;}
         
         bool Start(bool sender, bool receiver);
         void Stop()
             {is_running = false;}
         bool IsRunning() const
             {return is_running;}
+        
+        unsigned long GetSentCount()
+            {return sent_count;}
+        
         void HandleNormEvent(const NormEvent& event);
         
         // Sender methods
         FILE* GetInputFile() const
             {return input_file;}
+        int GetInputDescriptor() const
+            {return input_fd;}
+        bool InputReady() const
+            {return input_ready;}
+        void SetInputReady()
+            {input_ready = true;}
         bool InputNeeded() const
             {return input_needed;}
         bool InputMessageReady() const
             {return ((NULL != input_msg) && !input_needed);}
         bool ReadInput();
         
-        bool NormTxReady() const;
+        bool TxReady() const;
         bool SendMessage();
         bool EnqueueMessageObject();
         
         // Receiver methods
+        void SetOutputFile(FILE* filePtr)
+        {
+            output_file = filePtr;
+            output_fd = fileno(filePtr);
+        }
         FILE* GetOutputFile() const
             {return output_file;}
+        int GetOutputDescriptor() const
+            {return output_fd;}
         void SetOutputReady()
             {output_ready = true;}
         bool OutputReady() const
             {return output_ready;}
         bool OutputPending() const
-            {return output_pending;}
+            {return (NULL != output_msg);}
+        bool RxNeeded() const
+            {return rx_needed;}
         bool WriteOutput();
         
         void OmitHeader(bool state) 
@@ -164,24 +199,34 @@ class NormMsgr
             
     private:
         bool                is_running;                                                  
-        FILE*               input_file;      // stdin by default                         
-        bool                input_needed;    //                                          
+        FILE*               input_file;      // stdin by default  
+        int                 input_fd;
+        bool                input_ready;                       
+        bool                input_needed;    //                   
+        bool                input_finished;                       
         Message*            input_msg;       // current input message being read/sent*   
         MessageQueue        input_msg_list;  // list of enqueued messages (in norm sender cache)
             
         NormSessionHandle   norm_session;
         bool                is_multicast;
+        bool                loopback;
         unsigned int        norm_tx_queue_max;   // max number of objects that can be enqueued at once 
         unsigned int        norm_tx_queue_count; // count of unacknowledged enqueued objects (TBD - optionally track size too)
-        bool                norm_tx_watermark_pending;
+        bool                norm_flow_control_pending;
         bool                norm_tx_vacancy;
         bool                norm_acking;
+        bool                norm_flushing;
+        NormObjectHandle    norm_flush_object;
+        NormObjectHandle    norm_last_object;
+        unsigned long       sent_count;
         
+        bool                rx_needed;
         FILE*               output_file;
+        int                 output_fd;
         bool                output_ready;
-        bool                output_pending;
         Message*            output_msg;
         MessageQueue        output_msg_queue;
+        MessageQueue        temp_msg_queue;
         // These are some options mainly for testing purposes
         bool                omit_header;  // if "true", receive message length header is _not_ written to output
         bool                rx_silent;
@@ -190,21 +235,38 @@ class NormMsgr
 };  // end class NormMsgr
 
 NormMsgr::NormMsgr()
- : input_file(stdin), input_needed(false), input_msg(NULL),
-   norm_session(NORM_SESSION_INVALID), is_multicast(false), norm_tx_queue_max(2048), norm_tx_queue_count(0), 
-   norm_tx_watermark_pending(false), norm_tx_vacancy(true), norm_acking(false),
-   output_file(stdout), output_ready(true), output_pending(false), output_msg(NULL), 
+ : input_file(stdin), input_fd(fileno(stdin)), input_ready(false), input_needed(false), input_finished(false),
+   input_msg(NULL), norm_session(NORM_SESSION_INVALID), is_multicast(false), loopback(false), 
+   norm_tx_queue_max(8192), norm_tx_queue_count(0), 
+   norm_flow_control_pending(false), norm_tx_vacancy(true), norm_acking(false), 
+   norm_flushing(true), norm_flush_object(NORM_OBJECT_INVALID), norm_last_object(NORM_OBJECT_INVALID),
+   sent_count(0),  rx_needed(false), output_file(stdout), output_fd(fileno(stdout)), 
+   output_ready(true), output_msg(NULL), 
    omit_header(false), rx_silent(false), tx_loss(0.0)
 {
 }
 
 NormMsgr::~NormMsgr()
 {
-    if (NULL != input_msg) delete input_msg;
+    Destroy();
+}
+
+void NormMsgr::Destroy()
+{
+    if (NULL != input_msg) 
+    {
+        delete input_msg;
+        input_msg = NULL;
+    }
     input_msg_list.Destroy();
-    if (NULL != output_msg) delete output_msg;
+    if (NULL != output_msg) 
+    {
+        delete output_msg;
+        delete output_msg;
+    }
     output_msg_queue.Destroy();
 }
+
 
 bool NormMsgr::OpenNormSession(NormInstanceHandle instance, const char* addr, unsigned short port, NormNodeId nodeId)
 {
@@ -222,21 +284,24 @@ bool NormMsgr::OpenNormSession(NormInstanceHandle instance, const char* addr, un
     if (is_multicast)
     {
         NormSetRxPortReuse(norm_session, true);
-        // TBD - make full loopback a command line option?
-        NormSetMulticastLoopback(norm_session, true);
+        if (loopback)
+            NormSetMulticastLoopback(norm_session, true);
     }
     
     
     // Set some default parameters (maybe we should put parameter setting in Start())
+    fprintf(stderr, "setting rx cache limit to %u\n", norm_tx_queue_max);
+    if (norm_tx_queue_max > 65535/2) norm_tx_queue_max = 65535/2;
     NormSetRxCacheLimit(norm_session, norm_tx_queue_max);
     NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_ALL);
     
-    NormSetDefaultUnicastNack(norm_session, true);
+    if (!is_multicast)
+        NormSetDefaultUnicastNack(norm_session, true);
     NormSetTxCacheBounds(norm_session, 10*1024*1024, norm_tx_queue_max, norm_tx_queue_max);
     
     //NormSetMessageTrace(norm_session, true);
     
-    NormSetTxRobustFactor(norm_session, 2);
+    //NormSetTxRobustFactor(norm_session, 20);
     
     return true;
 }  // end NormMsgr::OpenNormSession()
@@ -274,13 +339,27 @@ void NormMsgr::SetNormCongestionControl(CCMode ccMode)
 
 bool NormMsgr::Start(bool sender, bool receiver)
 {
+    fprintf(stderr, "enter NormMsgr::Start() ...\n");
+    // TBD - make these command-line accessible
+    unsigned int bufferSize = 64*1024*1024;
+    unsigned int segmentSize = 1400;
+    unsigned int blockSize = 64;
+    unsigned int numParity = 0;
+    unsigned int txSockBufferSize = 4*1024*1024;
+    unsigned int rxSockBufferSize = 6*1024*1024;
+    
     if (receiver)
     {
-        if (!NormStartReceiver(norm_session, 10*1024*1024))
+        if (!NormStartReceiver(norm_session, bufferSize))
         {
             fprintf(stderr, "normMsgr error: unable to start NORM receiver\n");
             return false;
         }
+        // Note: NormPreallocateRemoteSender() MUST be called AFTER NormStartReceiver()
+        NormPreallocateRemoteSender(norm_session, bufferSize, segmentSize, blockSize, numParity, bufferSize);
+        NormSetRxSocketBuffer(norm_session, rxSockBufferSize);
+        rx_needed = true;
+        fprintf(stderr, "normMsgr: receiver ready.\n");
     }
     if (sender)
     {
@@ -290,19 +369,26 @@ bool NormMsgr::Start(bool sender, bool receiver)
             // so disable timer-based flow control
             NormSetFlowControl(norm_session, 0.0);
         }
+        NormSetGrttEstimate(norm_session, 0.001);
+        //NormSetGrttMax(norm_session, 0.100);
+        NormSetBackoffFactor(norm_session, 0);
+        
         // Pick a random instance id for now
         struct timeval currentTime;
         gettimeofday(&currentTime, NULL);
         srand(currentTime.tv_usec);  // seed random number generator
         NormSessionId instanceId = (NormSessionId)rand();
-        if (!NormStartSender(norm_session, instanceId, 10*1024*1024, 1400, 16, 4))
+        if (!NormStartSender(norm_session, instanceId, bufferSize, segmentSize, blockSize, numParity))
         {
             fprintf(stderr, "normMsgr error: unable to start NORM sender\n");
             if (receiver) NormStopReceiver(norm_session);
             return false;
         }
+        //NormSetAutoParity(norm_session, 2);
+        NormSetTxSocketBuffer(norm_session, txSockBufferSize);
         input_needed = true;
     }
+    //ProtoCheckResetLogging();
     is_running = true;
     return true;
 }  // end NormMsgr::Start();
@@ -337,11 +423,11 @@ bool NormMsgr::ReadInput()
             readLength = input_msg->GetSize() - offset;
             bufferPtr = input_msg->AccessBuffer() + offset;
         }
-        size_t result = fread(bufferPtr, 1, readLength, input_file);
+        ssize_t result = read(input_fd, bufferPtr, readLength);
         if (result > 0)
         {
             input_msg->IncrementIndex(result);
-            if (result < readLength) 
+            if ((size_t)result < readLength) 
             {
                 // Still need more input
                 // (wait for next input notification to read more)
@@ -368,27 +454,37 @@ bool NormMsgr::ReadInput()
                 input_needed = false;
             }
         }
-        else 
+        else if (0 == result)
         {
-            if (feof(input_file))
+             // end-of-file reached, TBD - trigger final flushing and wrap-up
+            fprintf(stderr, "normMsgr: input end-of-file detected (last:%p)...\n", norm_last_object);
+            delete input_msg;
+            input_msg = NULL;
+            input_ready = false;
+            input_needed = false;
+            input_finished = true;
+            if (norm_acking)
             {
-                // end-of-file reached, TBD - trigger final flushing and wrap-up
-                fprintf(stderr, "normMsgr: input end-of-file detected ...\n");
+                if (NORM_OBJECT_INVALID == norm_last_object)
+                    is_running = false;  // everything sent and acked
+                else if (!norm_flushing)
+                    NormSetWatermark(norm_session, norm_last_object, true);
             }
-            else if (ferror(input_file))
+        }
+        else  // result < 0
+        {
+            switch (errno)
             {
-                switch (errno)
-                {
-                    case EINTR:
-                        continue;  // interupted, try again
-                    case EAGAIN:
-                        // input starved, wait for next notification
-                        break;
-                    default:
-                        perror("normMsgr error reading input");
-                        break;
-                }
+                case EINTR:
+                    continue;  // interupted, try again
+                case EAGAIN:
+                    // input starved, wait for next notification
+                    break;
+                default:
+                    perror("normMsgr error reading input");
+                    break;
             }
+            input_ready = false;
             return false;
         }
     }  
@@ -397,7 +493,7 @@ bool NormMsgr::ReadInput()
 
 bool NormMsgr::WriteOutput()
 {
-    while (output_pending)
+    while (NULL != output_msg)
     {
         size_t writeLength;
         const char* bufferPtr;
@@ -412,38 +508,40 @@ bool NormMsgr::WriteOutput()
             writeLength = output_msg->GetSize() - offset;
             bufferPtr = output_msg->GetBuffer() + offset;
         }
-        size_t result = fwrite(bufferPtr, 1, writeLength, output_file);
-        
-        output_msg->IncrementIndex(result);
-        if (result < writeLength)
+        ssize_t result = write(output_fd, bufferPtr, writeLength);
+        if (result >= 0)
         {
-            if (feof(output_file))
+            output_msg->IncrementIndex(result);
+            if ((size_t)result < writeLength)
+                output_ready = false; // blocked, wait for output notification
+        }
+        else
+        {
+            switch (errno)
             {
-                // end-of-file reached, TBD - stop acting as receiver, signal sender we're done?
-                fprintf(stderr, "normMsgr: output end-of-file detected ...\n");
-            }
-            else if (ferror(input_file))
-            {
-                fprintf(stderr, "normMsgr: output error detected ...\n");
-                switch (errno)
-                {
-                    case EINTR:
-                        continue;  // interupted, try again
-                    case EAGAIN:
-                        // input starved, wait for next notification
-                        output_ready = false;
-                        break;
-                    default:
-                        perror("normMsgr error writing output");
-                        break;
-                }
+                case EINTR:
+                    continue;  // interupted, try again
+                case EAGAIN:
+                    // input starved, wait for next notification
+                    output_ready = false;
+                    break;
+                default:
+                    perror("normMsgr error writing output");
+                    break;
             }
             return false;
         }
         if (output_msg->IsComplete())
         {
             fflush(output_file);
-            delete output_msg;
+            //delete output_msg;
+            
+            temp_msg_queue.Append(*output_msg); // cache for debugging purposes
+            if (temp_msg_queue.GetCount() > 32)
+            {
+                //fprintf(stderr, "deleting cached recv'd message ...\n");
+                delete temp_msg_queue.RemoveHead();
+            }
             output_msg = output_msg_queue.RemoveHead();
             if (NULL != output_msg)
             {
@@ -454,7 +552,7 @@ bool NormMsgr::WriteOutput()
             }
             else
             {
-                output_pending = false;
+                rx_needed = true;
             }
             break;
         }
@@ -462,7 +560,7 @@ bool NormMsgr::WriteOutput()
     return true;
 }  // end NormMsgr::WriteOutput()
 
-bool NormMsgr::NormTxReady() const
+bool NormMsgr::TxReady() const
 {
     // This returns true if new tx data can be enqueued to NORM
     // This is based on the state with respect to prior successful data
@@ -484,8 +582,6 @@ bool NormMsgr::NormTxReady() const
 
 bool NormMsgr::SendMessage()
 {
-    // TBD - call EnqueueMessageObject() or WriteMessageStream()
-    //       depending upon on configured mode
     if (EnqueueMessageObject())
     {
         // Our buffered message was sent, so reset input indices
@@ -493,6 +589,7 @@ bool NormMsgr::SendMessage()
         input_msg_list.Append(*input_msg);
         input_msg = NULL;
         input_needed = true;
+        sent_count++;
         return true;   
     }
     // else will be prompted to retry by NORM event (queue vacancy, watermark completion)
@@ -515,23 +612,42 @@ bool NormMsgr::EnqueueMessageObject()
         // This might happen if a non-acking receiver is present and
         // has nacked for the oldest object in the queue even if all                
         // of our acking receivers have acknowledged it.  
+        fprintf(stderr, "NO VACANCY count:%u max:%u\n", norm_tx_queue_count, norm_tx_queue_max);
         norm_tx_vacancy = false;     
         return false;
     }
+    //NormObjectRetain(object);
     NormObjectSetUserData(object, input_msg); // so we can remove/delete upon purge
     if (norm_acking)
     {
         // ack-based flow control has been enabled
         norm_tx_queue_count++;
-        if (!norm_tx_watermark_pending && (norm_tx_queue_count >= (norm_tx_queue_max / 2)))
+        if (!norm_flow_control_pending && (norm_tx_queue_count >= (norm_tx_queue_max / 2)))
         {
-            NormSetWatermark(norm_session, object);
-            norm_tx_watermark_pending = true;
+            NormSetWatermark(norm_session, object, true);  // overrideFlush == true
+            norm_last_object = object;
+            norm_flow_control_pending = true;
+        }
+        else if (norm_flushing)  // per-message acking
+        {
+#ifdef SHOOT_FIRST
+            NormSetWatermark(norm_session, object, true);
+            norm_last_object = object;
+#else // ACK_LATER
+            if (norm_flow_control_pending)
+            {
+                norm_flush_object = object;  // will be used as watermark upon flow control ack
+            }
+            else
+            {
+                NormSetWatermark(norm_session, object, true);
+                norm_last_object = object;
+            }
+#endif // SHOOT_FIRST/ACK_LATER
         }
         else
         {
-            // TBD - make non-flow control acking separable option?
-            NormSetWatermark(norm_session, object);
+            //norm_last_object = object;
         }
     }
     return true;
@@ -539,7 +655,6 @@ bool NormMsgr::EnqueueMessageObject()
 
 void NormMsgr::HandleNormEvent(const NormEvent& event)
 {
-    bool logAllocs = false;
     switch (event.type)
     {
         case NORM_TX_QUEUE_EMPTY:
@@ -555,18 +670,37 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
             if (NORM_ACK_SUCCESS == NormGetAckingStatus(norm_session))
             {
                 //fprintf(stderr, "WATERMARK COMPLETED\n");
-                if (norm_tx_watermark_pending)
+                norm_last_object = NORM_OBJECT_INVALID;
+                if (norm_flow_control_pending)
                 {
                     norm_tx_queue_count -= (norm_tx_queue_max / 2);
-                    norm_tx_watermark_pending = false;
+                    norm_flow_control_pending = false;
+                    if (NORM_OBJECT_INVALID != norm_flush_object)
+                    {
+                        NormSetWatermark(norm_session, norm_flush_object, true);
+                        norm_last_object = norm_flush_object;
+                        norm_flush_object = NORM_OBJECT_INVALID;
+                    }
                 }
+                if (input_finished && (NORM_OBJECT_INVALID == norm_last_object))
+                    is_running = false;
             }
             else
             {
-                // TBD - we could see who didn't ACK and possibly remove them
-                //       from our acking list.  For now, we are infinitely
-                //       persistent by resetting watermark ack request
-                NormResetWatermark(norm_session);
+                // TBD - we could see who did and how didn't ACK and possibly remove them
+                //       from our acking "membership".  For now, we are infinitely
+                //       persistent by resetting watermark ack request without clearing
+                //       flow control
+                if (NORM_OBJECT_INVALID == norm_flush_object)
+                {
+                    NormResetWatermark(norm_session);
+                }
+                else  // might as request ack for most recent enqueued object
+                {
+                    NormSetWatermark(norm_session, norm_flush_object, true);
+                    norm_last_object = norm_flush_object;
+                    norm_flush_object = NORM_OBJECT_INVALID;
+                }
             }
             break; 
             
@@ -574,11 +708,16 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
         {
             NormDataDetachData(event.object);
             Message* msg = (Message*)NormObjectGetUserData(event.object);
+            if(event.object == norm_flush_object)
+                norm_flush_object = NORM_OBJECT_INVALID;
             if (NULL != msg)
             {
                 input_msg_list.Remove(*msg);
                 delete msg;
             }
+            //NormObjectRelease(event.object);
+            //fprintf(stderr, "normMsgr LOGGING ALLOCATIONS\n");
+            //ProtoCheckLogAllocations(stderr);
             break;
         }   
         
@@ -590,11 +729,11 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
         
         case NORM_RX_OBJECT_ABORTED:
             //fprintf(stderr, "NORM_RX_OBJECT_ABORTED\n");// %hu\n", NormObjectGetTransportId(event.object));
-            logAllocs = true;
             break;
             
         case NORM_RX_OBJECT_COMPLETED:
         {   
+            sent_count++;
             char* data = NormDataDetachData(event.object);
             if (NULL != data)
             {
@@ -613,12 +752,12 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
                         output_msg->ResetIndex(MSG_HEADER_SIZE);
                     else
                         output_msg->ResetIndex();
-                    output_pending = true;
                 }
                 else
                 {
                     output_msg_queue.Append(*msg);
                 }
+                rx_needed = false;
             }
             // else TBD - "termination" info-only object?
             break;
@@ -628,13 +767,6 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
             break;     
     }
     //NormReleasePreviousEvent(NormGetInstance(norm_session));
-
-    if (logAllocs) 
-    {
-#ifdef USE_PROTO_CHECK
-        ProtoCheckLogAllocations(stderr);
-#endif // USE_PROTO_CHECK
-    }
             
 }  // end NormMsgr::HandleNormEvent()
 
@@ -643,7 +775,7 @@ void Usage()
 {
     fprintf(stderr, "Usage: normMsgr id <nodeId> {send &| recv} [addr <addr>[/<port>]][ack <node1>[,<node2>,...]\n"
                     "                [cc|cce|ccl|rate <bitsPerSecond>][interface <name>][debug <level>][trace]\n"
-                    "                [omit][silent][txloss <lossFraction>]\n");
+                    "                [flush {none|active}][omit][silent][txloss <lossFraction>]\n");
 }
 int main(int argc, char* argv[])
 {
@@ -658,16 +790,21 @@ int main(int argc, char* argv[])
     
     NormNodeId ackingNodeList[256]; 
     unsigned int ackingNodeCount = 0;
+    bool flushing = false;
     
     double txRate = 0.0; // used for non-default NORM_FIXED ccMode
     NormMsgr::CCMode ccMode = NormMsgr::NORM_CC;
     const char* mcastIface = NULL;
     
     int debugLevel = 0;
+    const char* debugLog = NULL;  // stderr by default
     bool trace = false;
     bool omitHeaderOnOutput = false;
     bool silentReceiver = false;
     double txloss = 0.0;
+    bool loopback = false;
+    
+    NormMsgr normMsgr;
     
     // Parse command-line
     int i = 1;
@@ -682,6 +819,10 @@ int main(int argc, char* argv[])
         else if (0 == strncmp(cmd, "recv", len))
         {
             recv = true;
+        }
+        else if (0 == strncmp(cmd, "loopback", len))
+        {
+            loopback = true;
         }
         else if (0 == strncmp(cmd, "addr", len))
         {
@@ -708,6 +849,23 @@ int main(int argc, char* argv[])
                 sessionPort = atoi(portPtr);
             }
         }
+        else if (0 == strncmp(cmd, "output", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normMsgr error: missing output 'device' name!\n");
+                Usage();
+                return -1;
+            }
+            FILE* outfile = fopen(argv[i++], "w+");
+            if (NULL == outfile)
+            {
+                perror("normMsgr output device fopen() error");
+                Usage();
+                return -1;
+            }
+            normMsgr.SetOutputFile(outfile);
+        }
         else if (0 == strncmp(cmd, "id", len))
         {
             if (i >= argc)
@@ -731,16 +889,46 @@ int main(int argc, char* argv[])
             while ((NULL != alist) && (*alist != '\0'))
             {
                 // TBD - Do we need to skip leading white space?
-                if (1 != sscanf(alist, "%d", ackingNodeList + ackingNodeCount))
+                int id;
+                if (1 != sscanf(alist, "%d", &id))
                 {
                     fprintf(stderr, "nodeMsgr error: invalid acking node list!\n");
                     Usage();
                     return -1;
                 }
+                ackingNodeList[ackingNodeCount] = NormNodeId(id);
                 ackingNodeCount++;
                 alist = strchr(alist, ',');
                 if (NULL != alist) alist++;  // point past comma
             }
+        }
+        else if (0 == strncmp(cmd, "flush", len))
+        {
+            // "none", "passive", or "active"
+            if (i >= argc)
+            {
+                fprintf(stderr, "nodeMsgr error: missing 'flush' <mode>!\n");
+                Usage();
+                return -1;
+            }
+            const char* mode = argv[i++];
+            if (0 == strcmp(mode, "none"))
+            {
+                flushing = false;
+            }
+            else if (0 == strcmp(mode, "passive"))
+            {
+                flushing = false;
+            }
+            else if (0 == strcmp(mode, "active"))
+            {
+                flushing = true;
+            }
+            else
+            {
+                fprintf(stderr, "normMsgr error: invalid 'flush' mode \"%s\"\n", mode);
+                return -1;
+            }   
         }
         else if (0 == strncmp(cmd, "rate", len))
         {
@@ -802,11 +990,21 @@ int main(int argc, char* argv[])
         {
             if (i >= argc)
             {
-                fprintf(stderr, "nodeMsgr error: missing 'interface' <name>!\n");
+                fprintf(stderr, "nodeMsgr error: missing 'debug' <level>!\n");
                 Usage();
                 return -1;
             }
             debugLevel = atoi(argv[i++]);
+        }
+        else if (0 == strncmp(cmd, "log", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "nodeMsgr error: missing 'log' <fileName>!\n");
+                Usage();
+                return -1;
+            }
+            debugLog = argv[i++];
         }
         else if (0 == strncmp(cmd, "trace", len))
         {
@@ -841,8 +1039,11 @@ int main(int argc, char* argv[])
     // TBD - should provide more error checking of calls
     NormInstanceHandle normInstance = NormCreateInstance();
     NormSetDebugLevel(debugLevel);
+    if (NULL != debugLog)
+        NormOpenDebugLog(normInstance, debugLog);
     
-    NormMsgr normMsgr;
+    normMsgr.SetLoopback(loopback);
+    normMsgr.SetFlushing(flushing);
     
     if (omitHeaderOnOutput) normMsgr.OmitHeader(true);
     
@@ -873,89 +1074,134 @@ int main(int argc, char* argv[])
     
     int normfd = NormGetDescriptor(normInstance);
     // Get input/output descriptors and set to non-blocking i/o
-    int inputfd = fileno(normMsgr.GetInputFile());
+    int inputfd = normMsgr.GetInputDescriptor();
     if (-1 == fcntl(inputfd, F_SETFL, fcntl(inputfd, F_GETFL, 0) | O_NONBLOCK))
         perror("normMsgr: fcntl(inputfd, O_NONBLOCK) error");
-    int outputfd = fileno(normMsgr.GetOutputFile());
+    int outputfd = normMsgr.GetOutputDescriptor();
     if (-1 == fcntl(outputfd, F_SETFL, fcntl(outputfd, F_GETFL, 0) | O_NONBLOCK))
         perror("normMsgr: fcntl(outputfd, O_NONBLOCK) error");
     fd_set fdsetInput, fdsetOutput;
     FD_ZERO(&fdsetInput);
     FD_ZERO(&fdsetOutput);
+    struct timeval lastTime;
+    gettimeofday(&lastTime, NULL);
     while (normMsgr.IsRunning())
     {
-        int maxfd = normfd;
-        FD_SET(normfd, &fdsetInput);
-        if (normMsgr.InputNeeded())
+        int maxfd = -1;
+        // Only wait on NORM if needed for tx readiness
+        bool waitOnNorm = true;
+        if (!(normMsgr.RxNeeded() || normMsgr.InputMessageReady()))
+            waitOnNorm = false; // no need to wait
+        else if (normMsgr.InputMessageReady() && normMsgr.TxReady())  
+            waitOnNorm = false; // no need to wait if already tx ready
+        if (waitOnNorm)
+        {
+            maxfd = normfd;
+            FD_SET(normfd, &fdsetInput);
+        }
+        else
+        {
+            FD_CLR(normfd, &fdsetInput);
+        }
+        if (normMsgr.InputNeeded() && !normMsgr.InputReady())
         {   
-            //fprintf(stderr, "NEED INPUT ...\n");
             FD_SET(inputfd, &fdsetInput);
-            if (inputfd > maxfd)
-                maxfd = inputfd;
+            if (inputfd > maxfd) maxfd = inputfd;
         }   
         else
         {
             FD_CLR(inputfd, &fdsetInput);
         }
-        int result;
         if (normMsgr.OutputPending() && !normMsgr.OutputReady())
         {
             FD_SET(outputfd, &fdsetOutput);
             if (outputfd > maxfd) maxfd = outputfd;
-            result = select(maxfd+1, &fdsetInput, &fdsetOutput, NULL, NULL);
         }
         else
         {   
             FD_CLR(outputfd, &fdsetOutput);
-            result = select(maxfd+1, &fdsetInput, NULL, NULL, NULL);
         }
-        switch (result)
+        if (maxfd >= 0)
         {
-            case -1:
-                switch (errno)
-                {
-                    case EINTR:
-                    case EAGAIN:
-                        continue;
-                    default:
-                        perror("normMsgr select() error");
-                        // TBD - stop NormMsgr
-                        break;
-                }
-                break;
-            case 0:
-                // shouldn't occur for now (no timeout)
-                continue;
-            default:
-                if (FD_ISSET(inputfd, &fdsetInput))
-                {
-                    normMsgr.ReadInput();
-                }   
-                if (FD_ISSET(normfd, &fdsetInput))
-                {
-                    NormEvent event;
-                    if (NormGetNextEvent(normInstance, &event))
-                        normMsgr.HandleNormEvent(event);
-                }   
-                if (FD_ISSET(outputfd, &fdsetOutput))
-                {
-                    normMsgr.SetOutputReady();
-                }
-                break; 
+            struct timeval timeout;
+            timeout.tv_sec = 1;
+            timeout.tv_usec = 0;
+            int result = select(maxfd+1, &fdsetInput, &fdsetOutput, NULL, &timeout);
+            switch (result)
+            {
+                case -1:
+                    switch (errno)
+                    {
+                        case EINTR:
+                        case EAGAIN:
+                            continue;
+                        default:
+                            perror("normMsgr select() error");
+                            // TBD - stop NormMsgr
+                            break;
+                    }
+                    break;
+                case 0:
+                    // shouldn't occur for now (no timeout)
+                    //fprintf(stderr, "normMsgr timeout ...\n");
+                    continue;
+                default:
+                    if (FD_ISSET(inputfd, &fdsetInput))
+                    {
+                        normMsgr.SetInputReady();
+                    }   
+                    /*if (FD_ISSET(normfd, &fdsetInput))
+                    {
+                        NormEvent event;
+                        while (NormGetNextEvent(normInstance, &event, false))
+                            normMsgr.HandleNormEvent(event);
+                    }*/  
+                    if (FD_ISSET(outputfd, &fdsetOutput))
+                    {
+                        normMsgr.SetOutputReady();
+                    }
+                    break; 
+            }
         }
+        
+        NormSuspendInstance(normInstance);
+        NormEvent event;
+        while (NormGetNextEvent(normInstance, &event, false))
+            normMsgr.HandleNormEvent(event);
         // As a result of reading input or NORM notification events,  
-        // we may be ready to send a message if it's been read
-        if (normMsgr.InputMessageReady() && normMsgr.NormTxReady())
-            normMsgr.SendMessage();
-        // and/or output a received message if we need
-        if (normMsgr.OutputPending() && normMsgr.OutputReady())
-            normMsgr.WriteOutput();  // TBD - implement output async i/o notification as needed
+        // we may be ready to read input and/or send a message if it's been read
+        const int LOOP_MAX = 100;
+        int loopCount = 0;
+        while (loopCount < LOOP_MAX)
+        {
+            loopCount++;
+            if (normMsgr.InputNeeded() && normMsgr.InputReady())
+                normMsgr.ReadInput();
+            if (normMsgr.InputMessageReady() && normMsgr.TxReady())
+                normMsgr.SendMessage();
+            // and/or output a received message if we need
+            if (normMsgr.OutputPending() && normMsgr.OutputReady())
+                normMsgr.WriteOutput();  
+        }
+        NormResumeInstance(normInstance);
             
     }  // end while(normMsgr.IsRunning()
     
-    fprintf(stderr, "normMsgr exiting ...\n");
+    
+    
+    NormCloseDebugLog(normInstance);
+    
+    fprintf(stderr, "destroying session ...\n");
+    normMsgr.CloseNormSession();
+    
+    fprintf(stderr, "destroying instance ...\n");
     
     NormDestroyInstance(normInstance);
+    
+    normMsgr.Destroy();
+    
+    fprintf(stderr, "normMsgr exiting ...\n");
+    
 }  // end main()
 
 NormMsgr::Message::Message()
@@ -980,6 +1226,7 @@ NormMsgr::Message::~Message()
     // to delete msg_buffer if it came from NORM
     if (NULL != msg_buffer)
     {
+        //fprintf(stderr, "deleting msg_buffer ...\n");
         delete[] msg_buffer;
         msg_buffer = NULL;
     }
@@ -1012,7 +1259,7 @@ bool NormMsgr::Message::Init(unsigned int size)
 }  // end NormMsgr::Message::Init()
 
 NormMsgr::MessageQueue::MessageQueue()
- : head(NULL), tail(NULL)
+ : head(NULL), tail(NULL), msg_count(0)
 {
 }
 
@@ -1038,6 +1285,7 @@ void NormMsgr::MessageQueue::Prepend(Message& msg)
         tail = &msg;
     msg.next = head;
     head = &msg;
+    msg_count++;
 }  // end NormMsgr::MessageQueue::Prepend()
 
 void NormMsgr::MessageQueue::Append(Message& msg)
@@ -1049,6 +1297,7 @@ void NormMsgr::MessageQueue::Append(Message& msg)
         head = &msg;
     msg.prev = tail;
     tail = &msg;
+    msg_count++;
 }  // end NormMsgr::MessageQueue::Append()
 
 void NormMsgr::MessageQueue::Remove(Message& msg)
@@ -1062,6 +1311,7 @@ void NormMsgr::MessageQueue::Remove(Message& msg)
     else
         msg.next->prev = msg.prev;
     msg.prev = msg.next = NULL;
+    msg_count--;
 }  // end NormMsgr::MessageQueue::Remove()
 
 NormMsgr::Message* NormMsgr::MessageQueue::RemoveHead()

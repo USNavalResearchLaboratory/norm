@@ -64,7 +64,10 @@ int main(int argc, char* argv[])
     NormSessionHandle session = NormCreateSession(instance,
                                                   "224.1.2.3", 
                                                    6003,
-                                                   NORM_NODE_ANY);
+                                                   1);
+    
+    NormSetRxPortReuse(session, true);
+    NormSetMulticastLoopback(session, true);
     
     // NOTE: These are some debugging routines available 
     //       (not necessary for normal app use)

@@ -1,7 +1,16 @@
 
 #include "protoApp.h"
 #include "normFile.h"
+
+// Commment this #define out to use new, faster RS8 codec instead
+// (TBD - provide option use 16-bit Reed Solomon for large block sizes?)
+//#define USE_MDP_FEC
+
+#ifdef USE_MDP_FEC
+#include "normEncoderMDP.h"
+#else
 #include "normEncoderRS8.h"
+#endif // if/else USE_MDP_FEC
 
 #include <sys/types.h>  // for BYTE_ORDER macro
 #include <stdlib.h>  // for atoi()
@@ -48,8 +57,8 @@ class NormPrecodeApp : public ProtoApp
             {
                 case 8:
                 {
-                    long* outPtr = (long*)&result;
-                    long* inPtr = (long*)&offset;
+                    UINT32* outPtr = (UINT32*)&result;
+                    UINT32* inPtr = (UINT32*)&offset;
                     outPtr[0] = ntohl(inPtr[1]);
                     outPtr[1] = ntohl(inPtr[0]);
                     break;
@@ -559,7 +568,11 @@ bool NormPrecodeApp::Encode()
     
     InitInterleaver(numOutputSegments);
     // 1) Init our FEC encoder
+#ifdef USE_MDP_FEC
+    NormEncoderMDP encoder;
+#else
     NormEncoderRS8 encoder;
+#endif // if/else USE_MDP_FEC
     if (!encoder.Init(num_data, num_parity, dataSegmentSize))  // 4 CRC bytes are _not_ encoded
     {
         PLOG(PL_FATAL, "npc: error initializing FEC encoder\n");
@@ -607,7 +620,7 @@ bool NormPrecodeApp::Encode()
         parityVec[i] = pvec;
         pvec += segment_size;
     }
-        
+    
     // 3) Build "meta_data" segment for the file
     // (TBD) This could be built directly into iBuffer segment zero
     char metaData[SEGMENT_MAX+4];
@@ -638,7 +651,7 @@ bool NormPrecodeApp::Encode()
     strncpy(metaData+8, ptr, segment_size - 12);
     
     // 2) Read "in_file" segments, encode, and output to "out_file"
-    PLOG(PL_FATAL, "npc: encoding file ... (progress:   0%%)");
+    PLOG(PL_ALWAYS, "npc: encoding file ... (progress:   0%%)");
     // State to track/display encoding progress
     NormFile::Offset progressThreshold = numOutputSegments / 100;
     double progressIncrement = 100.0;
@@ -659,61 +672,57 @@ bool NormPrecodeApp::Encode()
     {
         NormFile::Offset interleaverOffset = ComputeInterleaverOffset(outputSegmentId, numOutputSegments);
         char* segment = useBuffering ? (iBuffer + (interleaverOffset % interleaverBytes)) : iBuffer;
-             
-        switch (parityReady)
+        if (parityReady)
         {
-            case false:
+            // D) Output parity segment for this block
+            char* pvec = parityVec[num_parity - parityCount];
+            memcpy(segment, pvec, dataSegmentSize);
+            if (0 == --parityCount) 
             {
-                // Read and encode a segment
-                inputSegmentId++;
-                if (1 == inputSegmentId)
+                memset(parityVec[0], 0, num_parity * segment_size);
+                parityReady = false;
+                blockId++;
+            }
+        }
+        else
+        {
+            // Read and encode a segment
+            inputSegmentId++;
+            if (1 == inputSegmentId)
+            {
+                // A) Segment '0' is the meta-data segment
+                memcpy(segment, metaData, dataSegmentSize);
+            }
+            else
+            {
+                // B) Read in data portion of next "segment"
+                unsigned int bytesToRead;
+                if (inputSegmentId != numInputSegments)
                 {
-                    // A) Segment '0' is the meta-data segment
-                    memcpy(segment, metaData, dataSegmentSize);
+                    bytesToRead = dataSegmentSize; 
                 }
                 else
                 {
-                    // B) Read in data portion of next "segment"
-                    unsigned int bytesToRead;
-                    if (inputSegmentId != numInputSegments)
-                    {
-                        bytesToRead = dataSegmentSize; 
-                    }
-                    else
-                    {
-                        memset(segment, 0, dataSegmentSize);
-                        bytesToRead = lastFecSegSize;
-                    }
-                    if (in_file.Read(segment, bytesToRead) != bytesToRead)
-                    {
-                        PLOG(PL_FATAL, "\nnpc: unexpected error reading input file: %s\n", GetErrorString());
-                        return false;
-                    }
+                    memset(segment, 0, dataSegmentSize);
+                    bytesToRead = lastFecSegSize;
                 }
-                // C) Encode and check for parity readiness
-                encoder.Encode(outputSegmentId, segment, parityVec);
-                unsigned int numData = (blockId != lastBlockId) ? fecBlockSize : lastBlockSize;
-                if (numData == ++parityCount) 
+                if (in_file.Read(segment, bytesToRead) != bytesToRead)
                 {
-                    parityCount = num_parity;
-                    parityReady = true;
+                    PLOG(PL_FATAL, "\nnpc: unexpected error reading input file: %s\n", GetErrorString());
+                    return false;
                 }
-                break;
             }
-            case true:
+            // C) Encode and check for parity readiness
+            //TRACE("outputSegmentId:%lu\n", outputSegmentId);
+            
+            encoder.Encode(outputSegmentId % fecBlockSize, segment, parityVec);
+            unsigned int numData = (blockId != lastBlockId) ? fecBlockSize : lastBlockSize;
+            if (numData == ++parityCount) 
             {
-                // D) Output parity segment for this block
-                char* pvec = parityVec[num_parity - parityCount];
-                memcpy(segment, pvec, dataSegmentSize);
-                if (0 == --parityCount) 
-                {
-                    memset(parityVec[0], 0, num_parity * segment_size);
-                    parityReady = false;
-                    blockId++;
-                }
-                break;
+                parityCount = num_parity;
+                parityReady = true;
             }
-        }    
+        }
         // E) Calculate and add CRC32 checksum to each "segment"
         UINT32 checksum = ComputeCRC32(segment, dataSegmentSize);
         checksum = htonl(checksum);
@@ -760,17 +769,17 @@ bool NormPrecodeApp::Encode()
         if (++progressCounter >= progressThreshold)
         {
             if (progressPercent < 9)
-                PLOG(PL_FATAL, "\b\b\b%d%%)", progressPercent + 1);
+                PLOG(PL_ALWAYS, "\b\b\b%d%%)", progressPercent + 1);
             else if (progressPercent < 99)
-                PLOG(PL_FATAL, "\b\b\b\b%d%%)", progressPercent + 1);
+                PLOG(PL_ALWAYS, "\b\b\b\b%d%%)", progressPercent + 1);
             if (progressPercent < 99) progressPercent++;
             progressCounter = 0;
         }      
     } 
     if (progressPercent < 10)
-        PLOG(PL_FATAL, "\b\b\b100%%)\n");
+        PLOG(PL_ALWAYS, "\b\b\b100%%)\n");
     else 
-        PLOG(PL_FATAL, "\b\b\b\b100%%)\n");
+        PLOG(PL_ALWAYS, "\b\b\b\b100%%)\n");
     
     in_file.Close();
     out_file.Close();
@@ -815,7 +824,11 @@ bool NormPrecodeApp::Decode()
     InitInterleaver(numInputSegments);
     
     // 2) init FEC decoder
+#ifdef USE_MDP_FEC
+    NormDecoderMDP decoder;
+#else
     NormDecoderRS8 decoder;
+#endif // if/else USE_MDP_FEC
     unsigned int dataSegmentSize = segment_size - 4;  // leaves space for our CRC
     if (!decoder.Init(num_data, num_parity, dataSegmentSize))
     {
@@ -894,7 +907,7 @@ bool NormPrecodeApp::Decode()
     
     // Read and decode each block in "in_file"
     NormFile::Offset fecBlockId = 0;
-    NormFile::Offset outFileSize;
+    NormFile::Offset outFileSize = 0;
     
     NormFile::Offset lastInterleaverBlockId = numInputSegments / interleaver_size;
     NormFile::Offset lastInterleaverBytes = (numInputSegments % interleaver_size) * segment_size;
@@ -1084,9 +1097,9 @@ bool NormPrecodeApp::Decode()
         if (++progressCounter >= progressThreshold)
         {
             if (progressPercent < 9)
-                PLOG(PL_FATAL, "\b\b\b%d%%)", progressPercent + 1);
+                PLOG(PL_ALWAYS, "\b\b\b%d%%)", progressPercent + 1);
             else if (progressPercent < 99)
-                PLOG(PL_FATAL, "\b\b\b\b%d%%)", progressPercent + 1);
+                PLOG(PL_ALWAYS, "\b\b\b\b%d%%)", progressPercent + 1);
             if (progressPercent < 99) progressPercent++;
             progressCounter = 0;
         }    
@@ -1094,9 +1107,9 @@ bool NormPrecodeApp::Decode()
     }  // end while (inputSegmentId < numInputSegments)
     
     if (progressPercent < 10)
-        PLOG(PL_FATAL, "\b\b\b100%%)\n");
+        PLOG(PL_ALWAYS, "\b\b\b100%%)\n");
     else 
-        PLOG(PL_FATAL, "\b\b\b\b100%%)\n");
+        PLOG(PL_ALWAYS, "\b\b\b\b100%%)\n");
     
     // Cleanup, cleanup
     delete[] iBuffer;

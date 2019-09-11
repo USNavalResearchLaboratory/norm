@@ -91,5 +91,11 @@ class Event(object):
             return "NORM_CC_ACTIVE"
         elif self.type == c.NORM_CC_INACTIVE:
             return "NORM_CC_INACTIVE"
+        elif self.type == c.NORM_ACKING_NODE_NEW:
+            return "NORM_ACKING_NODE_NEW"
+        elif self.type == c.NORM_SEND_ERROR:
+            return "NORM_SEND_ERROR"
+        elif self.type == c.NORM_USER_TIMEOUT:
+            return "NORM_USER_TIMEOUT"
         else:
             return "Unknown event type"

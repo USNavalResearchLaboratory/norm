@@ -1181,7 +1181,7 @@ bool <link linkend="NormSetCacheDirectory"><literal>NormSetCacheDirectory</liter
 
 bool <link linkend="NormGetNextEvent"><literal>NormGetNextEvent</literal></link>(<link
               linkend="NormInstanceHandle"><literal>NormInstanceHandle</literal></link> instanceHandle,
-                      <link linkend="NormEvent"><literal>NormEvent</literal></link>*         theEvent);</programlisting>
+                      <link linkend="NormEvent"><literal>NormEvent*</literal></link>         theEvent);</programlisting>
         </sect4>
 
         <sect4>
@@ -3763,7 +3763,7 @@ void <link linkend="NormSetTxRobustFactor"><literal>NormSetTxRobustFactor</liter
 
           <programlisting>#include &lt;normApi.h&gt;
 
-boolNormRequeueObject(<link linkend="NormSessionHandle"><literal>NormSessionHandle</literal></link> sessionHandle,
+bool NormRequeueObject(<link linkend="NormSessionHandle"><literal>NormSessionHandle</literal></link> sessionHandle,
                       <link linkend="NormObjectHandle"><literal>NormObjectHandle</literal></link>  objectHandle);</programlisting>
         </sect4>
 
@@ -6596,7 +6596,7 @@ bool <link linkend="NormNodeGetAddress"><literal>NormNodeGetAddress</literal></l
 
           <programlisting>#include &lt;normApi.h&gt;
 
-double <link linkend="NormNodeGetId"><literal>NormNodeGetId</literal></link>(<link
+double <link linkend="NormNodeGetId"><literal>NormNodeGetGrtt</literal></link>(<link
               linkend="NormNodeHandle"><literal>NormNodeHandle</literal></link> nodeHandle);</programlisting>
         </sect4>
 

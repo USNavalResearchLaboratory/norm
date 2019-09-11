@@ -1,0 +1,155 @@
+NormSocket API Extension Notes
+
+The NormSocket API (currently defined in examples/normSocket.h) is an in-development extension to the
+base (low-level) NORM API (defined in include/normApi.h) that provides a more familiar (socket-like),
+easier-to-use API for some specific NORM use patterns.  The use patterns supported here are those of a
+client-server paradigm where "clients" have individual, reliable connections to the server and the
+"server" can have either a one-to-many multicast connection or individual unicast connections to the set
+of clients.  The paradigm follows a connection-oriented socket model where the server "listens" for
+incoming connections initiated by clients.  The low-level NORM API is used to establish multiple NORM
+sessions as needed to support the necessary data exhange relationships. Since this is a
+connection-oriented model, explicit ACK-based flow control used for both client-to-server and
+server-to-client(s) data transfers.  This is a more controlled model of NORM use as compared to the
+looser "connection-free" model of operation NORM use has typically observed.
+
+The NormSocket API code makes careful use of operating system socket-binding to enable port reuse and
+simpler session establishment where clients can "connect" to the server listening on a well-known port
+as compared to typical base NORM API use where participants can exchange data on a a priori known common
+port number (and group address if multicast).  However, the clients do need to know the unicast address
+of the server and the paradigm is somewhat that of Single-Source Multicast (SSM).  Client application
+can, of course, using multiple NormSocket instances connect to multiple multicast (or unicast) servers.. 
+THere
+A server application can use the NormListen() call to establish a session that listens for incoming
+connection requests, Client applications can use the NormConnect() call to initiate a connection to a
+listening server.  In response, the server application can use NormAccept() to establish connections with
+the clients.  
+
+At the moment a NormGetSocketEvent() (analogous to the NormGetNextEvent() call in the base NORM API) can
+be used to provide cues to changes in NormSocket state (notification of incoming connections, connection
+establishment, read/write readiness, etc.).  A descriptor is provided for asynchronous I/O notification
+of pending events.  At the moment, the default behavior is a single NormInstance, and hence a single
+descriptor, can be used for multiple NormSockets, but it is possible to call NormCreateInstance() and
+associate a separate NormInstance (and hence separate descriptor) with each NormSocket that is
+listending, connected or accepted if desired.  
+
+As the NormSocket API extension matures, more examples and documentation will be provided as well as
+incorporating it (possibly directly) into the "normApi.h" header file and NORM library.  At the moment,
+"examples/normClient.cpp" and "examples/normServer.cpp" illustrate (and test) basic usage of the API. 
+The "normServer" can be run as a unicast server using the syntax:
+
+./normServer listen <serverPort>
+
+or a multicast server using the syntax:
+
+./normServer listen <groupAddr>/<serverPort>
+
+Corresponding "normClient" instances can connect to unicast server using the syntax:
+
+./normClient connect <serverAddr>/<serverPort>
+
+or to a multicast server using the syntax:
+
+./normClient connect <serverAddr>/<serverPort>,<groupAddr>
+
+There are some additional command-line options shared by these examples such as "trace" to enable NORM's
+message trace output and "debug <debugLevel>" to invoke different levels of debug output.  Note that an
+option to specify the multicast interface is planned but not yet implemented in these examples.
+Similarly, an option to set a specific unicast server binding will also be provided.
+
+TODO (not in priority order):
+
+1) When client initiates connection and server-listener receives NORM_CMD(CC), add code
+   to directly "inject" the NORM_CMD(CC) into the newly created server-side client
+   session such that NORM_ACK is immediately sent.  This will give client a more immediate
+   RTT measurement, etc.
+   
+2) Add options to set transmit rate, congestion control, etc options via NormSocketHandle
+   (current code works at default tx rate of 64 kbps)
+   
+3) The server-listener session should be modified so NORM_DATA messages are ignored.  Also,
+   NormSetServerListener() could also set the session a silent receiver, too?
+      
+4) Add support for additional transport modes in addition to current byte stream:
+`   1) Message stream
+    2) NORM_OBJECT_DATA (w/ data copy option?)
+    3) NORM_OBJECT_FILE
+    
+5) Add option to specify multicast "interface" and use in examples.
+
+6) Enable setting a specific unicast server binding address.    
+
+
+===========================================================================
+MISC. DEVELOPMENT NOTES
+
+// Notional  program outline
+// (optional mcastAddr iff asymm multicast/unicast (i.e. SSM))
+
+normSocket = NormListen(port, [mcastAddr])
+
+_or_
+
+normSocket = NormConnect(addr, port, [mcastAddr])
+
+while NormGetSocketEvent(normSocket)
+{
+
+    switch (event.GetType())
+        NORM_ACCEPT:
+            clientSocket = NormAccept(normSocket, client, [instance]);  // rx-only for asymm mcast case
+            
+        NORM_CONNECTED:
+            // in response to NormConnect when "server" is detected (NEW_REMOTE_SENDER)
+            
+        NORM_TX_READY:
+            upon QUEUE_VACANCY, etc ... socket _might_ be write() ready
+            
+        NORM_RX_READY:
+
+            upon RX_OBJECT_NEW, RX_OBJECT_UPDATE ... socket _might_ be read() ready
+            
+        NORM_CLOSING: ???
+            upon stream end received from remote sender
+            
+        NORM_CLOSED: ???
+            upon stream end _and_ ack to our stream end
+}
+
+
+
+ *** Server listen on a port (optional mcast address):
+
+- Create NormSession that receive-only on given port (if it's asymm mcast, then sender enabled, too)
+
+- For each client (detected via NEW_REMOTE_SENDER yielding a NormSocket::NORM_ACCEPT event)
+      Create tightly binded session for rx (and tx if unicast) ... this will fail if binding already exists
+      
+
+*** Client connect
+
+- Create single socket (common ephemeral tx/rx port) NormSession for server destination addr/port.
+- Call NormStartSender() to initiate probing of server
+- NORM_CONNECTED upon NEW_REMOTE_SENDER (from server) ???
+
+
+QUESTIONS:
+
+1) How does a server reject a connection request?  (for now, just ignore)
+
+2) How is a "connection" gracefully terminated? (NormShutdown() vs. NormClose()?)
+
+
+NormClose(graceful = false) ... 
+ a) stop sender/receiver, destroy everything
+
+NormShutdown(graceful = true) ... 
+ a) close stream (gracefully, w/ ack request)
+ b) upon ack receipt (or timeout) _and_ rx stream end, destroy everything
+ 
+
+Upon receipt of rx stream end, close tx stream gracefully ...
+
+ initiator -> stream end; upon ack set tx_stream = NULL and wait for rx_stream end
+ 
+ receptor -> upon rx_stream end, initiate tx_stream shutdown and wait for ack
+ 

@@ -3,11 +3,21 @@
 #include <stdio.h>  // for stderr
 #include <assert.h> // for assert()
 #include <string.h>  // for strlen()
+
+#ifdef WIN32
+#include <Winsock2.h>   // for inet_ntoa() (TBD - change to use Protolib routines?)
+#include <Ws2tcpip.h>   // for inet_ntop()
+#else
 #include <arpa/inet.h>  // for inet_ntoa() (TBD - change to use Protolib routines?)
+#endif // if/else WIN32/UNIX
 
 // COMPILE: (assumes "normApi.h" in "include" ...
 // g++ -I../include -c normSocket.cpp 
 
+#define TRACE(...) fprintf(stderr, __VA_ARGS__)
+
+// Extra, non-public NORM API functions used by NormSocket stuff
+extern void NormSetId(NormSessionHandle sesssionHandle, NormNodeId normId);
 
 // This "NormSocket" class is used to maintain tx/rx state for a NORM "socket" connection.
 // At the moment this "socket" connection represents a single, bi-directional NORM_OBJECT_STREAM
@@ -18,6 +28,16 @@
 const NormSocketHandle NORM_SOCKET_INVALID = (NormSocketHandle)0;
 
 const double NORM_DEFAULT_CONNECT_TIMEOUT = 60.0;
+
+// This is extra stuff defined for NormSocket API extension purposes.  As the NormSocket
+// extension is finalized, these may be refined/relocated
+enum {NORM_SOCKET_VERSION = 1};
+enum NormSocketCommand
+{
+    NORM_SOCKET_CMD_NULL = 0,  // reserved, invalid/null command
+    NORM_SOCKET_CMD_REJECT,    // sent by server-listener to reject invalid connection messages
+    NORM_SOCKET_CMD_ALIVE      // TBD - for NormSocket "keep-alive" option?
+};
 
 // a 'helper' function we use for debugging
 const char* NormNodeGetAddressString(NormNodeHandle node)
@@ -48,6 +68,7 @@ class NormSocket
 {
     public:
         NormSocket(NormSessionHandle normSession = NORM_SESSION_INVALID);
+        ~NormSocket();
     
         // These methods identify the role of this socket with respect
         // to the client / server relationship (a "server socket" is
@@ -69,10 +90,13 @@ class NormSocket
         bool IsClientSide() const
             {return (NULL == server_socket);}
     
+        NormInstanceHandle GetInstance() const
+            {return NormGetInstance(norm_session);}
         NormSessionHandle GetSession() const
             {return norm_session;}
         NormSessionHandle GetMulticastSession() const
             {return mcast_session;}
+        
     
         void InitRxStream(NormObjectHandle rxStream)
             {rx_stream = rxStream;}
@@ -88,12 +112,14 @@ class NormSocket
             tx_stream_buffer_count = 0;
             tx_stream_bytes_remain = 0;
             tx_watermark_pending = false;
+            tx_ready = true;
         }
         
+        bool Open(NormInstanceHandle instance = NORM_INSTANCE_INVALID);
         
-        bool Listen(NormInstanceHandle instance, UINT16 serverPort, const char* groupAddr);
+        bool Listen(UINT16 serverPort, const char* groupAddr, const char* serverAddr);
         NormSocket* Accept(NormNodeHandle client, NormInstanceHandle instance = NORM_INSTANCE_INVALID);
-        bool Connect(NormInstanceHandle instance, const char* serverAddr, UINT16 serverPort, const char* groupAddr, NormNodeId clientId);
+        bool Connect(const char* serverAddr, UINT16 serverPort, UINT16 localPort, const char* groupAddr, NormNodeId clientId);
         
         
         // Write to tx stream (with flow control)
@@ -108,11 +134,19 @@ class NormSocket
         // hard, immediate closure
         void Close();
         
+        void SetUserData(const void* userData)
+            {user_data = userData;}
+        const void* GetUserData() const
+            {return user_data;}
+        
+        void SetTrace(bool state);
+        
         void GetSocketEvent(const NormEvent& event, NormSocketEvent& socketEvent);
         
         typedef enum State
         {
             CLOSED,
+            OPEN,
             LISTENING,
             CONNECTING,
             ACCEPTING,
@@ -134,16 +168,50 @@ class NormSocket
         }
         void RemoveAckingNode(NormNodeId nodeId)
             {NormRemoveAckingNode(norm_session, nodeId);}
-
+        
+        void GetPeerName(char* addr, unsigned int* addrLen, UINT16* port)
+        {
+            if (NULL == addrLen) return;
+            switch (remote_version)
+            {
+                case 4:
+                    if ((*addrLen >= 4) && (NULL != addr))
+                        memcpy(addr, remote_addr, 4);
+                    *addrLen = 4;
+                    break;
+                case 6:
+                    if ((*addrLen >= 16) && (NULL != addr))
+                        memcpy(addr, remote_addr, 16);
+                    *addrLen = 16;
+                    break;
+                default:
+                    *addrLen = 0;
+                    return;
+            }   
+            if (NULL != port) *port = remote_port;
+        }
             
     private:
+        void UpdateRemoteAddress()
+        {
+            unsigned int addrLen = 16;
+            NormNodeGetAddress(remote_node, remote_addr, &addrLen, &remote_port);
+            if (4 == addrLen)
+                remote_version = 4;
+            else
+                remote_version = 6;
+        }      
+        
         State               socket_state; 
         NormSessionHandle   norm_session;
         NormSessionHandle   mcast_session;   // equals norm_session for a multicast server
         NormSocket*         server_socket;   // only applies to server-side sockets
         unsigned int        client_count;    // only applies to mcast server sockets
         NormNodeId          client_id;       // only applies to mcast client socket
-        NormNodeHandle      remote_node;     //
+        NormNodeHandle      remote_node;     // client socket peer info
+        UINT8               remote_version;  // 4 or 6
+        char                remote_addr[16]; // big enough for IPv6
+        UINT16              remote_port;
         // Send stream and associated flow control state variables
         NormObjectHandle    tx_stream;
         bool                tx_ready;
@@ -154,6 +222,7 @@ class NormSocket
         bool                tx_watermark_pending;
         // Receive stream state
         NormObjectHandle    rx_stream;
+        const void*         user_data;      // for use by user application
       
 };  // end class NormSocket
 
@@ -161,11 +230,12 @@ class NormSocket
 NormSocket::NormSocket(NormSessionHandle normSession)
  : socket_state(CLOSED), norm_session(normSession), 
    mcast_session(NORM_SESSION_INVALID), server_socket(NULL),
-   client_count(0), client_id(NORM_NODE_NONE), remote_node(NORM_NODE_INVALID),
+   client_count(0), client_id(NORM_NODE_NONE), 
+   remote_node(NORM_NODE_INVALID), remote_version(0), remote_port(0),
    tx_stream(NORM_OBJECT_INVALID), tx_ready(false), tx_segment_size(0), 
    tx_stream_buffer_max(0), tx_stream_buffer_count(0),
    tx_stream_bytes_remain(0), tx_watermark_pending(false),
-   rx_stream(NORM_OBJECT_INVALID)
+   rx_stream(NORM_OBJECT_INVALID), user_data(NULL)
 {
     // For now we use the NormSession "user data" option to associate
     // the session with a "socket".  In the future we may add a
@@ -175,71 +245,103 @@ NormSocket::NormSocket(NormSessionHandle normSession)
         NormSetUserData(normSession, this);
 }
 
+NormSocket::~NormSocket()
+{
+    Close();
+    if (NORM_SESSION_INVALID != norm_session)
+    {
+        NormDestroySession(norm_session);
+        norm_session = NORM_SESSION_INVALID;
+    }
+}
 
-bool NormSocket::Listen(NormInstanceHandle instance, UINT16 serverPort, const char* groupAddr)
+bool NormSocket::Open(NormInstanceHandle instance)
 {
     if (CLOSED != socket_state)
     {
-        fprintf(stderr, "NormSocket::Listen() error: socket already open?!\n");
+        fprintf(stderr, "NormSocket::Open() error: socket already open?!\n");
         return false;
     }
+    // A proper NormNodeId will be set upon NormBind(), NormConnect(), or NormListen()
+    if (NORM_SESSION_INVALID == (norm_session = NormCreateSession(instance, "127.0.0.1", 0, NORM_NODE_ANY)))
+    {
+        perror("NormSocket::Open() error");
+        return false;
+    }
+    NormSetUserData(norm_session, this);
+    socket_state = OPEN;
+    return true;
+}  // end NormSocket::Open()
+
+bool NormSocket::Listen(UINT16 serverPort, const char* groupAddr, const char* serverAddr)
+{
+    if (OPEN != socket_state)
+    {
+        fprintf(stderr, "NormSocket::Listen() error: socket not open?!\n");
+        return false;
+    }
+    // THe code below will be cleaned/tightened up somewhat once all is working
     
+    // Note that port reuse here lets us manage our "client" rx-only unicast connections the
+    // way we need, but does allow a second multicast server to be started on this group which leads
+    // to undefined behavior.  TBD - see if we can prevent via binding wizardry 
+    // (How is it done for TCP servers? - probably because the accept() call is in the network stack 
+    //  instead of user-space) Perhaps we could have a semaphore lock to block a second "server"
     if (NULL != groupAddr)
     {
         // TBD - validate that "groupAddr" is indeed a multicast address
-        norm_session = NormCreateSession(instance, groupAddr, serverPort, NORM_NODE_ANY);
-        NormSetTxPort(norm_session, serverPort); // can't do this and receive unicast feedback
+        NormChangeDestination(norm_session, groupAddr, serverPort);
+        NormSetId(norm_session, 1);  // server always uses NormNodeId '1'
+        // TBD - we _could_ let the server have an independent, ephemeral tx_port
+        // by _not_ calling NormSetTxPort() here to enable multiple multicast
+        // servers on same group/port on same host if server instance use unique NormNodeIds?
+        NormSetTxPort(norm_session, serverPort); // can't do this and distinguish unicast feedback
+        NormSetMulticastInterface(norm_session, serverAddr);
+        NormSetRxPortReuse(norm_session, true); 
         mcast_session = norm_session;
+        
+        NormSetMulticastLoopback(norm_session, true);  // for testing
+        
     }   
     else
     {
         // For unicast , the "server" has a NormNodeId of '1' and the "clients" are '2'
         // to obviate need for explicit id management and will allow NAT to work, etc
-        norm_session = NormCreateSession(instance, "127.0.0.1", serverPort, 1);  
-    }    
-    if (NORM_SESSION_INVALID == norm_session)
+        NormChangeDestination(norm_session, "127.0.0.1", serverPort);
+        NormSetId(norm_session, 1);  // server always uses NormNodeId '1'
+        NormSetTxPort(norm_session, serverPort);
+#ifdef WIN32
+        // UDP socket bind/connect does not work properly on WIN32, so no port reuse
+        // (so a little different strategy is used for Win32 connections)
+        NormSetRxPortReuse(norm_session, false, serverAddr);
+#else
+        NormSetRxPortReuse(norm_session, true, serverAddr);
+#endif // if/else WIN32
+
+    }   
+    
+    // TBD - the next four calls could be combined into a "NormStartListener()" function
+
+    // Set session to track incoming clients by their addr/port
+    // (instead of NormNodeId as usual)
+    NormSetServerListener(norm_session, true);
+    
+    // Our listener is a "silent" receiver since all actual reception
+    // (unicast) is handed off to a separate "client" session
+    NormSetSilentReceiver(norm_session, true);
+    
+    // So that the listener can construct (unsent) ACKs without failure
+    NormSetDefaultUnicastNack(norm_session, true);
+    
+    // Note we use a small buffer size here since a "listening" socket isn't 
+    // going to be receiving data (TBD - implement a mechanism to handoff remote
+    // sender (i.e. "client") from parent 
+    if (!NormStartReceiver(norm_session, 2048))
     {
-        fprintf(stderr, "NormSocket::Listen() error: NormCreateSession() failure\n");
+        fprintf(stderr, "NormSocket::Listen() error: NormStartReceiver() failure (perhaps port already in use)\n");  
+        //NormDestroySession(norm_session);
+        //norm_session = NORM_SESSION_INVALID;      
         return false;
-    }
-    NormSetUserData(norm_session, this);
-    // Note the port reuse here lets us manage our "client" rx-only unicast connections the
-    // way we need, but does allow a second multicast server to be started on this group which leads
-    // to undefined behavior.  TBD - see if we can prevent via binding wizardry 
-    // (How is it done for TCP servers? - probably because the accept() call is in the network stack 
-    //  instead of user-space) Perhaps we could have a semaphore lock to block a second "server"
-    NormSetRxPortReuse(norm_session, true);  
-    
-    // use default sync policy so a "serversocket" doesn't NACK the senders it detects
-    // NORM_SYNC_STREAM tries to get everything the sender has cached/buffered
-    //NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_STREAM);
-    //NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_ALL);
-    
-    if (NULL == groupAddr)
-    {
-        // Unicast server
-        // Note we use a small buffer size here since a "listening" socket isn't 
-        // going to be receiving data (TBD - implement a mechanism to handoff remote
-        // sender (i.e. "client") from parent 
-        if (!NormStartReceiver(norm_session, 2048))
-        {
-            fprintf(stderr, "NormSocket::Listen() error: NormStartReceiver() failure (perhaps port already in use)\n");  
-            NormDestroySession(norm_session);
-            norm_session = NORM_SESSION_INVALID;      
-        }
-    }
-    else
-    {
-        //NormSetMulticastInterface(norm_session, "lo0");
-        NormSetMulticastLoopback(norm_session, true);  // for testing
-        if (!NormStartReceiver(norm_session, 2048))
-        {
-            fprintf(stderr, "NormSocket::Listen() error: NormStartReceiver() failure (perhaps port already in use)\n");  
-            NormDestroySession(norm_session);
-            norm_session = NORM_SESSION_INVALID;      
-        }
-        // TBD - We _could_ go ahead and call NormStartSender(), but for now we'll wait until we hear the application
-        //       makes at least one NormAccept() call ...
     }
     server_socket  = this;
     socket_state = LISTENING;
@@ -272,10 +374,16 @@ NormSocket* NormSocket::Accept(NormNodeHandle client, NormInstanceHandle instanc
     UINT16 serverPort = NormGetRxPort(norm_session);
     if (NORM_INSTANCE_INVALID == instance)
         instance = NormGetInstance(norm_session);
-    
+#ifdef WIN32
+	NormSessionHandle clientSession = NormCreateSession(instance, clientAddr, 0, 1);
+#else
     NormSessionHandle clientSession = NormCreateSession(instance, clientAddr, serverPort, 1);
-    
-    NormSetTxPort(clientSession, serverPort, false);
+    NormSetTxPort(clientSession, serverPort, true);
+#endif // if/else WIN32/UNIX
+
+	// NORM_SYNC_STREAM tries to get everything the sender has cached/buffered
+    NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_STREAM);
+    //NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_ALL);
 
     // This next API call will cause NORM to tightly bind the remote client src addr/port to
     // our server port so the "clientSession" captures the client packets instead of the "server" session
@@ -286,24 +394,34 @@ NormSocket* NormSocket::Accept(NormNodeHandle client, NormInstanceHandle instanc
     // rx socket buffer may look like a new sender if deleted now, so
     // we wait for NORM_REMOTE_SENDER_INACTIVE to delete
     
-    // NORM_SYNC_STREAM tries to get everything the sender has cached/buffered
-    //NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_STREAM);
-    NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_ALL);
-            
-    NormSetRxPortReuse(clientSession, true, 0, clientAddr, clientPort);  // "connects" to remote client addr/port
+#ifndef WIN32
+    // Enable rx port reuse since it's the server port, and connect
+    // this socket to client addr/port for unique, tight binding
+    // TBD - support option to bind to specific server address
+    //fprintf(stderr, "accepting connection from %s/%d on port %d ...\n", clientAddr, clientPort, serverPort);
+    NormSetRxPortReuse(clientSession, true, NULL, clientAddr, clientPort);  
+#endif // WIN32
     NormSetDefaultUnicastNack(clientSession, true);
-    
+	
     NormStartReceiver(clientSession, 2*1024*1024);
+	
+    // This call immediately inserts the "client" remote sender state 
+    // into the newly-created clientSession by injecting a NORM_CMD(CC)
+    // message (and, as a result, a NORM_ACK is sent back to the client 
+    // for a quick initial RTT estimate)
+    NormTransferSender(clientSession, client);
     
     NormSocket* clientSocket = new NormSocket(clientSession);
     clientSocket->server_socket = this;  // this is a server-side socket
     clientSocket->remote_node = client;
+    clientSocket->UpdateRemoteAddress();
     NormNodeSetUserData(client, clientSocket);
     
     NormNodeId clientId = NormNodeGetId(client);
     
     if (IsUnicastSocket())
     {
+        NormChangeDestination(clientSession, clientAddr, clientPort, false); // point unicast session dest to client port
         // The clientSession is bi-directional so we need to NormStartSender(), etc
         NormAddAckingNode(clientSession, 2); //clientId);  
         NormSetFlowControl(clientSession, 0);  // disable timer-based flow control since we do explicit, ACK-based flow control
@@ -316,15 +434,21 @@ NormSocket* NormSocket::Accept(NormNodeHandle client, NormInstanceHandle instanc
         //       (probably for heavyweight; for lightweight we know the client
         //        has already started his multicast receiver)
         AddAckingNode(clientId);  // TBD - check result
-        NormNodeHandle node = NormGetAckingNodeHandle(mcast_session, clientId);
-        NormNodeSetUserData(node, clientSocket); // a way to track mcast client sockets
+		NormNodeHandle node = NormGetAckingNodeHandle(mcast_session, clientId);
+		NormNodeSetUserData(node, clientSocket); // a way to track mcast client sockets
         clientSocket->mcast_session = mcast_session;
-        clientSocket->client_id = client_id;
+        clientSocket->client_id = clientId;
         if (LISTENING == socket_state)
         {
-            NormSetFlowControl(norm_session, 0);  // disable timer-based flow control since we do explicit, ACK-based flow control
-            NormStartSender(norm_session, NormGetRandomSessionId(), 2*1024*1024, 1400, 16, 4);
-            socket_state = CONNECTED;   
+			NormSetFlowControl(norm_session, 0);  // disable timer-based flow control since we do explicit, ACK-based flow control
+			NormStartSender(norm_session, NormGetRandomSessionId(), 2*1024*1024, 1400, 16, 4);
+            socket_state = CONNECTED;  
+            if (NORM_OBJECT_INVALID == tx_stream)
+            {
+                tx_stream = NormStreamOpen(norm_session, 2*1024*1024);
+                InitTxStream(tx_stream, 2*1024*1024, 1400, 16);
+            }
+
         }
         /* The code below would be invoked for "heavyweight" mcast client admission
           (for the moment we go with a "lightweight" model - this might be invokable upon
@@ -341,28 +465,42 @@ NormSocket* NormSocket::Accept(NormNodeHandle client, NormInstanceHandle instanc
         NormSetWatermark(clientSession, tempStream, true);  // future NORM API will add "bool watermark" option to graceful close
         */
     }    
-    clientSocket->socket_state = ACCEPTING;  // will transision to CONNECTED when client is detected on new clientSession
+    // Note that for this lightweight connection mode, ACCEPTING is essentially CONNECTED so
+    // app can treat this as a CONNECTED socket until otherwise notified
+    // Should we start the time clientSocket timer and timeout if not connected in a timely fashion?
+    clientSocket->socket_state = ACCEPTING;  // will transition to CONNECTED when client is detected on new clientSession
     return clientSocket;
 }  // end NormSocket::Accept()
 
 // TBD - provide options for binding to a specific local address, interface, etc
-bool NormSocket::Connect(NormInstanceHandle instance, const char* serverAddr, UINT16 serverPort, const char* groupAddr, NormNodeId clientId)
+bool NormSocket::Connect(const char*    serverAddr, 
+                         UINT16         serverPort, 
+                         UINT16         localPort,
+                         const char*    groupAddr, 
+                         NormNodeId     clientId)
 {
     // For unicast connections, the "client" manages a single NormSession for send and receive
     // (For multicast connections, there are two sessions: The same unicast session that will
-    //  be set to txOnly upon CONNECT and a NormSession for multicast reception)
-    norm_session = NormCreateSession(instance, "127.0.0.1", 0, clientId);  // TBD - use "clientId" here for mcast sockets?
-    if (NORM_SESSION_INVALID == norm_session)
-    {
-        fprintf(stderr, "NormSocket::Connect() error: NormCreateSession() failure\n");
-        return false;
-    }
+    //  be set to txOnly upon CONNECT and a separate NormSession for multicast reception)
+    // Setting the session port to zero here causes an ephemeral port to be assigned _and_
+    // it is also a single socket (tx_socket == rx_socket) session for client->server unicast
+    NormSetId(norm_session, clientId);
     // NORM_SYNC_STREAM tries to get everything the sender has cached/buffered
-    //NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_STREAM);
-    NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_ALL);
-    
-    NormSetUserData(norm_session, this);
-    NormSetRxPortReuse(norm_session, true, NULL, serverAddr, serverPort);
+    NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_STREAM);
+    //NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_ALL);
+
+#ifndef WIN32
+    // We don't set reuse for the ephemeral port, but do want to 'connect' to 
+    // the server addr/port for this unicast client->server socket
+    NormSetRxPortReuse(norm_session, false, NULL, serverAddr, serverPort);
+#endif  // WIN32
+
+    if (0 != localPort)
+    {
+        // Set client session up to use a user-specified (non-ephemeral) port number
+        NormChangeDestination(norm_session, NULL, localPort, false); 
+        NormSetTxPort(norm_session, localPort);
+    }
     // TBD - for a multicast connection, the unicast receiver could be started with minimal buffer
     // (not that it matters since the buffers aren't activated until a sender starts sending _data_)
     if (!NormStartReceiver(norm_session, 2*1024*1024))  // to get ephemeral port assigned
@@ -370,9 +508,14 @@ bool NormSocket::Connect(NormInstanceHandle instance, const char* serverAddr, UI
         fprintf(stderr, "NormSocket::Connect() error: unicast NormStartReceiver() failure\n");
         return false;
     }
-    NormChangeDestination(norm_session, serverAddr, serverPort, false); // "connect" our NORM tx_socket (so we can get ICMP)
-    NormSessionId sessionId = NormGetRandomSessionId();
-    NormAddAckingNode(norm_session, 1);  // servers always have NormNodeId '1'
+    
+    NormSetSynStatus(norm_session, true);
+   
+    // Point our unicast socket at the unicast server addr/port
+    NormChangeDestination(norm_session, serverAddr, serverPort, false); 
+    NormSessionId sessionId = NormGetRandomSessionId();  // TBD - use ephemeral port as session/instance id?
+    //NormAddAckingNode(norm_session, 1);  // servers always have NormNodeId '1' for unicast sessions
+    NormSetAutoAckingNodes(norm_session, NORM_TRACK_RECEIVERS);  // this way we get informed upon first ACK
     NormSetFlowControl(norm_session, 0); // since we do explicit, ACK-based flow control
     if (!NormStartSender(norm_session, sessionId, 2*1024*1024, 1400, 16, 4))
     {
@@ -383,18 +526,21 @@ bool NormSocket::Connect(NormInstanceHandle instance, const char* serverAddr, UI
     if (NULL != groupAddr)
     {
         // Create the "mcast_session" for multicast reception
-        mcast_session = NormCreateSession(instance, groupAddr, serverPort, clientId); 
+        mcast_session = NormCreateSession(NormGetInstance(norm_session), groupAddr, serverPort, clientId); 
         //NormSetTxPort(mcast_session, serverPort);  // TBD - not sure this is a good idea if multiple clients on a machine?
         NormSetUserData(mcast_session, this);
         // NORM_SYNC_STREAM tries to get everything the sender has cached/buffered
-        //NormSetDefaultSyncPolicy(mcast_session, NORM_SYNC_STREAM);
-        NormSetDefaultSyncPolicy(mcast_session, NORM_SYNC_ALL);
+        NormSetDefaultSyncPolicy(mcast_session, NORM_SYNC_STREAM);
+        //NormSetDefaultSyncPolicy(mcast_session, NORM_SYNC_ALL);
     
         NormSetDefaultUnicastNack(mcast_session, true);  // we could optionally allow multicast NACKing, too
-        NormSetMulticastLoopback(norm_session, true);  // for testing
+        NormSetMulticastLoopback(mcast_session, true);  // for testing
         client_id = clientId;
         // TBD - make this SSM??? ... this would allow for multiple servers using the same groupAddr/port
-        NormSetRxPortReuse(mcast_session, true, groupAddr);  // Should we upgrade rx port reuse and 'connect' to server tx port upon CONNECT?
+        // Note we 'connect' to server addr/port to make this associated with single, specific mcast server
+        // TBD - Once we add code to set multicast interface, we can set the port reuse
+        //       here to 'connect' to the specified server addr/port for tighter binding
+        NormSetRxPortReuse(mcast_session, true, groupAddr);//, serverAddr, serverPort);
         // For a "lightweight" client->server connection establishment, we go ahead and 
         // stop our unicast receiver and start multicast receiver, assuming the server 
         // will admit us into the group.  
@@ -412,7 +558,11 @@ bool NormSocket::Connect(NormInstanceHandle instance, const char* serverAddr, UI
         NormSetUserTimer(norm_session, NORM_DEFAULT_CONNECT_TIMEOUT);   
     }
     server_socket = NULL;  // this is a client-side socket
-    
+    if (NORM_OBJECT_INVALID == tx_stream)
+    {
+        tx_stream = NormStreamOpen(norm_session, 2*1024*1024);
+        InitTxStream(tx_stream, 2*1024*1024, 1400, 16);
+    }
     socket_state = CONNECTING;
     
     return true;
@@ -421,9 +571,15 @@ bool NormSocket::Connect(NormInstanceHandle instance, const char* serverAddr, UI
 
 unsigned int NormSocket::Write(const char* buffer, unsigned int numBytes)
 {
-    // TBD - make sure the socket is CONNECTED first
+    // Make sure the socket is CONNECTED first
+    // (TBD - an option for allowing NormWrite() to start sending
+    //        data prior to connection confirmation is being considered
+    //        to accelerate data transfer (most useful for short-lived 
+    //        or 'urgent' connections such as transactions)
+    if (CONNECTED != socket_state) return 0;
+    
     if (IsMulticastClient() && IsServerSide())
-    {
+    { 
         // This is multicast server rxonly client socket, so we redirect
         // the write() to the associated txonly multicast socket
         return server_socket->Write(buffer, numBytes);
@@ -464,10 +620,12 @@ unsigned int NormSocket::Write(const char* buffer, unsigned int numBytes)
             NormSetWatermark(norm_session, tx_stream);
             tx_watermark_pending = true;
         }
+        // TBD - set "tx_ready" to false if tx_stream_buffer_count == tx_stream_buffer_max here ???
         return bytesWritten;
     }
     else
     {
+        tx_ready = false;
         return 0;
     }
 }  // end NormSocket::Write()
@@ -477,8 +635,8 @@ void NormSocket::Flush(bool eom, NormFlushMode flushMode)
     // TBD - make sure the socket is CONNECTED first
     if (IsMulticastClient() && IsServerSide())
     {
-        // This is multicast server rxOnly client socket, so we redirect 
-        // the flush() to the associated txonly multicast socket
+        // This is multicast server rx-only client socket, so we redirect 
+        // the flush() to the associated tx-only multicast socket
         return server_socket->Flush(eom, flushMode);
     }
     
@@ -512,80 +670,98 @@ void NormSocket::Flush(bool eom, NormFlushMode flushMode)
             tx_watermark_pending = true;
         }
     } 
- }  // end NormSocket::Flush()
- 
- bool NormSocket::Read(char* buffer, unsigned int& numBytes)
- {
-     // TBD - make sure rx_stream is valid!
-     // TBD - make sure this is not a tx only client socket ...
-     return NormStreamRead(rx_stream, buffer, &numBytes);
- }  // end NormSocket::Read()
- 
- void NormSocket::Shutdown()
- {
-     if ((NORM_OBJECT_INVALID == tx_stream)  ||
-         (IsServerSide() && IsMulticastClient()))
-     {
-         Close();  // close immediately since this socket doesn't control a tx_stream
-     }
-     else
-     {
-         // It controls a tx_stream, so shutdown the tx_stream gracefully 
-         NormStreamClose(tx_stream, true);  // Note our "trick" here to do a graceful close, _then_ watermark to get ack
-         NormSetWatermark(norm_session, tx_stream, true);  // future NORM API will add "bool watermark" option to graceful close
-         socket_state = CLOSING;
-     }
- }  // end NormSocket::Shutdown()
- 
- void NormSocket::Close()
- {
-     if (IsMulticastSocket())
-     {
-         if (IsServerSide())
-         {
-             if (IsServerSocket())
-             {
-                 // IsMulticastSocket() guarantees the mcast_session is valid
-                 // Dissociate remaining clients from this session and set their
-                 // timer so that NORM_SOCKET_CLOSED events are dispatched for them
-                 NormNodeId nodeId = NORM_NODE_NONE;
-                 while (NormGetNextAckingNode(mcast_session, &nodeId))
-                 {
-                     NormNodeHandle node = NormGetAckingNodeHandle(mcast_session, nodeId);
-                     assert(NORM_NODE_INVALID != node);
-                     NormSocket* clientSocket = (NormSocket*)NormNodeGetUserData(node);
-                     NormSetUserTimer(clientSocket->norm_session, 0.0);
-                 }
-                 // for mcast server mcast_session == norm_session so it's destroyed below
-             }
-             else
-             {
-                 // "IsServerSide()" guarantees the "server_socket" is non-NULL
-                 // server-side multicast client socket closing, so we
-                 // need to remove this "client" NormNodeId from the mcast
-                 // session's acking node list
-                 server_socket->RemoveAckingNode(client_id);
-            }
-        }
-        else  // client-side multicast socket, so we need to destroy mcast_session, too
+}  // end NormSocket::Flush()
+
+bool NormSocket::Read(char* buffer, unsigned int& numBytes)
+{
+    // TBD - make sure rx_stream is valid!
+    // TBD - make sure this is not a tx only client socket ...
+    if (NORM_OBJECT_INVALID != rx_stream)
+    {
+        return NormStreamRead(rx_stream, buffer, &numBytes);
+    }
+    else
+    {
+        numBytes = 0;
+        return true;
+    }
+}  // end NormSocket::Read()
+
+void NormSocket::Shutdown()
+{
+    // TBD - should we call NormStopReceiver(norm_session) here
+    //       or have SHUT_RD, SHUT_WR, and SHUT_RDWR flags
+    //       like the sockets "shutdown()" call???
+    // For now, we do a "graceful" SHUT_RDWR behavior
+    if (CONNECTED == socket_state)
+    {
+        NormStopReceiver(norm_session);
+        rx_stream = NULL;
+        if ((IsServerSide() && IsMulticastClient()) || (NORM_OBJECT_INVALID == tx_stream))
         {
-            NormDestroySession(mcast_session);
+            // Use a zero-timeout to immediately post NORM_SOCKET_CLOSE notification
+            NormSetUserTimer(norm_session, 0.0);
         }
-        mcast_session = NORM_SESSION_INVALID;
-     }
-     if (NORM_SESSION_INVALID != norm_session)
-     {
-         NormDestroySession(norm_session);
-         norm_session = NORM_SESSION_INVALID;
-     }
-     server_socket = NULL;
-     tx_stream = NORM_OBJECT_INVALID;
-     tx_segment_size = 0;
-     tx_stream_buffer_max = tx_stream_buffer_count = tx_stream_bytes_remain = 0;
-     tx_watermark_pending = false;
-     rx_stream = NORM_OBJECT_INVALID;
-     socket_state = CLOSED;
- }  // end NormSocket::Close()
+        else if (NORM_OBJECT_INVALID != tx_stream)
+        {
+            // It controls a tx_stream, so shutdown the tx_stream gracefully 
+            NormStreamClose(tx_stream, true);  // Note our "trick" here to do a graceful close, _then_ watermark to get ack
+            NormSetWatermark(norm_session, tx_stream, true);  // future NORM API will add "bool watermark" option to graceful close
+        }
+        socket_state = CLOSING;
+    }
+}  // end NormSocket::Shutdown()
+ 
+void NormSocket::Close()
+{
+    if (IsMulticastSocket())
+    {
+        if (IsServerSide())
+        {
+            if (IsServerSocket())
+            {
+                // IsMulticastSocket() guarantees the mcast_session is valid
+                // Dissociate remaining clients from this session and set their
+                // timers so that NORM_SOCKET_CLOSE events are dispatched for them
+                NormNodeId nodeId = NORM_NODE_NONE;
+                while (NormGetNextAckingNode(mcast_session, &nodeId))
+                {
+                    NormNodeHandle node = NormGetAckingNodeHandle(mcast_session, nodeId);
+                    assert(NORM_NODE_INVALID != node);
+                    NormSocket* clientSocket = (NormSocket*)NormNodeGetUserData(node);
+                    NormSetUserTimer(clientSocket->norm_session, 0.0);
+                }
+                // for mcast server mcast_session == norm_session so it's destroyed below
+            }
+            else
+            {
+                // "IsServerSide()" guarantees the "server_socket" is non-NULL
+                // server-side multicast client socket closing, so we
+                // need to remove this "client" NormNodeId from the mcast
+                // session's acking node list
+                server_socket->RemoveAckingNode(client_id);
+           }
+       }
+       else  // client-side multicast socket, so we need to destroy mcast_session
+       {
+           NormDestroySession(mcast_session);
+       }
+       mcast_session = NORM_SESSION_INVALID;
+    }
+    if (NORM_SESSION_INVALID != norm_session)
+    {
+        NormStopSender(norm_session);
+        NormStopReceiver(norm_session);
+    }
+    server_socket = NULL;
+    remote_node = NORM_NODE_INVALID;
+    tx_stream = NORM_OBJECT_INVALID;
+    tx_segment_size = 0;
+    tx_stream_buffer_max = tx_stream_buffer_count = tx_stream_bytes_remain = 0;
+    tx_watermark_pending = false;
+    rx_stream = NORM_OBJECT_INVALID;
+    socket_state = CLOSED;
+}  // end NormSocket::Close()
  
  
 void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketEvent)
@@ -593,6 +769,7 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
     socketEvent.socket = (NormSocketHandle)this;
     socketEvent.type = NORM_SOCKET_NONE;  // default socket event type if no socket-specific state change occurs
     socketEvent.event = event;
+    //fprintf(stderr, "NormSocket::GetSocketEvent() norm event type:%d session:%p\n", event.type, event.session);
     switch (event.type)
     {
         case NORM_TX_QUEUE_EMPTY:
@@ -613,6 +790,7 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
         {
             switch (socket_state)
             {
+                /*
                 case ACCEPTING:
                 {
                     // This only comes into play for the "confirmed connection"
@@ -629,17 +807,17 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                     else
                     {
                         // Client didn't acknowledge, so we cull him from our server
-                        Close();
-                        socketEvent.type = NORM_SOCKET_CLOSED;
+                        socketEvent.type = NORM_SOCKET_CLOSE;
                     }
                     break;
                 }
+                */
                 case CLOSING:
                 {
                     // Socket that was shutdown has either been acknowledged or timed out
                     // TBD - should we issue a different event if ACK_FAILURE???
                     Close();
-                    socketEvent.type = NORM_SOCKET_CLOSED;
+                    socketEvent.type = NORM_SOCKET_CLOSE;
                     break;
                 }
                 default:
@@ -656,10 +834,10 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                         if (IsUnicastSocket() || IsMulticastClient())
                         {
                             // We could be infinitely persistent w/ NormResetWatermark()
-                            //NormResetWatermark(event.session);
-                            // For now, we'll just declare the connection broken/closed
-                            Close();
-                            socketEvent.type = NORM_SOCKET_CLOSED;
+                            // (TBD - provide a NormSocket "keep alive" option
+                            NormResetWatermark(event.session);
+                            // Or just declare the connection broken/closed
+                            //socketEvent.type = NORM_SOCKET_CLOSE;
                         }
                         else
                         {
@@ -680,10 +858,10 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                                     assert(NORM_NODE_INVALID != node);
                                     NormSocket* clientSocket = (NormSocket*)NormNodeGetUserData(node);
                                     assert(NULL != clientSocket);
-                                    // We use the session timer to dispatch a NORM_SOCKET_CLOSED per failed client
+                                    // We use the session timer to dispatch a NORM_SOCKET_CLOSE per failed client
                                     // (This will also remove the client from this server's acking list)
-                                    NormSetUserTimer(clientSocket->norm_session, 0.0);
                                     clientSocket->socket_state = CLOSING;
+                                    NormSetUserTimer(clientSocket->norm_session, 0.0);
                                 }
                             }
                             // TBD - what do we if all clients failed ... issue a NORM_SOCKET_DISCONNECT event, 
@@ -706,6 +884,7 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
             }
             break;
         }
+        case NORM_ACKING_NODE_NEW:  // This means we have received an ACK from the server
         case NORM_REMOTE_SENDER_RESET:
         case NORM_REMOTE_SENDER_NEW:
         {
@@ -716,14 +895,29 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                     break;
                 case ACCEPTING:
                     if (IsServerSide() && IsClientSocket() && (NORM_NODE_INVALID != remote_node))
+                    {
                         NormNodeDelete(remote_node);
+                    }
                 case CONNECTING:
                     // TBD - We should validate that it's the right remote sender
                     //       (i.e., by source address and/or nodeId)
                     NormCancelUserTimer(norm_session);
                     socketEvent.type = NORM_SOCKET_CONNECT;
+                    NormSetSynStatus(norm_session, false);
                     socket_state = CONNECTED;
+                    // Since UDP connect/bind doesn't really work properly on 
+					// Windows, the Windows NormSocket server farms out client connections
+					// to new ephemeral port numbers, so we need to update
+					// the destination port upon connection (Yuck!)
                     remote_node = event.sender;
+					UpdateRemoteAddress();
+					NormChangeDestination(norm_session, NULL, remote_port);
+                    if (NORM_OBJECT_INVALID == tx_stream)
+                    {
+                        tx_stream = NormStreamOpen(norm_session, 2*1024*1024);
+                        InitTxStream(tx_stream, 2*1024*1024, 1400, 16);
+                    }
+					
                     break;
                 case CONNECTED:
                     if (IsMulticastSocket())
@@ -735,30 +929,58 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                         }
                         else
                         {
+                            // TBD - validate if this same server or not (e.g. by source addr/port)
                             // Different sender showing up in multicast group!?
-                            fprintf(stderr, "NormSocket warning: multicast sender %s reset?!\n", NormNodeGetAddressString(event.sender));
-                            // TBD - should Close() the socket and issue a NORM_SOCKET_CLOSED event
+                            if (event.sender != remote_node)
+							{
+								char senderAddr[16];
+								unsigned int addrLen = 16;
+								UINT16 senderPort;
+								NormNodeGetAddress(event.sender, senderAddr, &addrLen, &senderPort);
+								unsigned int senderVersion = (4 == addrLen) ? 4 : 6;
+								if ((senderVersion != remote_version) ||
+									(senderPort != remote_port) ||
+									(0 != memcmp(senderAddr, remote_addr, addrLen)))
+								{
+									//fprintf(stderr, "NormSocket warning: multicast sender %s reset?!\n", NormNodeGetAddressString(event.sender));
+								}
+							}
+                            // TBD - should Close() the socket and issue a NORM_SOCKET_CLOSE event
                             //        and leave it up to the application to reconnect?  Or should we
                             //        provides some sort of NORM_SOCKET_DISCONNECT event
-                            socketEvent.type = NORM_SOCKET_CLOSED;
-                            Close();
+                            //socketEvent.type = NORM_SOCKET_CLOSE;
                         }
                     }
                     else  // unicast
                     {
                         // Eemote sender reset? How do we tell?
-                        fprintf(stderr, "NormSocket warning: unicast sender %s reset?!\n", NormNodeGetAddressString(event.sender));
-                        socketEvent.type = NORM_SOCKET_CLOSED;
-                        Close();
+                        // TBD - validate if this same server or not (e.g. by source addr/port)
+                        if (event.sender != remote_node)
+                        {
+                            char senderAddr[16];
+                            unsigned int addrLen = 16;
+                            UINT16 senderPort; 
+                            NormNodeGetAddress(event.sender, senderAddr, &addrLen, &senderPort);
+                            unsigned int senderVersion = (4 == addrLen) ? 4 : 6;
+                            if ((senderVersion != remote_version) ||
+                                (senderPort != remote_port) ||
+                                (0 != memcmp(senderAddr, remote_addr, addrLen)))
+                            {
+                                fprintf(stderr, "NormSocket warning: unicast sender %s reset?!\n", NormNodeGetAddressString(event.sender));
+                            }
+                        }
+                        // Close();
+                        //socketEvent.type = NORM_SOCKET_CLOSE;
                     }
                     break;
 
-                default:  // CLOSING, CLOSED
+                default:  // CLOSING, CLOSE
                     // shouldn't happen
                     break;
             }
             break;
         }
+       
         case NORM_SEND_ERROR:
         {
             switch (socket_state)
@@ -769,9 +991,12 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                 case CLOSING:
                     if (IsMulticastServer())
                         fprintf(stderr, "SEND_ERROR on a multicast server socket?!\n");
-                    socketEvent.event.sender = remote_node;
-                    socketEvent.type = NORM_SOCKET_CLOSED;
+                    /*else
+                        fprintf(stderr, "SEND_ERROR session:%p sender:%p remote_node:%p (%s)\n", 
+                                        event.session, event.sender, remote_node,
+                                        NormNodeGetAddressString(remote_node));*/
                     Close();
+                    socketEvent.type = NORM_SOCKET_CLOSE;
                     break;
                 default:
                     // shouldn't happen
@@ -779,7 +1004,6 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
             }
             break;
         }
-        
         case NORM_USER_TIMEOUT:
         {
             switch (socket_state)
@@ -788,14 +1012,42 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                 case ACCEPTING:     // accepted client didn't follow through
                 case CONNECTED:     // multicast client ack failure
                 case CLOSING:
-                    socketEvent.event.sender = remote_node;
-                    socketEvent.type = NORM_SOCKET_CLOSED;
                     Close();
+                    socketEvent.type = NORM_SOCKET_CLOSE;
                     break;
                 default:
                     // shouldn't happen
                     assert(0);
                     break;
+            }
+            break;
+        }
+        case NORM_RX_CMD_NEW:
+        {
+            char buffer[4096];
+            unsigned int buflen = 4096;
+            if (NormNodeGetCommand(event.sender, buffer, &buflen))
+            {
+                if ((buflen < 2) || (NORM_SOCKET_VERSION == buffer[0]))
+                {
+                    if (NORM_SOCKET_CMD_REJECT == buffer[1])
+                    {
+                        Close();
+                        socketEvent.type = NORM_SOCKET_CLOSE;
+                    }
+                    else
+                    {
+                        fprintf(stderr, "NormSocket warning: received unknown command\n");
+                    }
+                }
+                else
+                {
+                    fprintf(stderr, "NormSocket warning: received command with invalid version\n");
+                }
+            }
+            else
+            {
+                fprintf(stderr, "NormSocket warning: unable to get received command\n");
             }
             break;
         }
@@ -854,7 +1106,7 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                     else
                     {
                         // Stream reset
-                        fprintf(stderr, "NormSocket::GetSocketEvent(): client stream reset?!\n");
+                        fprintf(stderr, "NormSocket::GetSocketEvent(NORM_RX_OBJECT_NEW) warning: client stream reset?!\n");
                     }
                     break;
                 default:  // CONNECTING, ACCEPTING, CLOSING, CLOSED
@@ -868,11 +1120,12 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
             switch (socket_state)
             {
                 case CONNECTED:
-                case CLOSING:  // we allow reading during graceful closure
                     // TBD - use an rx_ready indication to filter this event a little more
                     if (IsServerSocket()) break;  // we don't receive data on server socket
-                    assert(event.object == rx_stream);
-                    socketEvent.type = NORM_SOCKET_READ;
+                    if (event.object == rx_stream)
+                        socketEvent.type = NORM_SOCKET_READ;
+                    else
+                        fprintf(stderr, "NormSocket::GetSocketEvent(NORM_RX_OBJECT_UPDATED) warning: non-matching rx object\n");
                     break;
                 default:
                     // shouldn't happen
@@ -880,20 +1133,30 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
             }
             break;
         }
+        case NORM_RX_OBJECT_ABORTED:
         case NORM_RX_OBJECT_COMPLETED:
         {
+            if (event.object != rx_stream)
+                break; // not our stream, so ignore
             rx_stream = NORM_OBJECT_INVALID;
             switch (socket_state)
             {
                 case CONNECTED:
                     // Initiate graceful closure of our tx_stream to allow at least some time to
                     // acknowledge the remote before closing everything down
-                    NormStreamClose(tx_stream, true);  // Note our "trick" here to do a graceful close, _then_ watermark to get ack
-                    NormSetWatermark(norm_session, tx_stream, true);  // future NORM API will add "bool watermark" option to graceful close
-                    socket_state = CLOSING;
+                    if (NORM_OBJECT_INVALID != tx_stream)
+                    {
+                        NormStreamClose(tx_stream, true);  // Note our "trick" here to do a graceful close, _then_ watermark to get ack
+                        NormSetWatermark(norm_session, tx_stream, true);  // future NORM API will add "bool watermark" option to graceful close
+                        socket_state = CLOSING;
+                    }
+                    else
+                    {
+                        // This still allows at least a chance of an ACK to be sent upon completion
+                        NormSetUserTimer(norm_session, 0.0);
+                    }
                     socketEvent.type = NORM_SOCKET_CLOSING;
                     break;
-                    
                 case CLOSING:
                     // We're already closing, so just let that complete.  This helps make sure we allow
                     // at least some time to acknowledge the remote before closing everything down
@@ -902,53 +1165,79 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                     // shouldn't happen
                     break;
             }
+            break;
         }
         default:
             break;
     }
+    //fprintf(stderr, "NormSocket::GetSocketEvent() returning NormSocket event type:%d session:%p\n", socketEvent.type, event.session);
 }  // end NormSocket::GetSocketEvent()
  
 
 
+void NormSocket::SetTrace(bool state)
+{
+    if (NORM_SESSION_INVALID != norm_session)
+        NormSetMessageTrace(norm_session, state);
+    if (NORM_SESSION_INVALID != mcast_session)
+        NormSetMessageTrace(mcast_session, state);
+}  // end NormSocket::SetTrace()
  ///////////////////////////////////////////////////////////////////////////////////
  // NormSocket API implementation 
- 
-// TBD - provide options for binding to a specific local address, interface, etc
-NormSocketHandle NormListen(NormInstanceHandle instance, UINT16 serverPort, const char* groupAddr)
-{
-    // TBD - check results
-    NormSocket* normSocket = new NormSocket();
-    normSocket->Listen(instance, serverPort, groupAddr);
-    return (NormSocketHandle)normSocket;
-}  // end NormListen()
 
 
-NormSocketHandle NormAccept(NormSocketHandle serverSocket, NormNodeHandle client)
-{
-    // TBD - VALIDATE PARAMETERS AND ERROR CHECK ALL THE API CALLS MADE HERE !!!!!
-    NormSocket* s = (NormSocket*)serverSocket;
-    return (NormSocketHandle)(s->Accept(client));
-}  // end NormAccept()
- 
-
-// TBD - provide options for binding to a specific local address, interface, etc
-NormSocketHandle NormConnect(NormInstanceHandle instance, const char* serverAddr, UINT16 serverPort, const char* groupAddr, NormNodeId clientId)
+NormSocketHandle NormOpen(NormInstanceHandle instance)
 {
     NormSocket* normSocket = new NormSocket();
     if (NULL == normSocket)
     {
-        perror("NormConnect() new NormSocket() error");
-        return NULL;
+        perror("NormOpen() new NormSocket() error");
+        return NORM_SOCKET_INVALID;
     }
-    if (normSocket->Connect(instance, serverAddr, serverPort, groupAddr, clientId))
+    else if (normSocket->Open(instance))
     {
-        return normSocket;
+        return (NormSocketHandle)normSocket;
     }
     else
     {
+        perror("NormOpen() error");
         delete normSocket;
-        return NULL;
+        return NORM_SOCKET_INVALID;
     }
+}  // end NormOpen()
+ 
+// TBD - provide options for binding to a specific local address, interface, etc
+bool NormListen(NormSocketHandle normSocket, UINT16 serverPort, const char* groupAddr, const char* serverAddr)
+{
+    // TBD - make sure normSocket is valid
+    NormSocket* s = (NormSocket*)normSocket;
+    return s->Listen(serverPort, groupAddr, serverAddr);
+}  // end NormListen()
+
+
+NormSocketHandle NormAccept(NormSocketHandle serverSocket, NormNodeHandle client, NormInstanceHandle instance)
+{
+    // TBD - if another instance handle is provided use that instead
+    // TBD - VALIDATE PARAMETERS AND ERROR CHECK ALL THE API CALLS MADE HERE !!!!!
+    NormSocket* s = (NormSocket*)serverSocket;
+    NormInstanceHandle serverInstance = s->GetInstance();
+    NormSuspendInstance(serverInstance);
+    NormSocketHandle clientSocket = s->Accept(client, instance);
+    NormResumeInstance(serverInstance);
+    return clientSocket;
+}  // end NormAccept()
+ 
+
+// TBD - provide options for binding to a specific local address, interface, etc
+bool NormConnect(NormSocketHandle normSocket, const char* serverAddr, UINT16 serverPort, UINT16 localPort, const char* groupAddr, NormNodeId clientId)
+{
+    // TBD - make sure normSocket is valid
+    NormSocket* s = (NormSocket*)normSocket;
+    NormInstanceHandle instance = s->GetInstance();
+    NormSuspendInstance(instance);
+    bool result = s->Connect(serverAddr, serverPort, localPort, groupAddr, clientId);
+    NormResumeInstance(instance);
+    return result;
 }  // end NormConnect()
 
 
@@ -957,13 +1246,20 @@ ssize_t NormWrite(NormSocketHandle normSocket, const void *buf, size_t nbyte)
     // TBD - we could make write() and read() optionally blocking or non-blocking
     //       by using GetSocketEvent() as appropriate (incl. returning error conditions, etc)
     NormSocket* s = (NormSocket*)normSocket;
-    return (ssize_t)s->Write((const char*)buf, nbyte);
+    NormInstanceHandle instance = s->GetInstance();
+    NormSuspendInstance(instance);
+    ssize_t result = (ssize_t)s->Write((const char*)buf, nbyte);
+    NormResumeInstance(instance);
+    return result;
 }  // end NormWrite()
 
 int NormFlush(NormSocketHandle normSocket)
 {
     NormSocket* s = (NormSocket*)normSocket;
+    NormInstanceHandle instance = s->GetInstance();
+    NormSuspendInstance(instance);
     s->Flush();
+    NormResumeInstance(instance);
     return 0;
 } // end NormFlush()
 
@@ -972,26 +1268,50 @@ ssize_t NormRead(NormSocketHandle normSocket, void *buf, size_t nbyte)
     // TBD - we could make write() and read() optionally blocking or non-blocking
     //       by using GetSocketEvent() as appropriate (incl. returning error conditions, etc)
     NormSocket* s = (NormSocket*)normSocket;
+    NormInstanceHandle instance = s->GetInstance();
+    NormSuspendInstance(instance);
     // TBD - make sure s->rx_stream is valid 
     unsigned int numBytes = nbyte;
+    ssize_t result;
     if (s->Read((char*)buf, numBytes))
-        return numBytes;
+        result = numBytes;
     else
-        return -1; // broken stream error (TBD - enumerate socket error values)
+        result = -1; // broken stream error (TBD - enumerate socket error values)
+    NormResumeInstance(instance);
+    return result;
 }  // end NormWrite()
-
 
 void NormShutdown(NormSocketHandle normSocket)
 {
     NormSocket* s = (NormSocket*)normSocket;
+    NormInstanceHandle instance = s->GetInstance();
+    NormSuspendInstance(instance);
     s->Shutdown();
+    NormResumeInstance(instance);
 }  // end NormShutdown()
 
 void NormClose(NormSocketHandle normSocket)
 {
     NormSocket* s = (NormSocket*)normSocket;
+    NormInstanceHandle instance = s->GetInstance();
+    NormSuspendInstance(instance);
     s->Close();
+    NormResumeInstance(instance);
+    delete s;
 }  // end NormClose()
+
+void NormSetSocketUserData(NormSocketHandle normSocket, const void* userData)
+{
+    if (NORM_SOCKET_INVALID != normSocket)
+        ((NormSocket*)normSocket)->SetUserData(userData);
+}  // end NormSetSocketUserData()
+
+const void* NormGetSocketUserData(NormSocketHandle normSocket)
+{
+     NormSocket* s = (NormSocket*)normSocket;
+     return s->GetUserData();
+}  // end NormGetSocketUserData()
+
 
 // This gets and translates low level NORM API events to NormSocket events 
 // given the "normSocket" state
@@ -1001,6 +1321,7 @@ bool NormGetSocketEvent(NormInstanceHandle instance, NormSocketEvent* socketEven
     NormEvent event;
     if (NormGetNextEvent(instance, &event, waitForEvent))
     {
+        NormSuspendInstance(instance);
         NormSocket* normSocket = NULL;
         if (NORM_SESSION_INVALID != event.session)
             normSocket = (NormSocket*)NormGetUserData(event.session);
@@ -1014,6 +1335,7 @@ bool NormGetSocketEvent(NormInstanceHandle instance, NormSocketEvent* socketEven
         {
             normSocket->GetSocketEvent(event, *socketEvent);
         }
+        NormResumeInstance(instance);
         return true;
     }
     else
@@ -1024,14 +1346,27 @@ bool NormGetSocketEvent(NormInstanceHandle instance, NormSocketEvent* socketEven
 
 // Other helper functions
 
-NormSessionHandle NormGetSession(NormSocketHandle normSocket)
+void NormGetPeerName(NormSocketHandle normSocket, char* addr, unsigned int* addrLen, UINT16* port)
+{
+     NormSocket* s = (NormSocket*)normSocket;
+     s->GetPeerName(addr, addrLen, port);
+}  // end NormGetPeerName()
+
+NormSessionHandle NormGetSocketSession(NormSocketHandle normSocket)
 {
     NormSocket* s = (NormSocket*)normSocket;
     return s->GetSession();
-}  // end NormGetSession()
+}  // end NormGetSocketSession()
 
-NormSessionHandle NormGetMulticastSession(NormSocketHandle normSocket)
+NormSessionHandle NormGetSocketMulticastSession(NormSocketHandle normSocket)
 {
     NormSocket* s = (NormSocket*)normSocket;
     return s->GetMulticastSession();
-}  // end NormGetSession()
+}  // end NormGetSocketMulticastSession()
+
+
+void NormSetSocketTrace(NormSocketHandle normSocket, bool enable)
+{
+    NormSocket* s = (NormSocket*)normSocket;
+    s->SetTrace(enable);
+}

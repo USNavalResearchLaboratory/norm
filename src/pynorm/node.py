@@ -29,14 +29,17 @@ class Node(object):
             return self._address
         except AttributeError:
             port = ctypes.c_uint16()
-            buffer = ctypes.create_string_buffer(50)
+            buf = ctypes.create_string_buffer(50)
             size = ctypes.c_uint(50)
-            if not libnorm.NormNodeGetAddress(self, buffer, ctypes.byref(size),
+            if not libnorm.NormNodeGetAddress(self, buf, ctypes.byref(size),
                     ctypes.byref(port)):
                 raise NormError("Node getAddress failed")
-            self._address = (buffer.value, port.value)
+            self._address = (buf.value, port.value)
             return self._address
 
+    def getCommand(self, buf):
+        return libnorm.NormNodeGetCommand(self, buf, len(buf))
+    
     def getGrtt(self):
         grtt = libnorm.NormNodeGetGrtt(self)
         if grtt == -1.0:

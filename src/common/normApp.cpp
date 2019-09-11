@@ -1,5 +1,10 @@
 
-// normApp.cpp - Command-line NORM application
+// normApp.cpp - Command-line NORM "demo" application
+
+// Note this code does _not_ use the NORM API.  It is kept as a demonstrator
+// and test tool and serves as a performance comparison reference for testing
+// the threaded NORM API code.  So this should _not_ be used as a NORM
+// programming example!!!!
 
 #include "protokit.h"
 #include "normSession.h"
@@ -51,7 +56,6 @@ class NormApp : public NormController, public ProtoApp
                     {object_id = objectId;}
                 NormObjectId GetObjectId() const
                     {return object_id;}
-                
                     
             private:
                 // ProtoTree::Item overrides
@@ -62,9 +66,7 @@ class NormApp : public NormController, public ProtoApp
                 
                 char            file_path[PATH_MAX];
                 NormObjectId    object_id;
-        };
-            
-            
+        };  // end class NormApp::FileCacheItem
             
         void ShowHelp();
         void OnInputReady();
@@ -145,14 +147,17 @@ class NormApp : public NormController, public ProtoApp
         UINT16              extra_parity;
         double              backoff_factor;
         double              grtt_estimate; // initial grtt estimate
+        NormSession::ProbingMode grtt_probing_mode;
         double              group_size;
         unsigned long       tx_buffer_size; // bytes
-	unsigned int	    tx_sock_buffer_size;
+	    unsigned int	    tx_sock_buffer_size;
         unsigned long       tx_cache_min;
         unsigned long       tx_cache_max;
         NormObjectSize      tx_cache_size;        
         
         NormFileList        tx_file_list;
+        char                tx_file_name[PATH_MAX];
+        bool                tx_file_info;
         ProtoTree           tx_file_cache; 
         bool                tx_one_shot;
         bool                tx_ack_shot;
@@ -188,6 +193,7 @@ class NormApp : public NormController, public ProtoApp
         bool                rx_persistent;
         bool                process_aborted_files;
         bool                preallocate_sender;
+        NormSenderNode::RepairBoundary repair_boundary;
         
         // Debug parameters
         bool                tracing;
@@ -222,17 +228,16 @@ NormApp::NormApp()
    cc_enable(false), ecn_mode(ECN_OFF), tolerate_loss(false),
    node_id(NORM_NODE_ANY), segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
    backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR), grtt_estimate(NormSession::DEFAULT_GRTT_ESTIMATE), 
-   group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
+   grtt_probing_mode(NormSession::PROBE_ACTIVE), group_size(NormSession::DEFAULT_GSIZE_ESTIMATE),
    tx_buffer_size(1024*1024), tx_sock_buffer_size(0), tx_cache_min(8), tx_cache_max(256), tx_cache_size((UINT32)20*1024*1024),
-   tx_one_shot(false), tx_ack_shot(false), tx_file_queued(false),
+   tx_file_info(true), tx_one_shot(false), tx_ack_shot(false), tx_file_queued(false),
    tx_robust_factor(NormSession::DEFAULT_ROBUST_FACTOR), tx_object_interval(0.0), tx_repeat_count(0), 
    tx_repeat_interval(2.0), tx_repeat_clear(true), tx_requeue(0), tx_requeue_count(0), acking_node_list(NULL), 
    acking_flushes(false), watermark_pending(false), rx_buffer_size(1024*1024), rx_sock_buffer_size(0),
    rx_cache_path(NULL), post_processor(NULL), unicast_nacks(false), silent_receiver(false), 
    low_delay(false), realtime(false), rx_robust_factor(NormSession::DEFAULT_ROBUST_FACTOR), rx_persistent(true), process_aborted_files(false),
-   preallocate_sender(false), tracing(false), tx_loss(0.0), rx_loss(0.0)
+   preallocate_sender(false), repair_boundary(NormSenderNode::BLOCK_BOUNDARY), tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
-    
     control_pipe.SetListener(this, &NormApp::OnControlEvent);
     control_pipe.SetNotifier(&GetSocketNotifier());
     
@@ -242,6 +247,8 @@ NormApp::NormApp()
     interval_timer.SetListener(this, &NormApp::OnIntervalTimeout);
     interval_timer.SetInterval(0.0);
     interval_timer.SetRepeat(0);
+    
+    tx_file_name[0] = '\0';
     
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
@@ -307,10 +314,12 @@ const char* const NormApp::cmd_list[] =
     "+minput",       // send message stream input
     "+moutput",      // recv message stream output
     "+sendfile",     // file/directory list to transmit
+    "+info",         // 'on' | 'off' to enable/disable file info (name) transmission (default = 'on')
     "+interval",     // delay time (sec) between files (0.0 sec default)
     "+repeatcount",  // How many times to repeat the file/directory list tx
     "+rinterval",    // Interval (sec) between file/directory list repeats
     "+requeue",      // <count> how many times files are retransmitted w/ same objId
+    "+boundary",     // 'block' or 'file' to set NORM_REPAIR_BOUNDARY (default is 'block')
     "-oneshot",      // Transmit file(s), exiting upon TX_FLUSH_COMPLETED
     "-ackshot",      // Transmit file(s), exiting upon TX_WATERMARK_COMPLETED
     "-updatesOnly",  // only send updated files on repeat transmission
@@ -325,6 +334,7 @@ const char* const NormApp::cmd_list[] =
     "+extra",        // Number of extra FEC packets sent in response to repair requests
     "+backoff",      // Backoff factor to use
     "+grtt",         // Set sender's initial GRTT estimate
+    "+probe",        // {'active', 'passive' | 'none'} Set sender;s GRTT probing mode 'active' is default)
     "+gsize",        // Set sender's group size estimate
     "+txbuffer",     // Size of sender's buffer
     "+txsockbuffer", // tx socket buffer size
@@ -377,10 +387,12 @@ void NormApp::ShowHelp()
         "   +minput,       // sender message stream input\n"
         "   +moutput,      // receiver message stream output\n"
         "   +sendfile,     // file/directory list to transmit\n"
+        "   +info,         // 'on' | 'off' to enable/disable file info (name) transmission (default = 'on')\n"
         "   +interval,     // delay time (sec) between files (0.0 sec default)\n"
         "   +repeatcount,  // How many times to repeat the file/directory list tx\n"
         "   +rinterval,    // Interval (sec) between file/directory list repeats\n"
         "   +requeue,      // <count> how many times files are retransmitted w/ same objId\n"
+        "   +boundary      // 'block' or 'file' to set NORM_REPAIR_BOUNDARY (default is 'block')\n"
         "   -oneshot,      // Exit upon sender TX_FLUSH_COMPLETED event (sender exits after transmission)\n"
         "   -ackshot,      // Exit upon sender TX_WATERMARK_COMPLETED event (sender exits after transmission)\n"
         "   -updatesOnly,  // only send updated files on repeat transmission\n"
@@ -395,6 +407,7 @@ void NormApp::ShowHelp()
         "   +extra,        // Number of extra FEC packets sent in response to repair requests\n"
         "   +backoff,      // Backoff factor to use\n"
         "   +grtt,         // Set sender's initial GRTT estimate\n"
+        "   +probe,        // {'active', 'passive' | 'none'} Set sender;s GRTT probing mode 'active' is default)\n"
         "   +gsize,        // Set sender's group size estimate\n"
         "   +txbuffer,     // Size of sender's buffer\n"
         "   +txcachebounds,// <countMin:countMax:sizeMax> limits on sender tx object caching\n"
@@ -428,7 +441,7 @@ void NormApp::OnControlEvent(ProtoSocket& /*theSocket*/, ProtoSocket::Event theE
             if (control_pipe.Recv(buffer, len))
             {
                 buffer[len] = '\0';
-                PLOG(PL_ERROR, "norm: received command \"%s\"\n", buffer);
+                PLOG(PL_DEBUG, "norm: received command \"%s\"\n", buffer);
                 char* cmd = buffer;
                 char* val = NULL;
                 for (unsigned int i = 0; i < len; i++)
@@ -631,6 +644,8 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         }
         bool result = session ? session->SetLoopback(loopTemp) : true;
         loopback = result ? loopTemp : loopback;
+        if (loopback && (NULL != session) && session->Address().IsMulticast())
+            session->SetRxPortReuse(true);
         if (!result)
         {
             PLOG(PL_FATAL, "NormApp::OnCommand(loopback) error setting socket loopback!\n");   
@@ -828,17 +843,25 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         // (This will allow the "send" command to be invoked at run-time via the ProtoPipe
         //  remote control interface).
     }
-    else if (!strncmp("interval", cmd, len))
+    else if (!strncmp("info", cmd, len))
     {
-        if (1 != sscanf(val, "%lf", &tx_object_interval)) 
-            tx_object_interval = -1.0;
-        if (tx_object_interval < 0.0)
+        if (!strcmp("on", val))
+            tx_file_info = true;
+        else if (!strcmp("off", val))
+            tx_file_info = false;
+        else
         {
-            PLOG(PL_FATAL, "NormApp::OnCommand(interval) Invalid tx object interval: %s\n",
-                     val);
-            tx_object_interval = 0.0;
+            PLOG(PL_FATAL, "NormApp::OnCommand(info) invalid argument!\n");   
             return false;
         }
+    }
+    else if (!strncmp("interval", cmd, len))
+    {
+        if (1 != sscanf(val, "%lf", &tx_object_interval))
+        {
+            PLOG(PL_FATAL, "NormApp::OnCommand(interval) Invalid tx object interval: %s\n", val);
+            return false;
+        } 
     }    
     else if (!strncmp("repeatcount", cmd, len))
     {
@@ -860,11 +883,27 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     {
         tx_requeue = tx_requeue_count = atoi(val); 
     } 
+    else if (!strncmp("boundary", cmd, len))
+    {
+        if (0 == strcmp("block", val))
+        {
+            repair_boundary = NormSenderNode::BLOCK_BOUNDARY;
+        }
+        else if (0 == strcmp("file", val))
+        {
+            repair_boundary = NormSenderNode::OBJECT_BOUNDARY;
+        }
+        else
+        {
+            PLOG(PL_FATAL, "NormApp::OnCommand(boundary) error: invalid repair boundary \"%s\"\n", val);
+            return false;
+        }
+        if (session) session->ReceiverSetDefaultRepairBoundary(repair_boundary);
+    }    
     else if (!strncmp("oneshot", cmd, len))
     {
         tx_one_shot = true;
-    }   
-         
+    }    
     else if (!strncmp("ackshot", cmd, len))
     {
         tx_ack_shot = true;
@@ -998,6 +1037,22 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         grtt_estimate = grttEstimate;
         if (session) session->SenderSetGrtt(grttEstimate);
     }
+    else if (!strncmp("probe", cmd, len))
+    {
+        size_t valLen = strlen(val);
+        if (!strncmp("none", val, valLen))
+           grtt_probing_mode = NormSession::PROBE_NONE;
+        else if (!strncmp("passive", val, valLen))
+            grtt_probing_mode = NormSession::PROBE_PASSIVE;
+        else if (!strncmp("active", val, valLen))
+            grtt_probing_mode = NormSession::PROBE_ACTIVE;
+        else
+        {
+            PLOG(PL_FATAL, "NormApp::OnCommand(probe) invalid grtt probing mode!\n");   
+            return false;
+        }
+        if (NULL != session) session->SetGrttProbingMode(grtt_probing_mode);
+    }
     else if (!strncmp("gsize", cmd, len))
     {
         double groupSize = atof(val);
@@ -1028,7 +1083,11 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         tx_cache_min = countMin;
         tx_cache_max = countMax;
         tx_cache_size = sizeMax;
-        if (session) session->SetTxCacheBounds(tx_cache_size, tx_cache_min, tx_cache_max);
+        if (session) 
+        {
+            session->SetTxCacheBounds(tx_cache_size, tx_cache_min, tx_cache_max);
+            session->SetRxCacheMax(tx_cache_max);
+        }
     }
     else if (!strncmp("txrobustfactor", cmd, len))
     {
@@ -1393,7 +1452,7 @@ void NormApp::OnInputReady()
                 {
                     if (feof(input))
                     {
-                        PLOG(PL_FATAL, "norm: input end-of-file.\n");
+                        PLOG(PL_ALWAYS, "norm: input end-of-file.\n");
                         if (input_active) 
                         {
     #ifdef WIN32
@@ -1461,9 +1520,9 @@ void NormApp::OnInputReady()
                 if (input_active)
                 {
 #ifdef WIN32
-                        ASSERT(0);  // no Win32 support for stream i/o yet
+                    ASSERT(0);  // no Win32 support for stream i/o yet
 #else
-                        dispatcher.RemoveGenericInput(fileno(input));
+                    dispatcher.RemoveGenericInput(fileno(input));
 #endif // if/else WIN32/UNIX
                     input_active = false;   
                 }
@@ -1516,7 +1575,7 @@ void NormApp::Notify(NormController::Event event,
                 if ((msg_test || input) && (object == tx_stream))
                     OnInputReady();
             }
-            else
+            else if (tx_object_interval >= 0.0)
             {
                 // Can queue a new object for transmission 
                 if (interval_timer.IsActive()) interval_timer.Deactivate();
@@ -1535,8 +1594,17 @@ void NormApp::Notify(NormController::Event event,
             PLOG(PL_DEBUG, "NormApp::Notify(TX_FLUSH_COMPLETED) ...\n");
             if (tx_one_shot)
             {
-                PLOG(PL_FATAL, "norm: transmit flushing completed, exiting.\n");
+                PLOG(PL_ALWAYS, "norm: transmit flushing completed, exiting.\n");
                 Stop();
+            }
+            else if (tx_object_interval < 0.0)
+            {
+                // Can queue a new object for transmission 
+                if (interval_timer.IsActive()) interval_timer.Deactivate();
+                if (interval_timer.GetInterval() > 0.0)
+                    ActivateTimer(interval_timer); 
+                else
+                    OnIntervalTimeout(interval_timer);
             }
             break;
             
@@ -1547,7 +1615,7 @@ void NormApp::Notify(NormController::Event event,
             watermark_pending = false;  // enable new watermark to be set
             if (tx_ack_shot)
             {
-                PLOG(PL_ERROR, "norm: transmit flushing completed, exiting.\n");
+                PLOG(PL_ALWAYS, "norm: transmit flushing completed, exiting.\n");
                 Stop();     
             }
             break;
@@ -1954,12 +2022,20 @@ void NormApp::Notify(NormController::Event event,
 }  // end NormApp::Notify()
 
 
-bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
+bool NormApp::OnIntervalTimeout(ProtoTimer& theTimer)
 {
     char fileName[PATH_MAX];
-    if (tx_file_list.GetNextFile(fileName))
+    if (('\0' != tx_file_name[0]) || tx_file_list.GetNextFile(fileName))
     {
         tx_repeat_clear = true;
+        
+        // The "tx_file_name" is used to cache the path of the current file for enqueue
+        // re-attempt upon possible flow control NormSession::QueueTxFile() failure
+        if ('\0' == tx_file_name[0])
+            strcpy(tx_file_name, fileName);
+        else
+            strcpy(fileName, tx_file_name);  // used cached tx_file_name for enqueue re-attempt
+        
         // 1) Build up the full path name of the file
         char pathName[PATH_MAX];
         tx_file_list.GetCurrentBasePath(pathName);
@@ -1978,9 +2054,6 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
             if (PROTO_PATH_DELIMITER == fileNameInfo[i]) 
                 fileNameInfo[i] = '/';
         }
-        char temp[PATH_MAX];
-        strncpy(temp, fileNameInfo, len);
-        temp[len] = '\0';
         
         FileCacheItem* fileCacheItem = NULL;
         NormFileObject* obj = NULL;
@@ -1994,21 +2067,43 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
                 bool requeueSuccess = false;
                 if (NULL != obj) requeueSuccess = session->RequeueTxObject(obj);
                 if (!requeueSuccess)
+                {
                     PLOG(PL_ERROR, "norm warning: requeue attempt exceeded configured tx cache bounds!\n");
+                    // TBD - remove file from tx_file_cache???
+                }
+                // RequeueTxObject() is not subject to flow control since the object is already buffered
+                tx_file_name[0] = '\0'; // reset so next file will be fetched
             }
         }
         if (NULL == obj)
         {
-            // It's a new object (or requeue failure)
-            if (NULL == (obj = session->QueueTxFile(fileName, fileNameInfo, (UINT16)len)))
+            // This makes sure it's not an empty file
+            // (TBD - provide for empty files to be sent)
+            if (0 == NormFile::GetSize(fileName))
             {
-                PLOG(PL_ERROR, "NormApp::OnIntervalTimeout() Error queuing tx file: %s\n",
-                        fileName);
-                // Wait a second, then try the next file in the list
+                PLOG(PL_WARN, "norm warning: empty file \"%s\" will not be transmitted\n");
+                tx_file_name[0] = '\0'; // reset so next file will be fetched
+                return OnIntervalTimeout(theTimer);
+            }
+            // It's a new object
+            const char* infoPtr = tx_file_info ? fileNameInfo : NULL;
+            UINT16 infoLen = tx_file_info ? (UINT16)len : 0;
+            if (NULL == (obj = session->QueueTxFile(fileName, infoPtr, infoLen)))
+            {
+                PLOG(PL_DEBUG, "NormApp::OnIntervalTimeout() error queuing tx file: %s\n", fileName);
+                // The code currently assumes that QueueTxFile() failed because of
+                // flow control and so we simply return and wait for a TX_QUEUE_EMPTY notification
+                // to trigger a re-attempt to enqueue the file name in "tx_file_name"
                 if (interval_timer.IsActive()) interval_timer.Deactivate();
-                interval_timer.SetInterval(1.0);
-                ActivateTimer(interval_timer);
+                // Old behavior was to wait a second and go to next file
+                // (commented out here)
+                //interval_timer.SetInterval(1.0);
+                //ActivateTimer(interval_timer);
                 return false;
+            }
+            else
+            {
+                tx_file_name[0] = '\0';  // reset so next file will be fetched
             }
             if (0 != tx_requeue)
             {
@@ -2094,7 +2189,7 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
     else
     {
         tx_repeat_clear = true;
-        PLOG(PL_FATAL, "norm: End of tx file list reached.\n");  
+        PLOG(PL_ALWAYS, "norm: End of tx file list reached.\n");  
         if (tx_ack_shot && !watermark_pending && tx_file_queued)
         {
             session->SenderSetWatermark(tx_last_object_id, 
@@ -2169,10 +2264,17 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
         session->SetRxLoss(rx_loss);
         session->SetTTL(ttl);
         session->SetLoopback(loopback);
+        if (loopback && session->Address().IsMulticast())
+            session->SetRxPortReuse(true);
         if (NULL != interface_name)
             session->SetMulticastInterface(interface_name);
         
         session->SetEcnSupport(ECN_OFF != ecn_mode, ECN_ONLY == ecn_mode, tolerate_loss);
+        
+        // We turn off flow control when no NACKing is happening
+        // (TBD - make flow control a command-line option)
+        if (silent_receiver)
+            session->SetFlowControl(0.0); 
         
         if (msg_test || input || !tx_file_list.IsEmpty())
         {
@@ -2180,7 +2282,8 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
             session->SenderSetBaseObjectId(baseId);
             session->SetCongestionControl(cc_enable);
             session->SetBackoffFactor(backoff_factor);
-            //session->SenderSetGrtt(grtt_estimate);
+            session->SenderSetGrtt(grtt_estimate);
+            session->SetGrttProbingMode(grtt_probing_mode);
             session->SenderSetGroupSize(group_size);
             session->SetTxRobustFactor(tx_robust_factor);
             session->SetTxCacheBounds(tx_cache_size, tx_cache_min, tx_cache_max);
@@ -2226,11 +2329,12 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
         if (output || rx_cache_path)
         {
             // StartReceiver(bufferMax (per-sender))
+            session->SetRxCacheMax(tx_cache_max);
             session->ReceiverSetUnicastNacks(unicast_nacks);
             session->ReceiverSetSilent(silent_receiver);
             if (preallocate_sender)
             {
-                if (!session->PreallocateRemoteSender(segment_size, ndata, nparity))
+                if (!session->PreallocateRemoteSender(rx_buffer_size, segment_size, ndata, nparity))
                 {
                     PLOG(PL_FATAL, "NormApp::OnStartup() remote sender preallocation error!\n");
                     session_mgr.Destroy();
@@ -2244,6 +2348,7 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
             if (realtime)
                 session->RcvrSetRealtime(true);           
             session->SetRxRobustFactor(rx_robust_factor);
+            session->ReceiverSetDefaultRepairBoundary(repair_boundary);
             if (!session->StartReceiver(rx_buffer_size))
             {
                 PLOG(PL_FATAL, "NormApp::OnStartup() start receiver error!\n");

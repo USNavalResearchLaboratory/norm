@@ -178,6 +178,15 @@ normMsgr:    $(MSGR_OBJ) libnorm.a $(LIBPROTO)
 	mkdir -p ../bin
 	cp $@ ../bin/$@
 
+# (normStreamer) message sender/receiver
+STREAMER_SRC = $(EXAMPLE)/normStreamer.cpp
+STREAMER_OBJ = $(STREAMER_SRC:.cpp=.o)
+
+normStreamer:    $(STREAMER_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(STREAMER_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+
 # (pcap2norm) - parses pcap (e.g. tcpdump) file and prints NORM trace
 PCAP_SRC = $(COMMON)/pcap2norm.cpp
 PCAP_OBJ = $(PCAP_SRC:.cpp=.o)

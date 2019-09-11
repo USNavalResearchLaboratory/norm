@@ -1,5 +1,45 @@
 			           NORM Version History
 
+Version 1.5.7
+=============
+    - Fixed issue with NormSession::SenderRemoveAckingNode() method where
+      the removed NormAckingNode instance was not being properly deleted.
+      (Thanks to Chad Gioia)
+    - Fixed bug in normPrecoder (npc) when building on 64-bit architectures
+      (Thanks to Leon Meyer)
+    - Fixed bug in JNI NormNode.getAddress() method where an "unsigned short" 
+      type was used instead of "UINT16" to receive the port portion of the
+      address. (Thanks to Jame Nguyen)
+    - Reduced warnings, added gnu and other build options to 'waf' wscripts
+      (Thanks to Luca Buccassi)
+    - Greatly improved high speed performance via enhancements to Protolib
+    - Fixed bugs related to coding block id wrapping for very long-lived
+      (or very high speed) NORM sessions.
+    - Added NormSocket API extension in "norm/examples" that provides a 
+      sockets-like API and client-server connection-oriented paradigm
+      for using NORM. This currently supports a byte-stream service 
+      for both multicast and unicast using NORM_OBJECT_STREAM.  This API
+      extension is still work in progress and will be expanded to include
+      message-stream service support as well as NORM's file/data object
+      modes.  The "norm/examples/normClient.cpp" (and "normServer.cpp)
+      illustrates use of the the API extension defined in
+      "norm/examples/normSocket.h"
+    - Added "normStreamer" example that provides the same function as the
+      "normMsgr" example except using NORM_OBJECT_STREAM.
+    - The bug fixes and performance enhancements make this a key update.
+      The NORM Developer's Guide is not yet updated to described some of
+      the new API features added.
+    - Added APIs to iterate through sender "Acking Node List" to determine
+      who has and who has not acknowledged a watermark acknowledgement
+      request.
+    - Added NormSetAutoAckingNodes() call with NormTrackingStatus to 
+      automate detection of new group members.  The Acking Node List
+      iterator function NormGetNextAckingNode() can be used to learn
+      who has joined and the NORM_ACKING_NODE_NEW provides notification
+      to the application of new members.
+    - The 'waf' build scripts assign the current version number to
+      the NORM shared library built for better version control/tracking.
+
 Version 1.5r6
 =============
     - Fixed Protolib ProtoBitmask bug for NDEBUG (release) builds.

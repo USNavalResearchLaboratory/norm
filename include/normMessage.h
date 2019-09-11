@@ -134,6 +134,8 @@ class NormObjectSize
         // Operators
         bool operator==(const NormObjectSize& b) const
             {return (b.size == size);}
+        bool operator!=(const NormObjectSize& b) const
+            {return (b.size != size);}
         NormObjectSize operator+(const NormObjectSize& b) const
         {
             NormObjectSize result(size);
@@ -201,9 +203,9 @@ class NormObjectId
         }
         
         bool operator<=(const NormObjectId& id) const
-            {return ((value == id.value) || (*this<id));}
+            {return ((value == id.value) || (*this < id));}
         bool operator>=(const NormObjectId& id) const
-            {return ((value == id.value) || (*this>id));}
+            {return ((value == id.value) || (*this > id));}
         bool operator==(const NormObjectId& id) const
             {return (value == id.value);}
         bool operator!=(const NormObjectId& id) const
@@ -212,6 +214,8 @@ class NormObjectId
         void operator-=(UINT16 delta)
             {value -= delta;}
         
+        const char* GetValuePtr() const
+            {return (const char*)(&value);}
         
         NormObjectId& operator++(int) {value++; return *this;}
         NormObjectId& operator--(int) {value--; return *this;}
@@ -224,33 +228,93 @@ class NormBlockId
 {
     public:
         NormBlockId() {};
-        NormBlockId(UINT32 id) {value = id;}
-        NormBlockId(const NormObjectId& id) {value = (UINT32)id;}
-        operator UINT32() const {return value;}
+        NormBlockId(UINT32 id) : value(id) {}
+        
+        UINT32 GetValue() const 
+            {return value;}
+        
+        const char* GetValuePtr() const
+            {return ((const char*)&value);}
+        
         bool operator==(const NormBlockId& id) const
-            {return (value == (UINT32)id);}
+            {return (value == id.value);}
         bool operator!=(const NormBlockId& id) const
-            {return (value != (UINT32)id);}
+            {return (value != id.value);}
         
+        // These static helper methods provide a "mask" parameter to allow
+        // for different bit-length NormBlockId values (depends upon FEC encoding scheme).
+        // The "mask" is in the eye-of-the-beholder, i.e., the given NormObject
+        // or NormBlockBuffer that is manipulating block id values for protocol purposes
+        // provide the FEC block "mask" to these methods.
+        // We may reconsider adding the "mask" as a NormBlockId member variable, but since
+        // NormBlockId usage is so ubiquitous, it could be added overhead consider within
+        // the context of sender, object, etc a common fec_block_mask is used.
         
-        //INT32 operator-(const NormBlockId& id) const
-        //    {return ((INT32)value - id.value);}
-        
-        bool operator<(const NormBlockId& id) const
+        // Compute difference of (a - b). If a non-zero bit "mask" is given, the difference
+        // is for the masked word size (e.g., mask = 0x00ffffff is a 24-bit integer).
+        static INT32 Difference(const NormBlockId& a, const NormBlockId& b, UINT32 mask)
         {
-            UINT32 diff = value - id.value;
-            return ((diff > 0x80000000) || ((0x80000000 == diff) && (value > id.value)));
+            if (mask)
+            {
+                UINT32 sign = (mask ^ (mask >> 1));
+                UINT32 result = a.value - b.value;
+                if (0 == (result & sign))
+                    return (INT32)(result & mask);
+                else if ((result != sign) || (a.value < b.value))
+                    return (INT32)(result | ~mask);
+                else
+                    return (INT32)(result & mask);
+            }
+            else
+            {
+                return ((INT32)(a.value - b.value));
+            }
         }
         
-        bool operator>(const NormBlockId& id) const
+        // Compare two block ids.  If a non-zero bit "mask" is given, the comparison
+        // is a "sliding window" (signed) over the bit space.  Otherwise, it is 
+        // simply an unsigned value comparison.
+        // Returns -1, 0, +1 for (a < b), (a == b), and (a > b), respectively
+        static int Compare(const NormBlockId& a, const NormBlockId& b, UINT32 mask)
         {
-            UINT32 diff = id.value - value;
-            return ((diff > 0x80000000) || ((0x80000000 == diff) && (id.value > value)));
+            if (mask)
+            {
+                // "Sliding window" comparison
+                INT32 delta = Difference(a, b, mask);
+                if (delta < 0)
+                    return -1;
+                else if (0 == delta)
+                    return 0;
+                else  // if delta > 0
+                    return 1;
+            }
+            else if (a.value < b.value)
+            {
+                return  -1;
+            }
+            else if (a.value == b.value)
+            {
+                return 0;
+            }
+            else // if (a > b)
+            {
+                return 1;
+            }
         }
         
+        void Increment(UINT32 i, UINT32 mask)
+        {
+            value = value + i;
+            if (mask) value &= mask;
+        }
         
-        NormBlockId& operator++(int ) {value++; return *this;}
-        
+        void Decrement(UINT32 i, UINT32 mask)
+        {
+            if (mask && (value < i))
+                value = (mask - (i - value) + 1);
+            else
+                value -= i;
+        }
     private:
         UINT32  value;  
 };  // end class NormBlockId
@@ -308,7 +372,7 @@ class NormHeaderExtension
 };  // end class NormHeaderExtension
 
     
-// This class is some we use to set/get
+// This class is what we use to set/get
 // FEC Payload Id content.  The FEC Payload
 // Id format is dependent upon the "fec_id" (FEC Type)
 // and, in some cases, its field size ("m") parameter
@@ -523,7 +587,10 @@ class NormMsg
         {
             buffer[SOURCE_ID_OFFSET] = htonl(sourceId); 
         } 
+        // For messages to be sent, "addr" is destination
         void SetDestination(const ProtoAddress& dst) {addr = dst;}
+        // For message received, "addr" is source
+        void SetSource(const ProtoAddress& src) {addr = src;}
         
         void AttachExtension(NormHeaderExtension& extension)
         {
@@ -545,6 +612,8 @@ class NormMsg
             {return (Type)(((UINT8*)buffer)[TYPE_OFFSET] & 0x0f);}
         UINT16 GetHeaderLength() 
             {return ((UINT8*)buffer)[HDR_LEN_OFFSET] << 2;}
+        UINT16 GetBaseHeaderLength()
+            {return header_length_base;}
         UINT16 GetSequence() const
         {
             return (ntohs((((UINT16*)buffer)[SEQUENCE_OFFSET])));   
@@ -555,8 +624,10 @@ class NormMsg
         }
         const ProtoAddress& GetDestination() const {return addr;}
         const ProtoAddress& GetSource() const {return addr;}
-        const char* GetBuffer() {return ((char*)buffer);}
+        const char* GetBuffer() const {return ((char*)buffer);}
         UINT16 GetLength() const {return length;}     
+        
+        void Display() const; // hex output to log
         
         // To retrieve any attached header extensions
         bool HasExtensions() const {return (header_length > header_length_base);}
@@ -566,7 +637,7 @@ class NormMsg
             UINT16 nextOffset = 
                 (UINT16)(currentBuffer ? (currentBuffer - buffer + (ext.GetLength()/4)) : 
 			                    (header_length_base/4));
-            bool result = (nextOffset < (header_length/4));
+            bool result = HasExtensions() ? (nextOffset < (header_length/4)) : false;
             ext.AttachBuffer(result ? (buffer+nextOffset) : (UINT32*)NULL);
             return result;
         }
@@ -627,7 +698,8 @@ class NormObjectMsg : public NormMsg
             FLAG_INFO       = 0x04,
             FLAG_UNRELIABLE = 0x08,
             FLAG_FILE       = 0x10,
-            FLAG_STREAM     = 0x20
+            FLAG_STREAM     = 0x20,
+            FLAG_SYN        = 0x40
             //FLAG_MSG_START  = 0x40 deprecated
         }; 
         UINT16 GetInstanceId() const
@@ -732,6 +804,51 @@ class NormFtiExtension2 : public NormHeaderExtension
             FEC_NPARITY_OFFSET  = ((FEC_NDATA_OFFSET*2)+2)/2
         };  
 };  // end class NormFtiExtension2
+
+// Helper class for containing key FTI params
+class NormFtiData
+{
+    public:
+        NormFtiData()
+          : object_size(NormObjectSize(0)), segment_size(0),
+            num_data(0), num_parity(0), fec_m(0), instance_id(0) {}
+        ~NormFtiData() {}
+        
+        void SetObjectSize(const NormObjectSize& objectSize)
+            {object_size = objectSize;}
+        void SetSegmentSize(UINT16 segmentSize)
+            {segment_size = segmentSize;}
+        void SetFecMaxBlockLen(UINT16 numData)
+            {num_data = numData;}
+        void SetFecNumParity(UINT16 numParity)
+            {num_parity = numParity;}
+        void SetFecFieldSize(UINT8 fecM)
+            {fec_m = fecM;}
+        void SetFecInstanceId(UINT16 instanceId)
+            {instance_id = instanceId;}
+        
+        const NormObjectSize& GetObjectSize() const 
+            {return object_size;}
+        UINT16 GetSegmentSize() const
+            {return segment_size;}
+        UINT16 GetFecMaxBlockLen() const
+            {return num_data;}
+        UINT16 GetFecNumParity() const
+            {return num_parity;}
+        UINT8 GetFecFieldSize() const
+            {return fec_m;}
+        UINT16 GetFecInstanceId() const
+            {return instance_id;}
+        
+    private:
+        NormObjectSize  object_size;
+        UINT16          segment_size;
+        UINT16          num_data;
+        UINT16          num_parity;
+        UINT8           fec_m;
+        UINT16          instance_id;
+        
+};  // end class NormFtiData
 
 
 // This FEC Object Transmission Information assumes "fec_id" == 5 (RFC 5510)
@@ -1282,6 +1399,13 @@ class NormCmdCCMsg : public NormCmdMsg
         } 
         bool GetCCNode(NormNodeId nodeId, UINT8& flags, UINT8& rtt, UINT16& rate) const;
         
+        // This function uses the "reserved" field of the NORM_CMD(CC) message
+        // and is not strictly compliant with RFC 5740 when invoked.
+        enum {FLAG_SYN = 0x01};
+        bool SynIsSet() const
+                {return (0 != (FLAG_SYN & ((UINT8*)buffer)[RESERVED_OFFSET]));} 
+        void SetSyn()
+            {((UINT8*)buffer)[RESERVED_OFFSET] = FLAG_SYN;}
         
         class Iterator;
         friend class Iterator;
@@ -1389,7 +1513,9 @@ class NormRepairRequest
         void SetFlag(NormRepairRequest::Flag theFlag) 
             {flags |= theFlag;} 
         void ClearFlag(NormRepairRequest::Flag theFlag) 
-            {flags &= ~theFlag;}       
+            {flags &= ~theFlag;}    
+        void SetFlags(int theFlags)
+            {flags = theFlags;}   
         
         // Returns length (each repair item requires 8 bytes of space)
         bool AppendRepairItem(UINT8               fecId,
@@ -1425,7 +1551,13 @@ class NormRepairRequest
             {return form;}
         bool FlagIsSet(NormRepairRequest::Flag theFlag) const
             {return (0 != (theFlag & flags));}
-        UINT16 GetLength() const {return length;}
+        int GetFlags() const
+            {return flags;}
+        UINT16 GetLength() const 
+            {return (ITEM_LIST_OFFSET + length);}
+        
+        UINT32* GetBuffer() const
+            {return buffer;}
         
         // Outputs textual representation of RepairRequest content
         void Log(UINT8 fecId, UINT8 fecM) const;
@@ -1436,10 +1568,10 @@ class NormRepairRequest
                  // Checks for matching fecId and assumes constant 'm' ?!?!
                 Iterator(const NormRepairRequest& theRequest, UINT8 fecId, UINT8 fecM);  
                 void Reset() {offset = 0;}
-                bool NextRepairItem(NormObjectId* objectId,
-                                    NormBlockId*  blockId,
-                                    UINT16*       blockLen,
-                                    UINT16*       symbolId);
+                UINT16 NextRepairItem(NormObjectId* objectId,
+                                      NormBlockId*  blockId,
+                                      UINT16*       blockLen,
+                                      UINT16*       symbolId);
             private:
                 const NormRepairRequest& request;
                 UINT8                    fec_id;
@@ -1731,6 +1863,22 @@ class NormNackMsg : public NormMsg
             length += requestLength;
             return requestLength;
         }
+        
+        // TBD - add some safety checks to these methods 
+        void InitFrom(NormNackMsg nack)
+        {
+            // Copy header from "nack"
+            memcpy(buffer, nack.buffer, nack.GetHeaderLength());
+            header_length_base = nack.header_length_base;
+            length = header_length = nack.GetHeaderLength();
+        }
+        void AppendRepairRequest(const NormRepairRequest request)
+        {
+            memcpy(buffer+length/4, request.GetBuffer(), request.GetLength());
+            length += request.GetLength();
+        }
+        void ResetPayload()
+            {length = GetHeaderLength();}
                         
         // Message processing 
         NormNodeId GetSenderId() const

@@ -103,11 +103,18 @@ class NormSessionMgr
     
         NormController* GetController() const {return controller;}
         
+        
+        void SetDataFreeFunction(NormDataObject::DataFreeFunctionHandle freeFunc)
+            {data_free_func = freeFunc;}
+        NormDataObject::DataFreeFunctionHandle GetDataFreeFunction() const
+            {return data_free_func;}
+        
     private:   
-        ProtoTimerMgr&           timer_mgr;  
-        ProtoSocket::Notifier&   socket_notifier;  
-        ProtoChannel::Notifier*  channel_notifier;
-        NormController*          controller;
+        ProtoTimerMgr&                          timer_mgr;      
+        ProtoSocket::Notifier&                  socket_notifier; 
+        ProtoChannel::Notifier*                 channel_notifier; 
+        NormController*                         controller;     
+        NormDataObject::DataFreeFunctionHandle  data_free_func;
         
         class NormSession*       top_session;  // top of NormSession list
               
@@ -161,6 +168,8 @@ class NormSession
         };
                
         // General methods
+        void SetNodeId(NormNodeId nodeId)
+            {local_node_id = nodeId;}
         const NormNodeId& LocalNodeId() const {return local_node_id;}
         bool Open();
         void Close();
@@ -210,7 +219,7 @@ class NormSession
         UINT16 GetTxPort() const;
             
         bool SetRxPortReuse(bool enableReuse, 
-                            const char*       rxAddress,                      // bind() to <rxAddress>/<sessionPort>
+                            const char*       rxAddress = NULL,               // bind() to <rxAddress>/<sessionPort>
                             const char*       senderAddress = (const char*)0, // connect() to <senderAddress>/<senderPort>
                             UINT16            senderPort = 0);
         
@@ -289,6 +298,7 @@ class NormSession
         // flow control is imposed
         double GetFlowControlDelay() const
         {
+            if (0.0 == flow_control_factor) return 0.0;
             double fdelay =  (flow_control_factor * (SenderGrtt() * (backoff_factor + 1)));
             return ((fdelay > 0.020) ? fdelay : 0.020);  // minimum 20 msec flow control
         }
@@ -301,6 +311,13 @@ class NormSession
         bool SetTxCacheBounds(NormObjectSize sizeMax,
                               unsigned long  countMin,
                               unsigned long  countMax);
+        
+        // For NormSocket API extension support only
+        void SetServerListener(bool state)
+            {is_server_listener = state;}
+        bool IsServerListener() const
+            {return is_server_listener;}
+        
         void Notify(NormController::Event event,
                     class NormNode*       node,
                     class NormObject*     object)
@@ -313,7 +330,14 @@ class NormSession
         NormMsg* GetMessageFromPool() {return message_pool.RemoveHead();}
         void ReturnMessageToPool(NormMsg* msg) {message_pool.Append(msg);}
         void QueueMessage(NormMsg* msg);
-        bool SendMessage(NormMsg& msg);
+        enum MessageStatus
+        {
+            MSG_SEND_FAILED,
+            MSG_SEND_BLOCKED,
+            MSG_SEND_OK
+                    
+        };
+        MessageStatus SendMessage(NormMsg& msg);
         void ActivateTimer(ProtoTimer& timer) {session_mgr.ActivateTimer(timer);}
         
         void SetUserData(const void* userData) 
@@ -334,7 +358,8 @@ class NormSession
                          UINT32         bufferSpace,
                          UINT16         segmentSize,
                          UINT16         numData,
-                         UINT16         numParity);
+                         UINT16         numParity,
+                         UINT8          fecId = 0);
         void StopSender();
         void SetTxOnly(bool txOnly, bool connectToSessionAddress = false);
         bool GetTxOnly() const
@@ -385,6 +410,9 @@ class NormSession
         bool SenderSendCmd(const char* cmdBuffer, unsigned int cmdLength, bool robust);
         void SenderCancelCmd();
         
+        void SenderSetSynStatus(bool state)
+            {syn_status = state;}
+        
         // robust factor
         void SetTxRobustFactor(int value)
             {tx_robust_factor = value;}
@@ -406,6 +434,13 @@ class NormSession
         UINT16 SenderExtraParity() const {return extra_parity;}
         void SenderSetExtraParity(UINT16 extraParity)
             {extra_parity = extraParity;}
+        
+        INT32 Difference(NormBlockId a, NormBlockId b) const
+            {return NormBlockId::Difference(a, b, fec_block_mask);}
+        int Compare(NormBlockId a, NormBlockId b) const
+            {return NormBlockId::Compare(a, b, fec_block_mask);}
+        void Increment(NormBlockId& b, UINT32 i = 1) const
+            {b.Increment(i, fec_block_mask);}
         
         
         // EMCON Sender (useful when there are silent receivers)
@@ -431,6 +466,8 @@ class NormSession
         }
         
         double SenderGrtt() const {return grtt_advertised;}
+        void ResetGrttNotification() 
+            {notify_on_grtt_update = true;}
         void SenderSetGrtt(double grttValue)
         {
             if (IsSender())
@@ -439,7 +476,7 @@ class NormSession
                 grttValue = (grttValue < grttMin) ? grttMin : grttValue;
             }
             grtt_quantized = NormQuantizeRtt(grttValue);
-            grtt_measured = grtt_advertised = NormUnquantizeRtt(grtt_quantized);      
+            grtt_measured = grtt_advertised = NormUnquantizeRtt(grtt_quantized);  
         }
         double SenderGroupSize() {return gsize_measured;}
         void SenderSetGroupSize(double gsize)
@@ -482,13 +519,21 @@ class NormSession
         unsigned long RemoteSenderBufferSize() const
             {return remote_sender_buffer_size;}
         
+        bool InsertRemoteSender(NormSenderNode& sender);
+        
         void DeleteRemoteSender(NormSenderNode& senderNode);
         
         // Call this to do remote sender memory allocations ahead of time
-        bool PreallocateRemoteSender(UINT16 segmentSize, UINT16 numData, UINT16 numParity);
+        bool PreallocateRemoteSender(unsigned int   bufferSize,
+                                     UINT16         segmentSize, 
+                                     UINT16         numData, 
+                                     UINT16         numParity, 
+                                     unsigned int   streamBufferSize = 0);
         
-        void ReceiverSetUnicastNacks(bool state) {unicast_nacks = state;}
-        bool ReceiverGetUnicastNacks() const {return unicast_nacks;}
+        void ReceiverSetUnicastNacks(bool state) 
+            {unicast_nacks = state;}
+        bool ReceiverGetUnicastNacks() const 
+            {return unicast_nacks;}
         
         void ReceiverSetSilent(bool state) 
             {receiver_silent = state;}
@@ -500,7 +545,7 @@ class NormSession
             {return rcvr_ignore_info;}        
         
         // The default "rcvr_max_delay = -1" corresponds to typical 
-        // operation where source data forpartially received FEC blocks 
+        // operation where source data for partially received FEC blocks 
         // are only provided to the app when buffer constraints require it.
         // Otherwise, the "maxDelay" corresponds to the max number
         // of FEC blocks the receiver waits before passing partially
@@ -541,7 +586,7 @@ class NormSession
         
         // Set default "max_pending_range" of NormObjects for reception
         void SetRxCacheMax(UINT16 maxCount)
-            {rx_cache_count_max = maxCount;}
+            {rx_cache_count_max = (maxCount > 0x7fff) ? 0x7fff : maxCount;}
         UINT16 GetRxCacheMax() const
             {return rx_cache_count_max;}
         
@@ -560,7 +605,8 @@ class NormSession
 #endif // SIMULATE
         
         void SetProbeCount(unsigned probeCount) {probe_count = probeCount;}
-                    
+        bool SenderQueueSquelch(NormObjectId objectId);
+                   
     private:
         // Only NormSessionMgr can create/delete sessions
         NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId);
@@ -607,12 +653,14 @@ class NormSession
                                     UINT16         ccSequence);         
         void AdjustRate(bool onResponse);
         void SetTxRateInternal(double txRate);  // here, txRate is bytes/sec
-        bool SenderQueueSquelch(NormObjectId objectId);
+        //bool SenderQueueSquelch(NormObjectId objectId);
         void SenderQueueFlush();
         bool SenderQueueWatermarkFlush();
         bool SenderBuildRepairAdv(NormCmdRepairAdvMsg& cmd);
         void SenderUpdateGroupSize();
         bool SenderQueueAppCmd();  
+        // The following method is only used for NormSocket purposes
+        bool SenderSendAppCmd(const char* buffer, unsigned int length, const ProtoAddress& dst);
         
         // Receiver message handling routines
         void ReceiverHandleObjectMessage(const struct timeval& currentTime, 
@@ -660,6 +708,7 @@ class NormSession
         double                          tx_rate;  // bytes per second
         double                          tx_rate_min;
         double                          tx_rate_max;
+        unsigned int                    tx_residual;    // for NORM_CMD(CC)/NORM_DATA "packet pairing"
         
         
         // Sender parameters and state
@@ -685,6 +734,7 @@ class NormSession
         NormEncoder*                    encoder;
         UINT8                           fec_id;
         UINT8                           fec_m;
+        INT32                           fec_block_mask;
         
         NormObjectId                    next_tx_object_id;
         unsigned int                    tx_cache_count_min;
@@ -761,6 +811,7 @@ class NormSession
         char*                           cmd_buffer;
         unsigned int                    cmd_length;
         ProtoTimer                      cmd_timer;
+        bool                            syn_status;
         
         // Receiver parameters
         bool                            is_receiver;
@@ -777,6 +828,13 @@ class NormSession
         NormObject::NackingMode         default_nacking_mode;
         NormSenderNode::SyncPolicy      default_sync_policy;
         UINT16                          rx_cache_count_max;
+        
+        // For NormSocket server-listener support
+        bool                            is_server_listener;
+        NormClientTree                  client_tree;
+        
+        // API-specific state variables
+        bool                            notify_on_grtt_update;
         
         // State for some experimental congestion control
         bool                            ecn_ignore_loss;  

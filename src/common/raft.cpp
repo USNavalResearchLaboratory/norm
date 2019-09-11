@@ -362,10 +362,16 @@ void RaftApp::OnInputReady()
     }
     else if (tx_msg_index == tx_msg_length)
     {
-        if (!tx_socket.SendTo(tx_msg_buffer+2, tx_msg_length-2, tx_address))
+        unsigned int bytesSent = tx_msg_length-2;
+        if (!tx_socket.SendTo(tx_msg_buffer+2, bytesSent, tx_address))
         {
-            PLOG(PL_ERROR, "raft: tx_socket.SendTo() error\n");
+            PLOG(PL_ERROR, "raft: tx_socket.SendTo() error: %s\n", GetErrorString());
             return;   
+        }
+        else if (0 == bytesSent)
+        {
+            PLOG(PL_WARN, "raft: tx_socket.SendTo() error: %s\n", GetErrorString());
+            return;  
         }
         tx_msg_index = tx_msg_length = 0;
     }

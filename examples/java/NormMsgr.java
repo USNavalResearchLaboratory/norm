@@ -239,7 +239,7 @@ public class NormMsgr
             normTxLock.release();
             return false;
         }
-        //System.err.println("caching msg for object " + obj + "\n");
+        // System.err.println("caching msg for object " + obj + "\n");
         // Cache the msg associated with the resultant tx object.  We use the
         // input_msg_list HashMap so we can remove the msg upon NORM_TX_OBJECT_PURGED
         input_msg_list.put(obj, msg);

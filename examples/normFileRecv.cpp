@@ -58,6 +58,9 @@ int main(int argc, char* argv[])
                                                    6003,
                                                    NORM_NODE_ANY);
     
+    NormSetRxPortReuse(session, true);
+    NormSetMulticastLoopback(session, true);
+    
     // NOTE: These are debugging routines available 
     //       (not necessary for normal app use)
     // (Need to include "protolib/common/protoDebug.h" for this

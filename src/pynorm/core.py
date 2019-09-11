@@ -506,5 +506,5 @@ def get_libnorm():
 
     return libnorm
 
-# Global libnorm refrence that everyone should use
+# Global libnorm reference that everyone should use
 libnorm = get_libnorm()

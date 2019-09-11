@@ -188,8 +188,7 @@ void NormFile::Unlock()
     flock(fd, LOCK_UN);
 #else
 #ifdef HAVE_LOCKF
-    int ret = lockf(fd, F_ULOCK, 0);
-    ret = 0;  // done to avoid compiler warning (should optimize out)
+    lockf(fd, F_ULOCK, 0);
 #endif // HAVE_LOCKF
 #endif // if/elseHAVE_FLOCK
     fchmod(fd, 0640);

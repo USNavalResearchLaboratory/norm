@@ -140,6 +140,10 @@ class NormLossEstimator2
             {ignore_loss = state;}
         void SetTolerateLoss(bool state)
             {tolerate_loss = state;}
+        
+        unsigned short GetLagIndex() const
+            {return lag_index;}
+        
 
     private:
         enum {DEPTH = 8};
@@ -174,7 +178,6 @@ class NormLossEstimator2
             {init = true; Sync(theSequence);}
         void Sync(unsigned short theSequence)
             {lag_index = theSequence;}
-        
         void ChangeLagDepth(unsigned int theDepth)
         {
             theDepth = (theDepth > 20) ? 20 : theDepth;
@@ -270,13 +273,12 @@ class NormCCNode : public NormNode
         UINT16          cc_sequence;
 };  // end class NormCCNode
 
-class NormSenderNode : public NormNode
+class NormSenderNode : public NormNode, public ProtoTree::Item
 {
     public:
         enum ObjectStatus {OBJ_INVALID, OBJ_NEW, OBJ_PENDING, OBJ_COMPLETE};
     
         enum RepairBoundary {BLOCK_BOUNDARY, OBJECT_BOUNDARY};
-        
         
         enum SyncPolicy
         {
@@ -290,6 +292,12 @@ class NormSenderNode : public NormNode
         
         void SetInstanceId(UINT16 instanceId)
             {instance_id = instanceId;}
+        
+        bool PreallocateRxStream(unsigned int bufferSize,
+                                 UINT16       segmentSize  ,     
+                                 UINT16       numData,           
+                                 UINT16       numParity);
+        bool GetFtiData(const NormObjectMsg& msg, NormFtiData& ftiData);         
         
         // Parameters
         NormObject::NackingMode GetDefaultNackingMode() const 
@@ -317,11 +325,15 @@ class NormSenderNode : public NormNode
         
         void UpdateGrttEstimate(UINT8 grttQuantized);
         double GetGrttEstimate() const {return grtt_estimate;}
+        void ResetGrttNotification() {notify_on_grtt_update = true;}
         
         bool UpdateLossEstimate(const struct timeval&   currentTime,
                                 unsigned short          theSequence, 
                                 bool                    ecnStatus = false);
         double LossEstimate() {return loss_estimator.LossFraction();}
+        unsigned short GetCurrentSequence() const
+            {return loss_estimator.GetLagIndex();}
+        double GetRttEstimate() const {return rtt_estimate;}
         
         void CheckCCFeedback();
         
@@ -340,7 +352,13 @@ class NormSenderNode : public NormNode
         UINT16 GetInstanceId() {return instance_id;}
         bool IsOpen() const {return is_open;} 
         void Close();
-        bool AllocateBuffers(UINT8 fecId, UINT16 fecInstanceId, UINT8 fecM, UINT16 segmentSize, UINT16 numData, UINT16 numParity);
+        bool AllocateBuffers(unsigned int   bufferSpace,
+                             UINT8          fecId, 
+                             UINT16         fecInstanceId, 
+                             UINT8          fecM, 
+                             UINT16         segmentSize,
+                             UINT16         numData, 
+                             UINT16         numParity);
         bool BuffersAllocated() {return (0 != segment_size);}
         void FreeBuffers();
         void Activate(bool isObjectMsg);
@@ -380,6 +398,15 @@ class NormSenderNode : public NormNode
         void AbortObject(NormObject* obj);
         
         void DeleteObject(NormObject* obj);
+        
+        NormObject* GetNextPendingObject()
+        {
+            NormObjectId objid;
+            if (GetNextPending(objid))
+                return rx_table.Find(objid);
+            else
+                return NULL;
+        }        
         
         UINT16 SegmentSize() {return segment_size;}
         UINT16 BlockSize() {return ndata;}
@@ -437,9 +464,9 @@ class NormSenderNode : public NormNode
         unsigned long BufferOverunCount() const
             {return segment_pool.OverunCount() + block_pool.OverrunCount();}
         
-        unsigned long CurrentStreamBufferUsage() const;
-        unsigned long PeakStreamBufferUsage() const;
-        unsigned long StreamBufferOverunCount() const;
+        unsigned long CurrentStreamBufferUsage();
+        unsigned long PeakStreamBufferUsage();
+        unsigned long StreamBufferOverunCount();
         
         
         //unsigned long RecvTotal() const {return recv_total;}
@@ -461,6 +488,7 @@ class NormSenderNode : public NormNode
             recv_goodput.Reset();
         }
         void IncrementResyncCount() {resync_count++;}
+        void DecrementResyncCount() {resync_count--;}
         unsigned long ResyncCount() const {return resync_count;}
         unsigned long NackCount() const {return nack_count;}
         unsigned long SuppressCount() const {return suppress_count;}
@@ -502,9 +530,34 @@ class NormSenderNode : public NormNode
         
         bool ReadNextCmd(char* buffer, unsigned int* buflen);
         
+        void SetAddress(const ProtoAddress& address)
+        {
+            unsigned int len = address.GetLength();
+            memcpy(key_buffer, address.GetRawHostAddress(), len);
+            UINT16 port = htons(address.GetPort());
+            memcpy(key_buffer+len, &port, 2);
+            key_size = (len+2) << 3;
+            NormNode::SetAddress(address);
+        }
+        
+        UINT8 GetGrttQuantized() const
+            {return grtt_quantized;}
+        UINT8 GetBackoffFactor() const
+            {return backoff_factor;}
+        UINT8 GetGroupSizeQuantized() const
+            {return gsize_quantized;}
+        UINT16 GetCCSequence() const
+            {return cc_sequence;}
+        double GetSendRate() const
+            {return send_rate;}
         
         
     private:
+        const char* GetKey() const
+            {return key_buffer;}    
+        unsigned int GetKeysize() const
+            {return key_size;}
+            
         static const double DEFAULT_NOMINAL_INTERVAL;
         static const double ACTIVITY_INTERVAL_MIN;
         
@@ -523,7 +576,10 @@ class NormSenderNode : public NormNode
         
         void AttachCCFeedback(NormAckMsg& ack);
         void HandleRepairContent(const UINT32* buffer, UINT16 bufferLen);
-            
+        void FragmentNack(NormNackMsg& superNack);
+        
+        
+         
         UINT16                  instance_id;
         int                     robust_factor;
         SyncPolicy              sync_policy;
@@ -540,6 +596,7 @@ class NormSenderNode : public NormNode
         UINT8                   fec_m;
         unsigned int            ndata;
         unsigned int            nparity;
+        NormStreamObject*       preset_stream;
         
         NormObjectTable         rx_table;
         ProtoSlidingMask        rx_pending_mask;
@@ -561,7 +618,7 @@ class NormSenderNode : public NormNode
         
         // Watermark acknowledgement
         ProtoTimer              ack_timer;
-	bool			ack_pending;
+	    bool			        ack_pending;
         NormObjectId            watermark_object_id;
         NormBlockId             watermark_block_id;
         NormSegmentId           watermark_segment_id;
@@ -574,6 +631,7 @@ class NormSenderNode : public NormNode
         double                  gsize_estimate;
         UINT8                   gsize_quantized;
         double                  backoff_factor;
+        bool                    notify_on_grtt_update;  // for API
         
         // Remote sender congestion control state
         NormLossEstimator2      loss_estimator;
@@ -600,6 +658,10 @@ class NormSenderNode : public NormNode
         CmdBuffer*              cmd_buffer_tail;  // newly-received commands appended here
         CmdBuffer*              cmd_buffer_pool;  // we "pool" allocated buffers for possible reuse here
         
+        // Used for NormSocket API extension to index by addr/port
+        char                    key_buffer[16+2];  // big enough for IPv6 plus port
+        unsigned int            key_size;
+        
         // For statistics tracking
         Accumulator             recv_total;        // total recvd accumulator
         Accumulator             recv_goodput;      // goodput recvd accumulator
@@ -612,7 +674,8 @@ class NormSenderNode : public NormNode
 };  // end class NormSenderNode
     
     
-    // Used for binary trees of NormNodes
+// Used for binary trees of NormNodes sorted by NormNodeId
+// (TBD - update to use ProtoTree instead?
 class NormNodeTree
 {    
     friend class NormNodeTreeIterator;
@@ -638,7 +701,6 @@ class NormNodeTreeIterator
         NormNodeTreeIterator(const NormNodeTree& nodeTree, NormNode* prevNode = NULL);
         void Reset(NormNode* prevNode = NULL);
         NormNode* GetNextNode();  
-
 
     private:
         const NormNodeTree& tree;
@@ -689,4 +751,30 @@ class NormNodeListIterator
         const NormNodeList& list;
         NormNode*           next;
 };  // end class NormNodeListIterator
+
+// Used to track remote client sender nodes for server/listener sessions
+class NormClientTree : public ProtoTreeTemplate<NormSenderNode>
+{
+    public:
+        void InsertNode(NormSenderNode& sender)
+        {
+            sender.Retain();
+            Insert(sender);
+        }      
+        void RemoveNode(NormSenderNode& sender)
+        {
+            Remove(sender);
+            sender.Release();
+        }   
+        NormSenderNode* FindNodeByAddress(const ProtoAddress& addr)
+        {
+            char key[16+2];
+            unsigned int len = addr.GetLength();
+            memcpy(key, addr.GetRawHostAddress(), len);
+            UINT16 port = htons(addr.GetPort());
+            memcpy(key+len, &port, 2);
+            return Find(key, (len+2) << 3);
+        }
+};  // end class NormClientTree
+
 #endif // NORM_NODE

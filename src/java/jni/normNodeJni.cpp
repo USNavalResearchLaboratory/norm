@@ -57,7 +57,7 @@ JNIEXPORT jobject JNICALL PKGNAME(NormNode_getAddress)
   NormNodeHandle handle;
   char buffer[256];
   unsigned int bufferLen;
-  unsigned short port;
+  UINT16 port;
   jobject address;
   jbyteArray array;
   jbyte *ptr;

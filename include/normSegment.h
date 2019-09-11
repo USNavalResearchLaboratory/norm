@@ -4,6 +4,9 @@
 #include "normMessage.h"
 #include "protoBitmask.h"
 
+#define USE_PROTO_TREE 1  // for more better performing NormBlockBuffer?
+
+
 // Norm uses preallocated (or dynamically allocated) pools of 
 // segments (vectors) for different buffering purposes
 
@@ -43,7 +46,11 @@ class NormSegmentPool
         bool            overrun_flag;
 };  // end class NormSegmentPool
 
+#ifdef USE_PROTO_TREE
+class NormBlock : public ProtoSortedTree::Item
+#else
 class NormBlock
+#endif // if/else USE_PROTO_TREE
 {
     friend class NormBlockPool;
     friend class NormBlockBuffer;
@@ -144,7 +151,7 @@ class NormBlock
                              UINT8                fecId,
                              UINT8                fecM,
                              UINT16               numData,
-                             UINT16               segmentSize);
+                             UINT16               payloadMax);
         
         // Receiver routines
         void RxInit(NormBlockId& blockId, UINT16 ndata, UINT16 nparity)
@@ -238,7 +245,7 @@ class NormBlock
                                  UINT16         numParity,
                                  NormObjectId   objectId,
                                  bool           pendingInfo,
-                                 UINT16         segmentSize);
+                                 UINT16         payloadMax);
         
         
         void SetLastNackTime(const ProtoTime& theTime)
@@ -254,6 +261,15 @@ class NormBlock
         void EmptyToPool(NormSegmentPool& segmentPool);
             
     private:
+#ifdef USE_PROTO_TREE
+        const char* GetKey() const
+            {return blk_id.GetValuePtr();}
+        unsigned int GetKeysize() const
+            {return (8*sizeof(UINT32));} 
+        ProtoTree::Endian GetEndian() const
+            {return ProtoTree::GetNativeEndian();}    
+#endif  // USE_PROTO_TREE
+            
         NormBlockId  blk_id;
         UINT16       size;
         char**       segment_table;
@@ -267,8 +283,7 @@ class NormBlock
         ProtoBitmask pending_mask;
         ProtoBitmask repair_mask;
         ProtoTime    last_nack_time;  // for stream flow control
-        
-        NormBlock*   next;
+        NormBlock*   next;            // used for NormBlockPool
 };  // end class NormBlock
 
 class NormBlockPool
@@ -314,6 +329,10 @@ class NormBlockPool
         bool            overrun_flag;
 };  // end class NormBlockPool
 
+#ifdef USE_PROTO_TREE
+class NormBlockTree : public ProtoSortedTreeTemplate<NormBlock> {};
+#endif // USE_PROTO_TREE
+
 class NormBlockBuffer
 {
     public:
@@ -322,18 +341,34 @@ class NormBlockBuffer
             
         NormBlockBuffer();
         ~NormBlockBuffer();
-        bool Init(unsigned long rangeMax, unsigned long tableSize = 256);
+        bool Init(unsigned long rangeMax, unsigned long tableSize, UINT32 fecBlockMask);
         void Destroy();
         
         bool Insert(NormBlock* theBlock);
-        bool Remove(const NormBlock* theBlock);
+        bool Remove(NormBlock* theBlock);
         NormBlock* Find(const NormBlockId& blockId) const;
         
         NormBlockId RangeLo() const {return range_lo;}
         NormBlockId RangeHi() const {return range_hi;}
+        NormBlockId RangeMin() const;
         bool IsEmpty() const {return (0 == range);}
         bool CanInsert(NormBlockId blockId) const;
+
+#ifdef USE_PROTO_TREE
+        class Iterator
+        {
+            public:
+                Iterator(NormBlockBuffer& blockBuffer);
+                NormBlock* GetNextBlock();
+                void Reset();
+                
+            private:
+                NormBlockBuffer&           buffer;
+                NormBlockTree::Iterator    iterator;
+                NormBlock*                 next_block;
+        }; 
         
+#else        
         class Iterator
         {
             public:
@@ -346,18 +381,29 @@ class NormBlockBuffer
                 bool                    reset;
                 NormBlockId             index;
         }; 
-            
+#endif // if/else USE_PROTO_TREE            
     private:
+        int Compare(NormBlockId a, NormBlockId b) const
+            {return NormBlockId::Compare(a, b, fec_block_mask);}
+        INT32 Difference(NormBlockId a, NormBlockId b) const
+            {return NormBlockId::Difference(a, b, fec_block_mask);}
+        void Increment(NormBlockId& b, UINT32 i = 1) const
+            {b.Increment(i, fec_block_mask);}
+        void Decrement(NormBlockId& b, UINT32 i = 1) const
+            {b.Decrement(i, fec_block_mask);}
+
+#ifdef USE_PROTO_TREE
+        NormBlockTree   tree;
+#else    
         static NormBlock* Next(NormBlock* b) {return b->next;}    
-        
         NormBlock**     table;
-        unsigned long   hash_mask;       
+        unsigned long   hash_mask; 
+#endif // if/else USE_PROTO_TREE      
         unsigned long   range_max;  // max range of blocks that can be buffered
         unsigned long   range;      // zero if "block buffer" is empty
+        UINT32          fec_block_mask;
         NormBlockId     range_lo;
         NormBlockId     range_hi;
 };  // end class NormBlockBuffer
-
-
 
 #endif // _NORM_SEGMENT

@@ -179,6 +179,12 @@ JNIEXPORT jobject JNICALL PKGNAME(NormInstance_getNextEvent)
   // Get the event type
   jobjectArray array = (jobjectArray)env->CallStaticObjectMethod(
     (jclass)env->NewLocalRef(jw_NormEventType), mid_NormEventType_values);
+  
+  if (env->GetArrayLength(array) <= event.type) {
+    env->ThrowNew((jclass)env->NewLocalRef(jw_IOException), "Invalid NORM event type (NormEventType.java out of sync with NORM API event header?)");
+    return false;
+  }
+      
   jobject type = env->GetObjectArrayElement(array, event.type);
 
   // Create the event

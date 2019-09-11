@@ -59,8 +59,8 @@ extern "C" {
 #endif /* __cplusplus */
 
 #define NORM_VERSION_MAJOR 1
-#define NORM_VERSION_MINOR 0
-#define NORM_VERSION_PATCH 0
+#define NORM_VERSION_MINOR 5
+#define NORM_VERSION_PATCH 7
 
 /** NORM API Types */
 typedef const void* NormInstanceHandle;
@@ -187,7 +187,7 @@ typedef enum NormEventType
     NORM_GRTT_UPDATED,
     NORM_CC_ACTIVE,
     NORM_CC_INACTIVE,
-    NORM_ACKING_NODE_NEW,        // whe NormSetAutoAcking xxx
+    NORM_ACKING_NODE_NEW,        // whe NormSetAutoAcking 
     NORM_SEND_ERROR,             // ICMP error (e.g. destination unreachable)
     NORM_USER_TIMEOUT            // issues when timeout set by NormSetUserTimer() expires
 } NormEventType;
@@ -201,12 +201,20 @@ typedef struct
 } NormEvent;
     
 
+// For setting custom NORM_OBJECT_DATA alloc/free functions
+typedef char* (*NormAllocFunctionHandle)(size_t);
+typedef void (*NormFreeFunctionHandle)(char*);
+
+
 /** NORM API General Initialization and Operation Functions */
 
 NORM_API_LINKAGE 
 int NormGetVersion(int* major DEFAULT((int*)0), 
                    int* minor DEFAULT((int*)0), 
                    int* patch  DEFAULT((int*)0));
+
+
+
 
 NORM_API_LINKAGE 
 NormInstanceHandle NormCreateInstance(bool priorityBoost DEFAULT(false));
@@ -256,6 +264,11 @@ const NormDescriptor NORM_DESCRIPTOR_INVALID;
 NORM_API_LINKAGE 
 NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle);
 
+NORM_API_LINKAGE 
+void NormSetAllocationFunctions(NormInstanceHandle      instance, 
+                                NormAllocFunctionHandle allocFunc, 
+                                NormFreeFunctionHandle  freeFunc);
+
 /** NORM Session Creation and Control Functions */
 
 NORM_API_LINKAGE 
@@ -288,6 +301,11 @@ void NormCancelUserTimer(NormSessionHandle sessionHandle);
 NORM_API_LINKAGE 
 NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle);
 
+NORM_API_LINKAGE
+bool NormGetAddress(NormSessionHandle   sessionHandle,
+                    char*               addrBuffer, 
+                    unsigned int*       bufferLen,
+                    UINT16*             port DEFAULT((UINT16*)0));
 
 NORM_API_LINKAGE
 UINT16 NormGetRxPort(NormSessionHandle sessionHandle);
@@ -314,6 +332,13 @@ bool NormChangeDestination(NormSessionHandle sessionHandle,
                            const char*       sessionAddress,
                            UINT16            sessionPort,
                            bool              connectToSessionAddress DEFAULT(false));
+
+NORM_API_LINKAGE
+void NormSetServerListener(NormSessionHandle sessionHandle, bool state);
+
+NORM_API_LINKAGE
+bool NormTransferSender(NormSessionHandle sessionHandle, NormNodeHandle sender);
+
 
 NORM_API_LINKAGE 
 void NormSetRxPortReuse(NormSessionHandle sessionHandle,
@@ -410,7 +435,8 @@ bool NormStartSender(NormSessionHandle  sessionHandle,
                      UINT32             bufferSpace,
                      UINT16             segmentSize,
                      UINT16             numData,
-                     UINT16             numParity);
+                     UINT16             numParity,
+                     UINT8              fecId DEFAULT(0));
 
 NORM_API_LINKAGE 
 void NormStopSender(NormSessionHandle sessionHandle);
@@ -583,6 +609,9 @@ bool NormSendCommand(NormSessionHandle  sessionHandle,
 
 NORM_API_LINKAGE 
 void NormCancelCommand(NormSessionHandle  sessionHandle);
+
+NORM_API_LINKAGE 
+void NormSetSynStatus(NormSessionHandle sessionHandle, bool state);
         
 /* NORM Receiver Functions */
 
@@ -646,6 +675,14 @@ NORM_API_LINKAGE
 void NormNodeSetRxRobustFactor(NormNodeHandle   remoteSender,
                                int              robustFactor);
 
+NORM_API_LINKAGE
+bool NormPreallocateRemoteSender(NormSessionHandle  sessionHandle,
+                                 unsigned long      bufferSize,
+                                 UINT16             segmentSize, 
+                                 UINT16             numData, 
+                                 UINT16             numParity,
+                                 unsigned int       streamBufferSize DEFAULT(0));
+
 NORM_API_LINKAGE 
 bool NormStreamRead(NormObjectHandle   streamHandle,
                     char*              buffer,
@@ -705,6 +742,12 @@ const char* NormDataAccessData(NormObjectHandle objectHandle);
 
 NORM_API_LINKAGE 
 char* NormDataDetachData(NormObjectHandle objectHandle);
+
+NORM_API_LINKAGE 
+char* NormAlloc(size_t numBytes); 
+
+NORM_API_LINKAGE 
+void NormFree(char* dataPtr);
 
 NORM_API_LINKAGE 
 NormNodeHandle NormObjectGetSender(NormObjectHandle objectHandle);
