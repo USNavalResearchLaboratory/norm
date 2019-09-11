@@ -410,6 +410,7 @@ class NorpSession : public ProtoTree::Item
         NormObjectHandle    norm_tx_stream;
         NormObjectHandle    norm_rx_stream;
         bool                norm_rx_pending;
+        bool                norm_sender_heard;
         double              persist_interval;   // in seconds, to timeout NORM delivery persistence after local TCP disconnect
         ProtoTime           persist_start_time; // marks start of persistence timeout
         double              norm_rate_min;
@@ -577,8 +578,7 @@ class Norp
         void ActivateTimer(ProtoTimer& theTimer)
             {dispatcher.ActivateTimer(theTimer);}
         
-        bool SendMessage(const NorpMsg& msg, const ProtoAddress& dstAddr)
-            {return norp_rx_socket.SendTo((const char*)msg.GetBuffer(), msg.GetLength(), dstAddr);}
+        bool SendMessage(const NorpMsg& msg, const ProtoAddress& dstAddr);
         
         void OnNorpSocketEvent(ProtoSocket&       theSocket, 
                                ProtoSocket::Event theEvent);

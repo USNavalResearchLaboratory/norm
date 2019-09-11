@@ -1,5 +1,18 @@
 NORP Version History
 
+Version 0.1b8
+=============
+    - Improved NAT traversal by using single NORM tx/rx socket
+
+Version 0.1b6
+=============
+    - Added Visual Studio project files for Windows builds
+      (Thanks to Sam Rhody of John Hopkins APL)
+    - Fixed code that poorly assumed that zero bytes read from 
+      a ProtoSocket(TCP) meant the connection had ended. Fixed
+      related Window ProtoSocket(TCP) issue to make sure socket
+      close events are reported properly.
+
 Version 0.1b3
 =============
     - Added "correspondent <remoteNorpAddr>" command to allow 'routing'

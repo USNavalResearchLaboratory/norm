@@ -11,6 +11,9 @@
 // configured to use a specific set of port
 // numbers for NORM traffic.
 
+// Uncomment this to enable new NORM port handling to improve NAT compatibility
+#define NEW_PORT
+
 PortPool::PortPool(UINT16 basePort)
  : base_port(basePort)
 {
@@ -61,7 +64,7 @@ NorpSession::NorpSession(Norp& theController, UINT16 sessionId, NormNodeId origi
    client_pending(0), client_index(0), remote_pending(0), remote_index(0),
    norm_enable(true), norp_tx_socket(ProtoSocket::UDP), norp_rtt_estimate(NORP_RTT_DEFAULT),
    norm_session(NORM_SESSION_INVALID), norm_tx_stream(NORM_OBJECT_INVALID),
-   norm_rx_stream(NORM_OBJECT_INVALID), norm_rx_pending(false),
+   norm_rx_stream(NORM_OBJECT_INVALID), norm_rx_pending(false), norm_sender_heard(false),
    persist_interval(Norp::DEFAULT_PERSIST_INTERVAL), persist_start_time(0, 0),
    norm_rate_min(-1.0), norm_rate_max(-1.0),
    norm_segment_size(0), norm_stream_buffer_max(0), norm_stream_buffer_count(0),
@@ -357,7 +360,7 @@ void NorpSession::OnSocksClientEvent(ProtoSocket&       theSocket,
                     // do a recv() - probably means client disconnected (prematurely)
                     if (theSocket.Recv((char*)client_buffer, numBytes))
                     {
-                        if (SOCKS_SHUTDOWN != socks_state)
+						if ((SOCKS_SHUTDOWN != socks_state) && (0 != numBytes))
                             PLOG(PL_WARN, "NorpSession::OnSocksClientEvent() warning: unexpectedly received %u bytes from SOCKS client!\n", numBytes);
                     }
                     else
@@ -686,7 +689,16 @@ bool NorpSession::PutRemoteRequest(const ProtoPktSOCKS::Request& request, const 
     // request command, etc.
     if (NORM_SESSION_INVALID == norm_session)
     {
+        // This creates the client-side NORM session for a connection.
+        // (TBD) Create single-socket NORM session using an ephemeral port and connect() to the remote
+        //       NORP server NORM port. (Use NormChangeDestination() after NormStartReceiver() to 
+        //       configure this newly-create NormSession as needed)
+#ifdef NEW_PORT
+        // We use port zero to get session that will bound to an ephemeral port (single port for tx and rx) upon NormStartReceiver
+        norm_session = NormCreateSession(controller.GetNormInstance(), remoteAddr.GetHostString(), 0, controller.GetNormNodeId());
+#else 
         norm_session = NormCreateSession(controller.GetNormInstance(), remoteAddr.GetHostString(), controller.GetNormPort(), controller.GetNormNodeId());
+#endif
         if (NORM_SESSION_INVALID == norm_session)
         {
             PLOG(PL_ERROR, "NorpSession::PutRemoteRequest() NormCreateSession() failure!\n");
@@ -744,6 +756,10 @@ bool NorpSession::PutRemoteRequest(const ProtoPktSOCKS::Request& request, const 
             PLOG(PL_ERROR, "NorpSession::PutRemoteRequest() error: NormStartSender() failure!\n");
             return false;
         }
+#ifdef NEW_PORT
+        // Now call NormChangeDestination() to set proper destination port and "connect" to it
+        NormChangeDestination(norm_session, remoteAddr.GetHostString(), controller.GetNormPort(), true);
+#endif // NEW_PORT
         //NormSetTxSocketBuffer(norm_session, 4096);
         NormSetFlowControl(norm_session, 0.0);  // disable timer-based flow control since we are ACK-limiting writes to stream
         norm_segment_size = controller.GetNormSegmentSize();
@@ -797,6 +813,7 @@ bool NorpSession::PutRemoteRequest(const ProtoPktSOCKS::Request& request, const 
 
 bool NorpSession::MakeDirectConnect()
 {
+    TRACE("MAKING DIRECT CONNECTION ...");
     // This assumes our "norp_msg" previously sent in attempt to connect
     // to a remote "norp" peer is cached (per PutRemoveRequest()
     if (NORM_SESSION_INVALID != norm_session)
@@ -974,6 +991,9 @@ bool NorpSession::OnRemoteRequest(const NorpMsg& theMsg, const ProtoAddress& sen
         // 1) Create a NormSession with request sender as session (destination) address
         UINT16 normSessionPort = controller.GetNormPort();
         norm_session = NormCreateSession(controller.GetNormInstance(), senderAddr.GetHostString(), normSessionPort, controller.GetNormNodeId());
+#ifdef NEW_PORT
+        NormSetTxPort(norm_session, normSessionPort); // single port
+#endif // NEW_PORT
         if (NORM_SESSION_INVALID == norm_session)
         {
             PLOG(PL_ERROR, "NorpSession::OnRemoteRequest() NormCreateSession() failure!\n");
@@ -1016,7 +1036,11 @@ bool NorpSession::OnRemoteRequest(const NorpMsg& theMsg, const ProtoAddress& sen
             NormSetTxRateBounds(norm_session, norm_rate_min, norm_rate_max);
         // The "NormSetRxPortReuse()" call here "connects" us to the remote NORM sender source addr/port
         // (this creates a proper binding since we reuse the same port number for multiple NORM sessions)
+#ifdef NEW_PORT
+        NormSetRxPortReuse(norm_session, true);  // defer connecting to remote sender until to REMOTE_SENDER_NEW to get correct port
+#else
         NormSetRxPortReuse(norm_session, true, NULL, senderAddr.GetHostString(), theMsg.GetSourcePort());
+#endif // if/else NEW_PORT
         if (!NormStartReceiver(norm_session, NORM_BUFFER_SIZE))
         {
             PLOG(PL_ERROR, "NorpSession::OnRemoteRequest() error: NormStartReceiver() failure!\n");
@@ -1176,7 +1200,7 @@ bool NorpSession::OnRemoteReplyAcknowledgment(const NorpMsg& theMsg)
     }
     else
     {
-        ASSERT(norp_rtt_estimate > 0.0);
+        ASSERT(norp_rtt_estimate > 0.0);             
         // Only use duplicative ACKs to update RTT estimate via EWMA
         double rttNew = ProtoTime::Delta(recvTime, sentTime);
         norp_rtt_estimate = 0.5*(norp_rtt_estimate + rttNew);  // TBD - is this a reasonable "smoothing" factor
@@ -1204,8 +1228,8 @@ bool NorpSession::ConnectToRemote(const ProtoAddress& destAddr)
         return false;
     }
     ASSERT(!socks_remote_socket.IsConnected());  // TBD - handle immediate connection case???
-    PLOG(PL_DETAIL, "NorpSession::ConnectToRemote() connection to %s/%hu initiated ...\n",
-            destAddr.GetHostString(), destAddr.GetPort());
+    PLOG(PL_DETAIL, "NorpSession::ConnectToRemote() connection to %s/%hu initiated (connected:%d)...\n",
+		destAddr.GetHostString(), destAddr.GetPort(), socks_remote_socket.IsConnected());
     if (socks_client_socket.IsOpen())
         socks_client_socket.StopInputNotification();  // don't accept more from client until connected
     socks_state = SOCKS_CONNECTING;
@@ -1266,9 +1290,9 @@ bool NorpSession::OpenUdpRelay()
     // We use the bind (local source) addr of our client socket as the SOCKS reply BIND.ADDR
     // and the port number of our udp relay socket as the SOCKS reply BIND.PORT
     ProtoAddress bindAddr = socks_client_socket.GetSourceAddr();
-    PLOG(PL_INFO, "udp relay bind addr = %s/%hu\n", bindAddr.GetHostString(), bindAddr.GetPort());
     bindAddr.SetPort(udp_relay_socket.GetPort());
     reply.SetAddress(bindAddr);
+    PLOG(PL_INFO, "udp relay bind addr = %s/%hu\n", bindAddr.GetHostString(), bindAddr.GetPort());
     remote_pending = reply.GetLength();
     remote_index = 0;
     socks_state = SOCKS_PUT_REPLY;
@@ -1350,13 +1374,15 @@ bool NorpSession::GetClientData()
         ASSERT(0 == client_pending);
         if (socks_client_socket.Recv((char*)client_buffer, numBytes))
         {
-            socks_client_socket.StopInputNotification();
-            client_pending = numBytes;
-            client_index = 0;
-            PLOG(PL_DETAIL, "NorpSession::GetClientData() originator read %lu bytes from SOCKS client ...\n", numBytes);
-            if (0 != numBytes)
-                return PutRemoteData();
-            //  else socket will disconnect itself
+			client_pending = numBytes;
+			client_index = 0;
+			if (0 != numBytes)
+			{
+				PLOG(PL_DETAIL, "NorpSession::GetClientData() originator read %lu bytes from SOCKS client ...\n", numBytes);
+				socks_client_socket.StopInputNotification();
+				return PutRemoteData();
+			}
+			// else socket will close itself when appropriate
         }
         else
         {
@@ -1552,7 +1578,15 @@ void NorpSession::OnSocksRemoteEvent(ProtoSocket&       theSocket,
         case ProtoSocket::SEND:
             PLOG(PL_DETAIL, "SEND) ...\n");
             // write pending data from client_buffer to remote
-            if (!PutRemoteData())
+			if (SOCKS_PUT_REPLY == socks_state)
+			{
+				if (!PutRemoteReply())
+				{
+					PLOG(PL_ERROR, "NorpSession::OnSocksRemoteEvent() error: PutRemoteReply() failure!\n");
+					Shutdown();
+				}
+			}
+            else if (!PutRemoteData())
             {
                 PLOG(PL_ERROR, "NorpSession::OnSocksRemoteEvent() error: PutRemoteData() failure!\n");
                 Shutdown();
@@ -1649,11 +1683,14 @@ bool NorpSession::GetRemoteData()
         ASSERT(0 == remote_pending);
         if (socks_remote_socket.Recv((char*)remote_buffer, numBytes))
         {
-            remote_pending = numBytes;
-            remote_index = 0;
-            socks_remote_socket.StopInputNotification();
-            if (0 != numBytes)
-                return PutClientData();
+			remote_pending = numBytes;
+			remote_index = 0;
+			if (0 != numBytes)
+			{
+				PLOG(PL_DETAIL, "NorpSession::GetClientData() originator read %lu bytes from remote ...\n", numBytes);
+				socks_remote_socket.StopInputNotification();
+				return PutClientData();
+			}
             // else socket will disconnect itself and session will close
         }
         else
@@ -1732,7 +1769,7 @@ bool NorpSession::PutRemoteData()
             }
             else
             {
-                ASSERT(SOCKS_SHUTDOWN == socks_state);
+				ASSERT(SOCKS_SHUTDOWN == socks_state);
                 if (socks_remote_socket.IsConnected())
                 {
                     socks_remote_socket.Shutdown();
@@ -1774,7 +1811,7 @@ void NorpSession::OnUdpRelayEvent(ProtoSocket&       theSocket,
                     {
                         PLOG(PL_ERROR, "NorpSession::OnUdpRelayEvent() received fragmented packet from client!"
                                        " (fragmentation not yet supported.)\n");
-                        numBytes = (8192 - 22);
+                        numBytes = (8192 - 22);   // reset "numBytes"
                         continue;  // get next packet
                     }
                     ProtoAddress dstAddr;
@@ -1784,12 +1821,22 @@ void NorpSession::OnUdpRelayEvent(ProtoSocket&       theSocket,
                         numBytes = 8192;
                         continue;  // get next packet
                     }
+                    // TBD - for NORM relaying we need to establish a new child NorpSession to hand 
+                    //       the packet stream off to for each unique UDP destination.  Since UDP is 
+                    //       connectionless, we will need to have some rules of motion regarding
+                    //       timeout, etc of the child session?  We will have to buffer incoming UDP
+                    //       packets while the child NorpSession is being setup. We could use the new
+                    //       NormSocket APIs to signal setup with a SOCKS handshake relayed in-band
+                    //       at the NORM connection startup ....
+                    
+                    
                     // Relay the packet (TBD - add buffering, etc?)
-                    if (!udp_relay_socket.SendTo(udpReq.GetDataPtr(), udpReq.GetDataLength(), dstAddr))
+                    unsigned int bytesSent = udpReq.GetDataLength();
+                    if (!udp_relay_socket.SendTo(udpReq.GetDataPtr(), bytesSent, dstAddr) || (0 == bytesSent))
                     {
                         PLOG(PL_ERROR, "NorpSession::OnUdpRelayEvent() error: unable to send packet to %s/%hu!\n",
                                        dstAddr.GetHostString(), dstAddr.GetPort());
-                        numBytes = (8192 - 22);
+                        numBytes = (8192 - 22);   // reset "numBytes"
                         continue;  // get next packet
                     }   
                 }
@@ -1810,7 +1857,8 @@ void NorpSession::OnUdpRelayEvent(ProtoSocket&       theSocket,
                     udpReq.SetAddress(srcAddr);
                     udpReq.SetDataLength(numBytes);
                     // Send to client
-                    if (!udp_relay_socket.SendTo(reqPtr, udpReq.GetLength(), udp_client_addr))
+                    unsigned int bytesSent = udpReq.GetLength();
+                    if (!udp_relay_socket.SendTo(reqPtr, bytesSent, udp_client_addr) || (0 == bytesSent))
                     {
                         PLOG(PL_ERROR, "NorpSession::OnUdpRelayEvent() error: unable to relay inbound packet to %s/%hu!\n",
                                        udp_client_addr.GetHostString(), udp_client_addr.GetPort());
@@ -1916,8 +1964,8 @@ void NorpSession::FlushNormStream(bool eom, NormFlushMode flushMode)
         if (!norm_watermark_pending && (norm_stream_buffer_count >= (norm_stream_buffer_max >> 1)))
         {
             //TRACE("NorpSession::FlushNormStream() initiating watermark ACK request (buffer count:%lu max:%lu usage:%u)...\n",
-            //       norm_stream_buffer_count, norm_stream_buffer_max);
-            NormSetWatermark(norm_session, norm_tx_stream, NormStreamGetBufferUsage(norm_tx_stream));
+            //       norm_stream_buffer_count, norm_stream_buffer_max, NormStreamGetBufferUsage(norm_tx_stream));
+			NormSetWatermark(norm_session, norm_tx_stream, true); 
             norm_watermark_pending = true;
         }
     } 
@@ -1948,18 +1996,18 @@ bool NorpSession::OnNorpMsgTimeout(ProtoTimer& theTimer)
         switch (socks_state)
         {
             case SOCKS_PUT_REQUEST:
-	    	if (!MakeDirectConnect())
+	    	    if (!MakeDirectConnect())
                 {
                     PLOG(PL_ERROR, "NorpSession::OnNorpMsgTimeout() error: also unable to make direct TCP connection\n");
                     Shutdown();
                 }
-		return false;  // MakeDirectConnect() kills timer
+		        return false;  // MakeDirectConnect() kills timer
                 break;
             case SOCKS_PUT_REPLY:
-	    	Shutdown();
+	    	    Shutdown();
                 break;
             case SOCKS_SHUTDOWN:
-	    	Close();
+	    	    Close();
                 return false;
             default:
                  ASSERT(0);  // shouldn't be messaging in any other states
@@ -2092,8 +2140,36 @@ void NorpSession::OnNormEvent(NormEvent& theEvent)
             PLOG(PL_DETAIL, "NORM_LOCAL_SENDER_CLOSED)\n");
             break;
 		case NORM_REMOTE_SENDER_NEW:
+        {
             PLOG(PL_DETAIL, "NORM_REMOTE_SENDER_NEW)\n");
+            char addrBuffer[16];
+            unsigned int addrLen = 16;
+            UINT16 sndrPort;
+            NormNodeGetAddress(theEvent.sender, addrBuffer, &addrLen, &sndrPort);  
+            ProtoAddress sndrAddr;
+            switch (addrLen)
+            {
+                case 4:
+                    sndrAddr.SetRawHostAddress(ProtoAddress::IPv4, addrBuffer, 4);
+                    break;
+                case 16:
+                    sndrAddr.SetRawHostAddress(ProtoAddress::IPv6, addrBuffer, 16);
+                    break;
+                default:
+                    TRACE("invalid remote sender address ?!\n");
+                    break;
+            }
+#ifdef NEW_PORT
+            TRACE("new remote sender address %s/%hu (orig:%d) ...\n", sndrAddr.GetHostString(), sndrPort, IsRemoteOriginator());  
+            if (!IsRemoteOriginator() && !norm_sender_heard)
+            {
+                NormChangeDestination(theEvent.session, sndrAddr.GetHostString(), sndrPort, true);
+                norm_sender_heard = true;
+                //NormSetRxPortReuse(theEvent.session, true, NULL, sndrAddr.GetHostString(), sndrPort);
+            }
+#endif   // NEW_PORT            
             break;
+        }
 		case NORM_REMOTE_SENDER_ACTIVE:
             PLOG(PL_DETAIL, "NORM_REMOTE_SENDER_ACTIVE)\n");
             break;
@@ -2195,6 +2271,11 @@ void NorpSession::OnNormEvent(NormEvent& theEvent)
             norm_rx_pending = false;
             if (ShutdownComplete()) Close();
             break;
+        case NORM_SEND_ERROR:
+            PLOG(PL_ERROR, "NorpSession::OnNormEvent(NORM_SEND_ERROR) error ...\n");//: remote session unexpectedly closed!\n");
+            Close();
+            break;
+            
 		case NORM_RX_OBJECT_ABORTED:
             PLOG(PL_DETAIL, "NORM_RX_OBJECT_ABORTED)\n");
             break;
@@ -2302,6 +2383,25 @@ Norp::~Norp()
 {
     StopServer();
 }
+
+bool Norp::SendMessage(const NorpMsg& msg, const ProtoAddress& dstAddr)
+{
+    unsigned int numBytes = msg.GetLength();
+    if (norp_rx_socket.SendTo((const char*)msg.GetBuffer(), numBytes, dstAddr))
+    {
+        if (0 == numBytes)
+        {
+            PLOG(PL_WARN, "Norp::SendMessage() norp_rx_socket.SendTo() error: %s\n", GetErrorString());    
+            return false;  
+        }
+    }
+    else
+    {
+        PLOG(PL_ERROR, "Norp::SendMessage() norp_rx_socket.SendTo() error: %s\n", GetErrorString());
+        return false;
+    }
+    return true;
+}  // end Norp::SendMessage()
 
 bool Norp::StartServer(bool normEnable)
 {
@@ -2461,7 +2561,7 @@ void Norp::RemoveSession(NorpSession& session)
 {
     session_list.Remove(session);
     session_count--;
-    if (norm_tx_limit >= 0.0)
+    if ((session_count > 0) && (norm_tx_limit >= 0.0))
     {
        double lowerLimit = 0.9 * (norm_tx_limit / (double)session_count);
        NorpSessionList::Iterator iterator(session_list);
@@ -2683,7 +2783,7 @@ void Norp::OnNormEvent()
     {
         PLOG(PL_DETAIL, "Norp::OnNormEvent(");
         // See if this event is for a "child" NorpSession
-	if (NORM_SESSION_INVALID != theEvent.session)
+	    if (NORM_SESSION_INVALID != theEvent.session)
         {
             NorpSession* norpSession = (NorpSession*)NormGetUserData(theEvent.session);
             if (NULL != norpSession)
