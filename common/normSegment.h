@@ -261,6 +261,7 @@ class NormBlockPool
             }
             else if (!overrun_flag)
             {
+                DMSG(0, "NormBlockPool::Get() warning: operating with constrained buffering resources\n");
                 overruns++;
                 overrun_flag = true;   
             }

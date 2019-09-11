@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <time.h>  // for gmtime() in NormTrace()
 
+
 const UINT8 NormSession::DEFAULT_TTL = 255; // bits/sec
 const double NormSession::DEFAULT_TRANSMIT_RATE = 64000.0; // bits/sec
 const double NormSession::DEFAULT_GRTT_INTERVAL_MIN = 1.0;        // sec
@@ -196,7 +197,6 @@ bool NormSession::StartServer(unsigned long bufferSpace,
     if (bufferSpace > (numBlocks*blockSpace)) numBlocks++;
     if (numBlocks < 2) numBlocks = 2;
     unsigned long numSegments = numBlocks * numParity;
-    
     
     if (!block_pool.Init(numBlocks, blockSize))
     {
@@ -890,8 +890,6 @@ void NormSession::HandleReceiveMessage(NormMsg& msg, bool wasUnicast)
     
     if (trace) NormTrace(currentTime, LocalNodeId(), msg, false);
     
-    
-    
     switch (msg.GetType())
     {
         case NormMsg::INFO:
@@ -907,8 +905,7 @@ void NormSession::HandleReceiveMessage(NormMsg& msg, bool wasUnicast)
             if (IsClient()) ClientHandleCommand(currentTime, (NormCmdMsg&)msg);
             break;
         case NormMsg::NACK:
-            DMSG(4, "NormSession::HandleReceiveMessage(NormMsg::NACK) node>%lu ...\n",
-                        LocalNodeId());
+            DMSG(4, "NormSession::HandleReceiveMessage(NormMsg::NACK) node>%lu ...\n",  LocalNodeId());
             if (IsServer() && (((NormNackMsg&)msg).GetServerId() == LocalNodeId()))
             { 
                 ServerHandleNackMessage(currentTime, (NormNackMsg&)msg);
@@ -924,6 +921,10 @@ void NormSession::HandleReceiveMessage(NormMsg& msg, bool wasUnicast)
                 }
             }
             if (IsClient()) ClientHandleNackMessage((NormNackMsg&)msg);
+            if ((3 == LocalNodeId()) && (currentTime.tv_sec > 26))
+            {
+                int x = 5;   
+            }
             break;
         case NormMsg::ACK:
             if (IsServer() && (((NormAckMsg&)msg).GetServerId() == LocalNodeId())) 
@@ -1606,7 +1607,7 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                         continue; 
                                     }  
                                 }
-                            }  
+                            }
                             freshBlock = false;
                             numErasures = extra_parity;
                             prevBlockId = nextBlockId;
@@ -1628,13 +1629,19 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                         if (1 == (txBlockIndex - nextBlockId))
                                         {
                                             // We're currently sending this block
-                                            ASSERT(block->IsPending());
-                                            NormSegmentId firstPending = 0;
-                                            block->GetFirstPending(firstPending);
-                                            if (lastLockId <= firstPending)
-                                                attemptLock = false;
-                                            else if (nextSegmentId < firstPending)
-                                                firstLockId = firstPending;
+                                            if (block->IsPending())
+                                            {
+                                                NormSegmentId firstPending = 0;
+                                                block->GetFirstPending(firstPending);
+                                                if (lastLockId <= firstPending)
+                                                    attemptLock = false;
+                                                else if (nextSegmentId < firstPending)
+                                                    firstLockId = firstPending;
+                                            }
+                                            else
+                                            {
+                                                // block was just recovered   
+                                            }
                                         }
                                         else
                                         {
@@ -1692,13 +1699,20 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
                                 else if (1 == (txBlockIndex - nextBlockId))
                                 {
                                     NormSegmentId firstPending = 0;
-                                    if (!block->GetFirstPending(firstPending)) ASSERT(0);
-                                    if (nextSegmentId > firstPending)
+                                    if (block->GetFirstPending(firstPending))
+                                    {
+                                        if (nextSegmentId > firstPending)
+                                            object->TxUpdateBlock(block, nextSegmentId, lastSegmentId, numErasures);
+                                        else if (lastSegmentId > firstPending)
+                                            object->TxUpdateBlock(block, firstPending, lastSegmentId, numErasures);
+                                        else if (numErasures > block->ParityCount())
+                                            object->TxUpdateBlock(block, firstPending, firstPending, numErasures);
+                                    }
+                                    else
+                                    {
+                                        // This block was just recovered, so do full update
                                         object->TxUpdateBlock(block, nextSegmentId, lastSegmentId, numErasures);
-                                    else if (lastSegmentId > firstPending)
-                                        object->TxUpdateBlock(block, firstPending, lastSegmentId, numErasures);
-                                    else if (numErasures > block->ParityCount())
-                                        object->TxUpdateBlock(block, firstPending, firstPending, numErasures);
+                                    }
                                 }
                             }
                         }
@@ -2169,18 +2183,18 @@ bool NormSession::SendMessage(NormMsg& msg)
                     interval += 1.0e-06*(double)(currentTime.tv_usec - prev_update_time.tv_usec);
                 else
                     interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);                
-                sent_rate += 0.125 * (((double)msgSize)/interval - sent_rate);
-                prev_update_time = currentTime; 
-                /*if (interval < grtt_advertised)
+                /*sent_rate += 0.125 * (((double)msgSize)/interval - sent_rate);
+                prev_update_time = currentTime; */
+                if (interval < grtt_advertised)
                 {
                     sent_accumulator += msgSize;
                 }
                 else
                 {
-                     sent_rate = ((double)(sent_accumulator+msgSize)) / interval;
+                     sent_rate = ((double)(sent_accumulator)) / interval;
                      prev_update_time = currentTime;
-                     sent_accumulator = 0;
-                }*/
+                     sent_accumulator = msgSize;
+                }
             }
             else
             {

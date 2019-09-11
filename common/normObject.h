@@ -142,6 +142,9 @@ class NormObject
         bool ActivateRepairs();
         bool IsRepairSet(NormBlockId blockId) {return repair_mask.Test(blockId);}
         bool AppendRepairAdv(NormCmdRepairAdvMsg& cmd);
+        
+        NormBlockId GetMaxPendingBlockId() const {return max_pending_block;}
+        NormSegmentId GetMaxPendingSegmentId() const {return max_pending_segment;}
                
         // Used by sender for resource management scheme
         NormBlock* StealNonPendingBlock(bool excludeBlock, NormBlockId excludeId = 0);

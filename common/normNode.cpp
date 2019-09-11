@@ -1143,7 +1143,6 @@ void NormServerNode::RepairCheck(NormObject::CheckLevel checkLevel,
 // and queue for transmission to this server node
 bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
 {
-    
     switch(repair_timer.GetRepeatCount())
     {
         case 0:  // hold-off time complete
@@ -1375,16 +1374,17 @@ void NormServerNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
         if (currentTime.tv_usec > prev_update_time.tv_sec)
             interval += 1.0e-06*(double)(currentTime.tv_usec - prev_update_time.tv_usec);
         else
-            interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);      
-        recv_accumulator += msgSize;
-        
+            interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);            
         double rttEstimate = rtt_confirmed ? rtt_estimate : grtt_estimate;
-        
-        if (interval >= rttEstimate)
+        if (interval < rttEstimate)
+        {
+            recv_accumulator += msgSize;
+        }
+        else
         {
             recv_rate = ((double)(recv_accumulator)) / interval;
             prev_update_time = currentTime;
-            recv_accumulator = 0;
+            recv_accumulator = msgSize;
         }
     }
     else
@@ -1421,6 +1421,19 @@ bool NormServerNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
         struct timeval currentTime;
         ::ProtoSystemTime(currentTime);
         UpdateRecvRate(currentTime, 0);
+        if (synchronized)
+        {
+            NormObject* objMax = rx_table.Find(max_pending_object);
+            if (NULL != objMax)
+                RepairCheck(NormObject::THRU_SEGMENT, 
+                            max_pending_object,
+                            objMax->GetMaxPendingBlockId(), 
+                            objMax->GetMaxPendingSegmentId());
+            else
+                RepairCheck(NormObject::THRU_SEGMENT,   // (TBD) thru object???
+                            max_pending_object, 0, 0);
+        }
+        
     }
     if (0 == activity_timer.GetRepeatCount())
     {

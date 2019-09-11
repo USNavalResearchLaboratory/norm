@@ -312,6 +312,7 @@ bool NormObject::ActivateRepairs()
     // Activate partial block (segment) repairs
     NormBlockBuffer::Iterator iterator(block_buffer);
     NormBlock* block;
+    
     while ((block = iterator.GetNextBlock()))
     {
         if (block->ActivateRepairs(nparity)) 
@@ -944,9 +945,9 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
             {
                 if (!(block = server->GetFreeBlock(transport_id, blockId)))
                 {
-                    DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
-                            "Warning! no free blocks ...\n", LocalNodeId(), server->GetId(), 
-                            (UINT16)transport_id);  
+                    //DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
+                    //        "Warning! no free blocks ...\n", LocalNodeId(), server->GetId(), 
+                    //        (UINT16)transport_id);  
                     return;
                 }
                 block->RxInit(blockId, numData, nparity);
@@ -958,9 +959,9 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                 char* segment = server->GetFreeSegment(transport_id, blockId);
                 if (!segment)
                 {
-                    DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
-                            "Warning! no free segments ...\n", LocalNodeId(), server->GetId(), 
-                            (UINT16)transport_id);  
+                    //DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
+                    //        "Warning! no free segments ...\n", LocalNodeId(), server->GetId(), 
+                    //        (UINT16)transport_id);  
                     return;
                 }
                 UINT16 segmentLength = data.GetPayloadDataLength();
@@ -1024,9 +1025,9 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                                 {
                                     if (!(segment = server->GetFreeSegment(transport_id, blockId)))
                                     {
-                                        DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
-                                                "Warning! no free segments ...\n", LocalNodeId(), server->GetId(), 
-                                                (UINT16)transport_id);  
+                                        //DMSG(2, "NormObject::HandleObjectMessage() node>%lu server>%lu obj>%hu "
+                                        //        "Warning! no free segments ...\n", LocalNodeId(), server->GetId(), 
+                                         //       (UINT16)transport_id);  
                                         // (TBD) Dump the block ...???
                                         return;
                                     }
@@ -1122,7 +1123,7 @@ NormBlock* NormObject::StealNonPendingBlock(bool excludeBlock, NormBlockId exclu
 }  // end NormObject::StealNonPendingBlock()
 
 
-// For client resource management, steals newer block resources when
+// For client & server resource management, steals newer block resources when
 // needing resources for ordinally older blocks.
 NormBlock* NormObject::StealNewestBlock(bool excludeBlock, NormBlockId excludeId)
 {
@@ -1223,8 +1224,8 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
     {
        if (!(block = session->ServerGetFreeBlock(transport_id, blockId)))
        {
-            DMSG(2, "NormObject::NextServerMsg() node>%lu Warning! server resource " 
-                    "constrained (no free blocks).\n", LocalNodeId());
+            //DMSG(2, "NormObject::NextServerMsg() node>%lu Warning! server resource " 
+            //        "constrained (no free blocks).\n", LocalNodeId());
             return false; 
        }
        // Load block with zero initialized parity segments
@@ -1243,8 +1244,8 @@ bool NormObject::NextServerMsg(NormObjectMsg* msg)
             }
             else
             {
-                DMSG(2, "NormObject::NextServerMsg() node>%lu Warning! server resource " 
-                        "constrained (no free segments).\n", LocalNodeId());
+                //DMSG(2, "NormObject::NextServerMsg() node>%lu Warning! server resource " 
+                //        "constrained (no free segments).\n", LocalNodeId());
                 session->ServerPutFreeBlock(block);
                 return false;
             }
@@ -1437,8 +1438,8 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
             }
             else
             {
-                DMSG(2, "NormObject::ServerRecoverBlock() node>%lu Warning! server resource " 
-                        "constrained (no free segments).\n", LocalNodeId());
+                //DMSG(2, "NormObject::ServerRecoverBlock() node>%lu Warning! server resource " 
+                //        "constrained (no free segments).\n", LocalNodeId());
                 session->ServerPutFreeBlock(block);
                 return (NormBlock*)NULL;
             }
@@ -1462,8 +1463,8 @@ NormBlock* NormObject::ServerRecoverBlock(NormBlockId blockId)
     }
     else
     {
-        DMSG(2, "NormObject::ServerRecoverBlock() node>%lu Warning! server resource " 
-                        "constrained (no free blocks).\n", LocalNodeId());
+        //DMSG(2, "NormObject::ServerRecoverBlock() node>%lu Warning! server resource " 
+        //                "constrained (no free blocks).\n", LocalNodeId());
         return (NormBlock*)NULL;
     }
 }  // end NormObject::ServerRecoverBlock()

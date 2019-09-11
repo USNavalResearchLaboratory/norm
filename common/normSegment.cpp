@@ -82,6 +82,7 @@ char* NormSegmentPool::Get()
     {
         if (!overrun_flag)
         {
+            DMSG(0, "NormSegmentPool::Get() warning: operating with constrained buffering resources\n");
             overruns++; 
             overrun_flag = true;
         } 
@@ -233,7 +234,15 @@ bool NormBlock::TxReset(UINT16 numData,
             char** ptr = segment_table+numData;
             while (numParity--)
             {
-                if (*ptr) memset(*ptr, 0, segmentSize);
+                if (*ptr) 
+                {
+                    UINT16 payloadMax = segmentSize + 
+                                        NormDataMsg::GetStreamPayloadHeaderLength();
+#ifdef SIMULATE
+                    payloadMax = MIN(payloadMax, SIM_PAYLOAD_MAX);
+#endif // SIMULATE
+                    memset(*ptr, 0, payloadMax+1);
+                }
                 ptr++;
             }
             erasure_count = 0;
