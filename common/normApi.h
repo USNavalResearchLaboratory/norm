@@ -19,7 +19,7 @@
 //  C++ code continues to evolve.  But, until this notice
 //  is removed, the API shouldn't be considered final.
 
-// NORM API control
+/** NORM API Types */
 typedef const void* NormInstanceHandle;
 extern const NormInstanceHandle NORM_INSTANCE_INVALID;
 
@@ -66,6 +66,14 @@ enum NormNackingMode
     NORM_NACK_NORMAL  
 };
     
+enum NormAckingStatus
+{
+    NORM_ACK_INVALID,
+    NORM_ACK_FAILURE,
+    NORM_ACK_PENDING,
+    NORM_ACK_SUCCESS  
+};
+    
 enum NormProbingMode
 {
     NORM_PROBE_NONE,
@@ -85,6 +93,7 @@ enum NormEventType
     NORM_TX_QUEUE_VACANCY,
     NORM_TX_QUEUE_EMPTY,
     NORM_TX_FLUSH_COMPLETED,
+    NORM_TX_WATERMARK_COMPLETED,
     NORM_TX_OBJECT_SENT,
     NORM_TX_OBJECT_PURGED,
     NORM_LOCAL_SERVER_CLOSED,
@@ -221,12 +230,6 @@ void NormSetGrttProbingInterval(NormSessionHandle sessionHandle,
                                 double            intervalMin,
                                 double            intervalMax);
 
-bool NormAddAckingNode(NormSessionHandle  sessionHandle,
-                       NormNodeId         nodeId);
-
-void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
-                          NormNodeId         nodeId);
-
 NormObjectHandle NormFileEnqueue(NormSessionHandle sessionHandle,
                                  const char*  fileName,
                                  const char*  infoPtr = (const char*)0, 
@@ -261,12 +264,21 @@ void NormStreamSetPushEnable(NormObjectHandle streamHandle,
 
 bool NormStreamHasVacancy(NormObjectHandle streamHandle);
 
-NormSize NormGetObjectSize(NormObjectHandle objectHandle);
-
 void NormStreamMarkEom(NormObjectHandle streamHandle);
 
 bool NormSetWatermark(NormSessionHandle  sessionHandle,
                       NormObjectHandle   objectHandle);
+
+bool NormAddAckingNode(NormSessionHandle  sessionHandle,
+                       NormNodeId         nodeId);
+
+void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
+                          NormNodeId         nodeId);
+
+NormAckingStatus NormGetAckingStatus(NormSessionHandle  sessionHandle,
+                                     NormNodeId         nodeId = NORM_NODE_ANY);
+
+/* NORM Receiver Functions */
 
 bool NormStartReceiver(NormSessionHandle  sessionHandle,
                        unsigned long      bufferSpace);
@@ -358,6 +370,10 @@ bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
 void NormNodeRetain(NormNodeHandle nodeHandle);
 
 void NormNodeRelease(NormNodeHandle nodeHandle);
+
+/** Some experimental functions */
+
+unsigned long NormCountCompletedObjects(NormSessionHandle sessionHandle);
 
 
 #endif // _NORM_API

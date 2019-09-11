@@ -148,13 +148,14 @@ class NormAckingNode : public NormNode
         NormAckingNode(class NormSession& theSession, NormNodeId nodeId);
         ~NormAckingNode();
         bool IsPending() const
-            {return (!ack_received &&( req_count > 0));}
+            {return (!ack_received && ( req_count > 0));}
         void Reset(unsigned int maxAttempts = NORM_ROBUST_FACTOR)
         {
             ack_received = false;
             req_count = maxAttempts;   
         }
         void DecrementReqCount() {if (req_count > 0) req_count--;}
+        void ResetReqCount() {req_count = NORM_ROBUST_FACTOR;}
         unsigned int GetReqCount() const {return req_count;}
         bool AckReceived() const {return ack_received;}
         void MarkAckReceived() {ack_received = true;}

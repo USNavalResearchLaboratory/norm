@@ -28,16 +28,14 @@ int main(int argc, char* argv[])
 
     NormSetCacheDirectory(instance, cachePath);
     
-    
-    
     // Here's a trick to generate a _hopefully_ unique NormNodeId
     // based on an XOR of the system's IP address and the process id.
     // (We use ProtoAddress::GetEndIdentifier() to get the local
     //  "default" IP address for the system)
     // (Note that passing "NORM_NODE_ANY" to the last arg of 
     //  NormCreateSession() does a similar thing but without
-    //  the process id ... perhaps we should add the process id
-    //  hack to that default NormNodeId picker?
+    //  the processId XOR ... perhaps we should add the processId
+    //  hack to that default "NORM_NODE_ANY" local NormNodeId picker???
     ProtoAddress localAddr;
     if (!localAddr.ResolveLocalAddress())
     {
@@ -59,10 +57,9 @@ int main(int argc, char* argv[])
     {
         localId ^= (NormNodeId)rand();
     }
-        
-    
+    //localId = 15;  // for testing purposes
 
-
+    // Create a NORM session instance
     NormSessionHandle session = NormCreateSession(instance,
                                                   "224.1.2.3", 
                                                    6003,
@@ -74,6 +71,7 @@ int main(int argc, char* argv[])
     //NormSetMessageTrace(session, true);
     // Uncomment to turn on some random packet loss
     //NormSetTxLoss(session, 10.0);  // 10% packet loss
+    //NormSetRxLoss(session, 20.0);
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
     // Uncomment to get different packet loss patterns from run to run
@@ -82,7 +80,10 @@ int main(int argc, char* argv[])
     
     //NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 6000.0e+03);  // in bits/second
+    NormSetTransmitRate(session, 256.0e+03);  // in bits/second
+    
+    // Uncomment to enable TCP-friendly congestion control (overrides NormSetTransmitRate())
+    NormSetCongestionControl(session, true);
     
     NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK); 
     
@@ -100,7 +101,7 @@ int main(int argc, char* argv[])
     NormSetRxPortReuse(session, true);
     
     // Uncomment to receive your own traffic
-    NormSetLoopback(session, true);     
+    //NormSetLoopback(session, true);     
     
     // Uncomment this line to participate as a receiver
     //NormStartReceiver(session, 1024*1024);
@@ -109,12 +110,8 @@ int main(int argc, char* argv[])
     // (might be needed for high rate sessions)
     NormSetRxSocketBuffer(session, 512000);
     
-    // Uncomment to enable TCP-friendly congestion control
-    NormSetCongestionControl(session, true);
-    
     // We use a random "sessionId"
     NormSessionId sessionId = (NormSessionId)rand();
-    
     
     // Uncomment the following line to start sender
     NormStartSender(session, sessionId, 1024*1024, 1420, 64, 0);
@@ -123,12 +120,13 @@ int main(int argc, char* argv[])
     // (might be needed for high rate sessions)
     NormSetTxSocketBuffer(session, 512000);
     
-    NormAddAckingNode(session, NormGetLocalNodeId(session));
+    NormAddAckingNode(session, NORM_NODE_NONE); //15); //NormGetLocalNodeId(session));
     
     NormObjectHandle stream = NORM_OBJECT_INVALID;
     const char* filePath = "/home/adamson/images/art/giger/giger205.jpg";
-    const char* fileName = "ferrari.jpg";
-    
+    //const char* filePath = "/home/adamson/pkgs/rh73.tgz";
+    const char* fileName = "file1.jpg";
+    const char* fileName2 = "file2.jpg";
     // Uncomment this line to send a stream instead of the file
     stream = NormStreamOpen(session, 10*1024*1024);
        
@@ -148,18 +146,20 @@ int main(int argc, char* argv[])
     int msgCount = 0;
     int recvCount = -1;  // used to monitor reliable stream reception
     int sendCount = 0;
-    int sendMax = 20;
+    int sendMax = -1;    // -1 means unlimited
     NormEvent theEvent;
     while (NormGetNextEvent(instance, &theEvent))
     {
         switch (theEvent.type)
         {
             case NORM_TX_QUEUE_VACANCY:
-            //    TRACE("NORM_TX_QUEUE_VACANCY ...\n");
             case NORM_TX_QUEUE_EMPTY:
-                //TRACE("NORM_TX_QUEUE_EMPTY ...\n");
-                //if (sendCount >= sendMax) break;
-                if (NORM_OBJECT_INVALID != stream)
+                /*if (NORM_TX_QUEUE_VACANCY == theEvent.type)
+                    TRACE("NORM_TX_QUEUE_VACANCY ...\n");
+                else
+                    TRACE("NORM_TX_QUEUE_EMPTY ...\n");*/
+                if ((sendMax > 0) && (sendCount >= sendMax)) break;
+                if (NORM_OBJECT_INVALID != theEvent.object)
                 {
                     // We loop here to keep stream buffer full ....
                     bool keepWriting = true;
@@ -187,22 +187,27 @@ int main(int argc, char* argv[])
                             NormStreamMarkEom(stream);
                             txLen = txIndex = 0;
                             sendCount++;
-                            if (sendCount >= sendMax)
+                            if (sendCount == 15)
+                            {
+                                NormSetWatermark(session, stream);   
+                            }
+                            if ((sendMax > 0) && (sendCount >= sendMax))
                             {
                                 // Uncomment to gracefully shut down the stream
                                 // after "sendMax" messages
-                                //NormStreamClose(stream, true);  
-                                //keepWriting = false; 
+                                NormStreamClose(stream, true);  
+                                keepWriting = false; 
                             }                            
                         }
-                    }
+                    }  // end while(keepWriting)
                 }
-                else
+                else if (NORM_OBJECT_INVALID == stream)  // we weren't sending a stream that finished
                 {
+                    const char* namePtr = (0 == (sendCount & 0x01)) ? fileName : fileName2;
                     NormObjectHandle txFile = 
                         NormFileEnqueue(session,
                                         filePath,
-                                        fileName,
+                                        namePtr,
                                         strlen(fileName));
                     // Repeatedly queue our file for sending
                     if (NORM_OBJECT_INVALID == txFile)
@@ -214,13 +219,21 @@ int main(int argc, char* argv[])
                     {
                         TRACE("QUEUED FILE ...\n");
                         sendCount++;
-                        NormSetWatermark(session, txFile);
+                        if (sendCount < 2) NormSetWatermark(session, txFile);
                     }
                 }
                 break;   
 
             case NORM_TX_OBJECT_PURGED:
                 DMSG(2, "normTest: NORM_TX_OBJECT_PURGED event ...\n");
+                break;  
+
+            case NORM_TX_FLUSH_COMPLETED:
+                DMSG(2, "normTest: NORM_TX_FLUSH_COMPLETED event ...\n");
+                break;  
+
+            case NORM_TX_WATERMARK_COMPLETED:
+                DMSG(2, "normTest: NORM_TX_WATERMARK_COMPLETED event ...\n");
                 break;
 
             case NORM_RX_OBJECT_NEW:
@@ -335,6 +348,7 @@ int main(int argc, char* argv[])
 
             case NORM_RX_OBJECT_COMPLETED:
                 TRACE("normTest: NORM_RX_OBJECT_COMPLETED event ...\n");
+                //NormStopReceiver(session);
                 break;
 
             case NORM_RX_OBJECT_ABORTED:
@@ -345,8 +359,8 @@ int main(int argc, char* argv[])
                 TRACE("Got event type: %d\n", theEvent.type); 
         }  // end switch(theEvent.type)
         
-        // Break after sending "sendMax" messages or files
-        //if (sendCount >= sendMax) break;
+        // Uncomment to exit program after sending "sendMax" messages or files
+        //if ((sendMax > 0) && (sendCount >= sendMax)) break;
         
     }  // end while (NormGetNextEvent())
     

@@ -18,9 +18,14 @@ NormObject::NormObject(NormObject::Type      theType,
    info_ptr(NULL), info_len(0), accepted(false), notify_on_update(true)
 {
     if (theServer)
+    {
         nacking_mode = theServer->GetDefaultNackingMode();
-    else 
+        theServer->Retain();
+    }
+    else
+    { 
         nacking_mode = NACK_NORMAL; // it doesn't really matter if !theServer
+    }
 }
 
 NormObject::~NormObject()
@@ -47,7 +52,6 @@ void NormObject::Release()
     else
     {
         DMSG(0, "NormObject::Release() releasing non-retained object?!\n");
-        ASSERT(0);
     }
     if (0 == reference_count) delete this;      
 }  // end NormObject::Release()
@@ -1677,6 +1681,7 @@ void NormStreamObject::StreamAdvance()
 
 bool NormObject::CalculateBlockParity(NormBlock* block)
 {
+    if (0 == nparity) return true;
     char buffer[NormMsg::MAX_SIZE];
     UINT16 numData = GetBlockSize(block->GetId());
     for (UINT16 i = 0; i < numData; i++)
@@ -2548,14 +2553,18 @@ UINT16 NormStreamObject::ReadSegment(NormBlockId      blockId,
         if ((UINT32)offsetDelta < object_size.LSB())
         {
             NormBlock* b = stream_buffer.Find(stream_buffer.RangeLo());
-            if (b && !b->IsPending()) write_vacancy = true; 
+            if (b && !b->IsPending()) 
+            {
+                write_vacancy = true; 
+                session.Notify(NormController::TX_QUEUE_VACANCY, NULL, this); 
+            }
         }       
     }
-    if (write_vacancy && !posted_tx_queue_vacancy)
+    /*if (HasVacancy() && !posted_tx_queue_vacancy)
     {
         posted_tx_queue_vacancy = true;
         session.Notify(NormController::TX_QUEUE_VACANCY, NULL, this);  
-    }   
+    } */  
     
     UINT16 segmentLength = NormDataMsg::ReadStreamPayloadLength(segment);
     ASSERT(segmentLength <= segment_size);
@@ -3103,7 +3112,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
         {
             if (0 != len)
             {
-                DMSG(0, "NormStreamObject::Write() error: stream is closing\n");
+                DMSG(0, "NormStreamObject::Write() error: stream is closing (len:%lu eom:%d)\n", len, eom);
                 len = 0;
             }
             break;   
@@ -3254,7 +3263,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
             msg_start = true;
         if (FLUSH_ACTIVE == flush_mode) 
             flush_pending = true;
-        else
+        else if (!stream_closing)
             flush_pending = false;
         if ((0 != nBytes) || (FLUSH_NONE != flush_mode))
             session.TouchServer();

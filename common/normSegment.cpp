@@ -1,7 +1,7 @@
 #include "normSegment.h"
 
 NormSegmentPool::NormSegmentPool()
- : seg_size(0), seg_count(0), seg_total(0), seg_list(NULL),
+ : seg_size(0), seg_count(0), seg_total(0), seg_list(NULL), seg_pool(NULL),
    peak_usage(0), overruns(0), overrun_flag(false)
 {
 }
@@ -14,7 +14,7 @@ NormSegmentPool::~NormSegmentPool()
 
 bool NormSegmentPool::Init(unsigned int count, unsigned int size)
 {
-    if (seg_list) Destroy();
+    if (seg_pool) Destroy();
     peak_usage = 0;
     overruns = 0;        
 #ifdef SIMULATE
@@ -23,46 +23,41 @@ bool NormSegmentPool::Init(unsigned int count, unsigned int size)
     size = MIN(size, (SIM_PAYLOAD_MAX+1));
 #endif  // SIMULATE
     // This makes sure we get appropriate alignment
-    unsigned int alloc_size = size / sizeof(char*);
-    if ((alloc_size*sizeof(char*)) < size) alloc_size++;
-    seg_size = alloc_size * sizeof(char*);
-    for (unsigned int i = 0; i < count; i++)
-    {
-        char** ptr = new char*[alloc_size];
-        if (ptr)
-        {
-            *ptr = seg_list;
-            seg_list = (char*)ptr;
-            seg_count++;
-        }
-        else
-        {
-            DMSG(0, "NormSegmentPool::Init() memory allocation error: %s\n",
-                    GetErrorString());
-            seg_total = seg_count;
-            Destroy();
-            return false;
-        }
-    }  
-    seg_total = seg_count;
-    return true;
+    unsigned int allocSize = size / sizeof(char*);
+    if ((allocSize*sizeof(char*)) < size) allocSize++;
+    seg_size = allocSize * sizeof(char*);
+	seg_pool = new char*[allocSize * count];
+	if (seg_pool)
+	{
+		char **ptr = seg_pool;
+		for (unsigned int i = 0; i < count; i++)
+		{
+			*ptr = seg_list;
+			seg_list = (char*)ptr;
+			ptr += allocSize;
+		}
+	}
+	else
+	{
+		DMSG(0, "NormSegmentPool::Init() memory allocation error: %s\n",
+				GetErrorString());
+		Destroy();
+		return false;
+	}
+
+	seg_total = seg_count = count;
+	return true;
 }  // end NormSegmentPool::Init()
 
 void NormSegmentPool::Destroy()
 {
     ASSERT(seg_count == seg_total);
-    char* ptr = seg_list;
-    while (ptr)
-    {
-        char* next;
-        memcpy(&next, ptr, sizeof(char*));
-        delete[] ptr;
-        ptr = next;         
-    }
-    seg_list = NULL;
-    seg_count = 0;
-    seg_total = 0;
-    seg_size = 0;
+	delete [] seg_pool;
+	seg_pool = NULL;
+	seg_list = NULL;
+	seg_count = 0;
+	seg_total = 0;
+	seg_size = 0;
 }  // end NormSegmentPool::Destroy()
 
 char* NormSegmentPool::Get()

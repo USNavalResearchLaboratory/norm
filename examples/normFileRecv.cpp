@@ -7,7 +7,7 @@
 
  BUILD (Unix): 
  
-g++ -o normFileSend normFileSend.cpp -D_FILE_OFFSET_BITS=64 -DPROTO_DEBUG \ 
+g++ -o normFileRecv normFileRecv.cpp -D_FILE_OFFSET_BITS=64 -DPROTO_DEBUG \ 
      -I../common/ -I../protolib/common ../unix/libnorm.a \
      ../protolib/unix/libProtokit.a -lpthread
          

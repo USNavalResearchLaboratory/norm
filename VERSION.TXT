@@ -1,5 +1,23 @@
 			           NORM Version History
 
+Version 1.3b6
+=============
+    - Fixed some oversite bugs that crept in with changes in 1.3b5
+      (Fixed code related to NormNode/NormObject retain and release)
+    - Changed NORM_TX_QUEUE_VACANCY posting behavior to be less chatty.
+      NORM_TX_QUEUE_VACANCY now posted _only_ after a call to 
+      NormStreamWrite() fails to fulfill a full write request
+      (i.e. returns less than the "numBytes" requested to be written)
+      This helps prevent build up of these notifications in multi-
+      threaded applications that write to a stream in a different
+      thread than is fetching events via NormGetNextEvent().
+    - Added NORM_TX_WATERMARK_COMPLETED notification and NormGetAckingStatus()
+      function to provide API support for optional positive acknowledgment
+      (ACK) collection in NORM implementation.  Note that use of
+      NormAddAckingNode(session, NORM_NODE_NONE) enables a NACK-based
+      watermark flushing concurrent with ongoing data transmission that
+      can be used as a scalable application-level flow control mechanism.
+  
 Version 1.3b5
 =============
     - Changed ProtoSocket::GetInterfaceAddress() and related methods on Win32

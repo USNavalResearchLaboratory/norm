@@ -22,7 +22,8 @@ class NormSegmentPool
             //char** ptr = (char**)segment;
             //ptr = seg_list;
             // (TBD) avoid this system call
-            memcpy(segment, &seg_list, sizeof(char*));
+            //memcpy(segment, &seg_list, sizeof(char*));
+            *((char**)segment) = seg_list;  // this might make a warning on Solaris
             seg_list = segment;
             seg_count++;
         }
@@ -39,6 +40,7 @@ class NormSegmentPool
         unsigned int    seg_count;  
         unsigned int    seg_total;
         char*           seg_list;
+		char**          seg_pool;
         
         unsigned long   peak_usage;
         unsigned long   overruns;

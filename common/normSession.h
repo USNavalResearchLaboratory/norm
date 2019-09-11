@@ -18,6 +18,7 @@ class NormController
             TX_QUEUE_VACANCY,
             TX_QUEUE_EMPTY,
             TX_FLUSH_COMPLETED,
+            TX_WATERMARK_COMPLETED,
             TX_OBJECT_SENT,
             TX_OBJECT_PURGED,
             LOCAL_SERVER_CLOSED,
@@ -98,6 +99,13 @@ class NormSession
         static const UINT16 DEFAULT_NDATA;
         static const UINT16 DEFAULT_NPARITY;
         enum ProbingMode {PROBE_NONE, PROBE_PASSIVE, PROBE_ACTIVE};
+        enum AckingStatus 
+        {
+            ACK_INVALID, 
+            ACK_FAILURE, 
+            ACK_PENDING,
+            ACK_SUCCESS
+        };
                
         // General methods
         const NormNodeId& LocalNodeId() const {return local_node_id;}
@@ -205,6 +213,7 @@ class NormSession
                                 NormSegmentId segmentId);
         bool ServerAddAckingNode(NormNodeId nodeId);
         void ServerRemoveAckingNode(NormNodeId nodeId);
+        AckingStatus ServerGetAckingStatus(NormNodeId nodeId);
         
         
         UINT16 ServerSegmentSize() const {return segment_size;}
@@ -411,11 +420,12 @@ class NormSession
         // For postive acknowledgement collection
         NormNodeTree                    acking_node_tree;
         unsigned int                    acking_node_count;
+        unsigned int                    acking_success_count;
         bool                            watermark_pending;
+        bool                            watermark_active;
         NormObjectId                    watermark_object_id;
         NormBlockId                     watermark_block_id;
         NormSegmentId                   watermark_segment_id;
-        unsigned int                    acks_collected;
         
         // for unicast nack/cc feedback suppression
         bool                            advertise_repairs;
@@ -454,6 +464,7 @@ class NormSession
         struct timeval                  prev_update_time;  // for sent_rate measurement
         unsigned long                   sent_accumulator;  // for sent_rate measurement
         double                          nominal_packet_size;
+        bool                            data_active;       // true when actively sending data
         
         // Client parameters
         bool                            is_client;

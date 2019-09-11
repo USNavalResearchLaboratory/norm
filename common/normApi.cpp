@@ -46,6 +46,8 @@ class NormInstance : public NormController
         
         void PurgeObjectNotifications(NormObjectHandle objectHandle);
         
+        unsigned long CountCompletedObjects(NormSession* theSession);
+        
         ProtoDispatcher::Descriptor GetDescriptor() const
         {
 #ifdef WIN32
@@ -57,6 +59,7 @@ class NormInstance : public NormController
         
         static NormInstance* GetInstanceFromSession(NormSessionHandle sessionHandle)
         {
+            if (NORM_SESSION_INVALID == sessionHandle) return ((NormInstance*)NULL);
             NormSession* session = (NormSession*)sessionHandle;
             NormInstance* theInstance = static_cast<NormInstance*>(session->GetSessionMgr().GetController());
             return theInstance;
@@ -64,11 +67,13 @@ class NormInstance : public NormController
         }
         static NormInstance* GetInstanceFromNode(NormNodeHandle nodeHandle)
         {
+            if (NORM_NODE_INVALID == nodeHandle) return ((NormInstance*)NULL);
             NormSession& session = ((NormNode*)nodeHandle)->GetSession();
             return static_cast<NormInstance*>(session.GetSessionMgr().GetController());   
         }
         static NormInstance* GetInstanceFromObject(NormObjectHandle objectHandle)
         {
+            if (NORM_OBJECT_INVALID == objectHandle) return ((NormInstance*)NULL);
             NormSession& session = ((NormObject*)objectHandle)->GetSession();;
             return static_cast<NormInstance*>(session.GetSessionMgr().GetController());   
         }
@@ -610,6 +615,21 @@ void NormInstance::Shutdown()
     notify_pool.Destroy();
 }  // end NormInstance::Shutdown()
 
+unsigned long NormInstance::CountCompletedObjects(NormSession* session)
+{
+	unsigned long result = 0UL;
+	Notification* n = notify_queue.GetHead();
+	while (NULL != n) 
+    {
+		if ((session == n->event.session) &&
+			(NORM_RX_OBJECT_COMPLETED == n->event.type))
+        {
+			result ++;
+        }
+		n = n->GetNext();
+	}
+	return result;
+} // end NormInstance::CountCompletedObjects()
 
 //////////////////////////////////////////////////////////////////////////
 // NORM API FUNCTION IMPLEMENTATIONS
@@ -1024,35 +1044,6 @@ void NormSetGrttProbingInterval(NormSessionHandle sessionHandle,
     }
 }  // end NormSetGrttProbingInterval()
 
-
-
-bool NormAddAckingNode(NormSessionHandle  sessionHandle,
-                       NormNodeId         nodeId)
-{
-    bool result = false;
-    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
-    if (instance && instance->dispatcher.SuspendThread())
-    {
-        NormSession* session = (NormSession*)sessionHandle;
-        if (session)
-            result = session->ServerAddAckingNode(nodeId);
-        instance->dispatcher.ResumeThread();
-    }
-    return result;
-}  // end NormAddAckingNode()
-
-void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
-                          NormNodeId         nodeId)
-{
-    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
-    if (instance && instance->dispatcher.SuspendThread())
-    {
-        NormSession* session = (NormSession*)sessionHandle;
-        if (session) session->ServerRemoveAckingNode(nodeId);
-        instance->dispatcher.ResumeThread();
-    }
-}  // end NormRemoveAckingNode()
-
 NormObjectHandle NormFileEnqueue(NormSessionHandle  sessionHandle,
                                  const char*        fileName,
                                  const char*        infoPtr, 
@@ -1249,6 +1240,50 @@ bool NormSetWatermark(NormSessionHandle  sessionHandle,
     return result;
 }  // end NormSetWatermark()
 
+bool NormAddAckingNode(NormSessionHandle  sessionHandle,
+                       NormNodeId         nodeId)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session)
+            result = session->ServerAddAckingNode(nodeId);
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+}  // end NormAddAckingNode()
+
+void NormRemoveAckingNode(NormSessionHandle  sessionHandle,
+                          NormNodeId         nodeId)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) session->ServerRemoveAckingNode(nodeId);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormRemoveAckingNode()
+
+NormAckingStatus NormGetAckingStatus(NormSessionHandle  sessionHandle,
+                                     NormNodeId         nodeId)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        NormAckingStatus status = 
+            (NormAckingStatus)session->ServerGetAckingStatus(nodeId);
+        instance->dispatcher.ResumeThread();
+        return status;
+    }
+    else
+    {
+        return NORM_ACK_INVALID;
+    }
+}  // end NormGetAckingNodeStatus()
 
 /** NORM Receiver Functions */
 
@@ -1260,10 +1295,7 @@ bool NormStartReceiver(NormSessionHandle  sessionHandle,
     if (instance && instance->dispatcher.SuspendThread())
     {
         NormSession* session = (NormSession*)sessionHandle;
-        if (session)
-            result = session->StartClient(bufferSpace);
-        else
-            result = false;
+        result = session->StartClient(bufferSpace);
         instance->dispatcher.ResumeThread();
     }
     return result;
@@ -1276,7 +1308,7 @@ void NormStopReceiver(NormSessionHandle sessionHandle)
     if (instance && instance->dispatcher.SuspendThread())
     {
         NormSession* session = (NormSession*)sessionHandle;
-        if (session) session->StopClient();
+        session->StopClient();
         instance->dispatcher.ResumeThread();
     }
 }  // end NormStopReceiver()
@@ -1364,8 +1396,7 @@ bool NormStreamRead(NormObjectHandle   streamHandle,
     {
         NormStreamObject* stream = 
             static_cast<NormStreamObject*>((NormObject*)streamHandle);
-        if (stream)
-            result = stream->Read(buffer, numBytes);
+        result = stream->Read(buffer, numBytes);
         instance->dispatcher.ResumeThread();
     }
     return result;
@@ -1380,8 +1411,7 @@ bool NormStreamSeekMsgStart(NormObjectHandle streamHandle)
         NormStreamObject* stream = 
             static_cast<NormStreamObject*>((NormObject*)streamHandle);
         unsigned int numBytes = 0;
-        if (stream)
-            result = stream->Read(NULL, &numBytes, true);
+        result = stream->Read(NULL, &numBytes, true);
         instance->dispatcher.ResumeThread();
     }
     return result;
@@ -1391,7 +1421,10 @@ bool NormStreamSeekMsgStart(NormObjectHandle streamHandle)
 unsigned long NormStreamGetReadOffset(NormObjectHandle streamHandle)
 {
     NormStreamObject* stream = static_cast<NormStreamObject*>((NormObject*)streamHandle);
-    return stream->GetCurrentReadOffset();
+    if (stream)
+        return stream->GetCurrentReadOffset();
+    else
+        return 0;
 }  // end NormStreamGetReadOffset()
 
 
@@ -1641,3 +1674,16 @@ void NormNodeRelease(NormNodeHandle nodeHandle)
 //        the app to install an event handler callback and dispatch
 //        events with a "NormDispatchEvents()" call ...
 //
+
+unsigned long NormCountCompletedObjects(NormSessionHandle sessionHandle)
+{
+    unsigned long result = 0;
+    NormSession* session = (NormSession*)sessionHandle;
+	NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        result = instance->CountCompletedObjects(session);
+        instance->dispatcher.ResumeThread();
+    }
+	return result;
+}  // end long NormCountCompletedObjects()

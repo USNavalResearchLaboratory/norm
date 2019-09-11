@@ -437,6 +437,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
             NormNodeId localId = LocalNodeId();
             for (UINT16 i = 0; i < nodeCount; i++)
             {
+                // (TBD) also ACK if NORM_NODE_ANY is listed???
                 if (flush.GetAckingNodeId(i) == localId)
                 {
                     doAck = true;
@@ -1084,7 +1085,6 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
             }
         } 
     }  
-    
     switch (repair_boundary)
     {
         case BLOCK_BOUNDARY:
@@ -1296,6 +1296,7 @@ bool NormServerNode::PassiveRepairCheck(NormObjectId           objectId,
                                         NormBlockId            blockId,
                                         NormSegmentId          segmentId)
 {
+    if (!synchronized) return true;
     NormObjectId nextId;
     if (GetFirstPending(nextId))
     {
