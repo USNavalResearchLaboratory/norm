@@ -1,11 +1,43 @@
+TODO:
+
 0) Fix implementation of NORM_DATA_FLAG_REPAIR.
+
+2) Add mechanism to allow window-based control of NORM server
+   transmission rate.  
+   
+7) Build "norm daemon" using API.
+
+10) Release wxNormChat project
+
+11) Test, release "naft" (updated "raft") for reliable UDP streaming.
+
+13) Fix ns-2 issue when Agent/NORM is attached to ns-2 node ZERO and
+    results in a NormNode attempting to be assigned NORM_NODE_NONE as
+    a node id.
+    
+14) IMPORTANT: double check ACKing in reponse to watermark polling and
+    relation to cc feedback suppression, etc ... watermark acks should
+    be unicast and not affect cc feedback? 
+    
+17) Set objectId in TX_FLUSH_COMPLETED and TX_WATERMARK_COMPLETED events.
+
+18) Add APIs for managing remote server state kept at receiver
+
+22) Implement LDPC FEC code within NORM as alternative to Reed Solomon
+
+23) Add ability to control receiver cache on a per-sender basis?
+    (max_pending_range, etc) 
+    
+26) Add API calls to get error information
+
+27) Add API calls to read logged statistics
+     
+=========================         
+COMPLETED:
 
 1) Implement unicast feedback of NACK messages and server
    re-advertisement for suppressing the unicast feedback.
    (COMPLETED)
-   
-2) Add mechanism to allow window-based control of NORM server
-   transmission rate.  
    
 3) Implement TFMCC and/or PGM-CC congestion control mechanisms
    within NORM. (TFMCC COMPLETED)
@@ -24,34 +56,16 @@
 6) Implement and document simple API to control and access NORM
    features.  (COMPLETED and enhancement in progress)
    
-7) Build "norm daemon" using API.
+8) JAVA API for NRL NORM Protocol library (COMPLETED - Thanks Peter Griffin & Jason Rush)
 
-8) JAVA API for NRL NORM Protocol library
+9) Correct/complete user guide for "norm" demo app (COMPLETED)
 
-9) Correct/complete user guide for "norm" demo app
-
-10) Release wxNormChat project
-
-11) Test, release "naft" (updated "raft") for reliable streaming.
 
 12) Can we eliminate rapid clr norm-cc probing when data is
     not being actively sent? (COMPLETED)
     
-13) Fix ns-2 issue when Agent/NORM is attached to ns-2 node ZERO and
-    results in a NormNode attempting to be assigned NORM_NODE_NONE as
-    a node id.
-    
-14) IMPORTANT: double check ACKing in reponse to watermark polling and
-    relation to cc feedback suppression, etc ... watermark acks should
-    be unicast and not effect cc feedback? 
-  
-15) Implement TX_OBJECT_SENT event (COMPLETED)
 
-16) Set NORM_DATA "NORM_FLAG_REPAIR" properly  
-    
-17) Set objectId in TX_FLUSH_COMPLETED and TX_WATERMARK_COMPLETED events.
-    
-18) Add APIs for managing remote server state kept at receiver
+15) Implement TX_OBJECT_SENT event (COMPLETED)
 
 19) Fix "activity_timer" interval setting (COMPLETED)
 
@@ -63,12 +77,7 @@
     (COMPLETED - reimplemented, adding tx_repair_pending index to use 
      instead of seeking each time)
 
-22) Implement LDPC FEC code within NORM as alternative to Reed Solomon
-
-23) Add ability to control receiver cache on a per-sender basis?
-    (max_pending_range, etc)
-    
 24)  Look at NormStreamObject::StreamAdvance() for "push-enabled" streams
      (COMPLETED)
 
-   
+25) Improved, consistent socket binding options   

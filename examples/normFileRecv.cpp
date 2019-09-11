@@ -7,9 +7,9 @@
 
  BUILD (Unix): 
  
-g++ -o normFileRecv normFileRecv.cpp -D_FILE_OFFSET_BITS=64 -DPROTO_DEBUG \ 
-     -I../common/ -I../protolib/common ../unix/libnorm.a \
-     ../protolib/unix/libProtokit.a -lpthread
+g++ -o normFileRecv normFileRecv.cpp -D_FILE_OFFSET_BITS=64 -I../common/ \
+     -I../protolib/include ../lib/libnorm.a ../protolib/lib/libProtokit.a \
+     -lpthread
          
      (for MacOS/BSD, add "-lresolv")
      (for Solaris, add "-lnsl -lsocket -lresolv")
@@ -65,7 +65,7 @@ int main(int argc, char* argv[])
     // Uncomment to turn on debug NORM message tracing
     //NormSetMessageTrace(session, true);
     // Uncomment to turn on some random packet loss for testing
-    //NormSetRxLoss(session, 10.0);  // 10% packet loss
+    NormSetRxLoss(session, 10.0);  // 10% packet loss
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
     // Uncomment to get different packet loss patterns from run to run
@@ -83,9 +83,10 @@ int main(int argc, char* argv[])
   
     // 5) Enter NORM event loop
     bool keepGoing = true;
-    NormEvent theEvent;
-    while (keepGoing && NormGetNextEvent(instance, &theEvent))
+    while (keepGoing)
     {
+        NormEvent theEvent;
+        if (!NormGetNextEvent(instance, &theEvent)) continue;
         switch (theEvent.type)
         {
            case NORM_RX_OBJECT_NEW:
@@ -127,7 +128,7 @@ int main(int argc, char* argv[])
                 //  only calculate/post updates occasionally rather than for
                 //  each and every RX_OBJECT_UPDATE event)
                 NormSize objectSize = NormObjectGetSize(theEvent.object);
-                fprintf(stderr, "sizeof(NormSize) = %d\n", sizeof(NormSize));
+                fprintf(stderr, "sizeof(NormSize) = %d\n", (int)sizeof(NormSize));
                 NormSize completed = objectSize - NormObjectGetBytesPending(theEvent.object);
                 double percentComplete = 100.0 * ((double)completed/(double)objectSize);
                 fprintf(stderr, "normFileRecv: completion status %lu/%lu (%3.0lf%%)\n",

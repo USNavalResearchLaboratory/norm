@@ -8,7 +8,7 @@
  BUILD (Unix): 
  
  g++ -o normFileSend normFileSend.cpp -D_FILE_OFFSET_BITS=64 -I../common/ \
-     -I../protolib/common ../unix/libnorm.a ../protolib/unix/libProtokit.a \
+     -I../protolib/include ../lib/libnorm.a ../protolib/lib/libProtokit.a \
      -lpthread
      
      (for MacOS/BSD, add "-lresolv")
@@ -81,7 +81,7 @@ int main(int argc, char* argv[])
     srand(currentTime.tv_sec);  // seed random number generator
     
     // 3) Set transmission rate
-    NormSetTransmitRate(session, 256.0e+03);  // in bits/second
+    NormSetTxRate(session, 25600.0e+03);  // in bits/second
     
     // Uncomment to use a _specific_ transmit port number
     // (Can be the same as session port (rx port), but this
@@ -110,9 +110,10 @@ int main(int argc, char* argv[])
     
     // 6) Enter NORM event loop
     bool keepGoing = true;
-    NormEvent theEvent;
-    while (keepGoing && NormGetNextEvent(instance, &theEvent))
+    while (keepGoing)
     {
+        NormEvent theEvent;
+        if (!NormGetNextEvent(instance, &theEvent)) continue;
         switch (theEvent.type)
         {
             case NORM_TX_QUEUE_VACANCY:

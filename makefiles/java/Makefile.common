@@ -1,0 +1,65 @@
+#########################################################################
+# COMMON NORM-JNI MAKEFILE STUFF
+#
+
+.SUFFIXES: .cpp -sim.o $(.SUFFIXES)
+
+NORMJNI = ../../src/java/jni
+
+INCLUDES = $(SYSTEM_INCLUDES) -I../../include
+
+CFLAGS = -g -O $(SYSTEM_CFLAGS) $(INCLUDES)
+
+LIBNORM = ../../lib/libnorm.a
+PROTOLIB = ../../protolib
+LIBPROTO = $(PROTOLIB)/lib/libprotokit.a
+
+LIBS = $(SYSTEM_LIBS) -lm -lpthread
+
+# Rule for C++ .cpp extension
+.cpp.o:
+	$(CC) -c $(CFLAGS) -o $*.o $*.cpp
+
+LIB_SRC = \
+  $(NORMJNI)/normJni.cpp \
+  $(NORMJNI)/normInstanceJni.cpp \
+  $(NORMJNI)/normSessionJni.cpp \
+  $(NORMJNI)/normObjectJni.cpp \
+  $(NORMJNI)/normDataJni.cpp \
+  $(NORMJNI)/normFileJni.cpp \
+  $(NORMJNI)/normStreamJni.cpp \
+  $(NORMJNI)/normEventJni.cpp \
+  $(NORMJNI)/normNodeJni.cpp
+
+LIB_OBJ = $(LIB_SRC:.cpp=.o)
+LIB_DEP = $(LIB_SRC:.cpp=.d)
+
+all: libmil_navy_nrl_norm.$(SYSTEM_SOEXT)
+
+# NORM JNI shared library
+libmil_navy_nrl_norm.$(SYSTEM_SOEXT): $(LIB_OBJ) $(LIBNORM) $(LIBPROTO)
+	$(CC) $(SYSTEM_SOFLAGS) $(LIB_OBJ) $(LIBNORM) $(LIBPROTO) $(LIBS) -o $@
+	mkdir -p ../../lib
+	cp $@ ../../lib/$@
+
+$(LIBNORM):
+	$(MAKE) -C ../../makefiles -f Makefile.$(SYSTEM) libnorm.a
+
+$(LIBPROTO):
+	$(MAKE) -C $(PROTOLIB)/makefiles -f Makefile.$(SYSTEM) libprotokit.a
+
+-include $(LIB_DEP)
+
+%.d: %.cpp
+	$(CC) -MM -MT $(@:.d=.o) -MF $@ $(CPPFLAGS) $<
+
+clean:
+	rm -f $(NORMJNI)/*.o \
+	  $(NORMJNI)/*.d \
+	  libmil_navy_nrl_norm.$(SYSTEM_SOEXT) \
+	  ../../lib/libmil_navy_nrl_norm.$(SYSTEM_SOEXT)
+
+distclean:  clean
+
+# DO NOT DELETE THIS LINE -- mkdep uses it.
+# DO NOT PUT ANYTHING AFTER THIS LINE, IT WILL GO AWAY.

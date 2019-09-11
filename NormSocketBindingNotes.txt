@@ -1,0 +1,177 @@
+NORM SOCKET BINDING NOTES
+=========================
+
+NORM supports a number of socket binding options to allow for multiple paradigms of use.  The default operation of NORM involves two separate sockets: 
+
+1) a "tx_socket" used for sender transmission and reception of unicast feedback, and
+2) a "rx_socket" used for reception of packets sent to the "session" address/port
+
+By default both sockets are bound to INADDR_ANY with the rx_socket using the "session port" number and the
+tx_socket using a port freely assigned by the operating system unless the NormSetTxPort() API is invoked. The INADDR_ANY binding allows the sockets to receive packets from any remote address/port thus support NORM's typical multicast operation compatible with both unicast and multicast feedback and even "many-to-one" unicast reception (if unicast feedback is set via NormSetDefaultUnicastNack()).
+
+Some optional binding behaviors are invoked depending upon some additional NORM API calls. For example, the "rx_socket" can be optionally bound to the session address.  This restricts the rx_socket to receive only packets specifically directed to the configured session address.  The session address must be a multicast address or valid local IP address for this to work.  And in the latter case, the NormSession MUST be operated
+only as a NORM receiver (i.e., NormStartSender() will result in transmissions to self only!)
+
+The rationale for the separate tx_socket and rx_socket usage was to enable NORM senders to detect when unicast feedback is used so that proper protocol behaviors are invoked (e.g. NORM_CMD(REPAIR_ADV)).  Note that the code base _may_ be eventually updated so this is no longer necessary (e.g. through use of the "recvmsg()" system call
+with proper socket configuration to receive UDP packet destination address header information).  It may still be the case that a use case for separate send/recv sockets may persist and the code will continue to support that although it is possible that it may become the optional behavior rather than the default.
+
+bind semantics:     localAddr / localPort
+
+connect semantics:  remoteAddr / remotePort
+
++-------------------------------+-------------------------------+---------------------------------------+
+|         bind() state          |       connect() state         |                                       |
++---------------+---------------+---------------+---------------+              Behaviors                |
+|   localAddr   |   localPort   |   remoteAddr  |   remotePort  |                                       |
++---------------+---------------+---------------+---------------+---------------------------------------+
+|   INADDR_ANY  |       0       |              NONE             | OS-assigned port, sendto() any        |
++---------------+---------------+---------------+---------------+---------------------------------------+
+|   INADDR_ANY  |     <port>    |              NONE             | from any to <*/port>, sendto() any    |
++---------------+---------------+---------------+---------------+---------------------------------------+
+|     <addr>    |     <port>    |              NONE             | from any to <addr/port>. sendto() any |
++---------------+---------------+---------------+---------------+---------------------------------------+
+|   INADDR_ANY  |     <port>    |   remoteAddr  |   remotePort  | from remote to <*/port>               |
++---------------+---------------+---------------+---------------+---------------------------------------+
+|    <addr>     |     <port>    |   remoteAddr  |   remotePort  | from remote to <addr/port> only       |
++---------------+---------------+---------------+---------------+---------------------------------------+
+
+The Rules:
+
+If you don't bind(), you don't receive anything.  
+
+If you connect() you can only send to the specified connected addr / port.
+
+Cannot connect to multicast addr.
+
+Can only bind to multicast or valid local IP addr
+
+With port reuse, each multicast socket will get a copy of matching inbound multicast packets.   In fact, with an INADDR_ANY bind, the socket will get packets for _any_ group joined if the port number matches.  But with an inbound unicast packet, only one socket with closest matching binding will get the packet.  This includes
+the bind() (i.e. local addr/port) _and_ connect() (i.e. remote addr/port) state with regard to the incoming packet where the most specific match is considered the best match.
+
+Thus these bind/connect combinations are important in order to achieve some desired set of behaviors.
+
+
+
+DESIRED BEHAVIORS:
+
+1) NORM sender / receiver operation with feedback to the session port and/or unicast feedback.
+
+
+2) Binding packet reception for socket(s) to specific address(es) with or without port reuse
+
+NormSetTxPort() currently has option to bind the tx_socket to a specific local address (txAddress)
+NormSetRxPortReuse() currently has option to bind rx_socket to multicast session address.
+
+TBD - Need to add "NormSetRxAddress()" to bind rx_socket to non-session local address
+
+
+3) Connecting socket(s) to remote unicast addr/port so that reused port demuxing works properly
+   (This is probably applicable only to unicast sessions)
+   
+So, the following conditions should be true to "connect" the socket:
+
+1) Session address is unicast
+2) Port reuse is true.
+ 
+ XXX - finish these thoughts and revise the implementation!!!!!
+ 
+REQUIREMENTS
+
+
+Enumerate some use cases and the corresponding socket behavior requirements
+
+1) Default: sender/receiver multicast operation w/ mcast and ucast feedback
+
+tx_socket : sendto() session addr/port,sender(s) addr/port
+            recvfrom() receiver src addr/port to local ucast addr
+rx_socket : recvfrom() sender addr/port to session addr/port 
+
+If rxAddr is unspecified, can also receive to unicast
+
+2) Sender-only one-to-many
+
+tx_socket : sendto() session addr/port,sender(s) addr/port
+            recvfrom() receiver src addr/port to local ucast addr
+            
+rx_socket : recvfrom() sender addr/port to session addr/port (mcast feedback)
+
+
+3) Receive-only many-to-one unicasts
+
+tx_socket : sendto() senders addr/port
+rx_socket : recvfrom() senders addr/port to session port
+
+4) Bi-directional unicast
+
+tx_socket : sendto() session addr/port
+rx_socket : recvfrom() session addr/* to session port
+
+
+
+
+IMPLEMENTATION NOTES:
+
+1) Default binding
+
+rx_socket : INADDR_ANY / <sessionPort>
+
+tx_socket : INADDR_ANY / 0 (any port)
+
+Implementation Details:
+
+This is the default behavior if none of the additional API calls described below are made.
+
+---------------------------------------------------------------------------
+2)  The NormSetTxPort(txPort, enableReuse, txAddr) lets this be modified by:
+
+a) if (txPort != sessionPort) tx_socket is bound to <txPort>
+b) if (txPort == sessionPort) rx_socket is used for transmission, too
+
+c) if "enableReuse" is true, PORT/ADDR REUSE is set for tx_socket
+   
+d) if txAddr is valid, the tx_socket (or (TBD) rx_socket if txPort == sessionPort) is bound 
+   to the given <txAddr> which must be a valid IP addr for the host (This means only
+   unicast packets for that address are received on that socket.  Thus the binding is _not_
+   made for the rx_socket case if the session address is a multicast address!
+   
+   
+Implementation Details: 
+
+TBD
+
+
+---------------------------------------------------------------------------
+3) The NormSetRxPortReuse(enable, bindToSessionAddr) modifies the default binding as follows:
+
+a) If  <enable> is "true", PORT/ADDR REUSE is set for the rx_socket
+
+b) if <bindToSessionAddr> is "true" _and_ the session address is multicast, the rx_socket
+   binding is <sessionAddr> / <sessionPort>.  This enables the same port number to be
+   reused for different multicast session addresses _and_ restricts the rx_socket to receive
+   only packets destined for the sessionAddr.  In this case, unicast feedback to the rx_socket
+   (i.e. in the case of above where txPort == sessionPort) will NOT work!
+   TBD - The code resolves this conflict by ...
+   
+   
+Implementation Details: 
+
+TBD
+   
+   
+ ---------------------------------------------------------------------------
+4) The NormSetTxOnly() causes only the tx_socket to be opened and no rx_socket is opened.  In fact,
+   the rx_socket is closed if it is already open (unless txPort == sessionPort ala above)  
+   
+   
+Implementation Details: 
+
+TBD
+
+
+
+   
+   
+   
+   
+   
+ 

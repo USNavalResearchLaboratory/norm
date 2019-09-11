@@ -1,0 +1,243 @@
+#########################################################################
+# COMMON NORM MAKEFILE STUFF
+#
+
+SHELL=/bin/sh
+
+.SUFFIXES: .cpp -sim.o $(.SUFFIXES)
+
+PROTOLIB = ../protolib
+COMMON = ../src/common
+UNIX = ../src/unix
+EXAMPLE = ../examples
+NS = ../src/sim/ns
+
+INCLUDES = $(SYSTEM_INCLUDES) -I$(UNIX) -I../include -I$(PROTOLIB)/include
+
+CFLAGS = -g -DPROTO_DEBUG -DUNIX -D_FILE_OFFSET_BITS=64 -O $(SYSTEM_CFLAGS) $(SYSTEM_HAVES) $(INCLUDES)
+
+LDFLAGS = $(SYSTEM_LDFLAGS)
+
+# Note: Even command line app needs X11 for Netscape post-processing
+LIBS = $(SYSTEM_LIBS) -lm -lpthread
+XLIBS = -lXmu -lXt -lX11
+
+
+TARGETS = norm raft
+
+# Rule for C++ .cpp extension
+.cpp.o:
+	$(CC) -c $(CFLAGS) -o $*.o $*.cpp
+    
+# NORM depends upon the NRL Protean Group's development library
+LIBPROTO = $(PROTOLIB)/lib/libprotokit.a
+
+NORM_SRC = $(COMMON)/normMessage.cpp $(COMMON)/normSession.cpp \
+           $(COMMON)/normNode.cpp $(COMMON)/normObject.cpp \
+           $(COMMON)/normSegment.cpp  $(COMMON)/normEncoder.cpp \
+           $(COMMON)/normEncoderRS8.cpp $(COMMON)/normEncoderRS16.cpp \
+           $(COMMON)/normEncoderMDP.cpp $(COMMON)/galois.cpp \
+           $(COMMON)/normFile.cpp $(COMMON)/normApi.cpp $(SYSTEM_SRC)
+          
+NORM_OBJ = $(NORM_SRC:.cpp=.o)
+
+LIB_SRC = $(NORM_SRC)
+LIB_OBJ = $(LIB_SRC:.cpp=.o)
+
+all: norm raft libnorm.a
+
+$(PROTOLIB)/lib/libprotokit.a: 
+	$(MAKE) -C $(PROTOLIB)/makefiles -f Makefile.$(SYSTEM) libprotokit.a
+
+# NORM as a static library
+libnorm.a:    $(LIB_OBJ)
+	rm -f $@ 
+	$(AR) rcv $@ $(LIB_OBJ)
+	$(RANLIB) $@
+	mkdir -p ../lib
+	cp $@ ../lib/$@
+
+# NORM as a shared library (i.e. libnorm.so, libnorm.dylib, etc)
+# (Note - we are linking "libprotokit" in statically
+libnorm.$(SYSTEM_SOEXT): $(LIB_OBJ) $(LIBPROTO)
+	$(CC) $(SYSTEM_SOFLAGS) $(LIB_OBJ) $(LIBPROTO) $(LIBS) -o $@
+	mkdir -p ../lib
+	cp $@ ../lib/$@ 
+        
+SIM_SRC = $(NORM_SRC) $(COMMON)/normSimAgent.cpp    
+SIM_OBJ = $(SIM_SRC:.cpp=-sim.o)
+
+libnormsim.a:   $(SIM_OBJ)
+	rm -f $@ 
+	$(AR) rcv $@ $(SIM_OBJ)
+	$(RANLIB) $@
+    
+# (norm) command-line file broadcaster/receiver
+APP_SRC = $(COMMON)/normApp.cpp $(COMMON)/normPostProcess.cpp \
+          $(UNIX)/unixPostProcess.cpp
+APP_OBJ = $(APP_SRC:.cpp=.o)
+
+norm:    $(APP_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO)  $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+    
+    
+# This section builds some of code "examples" that use the NORM API
+
+# NORM_OBJECT_FILE sender example
+FSEND_SRC = $(EXAMPLE)/normFileSend.cpp
+FSEND_OBJ = $(FSEND_SRC:.cpp=.o)
+
+normFileSend:    $(FSEND_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(FSEND_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+    
+# NORM_OBJECT_FILE receiver example
+FRECV_SRC = $(EXAMPLE)/normFileRecv.cpp
+FRECV_OBJ = $(FRECV_SRC:.cpp=.o)
+
+normFileRecv:    $(FRECV_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(FRECV_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+
+
+# NORM_OBJECT_DATA sender example
+DSEND_SRC = $(EXAMPLE)/normDataSend.cpp
+DSEND_OBJ = $(DSEND_SRC:.cpp=.o)
+
+normDataSend:    $(DSEND_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(DSEND_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+    
+# NORM_OBJECT_DATA receiver example
+DRECV_SRC = $(EXAMPLE)/normDataRecv.cpp
+DRECV_OBJ = $(DRECV_SRC:.cpp=.o)
+
+normDataRecv:    $(DRECV_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(DRECV_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+
+
+# NORM_OBJECT_STREAM sender example
+SSEND_SRC = $(EXAMPLE)/normStreamSend.cpp
+SSEND_OBJ = $(SSEND_SRC:.cpp=.o)
+
+normStreamSend:    $(SSEND_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(SSEND_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+    
+
+# NORM_OBJECT_STREAM receiver example
+SRECV_SRC = $(EXAMPLE)/normStreamRecv.cpp
+SRECV_OBJ = $(SRECV_SRC:.cpp=.o)
+
+normStreamRecv:    $(SRECV_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(SRECV_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+
+
+# (normTest) test of NORM API
+TEST_SRC = $(COMMON)/normTest.cpp
+TEST_OBJ = $(TEST_SRC:.cpp=.o)
+
+normTest:    $(TEST_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(TEST_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+    
+# (normThreadTest) test of threaded use of NORM API
+TTEST_SRC = $(COMMON)/normThreadTest.cpp
+TTEST_OBJ = $(TTEST_SRC:.cpp=.o)
+normThreadTest:    $(TTEST_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(TTEST_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@    
+
+# (normThreadTest2) alt test of threaded use of NORM API
+TTEST2_SRC = $(UNIX)/normThreadTest2.cpp
+TTEST2_OBJ = $(TTEST2_SRC:.cpp=.o)
+normThreadTest2:    $(TTEST2_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(TTEST2_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@ 
+
+
+
+# (pcap2norm) - parses pcap (e.g. tcpdump) file and prints NORM trace
+PCAP_SRC = $(COMMON)/pcap2norm.cpp
+PCAP_OBJ = $(PCAP_SRC:.cpp=.o)
+
+pcap2norm:    $(PCAP_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(PCAP_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO)  $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+
+# (n2m) - converts NORM "trace" to MGEN log format to enable TRPR (or other) analyses
+N2M_SRC = $(COMMON)/n2m.cpp
+N2M_OBJ = $(N2M_SRC:.cpp=.o)
+
+n2m:    $(N2M_OBJ)
+	$(CC) $(CFLAGS) -o $@ $(N2M_OBJ) $(LDFLAGS) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+    
+# (npc) NORM Pre-Coder
+PCODE_SRC = $(COMMON)/normPrecode.cpp
+PCODE_OBJ = $(PCODE_SRC:.cpp=.o)
+npc:    $(PCODE_OBJ)  libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(PCODE_OBJ) $(LDFLAGS)  libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@     
+              
+# (raft) reliable app for tunnel (command-line reliable UDP tunnel) 
+RAFT_SRC = $(COMMON)/raft.cpp
+RAFT_OBJ = $(RAFT_SRC:.cpp=.o)
+
+raft:    $(RAFT_OBJ) $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(RAFT_OBJ) $(LDFLAGS) $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@  
+
+# (ntun) IP/NORM tunnel app using ProtoVif
+NTUN_SRC = $(COMMON)/ntun.cpp $(PROTOLIB)/common/protoVif.cpp $(PROTOLIB)/unix/unixVif.cpp
+NTUN_OBJ = $(NTUN_SRC:.cpp=.o)
+
+ntun:    $(NTUN_OBJ) $(LIBPROTO) libnorm.a 
+	$(CC) $(CFLAGS) -o $@ $(NTUN_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@  
+    
+# (fect) fec tester code
+FECT_SRC = $(COMMON)/fecTest.cpp $(COMMON)/normEncoder.cpp $(COMMON)/galois.cpp \
+          $(COMMON)/normEncoderRS8.cpp $(COMMON)/normEncoderRS16.cpp
+FECT_OBJ = $(FECT_SRC:.cpp=.o)
+fect:    $(FECT_OBJ)  libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(FECT_OBJ) $(LDFLAGS) $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@     
+    
+# (gtf) generate test file
+GTF_SRC = $(COMMON)/gtf.cpp 
+GTF_OBJ = $(GTF_SRC:.cpp=.o)
+gtf:    $(GTF_OBJ)  
+	$(CC) $(CFLAGS) -o $@ $(GTF_OBJ) $(LDFLAGS) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@        
+    	    
+clean:	
+	rm -f $(COMMON)/*.o  $(UNIX)/*.o $(NS)/*.o \
+          libnorm.a libnorm.$(SYSTEM_SOEXT) ../lib/libnorm.a ../lib/libnorm.$(SYSTEM_SOEXT) \
+          norm raft normTest normTest2 normThreadTest normThreadTest2 ../bin/*;
+	$(MAKE) -C $(PROTOLIB)/makefiles -f Makefile.$(SYSTEM) clean
+distclean:  clean
+
+# DO NOT DELETE THIS LINE -- mkdep uses it.
+# DO NOT PUT ANYTHING AFTER THIS LINE, IT WILL GO AWAY.
+

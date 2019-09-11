@@ -1,0 +1,52 @@
+This directory contains an Android NDK import module for NORM, which builds
+a shared library, and the JNI bindings.
+
+Using NORM in your pure Java Android Application
+------------------------------------------------
+
+1. First, update the library project to point to your Android SDK:
+
+    android update lib-project --target <id> --path /path/to/norm/makefiles/android
+    android update lib-project --target <id> --path /path/to/protolib/makefiles/android
+
+   Use "android list targets" to see the ids of the SDK targets you have
+   installed.
+
+2. Add a "jni/Application.mk" in the root of your project to reference NORM:
+    * You must at least set "APP_MODULES := norm-jni"
+    * You should set "APP_BUILD_SCRIPT := /path/to/norm/makefiles/android/jni/Android.mk"
+    * You should also set "NDK_MODULE_PATH" to point to the base norm directory
+      so that the NDK can find protolib.  See the example.
+
+   Example:
+
+    LOCAL_PATH := $(call my-dir)
+
+    APP_MODULES := mil_navy_nrl_norm
+    APP_ABI := all
+    APP_BUILD_SCRIPT := $(LOCAL_PATH)/../library/norm/makefiles/android/jni/Android.mk
+
+    NDK_MODULE_PATH := $(LOCAL_PATH)../library/norm/
+
+3. Reference the NORM Android library project in your "project.properties"
+   file.  Add the following:
+
+    android.library.reference.1=/path/to/norm/makefiles/android
+
+Now, you should be able to run "ndk-build" in your root project directory to
+build the shared libraries, and run "ant debug" to build your APK.
+
+Using NORM in your C/C++/Java Android Application
+-------------------------------------------------
+
+1. Add a "jni/Application.mk" with your C/C++ code specified.
+
+2. Reference the NORM Android project as an NDK Import Module.  See
+   "IMPORT-MODULE.html" in the NDK docs.
+
+   Put something like the following at the bottom of your "Android.mk"
+
+    $(call import-module,norm/makefiles/android/jni)
+
+   This is relative to the "NDK_MODULE_PATH" variable that must be defined in
+   "Application.mk".

@@ -1,0 +1,17 @@
+#
+# Linux NORM-JNI Makefile definitions
+#
+
+# System specific additional libraries, include paths, etc
+SYSTEM_INCLUDES = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux
+SYSTEM_LIBS = 
+SYSTEM_SRC =
+
+SYSTEM = linux
+
+export CC = g++
+export SYSTEM_CFLAGS = -fPIC -Wall -Wcast-align -D_FILE_OFFSET_BITS=64
+export SYSTEM_SOFLAGS = -shared -Wl,--no-undefined
+SYSTEM_SOEXT = so
+
+include Makefile.common

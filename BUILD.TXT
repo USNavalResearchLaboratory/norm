@@ -1,0 +1,72 @@
+Building NORM
+=============
+
+NORM can be built using the Waf build tool, included in the distribution.
+To see a full list of options, run:
+
+    ./waf -h
+
+
+Configuring
+-----------
+
+To perform the configure checks, run:
+
+    ./waf configure
+
+Some options for the configure step:
+
+    --prefix=<DIR> - Directory to install files to (Default - /usr/local)
+
+    --debug - Builds a debug build (with debugging symbols), otherwise an
+            optimized library is built.
+
+    --build-python - Builds the Python extension
+    --build-java - Builds the Java extension
+        You must set the JAVA_HOME environment variable to the location of your
+        JDK directory
+
+Building
+--------
+
+To build the library, simply run:
+
+    ./waf
+
+To build examples along with the library, run:
+
+    ./waf --targets=ex1,ex2,...
+
+Where ex1,ex2 is the name of the example you want to build (see ./waf list).
+Additionally, you can add the "--targets=*" flag to build all the example
+programs.
+
+Installing
+----------
+
+To install, run:
+
+    ./waf install
+
+This will install the compiled library and headers to wherever your prefix was
+specified.  (See configure flags)
+
+Uninstalling
+------------
+
+Waf tracks the files it installs, so run:
+
+    ./waf uninstall
+
+to remove all files from a previous ./waf install
+
+Cleaning
+--------
+
+    ./waf clean
+
+will delete all compiled files and configuration settings.
+
+    ./waf distclean
+
+will do the same as clean, and additionally delete the waf cache files.

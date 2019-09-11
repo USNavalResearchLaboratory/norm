@@ -1,0 +1,62 @@
+<project name="NORM" default="jar" basedir="../../src/java">
+  <!-- Properties -->
+  <property name="name" value="norm-1.0.0" />
+  <property name="optimize" value="false" />
+  <property name="debug" value="on" />
+  <property name="src.dir" value="src" />
+  <property name="class.dir" value="class" />
+  <property name="jni.dir" value="jni" />
+  <property name="dist.dir" value="../../lib" />
+
+  <!-- Compile Targets -->
+  <target name="compile" description="Compiles the project">
+    <mkdir dir="${class.dir}" />
+    <javac destdir="${class.dir}" debug="${debug}" optimize="${optimize}">
+      <src path="${src.dir}" />
+      <include name="mil/navy/nrl/norm/**/*.java" />
+      <compilerarg value="-Xlint:unchecked" />
+    </javac>
+  </target>
+
+  <!-- JNI tasks -->
+  <target name="jni" depends="compile" description="Create the jni headers">
+    <javah outputFile="${jni.dir}/normInstanceJni.h" classpath="${class.dir}">
+      <class name="mil.navy.nrl.norm.NormInstance"/>
+    </javah>
+    <javah outputFile="${jni.dir}/normSessionJni.h" classpath="${class.dir}">
+      <class name="mil.navy.nrl.norm.NormSession"/>
+    </javah>
+    <javah outputFile="${jni.dir}/normObjectJni.h" classpath="${class.dir}">
+      <class name="mil.navy.nrl.norm.NormObject"/>
+    </javah>
+    <javah outputFile="${jni.dir}/normDataJni.h" classpath="${class.dir}">
+      <class name="mil.navy.nrl.norm.NormData"/>
+    </javah>
+    <javah outputFile="${jni.dir}/normFileJni.h" classpath="${class.dir}">
+      <class name="mil.navy.nrl.norm.NormFile"/>
+    </javah>
+    <javah outputFile="${jni.dir}/normStreamJni.h" classpath="${class.dir}">
+      <class name="mil.navy.nrl.norm.NormStream"/>
+    </javah>
+    <javah outputFile="${jni.dir}/normNodeJni.h" classpath="${class.dir}">
+      <class name="mil.navy.nrl.norm.NormNode"/>
+    </javah>
+    <javah outputFile="${jni.dir}/normEventJni.h" classpath="${class.dir}">
+      <class name="mil.navy.nrl.norm.NormEvent"/>
+    </javah>
+  </target>
+
+  <!-- Jar tasks -->
+  <target name="jar" depends="compile" description="Creates the jar file">
+    <mkdir dir="${dist.dir}" />
+    <jar jarfile="${dist.dir}/${name}.jar">
+      <fileset dir="${class.dir}" includes="mil/navy/nrl/norm/**/*.*" />
+    </jar>
+  </target>
+
+  <!-- Clean tasks -->
+  <target name="clean" description="Cleans the project">
+    <delete dir="${class.dir}" />
+    <delete file="${dist.dir}/${name}.jar" />
+  </target>
+</project>

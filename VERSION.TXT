@@ -1,5 +1,138 @@
 			           NORM Version History
 
+Version 1.5b1
+=============
+    - Added option to set NORM receiver "rx cache count max", i.e. the 
+      maximum number of pending object for which the receiver will keep
+      state (per sender).  The "NormSetRxCacheLimit()" API call was added
+      to control this option.
+    - Implemented timer-based flow control so that NORM sender apps will not
+      force purge of old buffered objects (or stream data) for which there is
+      "recent" NACK activity.  What is considered "recent" is based upon
+      "flowControlFactor*GRTT_sender*(1 + backoffFactor)".  Note that a 
+      "flowControlFactor" of 2.0 is default, but can be adjusted.  A
+      new API call "NormSetFlowControl()" will be provided for this.  Note that
+      if insufficient buffering is allocated, this flow control may limit
+      transmission rate for a given (delay*bandwidth, packetLoss conditions. 
+      However, the likely alternative (if flow control is disabled) is that
+      reliability would not be perfectly maintained.  Note that  enabling the
+      sender "push" option of course overrides the flow control for streams. 
+      For file/data objects, the app could choose to  explicitly cancel
+      (dequeue) objects or disable the flow control if the app wishes to "push
+      ahead" regardless of impact to reliability.  Note that when "pushing",
+      NORM strives to provide whatever reliability is possible given the
+      buffering/delay/bandwidth constraints the app imposes.
+    - Fixed problem with NormServeNode::PassiveRepairCheck() that caused
+      NORM to sometimes falsely acknowledge an object that was not yet
+      received (Thanks to Jeff Bush for finding this one).
+    - Added initial option for Explicit Congestion Notification (ECN) support
+      in "real-world" code.  This includes raw packet capture (via ProtoCap)
+      so that ECN header info can be examined and setting ECT-Capable Transport
+      (ECT) bits in IP TOS/Trafffic Class header field.
+    - Fixed bug in NORM API "NormFileGetName()" call that would overrun buffer
+      (Thanks to Adrian Cox)
+    - Fixed bug with NORM probe_timer "lockup" when tx_rate is set to 0.0
+      (Thanks again to Adrian Cox)
+    - Added experimental receiver "real-time" buffer management option.           
+      (not yet in API).  Causes receiver to enqueue new data in favor of          
+      old, incomplete data when buffer-constrained.  _May_ be useful for          
+      apps where receipt of "fresh" data is more important than reliability.      
+    - Added "requeue" option to "norm" test app to allow multiple retransmissions 
+      of a file to be "stitched" together by a NORM receiver.  See the            
+      NormRequeueObject() API call.  Thanks to Keith Hogie/ Ed Criscuolo          
+      for suggesting this.                                                        
+    - Enhanced NormSetRxPortReuse() behavior when bindSessionToAddr is true       
+      such that for unicast sessions a UDP socket "connect()" call is made        
+      to effectively "bind" the NormSession rx_socket to the remote               
+      unicast addr.  This _should_ enable proper demultiplexing of                
+      multiple unicast sessions using the same port.  (Note that this             
+      same technique _may_ be adopted in the future for Source-Specific           
+      Multicast (SSM) support as well where a NormSession is associated           
+      with a specific remote single sender.)                                      
+    - Added code to NormServerNode::Activate() so that when a previously          
+      INACTIVE remote sender becomes active again (reactivated) that              
+      the receiver automatically kicks off a new cycle of self-initiated          
+      NACKing for any pending objects.  Note this code applies when               
+      the "reactivation" is due to a non-object message (e.g. NORM_CMD)           
+      as reception of an object message (NORM_DATA/ NORM_INFO) will               
+      re-awaken NACKing as needed anyway.                                         
+      (Thanks to Jeff Bush for helping determine the utility of this)             
+    - The NORM source code tree has been re-organized.                            
+    - Added Python language binding to NORM API, examples, etc                    
+      (Thanks to Tom Wambold)                                                     
+    - Added WAF build scripts, etc (Thanks again to Tom Wambold)                  
+    - iPhone Makefile added (Thanks yet again to Tom Wambold)                     
+    - Bug fix to NORM receiver "rx_object_table" and "rx_pending_mask"            
+      interplay in NormSenderNode class. (Thanks to Dave Talmage for              
+      stressing NORM enough to find this)                                         
+    - Bug fix with parsing of "limit" command in normApp.cpp                      
+      (Thanks again to Dave Talmage)                                              
+    - Fixed bug in "NormSessionMgr::NewSession()" where a call                    
+      was made to NormSession::SetTxPort() that should not                        
+      have been!       
+    - Changed API calls to use "SetTx-XXX" and "SetRx-XXX" more
+      consistently instead of "SetTransmit-XXX", etc.  Sorry for
+      a change to a couple of key API calls, but this will be
+      nicer in the long term.   
+    - Fixed problems with NormSession::SenderQueueAppCmd() and 
+      NormSession::SenderQueueSquelch() where there as two different
+      mis-uses of the NormSession::msg_pool.  Thanks to Richard Edell
+      (MITRE) for finding this one.   
+    - Fixed problem introduced with new support of multiple "fec_id"
+      types (this version) where receiver processing of NORM_CMD
+      messages with FecPayloadId content (e.g. FLUSH, SQUELCH, etc)
+      _before_ reception of NORM_DATA would result in erroneous
+      messages being generated.   
+      Thanks again to Richard Edell (MITRE) for identifying this. 
+    - Added optional parameter to NormSetCongestionControl() to allow
+      NORM-CC operation to collect feedback but NOT actually adjust
+      transmission rate.  Also added NORM_TX_RATE_CHANGED notification
+      to inform app of when rate change (or suggested change) occurs.  
+    - Fixed issue where a small object where INFO was received but no
+      DATA was not causing receiver NACK process to start upon FLUSH
+      receipt as it should.  (Thanks to John Unger for finding this!)    
+    - Updated JAVA JNI binding code courtesy patches from Kenn Fynn
+      (Dark Corner Software)          
+    - Fixed bug where remote sender fec_id value was not cached when
+      only NORM_INFO has been received (thanks to Qingjun Xiao of GSU)  
+    - Added NormSetAutoAckingNodes() API call (and underlying code) to
+      allow sender acking node list to be "auto populated" based on 
+      hearing any message from a receiver (and/or optionally sender).
+      Also added NormGetNextAckingNode() API call to allow iteration
+      through acking node list to determine status (learn of who is 
+      listening, etc).  A feature _may_ be added to notify the
+      sender application when new receivers are detected (and added
+      to the list) and maybe even allow per-receiver control of whether
+      an ACK should be solicited or not.  I.e., the acking node list would
+      become more of a "tracked" receiver list.     
+    - Added enhanced congestion control feature where the receiver always
+      limits the reported rate back to the sender at no more than double
+      the observed receive rate.  Adds LIMIT flag to feedback cc flags
+      to facilitate this reporting. This is not part of RFC 5740 but not
+      incompatible with it ... just works a little better.  In the future,
+      another way to do this might be to adjust the reported loss value
+      accordingly ... and that would be RFC 5740 compliant although there
+      should be an errata or addendum to the RFC for this.
+    - Added ECN-based congestion control and simple loss-tolerant
+      congestion control options.  These will be better documented and
+      perhaps extended in the future.
+    - Added extended precision loss estimate reporting by using "RESERVED"
+      field in CC feedback extension header.  Again, non-RFC 5740 but
+      backwards compatible.  This helps over large bandwidth-delay links
+      to get to higher data rates.  Some more work will be done in this area
+      such as perhaps returning to some form of slow start (exponential increase)
+      behavior after many consecutive RTT with no congestion events.  Probably should
+      mirror the return to slow start behavior that occurs when data transmission is
+      idle.  This needs to be evaluated as NORM may start being unfairly aggressive
+      in such environments.
+    - This code has the beginnings of an approach to enable automated population
+      of the sender "acking node list"
+    - This code release needs to be more fully documented, but was important
+      to get online since it has _many_ improvements over the prior 
+      "stable release"
+                             
+     
+
 Version 1.4b3
 =============
     - Fixed many (hopefully all) cases where NORM_DATA message FLAG_REPAIR
@@ -21,6 +154,9 @@ Version 1.4b3
     - Fixed issue with NormSession::QueueTxObject() where ASSERT() failure
       occurred depending upon previous tx object enqueue/dequeue history
       (Thanks to Jeff Bush for finding this one)
+    - Changed repeated scheduling of receiver remote sender inactivity
+      timer to ensure that busy CPU doesn't result in premature 
+      inactivity indication.
     - Fixed issue with fix for stream lockup problem from below.
       (this is in version 1.4b3a)
       

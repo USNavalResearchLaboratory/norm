@@ -1,0 +1,58 @@
+#
+# Protean MacOS X (Darwin) Makefile definitions
+#
+
+SDK = /Developer/Platforms/iPhoneOS.platform/Developer
+ARCH = armv6
+SYSROOT = $(SDK)/SDKs/iPhoneOS2.2.1.sdk
+
+# 1) System specific additional libraries, include paths, etc
+#    (Where to find X11 libraries, etc)
+#
+
+SYSTEM_INCLUDES = 
+SYSTEM_LDFLAGS = -L$(SYSROOT)/usr/lib
+SYSTEM_LIBS = -lresolv
+
+# 2) System specific capabilities
+# Must choose appropriate for the following:
+#
+# A) -DHAVE_CUSERID (preferred) or -DHAVE_GETLOGIN for cuserid() or getlogin()
+#     functions to obtain user's login name (We may change this to getpwd() 
+#     if that is better across different platforms and login environments)
+#
+# B) -DHAVE_LOCKF (preferred) or -D_LOCKF for lockf() or flock() file locking
+#     functions to attempt exclusive lock on writing to files
+# 
+# C) Specify -DHAVE_DIRFD if you system provides the "dirfd()" function
+#    (Most don't have it defined ... but some do)
+#
+# D) Optionally specify -DHAVE_ASSERT if your system has a built-in ASSERT()
+#    routine.
+#
+# E) Some systems (SOLARIS/SUNOS) have a few gotchas which require
+#    some #ifdefs to avoid compiler warnings ... so you might need
+#    to specify -DSOLARIS or -DSUNOS depending on your OS.
+#
+# F) Uncomment this if you have the NRL IPv6+IPsec software
+#DNETSEC = -DNETSEC -I/usr/inet6/include
+#
+# (We export these for other Makefiles as needed)
+#
+
+SYSTEM_HAVES = -DMACOSX -DECN_SUPPORT -DHAVE_IPV6 -DHAVE_ASSERT -DHAVE_GETLOGIN -DHAVE_FLOCK \
+-D_FILE_OFFSET_BITS=64 -DHAVE_DIRFD 
+
+SYSTEM_SRC = ../protolib/src/unix/bpfCap.cpp
+
+# The "SYSTEM" keyword can be used for dependent makes
+SYSTEM = iphone
+
+CC = $(SDK)/usr/bin/arm-apple-darwin9-g++-4.0.1 -arch $(ARCH) -isysroot $(SYSROOT)
+SYSTEM_CFLAGS = -Wall -Wcast-align -pedantic -fPIC -I$(SDK)/usr/include/gcc/darwin/4.0
+SYSTEM_SOFLAGS = -dynamiclib 
+SYSTEM_SOEXT = dylib
+RANLIB = $(SDK)/usr/bin/ranlib
+AR = $(SDK)/usr/bin/ar
+
+include Makefile.common

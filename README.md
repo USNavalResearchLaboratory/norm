@@ -13,16 +13,11 @@ modification, are permitted provided that:
 
 (1) source code distributions retain this paragraph in its entirety, 
 
-(2) distributions including binary code include this paragraph in
-  its entirety in the documentation or other materials provided 
-  with the distribution, and 
-
-(3) all advertising materials mentioning features or use of this 
+(2) all advertising materials mentioning features or use of this 
   software display the following acknowledgment:
 
    "This product includes software written and developed 
-    by Brian Adamson and Joe Macker of the Naval Research 
-    Laboratory (NRL)." 
+    by the Naval Research Laboratory (NRL)." 
 
 The name of NRL, the name(s) of NRL  employee(s), or any entity
 of the United States Government may not be used to endorse or
@@ -43,7 +38,7 @@ purposes, the authors would prefer that the code not be
 re-distributed so that users will obtain the latest (and most
 debugged/improved) release from the official NORM web site:
 
-<http://norm.pf.itd.nrl.navy.mil>
+<http://cs.itd.nrl.navy.mil/work/norm>
 
 
 SOURCE CODE
@@ -63,15 +58,14 @@ The following items can be build from this source code release:
   be provided as additional documentation in the future)
  
  
-3) norm (or norm.exe (WIN32) - command-line "demo" application
+2) norm (or norm.exe (WIN32) - command-line "demo" application
                                built from "common/normApp.cpp"
  
  (The included "Norm User's Guide" provides a rough overview
-  of how to use this demo app.  This document requires some
-  updating to be accurate and complete.  This demo application
+  of how to use this demo app.  This demo application
   is useful for file transfers (and streaming on Unix))
   
-4) normTest (or normTest.exe (WIN32)) - very simple test application
+3) normTest (or normTest.exe (WIN32)) - very simple test application
 
  (The "normTest" application (see "common/normTest.cpp") is really
   just a simple playground for preliminary testing of the NORM
@@ -80,7 +74,7 @@ The following items can be build from this source code release:
   (and better-documented) examples of NORM API usage will be 
   provided in the future.
   
-5) There is also an "examples" directory in the source code tree
+4) There is also an "examples" directory in the source code tree
    that contains some simplified examples of NORM API usage.  The
    example set will be expanded as time progresses.
    
