@@ -456,7 +456,7 @@ void NormInstance::PurgeSessionNotifications(NormSessionHandle sessionHandle)
 {
     Notification* prev = NULL;
     Notification* next = notify_queue.GetHead();
-    while (next)
+    while (NULL != next)
     {
         if (next->event.session == sessionHandle)
         {
@@ -546,9 +546,19 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
             default:
                 break;   
         }
-        if (NULL != theEvent) *theEvent = n->event;
+	break;
+    }
+    if (NULL != n)
+    {
         previous_notification = n;  // keep dispatched event for garbage collection
-        return true;
+        if (NULL != theEvent) *theEvent = n->event;
+    }
+    else if (NULL != theEvent)
+    {
+    	theEvent->type = NORM_EVENT_INVALID;
+	theEvent->session = NORM_SESSION_INVALID;
+	theEvent->sender = NORM_SESSION_INVALID;
+	theEvent->object = NORM_SESSION_INVALID;
     }
     if (notify_queue.IsEmpty())
     {
@@ -560,7 +570,7 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
        while (read(notify_fd[0], byte, 32) > 0);  // TBD - error check
 #endif // if/else WIN32/UNIX
     }
-    return false; 
+    return (NULL != n); 
 }  // end NormInstance::GetNextEvent()
 
 bool NormInstance::WaitForEvent()
@@ -813,8 +823,8 @@ NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle)
 NORM_API_LINKAGE
 bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent, bool waitForEvent)
 {
-    bool result = false;
     NormInstance* instance = (NormInstance*)instanceHandle;
+    bool result = false;
     if (instance)
     {
         if (instance->dispatcher.SuspendThread())
@@ -828,6 +838,8 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent, bo
                     if (!instance->WaitForEvent())
                     {
                         // Indication that NormInstance is dead
+			// TBD - how do we inform app although this shouldn't
+			// happen unless the app destroys the "instance"
                         return false;
                     }
                     // re-suspend thread after wait
@@ -838,10 +850,7 @@ bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent, bo
             instance->dispatcher.ResumeThread();
         }
     }
-    // We do this so we only return "false" when NormInstance is dead
-    if (!result && (NULL != theEvent))
-        theEvent->type = NORM_EVENT_INVALID;
-    return true;  
+    return result;  
 }  // end NormGetNextEvent()
 
 
@@ -882,11 +891,11 @@ void NormDestroySession(NormSessionHandle sessionHandle)
         if (instance->dispatcher.SuspendThread())
         {    
             NormSession* session = (NormSession*)sessionHandle;
-            if (session)
+            if (NULL != session)
             {
-                session->Close();
-                session->GetSessionMgr().DeleteSession(session);
-                instance->PurgeSessionNotifications(sessionHandle);
+	    	session->Close();
+		session->GetSessionMgr().DeleteSession(session);
+		instance->PurgeSessionNotifications(sessionHandle);
             }
             instance->dispatcher.ResumeThread();
         }

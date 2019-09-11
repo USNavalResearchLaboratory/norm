@@ -1,5 +1,14 @@
 			           NORM Version History
 
+Version 1.5b4
+=============
+    - Corrected change in behavior of non-blocking version of 
+      NormGetNextEvent() call to be consistent with documentation
+
+Version 1.5b3
+=============
+    - Added API functions to support integration of NORM into ZeroMQ
+    
 Version 1.5b2
 =============
     - Fixed bug with "graceful" stream closure when the sender application
