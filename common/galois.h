@@ -35,9 +35,9 @@
 
 namespace Norm
 {
-extern const unsigned char GINV[256];
-extern const unsigned char GEXP[512];
-extern const unsigned char GMULT[256][256];
+    extern const unsigned char GINV[256];
+    extern const unsigned char GEXP[512];
+    extern const unsigned char GMULT[256][256];
 }
 inline unsigned char gexp(unsigned int x) {return Norm::GEXP[x];}
 inline unsigned char gmult(unsigned int x, unsigned int y) {return Norm::GMULT[x][y];}

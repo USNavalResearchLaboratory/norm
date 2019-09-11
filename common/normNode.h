@@ -16,12 +16,13 @@ class NormNode
         NormNode(class NormSession* theSession, NormNodeId nodeId);
         virtual ~NormNode();
         
-        void SetAddress(const NetworkAddress& address)
-            {addr = address;}
-        const NetworkAddress Address() const {return addr;} 
+        void SetAddress(const NetworkAddress& address) {addr = address;}
+        const NetworkAddress& GetAddress() const {return addr;} 
         
-        const NormNodeId& Id() {return id;}
-        inline const NormNodeId& LocalNodeId(); 
+        const NormNodeId& Id() const {return id;}
+        inline const NormNodeId& LocalNodeId() const; 
+        
+        void SetId(const NormNodeId& nodeId) {id = nodeId;}
     
     protected:
         class NormSession*    session;
@@ -33,10 +34,153 @@ class NormNode
         NormNode*             parent;
         NormNode*             right;
         NormNode*             left;
-        NormNode*             prev;
-        NormNode*             next;
+        
+        //NormNode*             prev;
+        //NormNode*             next;
         
 };  // end class NormNode
+
+// Weighted-history loss event estimator
+class NormLossEstimator
+{
+    public:
+        NormLossEstimator();
+        double LossFraction();       
+        bool Update(const struct timeval&   currentTime,
+                    unsigned short          seqNumber, 
+                    bool                    ecn = false);
+        void SetLossEventWindow(double lossWindow) {event_window = lossWindow;}
+        void SetInitialLoss(double lossFraction)
+        {
+            memset(history, 0, (DEPTH+1)*sizeof(unsigned int));
+            history[1] = (unsigned int)((1.0 / lossFraction) + 0.5);
+        }
+        unsigned int LastLossInterval() {return history[1];}
+            
+    private:
+        enum {DEPTH = 8};
+        enum {MAX_OUTAGE = 100};
+    
+        void Sync(unsigned short seq) 
+        {
+            index_seq = seq;
+            synchronized = true;
+        }
+        int SequenceDelta(unsigned short a, unsigned short b);
+    
+        static const double weight[8];
+        
+        bool                synchronized;
+        unsigned short      index_seq;
+        bool                seeking_loss_event;
+        double              event_window;
+        struct timeval      event_time;
+        unsigned int        history[DEPTH+1];
+};  // end class NormLossEstimator
+
+
+class NormLossEstimator2
+{
+    public:
+        NormLossEstimator2();
+        void SetEventWindow(unsigned short windowDepth)
+            {event_window = windowDepth;}
+        void SetLossEventWindow(double theTime)
+            {event_window_time = theTime;}
+        bool Update(const struct timeval&   currentTime,
+                    unsigned short          seqNumber, 
+                    bool                    ecn = false);
+        double LossFraction();
+        double MdpLossFraction() 
+            {return ((loss_interval > 0.0) ? (1.0/loss_interval) : 0.0);}
+        double TfrcLossFraction();
+        bool NoLoss() {return no_loss;}
+        void SetInitialLoss(double lossFraction) 
+        {
+            memset(history, 0, (DEPTH+1)*sizeof(unsigned int));
+            history[1] = (unsigned int)((1.0 / lossFraction) + 0.5);
+        }
+        unsigned long CurrentLossInterval() {return history[0];}
+        unsigned int LastLossInterval() {return history[1];}
+
+    private:
+            enum {DEPTH = 8};
+    // Members  
+        bool            init;
+        unsigned long   lag_mask;
+        unsigned int    lag_depth;
+        unsigned long   lag_test_bit;
+        unsigned short  lag_index;
+        
+        unsigned short  event_window;
+        unsigned short  event_index;
+        double          event_window_time;
+        double          event_index_time;
+        bool            seeking_loss_event;
+        
+        bool            no_loss;
+        double          initial_loss;
+        
+        double          loss_interval;  // EWMA of loss event interval
+        
+        unsigned long       history[9];  // loss interval history
+        double              discount[9];
+        double              current_discount;
+        static const double weight[8];
+        
+        void Init(unsigned short theSequence)
+            {init = true; Sync(theSequence);}
+        void Sync(unsigned short theSequence)
+            {lag_index = theSequence;}
+        void ChangeLagDepth(unsigned int theDepth)
+        {
+            theDepth = (theDepth > 20) ? 20 : theDepth;
+            lag_depth = theDepth;
+            lag_test_bit = 0x01 << theDepth;
+        }
+        int SequenceDelta(unsigned short a, unsigned short b);
+    
+};  // end class NormLossEstimator2
+
+
+class NormCCNode : public NormNode
+{
+    public:
+       NormCCNode(class NormSession* theSession, NormNodeId nodeId);
+       ~NormCCNode();
+       
+       bool IsClr() const {return is_clr;}
+       bool IsActive() const {return is_active;}
+       bool HasRtt() const {return rtt_confirmed;}
+       
+       double GetRtt() const {return rtt;}
+       double GetLoss() const {return loss;}
+       double GetRate() const {return rate;}
+       UINT8 GetCCSequence() const {return cc_sequence;}
+       
+       void SetActive(bool state) {is_active = state;}
+       void SetClrStatus(bool state) {is_clr = state;}
+       void SetRttStatus(bool state) {rtt_confirmed = state;}
+       void SetRtt(double value)  {rtt = value;}
+       double UpdateRtt(double value)
+       {
+            rtt = 0.9*rtt + 0.1 * value;   
+            return rtt;
+       }
+       void SetLoss(double value) {loss = value;}
+       void SetRate(double value) {rate = value;}
+       void SetCCSequence(UINT8 value) {cc_sequence = value;}
+       
+    private:
+        bool    is_clr; // true if worst path representative
+        bool    is_plr; // true if worst path candidate
+        bool    is_active;
+        bool    rtt_confirmed;
+        double  rtt;    // in seconds
+        double  loss;   // loss fraction
+        double  rate;   // in bytes per second
+        UINT8   cc_sequence;
+};  // end class NormCCNode
 
 class NormServerNode : public NormNode
 {
@@ -46,15 +190,28 @@ class NormServerNode : public NormNode
         NormServerNode(class NormSession* theSession, NormNodeId nodeId);  
         ~NormServerNode();
         
-        void HandleCommand(NormCommandMsg& cmd);
-        void HandleObjectMessage(NormMessage& msg);
-        void HandleNackMessage(NormNackMsg& nack);
-                
-        bool Open(UINT16 segmentSize, UINT16 numData, UINT16 numParity);
+        bool UpdateLossEstimate(const struct timeval&   currentTime,
+                                unsigned short          theSequence, 
+                                bool                    ecnStatus = false);
+        double LossEstimate() {return loss_estimator.LossFraction();}
+        
+        void UpdateRecvRate(const struct timeval& currentTime,
+                            unsigned short        msgSize);
+        
+        void HandleCommand(const struct timeval& currentTime,
+                           const NormCmdMsg&     cmd);
+        
+        void HandleObjectMessage(const NormObjectMsg& msg);
+        void HandleCCFeedback(UINT8 ccFlags, double ccRate);
+        void HandleNackMessage(const NormNackMsg& nack);
+        void HandleAckMessage(const NormAckMsg& ack);
+        
+        bool Open(UINT16 sessionId, UINT16 segmentSize, UINT16 numData, UINT16 numParity);
+        void Activate();
         void Close();
         bool IsOpen() const {return is_open;}        
         
-        bool SyncTest(const NormMessage& msg) const;
+        bool SyncTest(const NormObjectMsg& msg) const;
         void Sync(NormObjectId objectId);
         ObjectStatus UpdateSyncStatus(const NormObjectId& objectId);
         void SetPending(NormObjectId objectId);
@@ -65,8 +222,6 @@ class NormServerNode : public NormNode
         UINT16 SegmentSize() {return segment_size;}
         UINT16 BlockSize() {return ndata;}
         UINT16 NumParity() {return nparity;}
-        //NormBlockPool* BlockPool() {return &block_pool;}
-        //NormSegmentPool* SegmentPool() {return &segment_pool;}
         
         NormBlock* GetFreeBlock(NormObjectId objectId, NormBlockId blockId);
         void PutFreeBlock(NormBlock* block)
@@ -90,27 +245,29 @@ class NormServerNode : public NormNode
             return decoder.Decode(segmentList, numData, erasureCount, erasure_loc);   
         }
         
-        void CalculateGrttResponse(struct timeval& grttResponse);
+        void CalculateGrttResponse(const struct timeval& currentTime,
+                                   struct timeval&       grttResponse) const;
         
-        unsigned long CurrentBufferUsage()
+        // Statistics kept on server
+        unsigned long CurrentBufferUsage() const
             {return (segment_size * segment_pool.CurrentUsage());}
-        unsigned long PeakBufferUsage()
+        unsigned long PeakBufferUsage() const
             {return (segment_size * segment_pool.PeakUsage());}
-        unsigned long BufferOverunCount()
+        unsigned long BufferOverunCount() const
             {return segment_pool.OverunCount() + block_pool.OverrunCount();}
-        
-        unsigned long RecvTotal() {return recv_total;}
-        unsigned long RecvGoodput() {return recv_goodput;}
+        unsigned long RecvTotal() const {return recv_total;}
+        unsigned long RecvGoodput() const {return recv_goodput;}
         void IncrementRecvTotal(unsigned long count) {recv_total += count;}
         void IncrementRecvGoodput(unsigned long count) {recv_goodput += count;}
         void ResetRecvStats() {recv_total = recv_goodput = 0;}
         void IncrementResyncCount() {resync_count++;}
-        unsigned long ResyncCount() {return resync_count;}
-        unsigned long NackCount() {return nack_count;}
-        unsigned long SuppressCount() {return suppress_count;}
-        unsigned long CompletionCount() {return completion_count;}
-        unsigned long PendingCount() {return rx_table.Count();}
-        unsigned long FailureCount() {return failure_count;}
+        unsigned long ResyncCount() const {return resync_count;}
+        unsigned long NackCount() const {return nack_count;}
+        unsigned long SuppressCount() const {return suppress_count;}
+        unsigned long CompletionCount() const {return completion_count;}
+        unsigned long PendingCount() const {return rx_table.Count();}
+        unsigned long FailureCount() const {return failure_count;}
+        
         
     private:
         void RepairCheck(NormObject::CheckLevel checkLevel,
@@ -118,9 +275,12 @@ class NormServerNode : public NormNode
                          NormBlockId            blockId,
                          NormSegmentId          segmentId);
     
+        bool OnActivityTimeout();
         bool OnRepairTimeout();
+        bool OnCCTimeout();
+        void HandleRepairContent(const char* buffer, UINT16 bufferLen);
             
-            
+        UINT16              session_id;
         bool                synchronized;
         NormObjectId        sync_id;  // only valid if(synchronized)
         NormObjectId        next_id;  // only valid if(synchronized)
@@ -138,8 +298,10 @@ class NormServerNode : public NormNode
         NormDecoder         decoder;
         UINT16*             erasure_loc;
         
+        ProtocolTimer       activity_timer;
         ProtocolTimer       repair_timer;
-        NormObjectId        current_object_id; // index for repair
+        NormObjectId        current_object_id;  // index for suppression
+        NormObjectId        max_pending_object; // index for NACK construction
                 
         double              grtt_estimate;
         UINT8               grtt_quantized;
@@ -147,6 +309,25 @@ class NormServerNode : public NormNode
         struct timeval      grtt_recv_time;
         double              gsize_estimate;
         UINT8               gsize_quantized;
+        
+        // Congestion control state
+        NormLossEstimator2  loss_estimator;
+        //NormLossEstimator   loss_estimator;
+        UINT8               cc_sequence;
+        bool                cc_enable;
+        double              cc_rate;     // ccRate at start of cc_timer
+        ProtocolTimer       cc_timer;
+        double              rtt_estimate;
+        UINT8               rtt_quantized;
+        bool                rtt_confirmed;
+        bool                is_clr;
+        bool                is_plr;
+        bool                slow_start;        
+        double              send_rate;         // sender advertised rate
+        double              recv_rate;         // measured recv rate
+        struct timeval      prev_update_time;  // for recv_rate measurement
+        unsigned long       recv_accumulator;  // for recv_rate measurement
+        double              nominal_packet_size;
         
         // For statistics tracking
         unsigned long       recv_total;   // total recvd accumulator
@@ -157,7 +338,7 @@ class NormServerNode : public NormNode
         unsigned long       completion_count;
         unsigned long       failure_count;  // due to re-syncs
         
-};  // end class NodeServerNode
+};  // end class NormServerNode
     
     
     // Used for binary trees of NormNodes
@@ -179,9 +360,7 @@ class NormNodeTree
         void AttachNode(NormNode *theNode);
         void DetachNode(NormNode *theNode);   
         void Destroy();    // delete all nodes in tree
-        
-        
-        
+       
     private: 
     // Members
         NormNode* root;
@@ -208,6 +387,7 @@ class NormNodeList
     // Construction
         NormNodeList();
         ~NormNodeList();
+        unsigned int GetCount() {return count;}
         NormNode* FindNodeById(NormNodeId nodeId) const;
         void Append(NormNode* theNode);
         void Remove(NormNode* theNode);
@@ -218,13 +398,14 @@ class NormNodeList
             delete theNode;
         }
         void Destroy();  // delete all nodes in list
-        
+        const NormNode* Head() {return head;}
         
         
     // Members
     private:
         NormNode*                    head;
         NormNode*                    tail;
+        unsigned int                 count;
 };  // end class NormNodeList
 
 class NormNodeListIterator
@@ -236,7 +417,7 @@ class NormNodeListIterator
         NormNode* GetNextNode()
         {
             NormNode* n = next;
-            next = n ? n->next : NULL;
+            next = n ? n->right : NULL;
             return n;   
         }
     private:

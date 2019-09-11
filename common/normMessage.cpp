@@ -1,5 +1,136 @@
 #include "normMessage.h"
 
+
+NormHeaderExtension::NormHeaderExtension()
+ : buffer(NULL)
+{
+    
+}
+
+
+NormMsg::NormMsg() 
+ : length(8), header_length(8), header_length_base(8)
+{
+    SetType(INVALID);
+    SetVersion(NORM_PROTOCOL_VERSION);
+}
+
+bool NormMsg::InitFromBuffer(UINT16 msgLength)
+{
+    header_length = GetHeaderLength();
+    // "header_length_base" is type dependent
+    switch (GetType())
+    {
+        
+        // for INFO, DATA, and  
+        case INFO:
+            header_length_base = 16;
+            break;
+        case DATA:
+            // (TBD) look at "fec_id" to determine "fec_payload_id" size 
+            // (we _assume_ "fec_id" == 129 here
+            if ((unsigned char)buffer[NormDataMsg::FEC_ID_OFFSET] == 129)
+            {
+                header_length_base = 24;
+            }
+            else
+            {
+                DMSG(0, "NormMsg::InitFromBuffer(DATA) unknown fec_id value: %u\n",
+                         buffer[NormDataMsg::FEC_ID_OFFSET]);
+                return false;
+            }
+            break;
+        case CMD:
+            switch (buffer[NormCmdMsg::FLAVOR_OFFSET])
+            {
+                case NormCmdMsg::FLUSH:
+                case NormCmdMsg::SQUELCH:
+                    // (TBD) look at "fec_id" to determine "fec_payload_id" size 
+                    // (we _assume_ "fec_id" == 129 here
+                    if ((unsigned char)buffer[NormCmdFlushMsg::FEC_ID_OFFSET] == 129)
+                    {
+                        header_length_base = 24;
+                    }
+                    else
+                    {
+                        DMSG(0, "NormMsg::InitFromBuffer(FLUSH|SQUELCH) unknown fec_id value: %u\n",
+                                 buffer[NormDataMsg::FEC_ID_OFFSET]);
+                        return false;
+                    }
+                    break;
+                case NormCmdMsg::EOT:
+                case NormCmdMsg::REPAIR_ADV:
+                case NormCmdMsg::ACK_REQ: 
+                case NormCmdMsg::APPLICATION: 
+                    header_length_base = 16;
+                    break;
+                case NormCmdMsg::CC:
+                    header_length_base = 24;
+                    break;
+            }
+            break;
+        case NACK:
+        case ACK:
+            header_length_base= 24;
+            break;
+        case REPORT:
+            header_length_base= 8;
+            break;
+           
+        default:
+            DMSG(0, "NormMsg::InitFromBuffer() invalid message type!\n");
+            return false;
+    }
+    ASSERT(msgLength >= header_length);
+    length = msgLength;
+    return true;
+}  // end NormMsg::InitFromBuffer()
+
+bool NormCmdCCMsg::GetCCNode(NormNodeId     nodeId, 
+                             UINT8&         flags, 
+                             UINT8&         rtt, 
+                             UINT16&        rate) const
+{
+    UINT16 cmdLength = length;
+    UINT16 offset = header_length;
+    nodeId = htonl(nodeId);
+    while (offset < cmdLength)
+    {
+        if (nodeId == *((UINT32*)(buffer+offset)))
+        {
+            const char* ptr = buffer+offset;
+            flags = ptr[CC_FLAGS_OFFSET];
+            rtt = ptr[CC_RTT_OFFSET];
+            rate = ntohs(*((UINT16*)(ptr+CC_RATE_OFFSET)));
+            return true;
+        } 
+        offset += CC_ITEM_SIZE;
+    }
+    return false;
+}  // end NormCmdCCMsg::GetCCNode()
+
+NormCmdCCMsg::Iterator::Iterator(const NormCmdCCMsg& msg)
+ : cc_cmd(msg), offset(0)
+{
+    
+}
+
+bool NormCmdCCMsg::Iterator::GetNextNode(NormNodeId&    nodeId, 
+                                         UINT8&         flags, 
+                                         UINT8&         rtt, 
+                                         UINT16&        rate)
+{
+    if ((offset+CC_ITEM_SIZE) >  cc_cmd.GetLength()) return false; 
+    const char* ptr = cc_cmd.buffer + cc_cmd.header_length;
+    nodeId = ntohl(*((UINT32*)(ptr+offset))); 
+    flags = ptr[offset+CC_FLAGS_OFFSET];
+    rtt = ptr[offset+CC_RTT_OFFSET];
+    rate = ntohs(*((UINT16*)(ptr+CC_RATE_OFFSET)));
+    offset += CC_ITEM_SIZE;
+    return true;
+}  // end NormCmdCCMsg::Iterator::GetNextNode()
+
+
 NormRepairRequest::NormRepairRequest()
  : form(INVALID), flags(0), length(0), buffer(NULL), buffer_len(0)
 {
@@ -7,22 +138,24 @@ NormRepairRequest::NormRepairRequest()
 
 bool NormRepairRequest::AppendRepairItem(const NormObjectId& objectId, 
                                          const NormBlockId&  blockId,
+                                         UINT16              blockLen,
                                          UINT16              symbolId)
 {
     if (RANGES == form)
-        DMSG(4, "NormRepairRequest::AppendRepairRange(obj>%hu blk>%lu seg>%hu) ...\n",
+        DMSG(4, "NormRepairRequest::AppendRepairItem-Range(obj>%hu blk>%lu seg>%hu) ...\n",
             (UINT16)objectId, (UINT32)blockId, (UINT32)symbolId);
     else
         DMSG(4, "NormRepairRequest::AppendRepairItem(obj>%hu blk>%lu seg>%hu) ...\n",
             (UINT16)objectId, (UINT32)blockId, (UINT32)symbolId);
-    if (buffer_len >= (length+CONTENT_OFFSET+RepairItemLength()))
+    if (buffer_len >= (length+ITEM_LIST_OFFSET+RepairItemLength()))
     {
-        UINT16 temp16 = htons((UINT16)objectId);
-        memcpy(buffer+CONTENT_OFFSET+length, &temp16, 2);
-        UINT32 temp32 =htonl((UINT32)blockId);
-        memcpy(buffer+length+CONTENT_OFFSET+2, &temp32, 4);
-        symbolId = htons(symbolId);
-        memcpy(buffer+length+CONTENT_OFFSET+6, &symbolId, 2);
+        char* ptr = buffer + length + ITEM_LIST_OFFSET;
+        ptr[FEC_ID_OFFSET] = 129;
+        ptr[RESERVED_OFFSET] = 0;
+        *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)objectId);
+        *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)blockId);
+        *((UINT16*)(ptr+BLOCK_LEN_OFFSET)) = htons((UINT16)blockLen);
+        *((UINT16*)(ptr+SYMBOL_ID_OFFSET)) = htons((UINT16)symbolId);
         length += RepairItemLength();
         return true;
     }
@@ -34,31 +167,34 @@ bool NormRepairRequest::AppendRepairItem(const NormObjectId& objectId,
 
 bool NormRepairRequest::AppendRepairRange(const NormObjectId&   startObjectId, 
                                           const NormBlockId&    startBlockId,
+                                          UINT16                startBlockLen,
                                           UINT16                startSymbolId,
                                           const NormObjectId&   endObjectId, 
                                           const NormBlockId&    endBlockId,
+                                          UINT16                endBlockLen,
                                           UINT16                endSymbolId)
 {
     DMSG(4, "NormRepairRequest::AppendRepairRange(%hu:%lu:%hu->%hu:%lu:%hu) ...\n",
             (UINT16)startObjectId, (UINT32)startBlockId, (UINT32)startSymbolId,
             (UINT16)endObjectId, (UINT32)endBlockId, (UINT32)endSymbolId);
-    if (buffer_len >= (length+CONTENT_OFFSET+RepairRangeLength()))
+    if (buffer_len >= (length+ITEM_LIST_OFFSET+RepairRangeLength()))
     {
         // range start
-        UINT16 temp16;
-        temp16 = htons((UINT16)startObjectId);
-        memcpy(buffer+CONTENT_OFFSET+length, &temp16, 2);
-        UINT32 temp32 =htonl((UINT32)startBlockId);
-        memcpy(buffer+length+CONTENT_OFFSET+2, &temp32, 4);
-        startSymbolId = htons(startSymbolId);
-        memcpy(buffer+length+CONTENT_OFFSET+6, &startSymbolId, 2);
+        char* ptr = buffer + length + ITEM_LIST_OFFSET;
+        ptr[FEC_ID_OFFSET] = 129;
+        ptr[RESERVED_OFFSET] = 0;
+        *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)startObjectId);
+        *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)startBlockId);
+        *((UINT16*)(ptr+BLOCK_LEN_OFFSET)) = htons((UINT16)startBlockLen);
+        *((UINT16*)(ptr+SYMBOL_ID_OFFSET)) = htons((UINT16)startSymbolId);
+        ptr += RepairItemLength();
         // range end
-        temp16 = htons((UINT16)endObjectId);
-        memcpy(buffer+CONTENT_OFFSET+length+8, &temp16, 2);
-        temp32 =htonl((UINT32)endBlockId);
-        memcpy(buffer+length+CONTENT_OFFSET+10, &temp32, 4);
-        endSymbolId = htons(endSymbolId);
-        memcpy(buffer+length+CONTENT_OFFSET+14, &endSymbolId, 2);
+        ptr[FEC_ID_OFFSET] = 129;
+        ptr[RESERVED_OFFSET] = 0;
+        *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)endObjectId);
+        *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)endBlockId);
+        *((UINT16*)(ptr+BLOCK_LEN_OFFSET)) = htons((UINT16)endBlockLen);
+        *((UINT16*)(ptr+SYMBOL_ID_OFFSET)) = htons((UINT16)endSymbolId);
         length += RepairRangeLength();
         return true;
     }
@@ -66,20 +202,22 @@ bool NormRepairRequest::AppendRepairRange(const NormObjectId&   startObjectId,
     {
         return false;
     }
-}  // end NormRepairRequest::AppendErasureCount()
+}  // end NormRepairRequest::AppendRepairRange()
 
 bool NormRepairRequest::AppendErasureCount(const NormObjectId& objectId, 
                                            const NormBlockId&  blockId,
+                                           UINT16              blockLen,
                                            UINT16              erasureCount)
 {
-    if (buffer_len >= (CONTENT_OFFSET+length+ErasureItemLength()))
+    if (buffer_len >= (ITEM_LIST_OFFSET+length+ErasureItemLength()))
     {
-        UINT16 temp16 = htons((UINT16)objectId);
-        memcpy(buffer+CONTENT_OFFSET+length, &temp16, 2);
-        UINT32 temp32 =htonl((UINT32)blockId);
-        memcpy(buffer+length+CONTENT_OFFSET+2, &temp32, 4);
-        erasureCount = htons(erasureCount);
-        memcpy(buffer+length+CONTENT_OFFSET+6, &erasureCount, 2);
+        char* ptr = buffer + length + ITEM_LIST_OFFSET;
+        ptr[FEC_ID_OFFSET] = 129;
+        ptr[RESERVED_OFFSET] = 0;
+        *((UINT16*)(ptr+OBJ_ID_OFFSET)) = htons((UINT16)objectId);
+        *((UINT32*)(ptr+BLOCK_ID_OFFSET)) = htonl((UINT32)blockId);
+        *((UINT16*)(ptr+BLOCK_LEN_OFFSET)) = htons((UINT16)blockLen);
+        *((UINT16*)(ptr+SYMBOL_ID_OFFSET)) = htons((UINT16)erasureCount);
         length += ErasureItemLength();
         return true;
     }
@@ -96,9 +234,8 @@ UINT16 NormRepairRequest::Pack()
     {
         buffer[FORM_OFFSET] = form;
         buffer[FLAGS_OFFSET] = (char)flags;
-        UINT16 temp16 = htons(length);
-        memcpy(buffer+LENGTH_OFFSET, &temp16, 2);
-        return (CONTENT_OFFSET + length);
+        *((UINT16*)(buffer+LENGTH_OFFSET)) = htons(length);
+        return (ITEM_LIST_OFFSET + length);
     }
     else
     {
@@ -107,23 +244,26 @@ UINT16 NormRepairRequest::Pack()
 }  // end NormRepairRequest::Pack()
 
 
-UINT16 NormRepairRequest::Unpack()
+UINT16 NormRepairRequest::Unpack(const char* bufferPtr, UINT16 bufferLen)
 {
+    buffer =  (char*)bufferPtr;
+    buffer_len = bufferLen;
+    length = 0;
+    
     // Make sure there's at least a header
-    if (buffer_len >= CONTENT_OFFSET)
+    if (buffer_len >= ITEM_LIST_OFFSET)
     {
         form = (Form)buffer[FORM_OFFSET];
         flags = (int)buffer[FLAGS_OFFSET];
-        memcpy(&length, buffer+LENGTH_OFFSET, 2);
-        length = ntohs(length);
-        if (length > (buffer_len - CONTENT_OFFSET))
+        length = ntohs(*((UINT16*)(buffer+LENGTH_OFFSET)));
+        if (length > (buffer_len - ITEM_LIST_OFFSET))
         {
             // Badly formed message
             return 0;
         }
         else 
         {
-            return (CONTENT_OFFSET+length);
+            return (ITEM_LIST_OFFSET+length);
         }
     }
     else
@@ -135,18 +275,16 @@ UINT16 NormRepairRequest::Unpack()
 bool NormRepairRequest::RetrieveRepairItem(UINT16        offset,
                                            NormObjectId* objectId,
                                            NormBlockId*  blockId,
+                                           UINT16*       blockLen,
                                            UINT16*       symbolId) const
 {
     if (length >= (offset + RepairItemLength()))
     {
-        UINT16 temp16;
-        memcpy(&temp16, buffer+CONTENT_OFFSET+offset, 2);
-        *objectId = ntohs(temp16);
-        UINT32 temp32;
-        memcpy(&temp32, buffer+CONTENT_OFFSET+offset+2, 4);
-        *blockId = ntohl(temp32);
-        memcpy(symbolId, buffer+CONTENT_OFFSET+offset+6, 2);
-        *symbolId = ntohs(*symbolId);
+        const char* ptr = buffer+ITEM_LIST_OFFSET+offset;
+        *objectId = ntohs(*((UINT16*)(ptr+OBJ_ID_OFFSET)));
+        *blockId = ntohl(*((UINT32*)(ptr+BLOCK_ID_OFFSET)));
+        *blockLen = ntohs(*((UINT16*)(ptr+BLOCK_LEN_OFFSET)));
+        *symbolId = ntohs(*((UINT16*)(ptr+SYMBOL_ID_OFFSET)));
         return true;
     }
     else
@@ -163,9 +301,10 @@ NormRepairRequest::Iterator::Iterator(NormRepairRequest& theRequest)
 // For erasure requests, symbolId is loaded with erasureCount
 bool NormRepairRequest::Iterator::NextRepairItem(NormObjectId* objectId,
                                                  NormBlockId*  blockId,
+                                                 UINT16*       blockLen,
                                                  UINT16*       symbolId)
 {
-    if (request.RetrieveRepairItem(offset, objectId, blockId, symbolId))
+    if (request.RetrieveRepairItem(offset, objectId, blockId, blockLen, symbolId))
     {
         offset += NormRepairRequest::RepairItemLength();
         return true;
@@ -175,6 +314,8 @@ bool NormRepairRequest::Iterator::NextRepairItem(NormObjectId* objectId,
         return false;
     }
 }  // end NormRepairRequest::Iterator::NextRepairItem()
+
+
 
 
 NormMessageQueue::NormMessageQueue()
@@ -189,7 +330,7 @@ NormMessageQueue::~NormMessageQueue()
 
 void NormMessageQueue::Destroy()
 {
-    NormMessage* next;
+    NormMsg* next;
     while ((next = head))
     {
         head = next->next;
@@ -198,7 +339,7 @@ void NormMessageQueue::Destroy()
 }  // end NormMessageQueue::Destroy()
 
 
-void NormMessageQueue::Prepend(NormMessage* msg)
+void NormMessageQueue::Prepend(NormMsg* msg)
 {
     if ((msg->next = head))
         head->prev = msg;
@@ -208,7 +349,7 @@ void NormMessageQueue::Prepend(NormMessage* msg)
     head = msg;
 }  // end NormMessageQueue::Prepend()
 
-void NormMessageQueue::Append(NormMessage* msg)
+void NormMessageQueue::Append(NormMsg* msg)
 {
     if ((msg->prev = tail))
         tail->next = msg;
@@ -218,7 +359,7 @@ void NormMessageQueue::Append(NormMessage* msg)
     tail = msg;
 }  // end NormMessageQueue::Append() 
 
-void NormMessageQueue::Remove(NormMessage* msg)
+void NormMessageQueue::Remove(NormMsg* msg)
 {
     if (msg->prev)
         msg->prev->next = msg->next;
@@ -230,11 +371,11 @@ void NormMessageQueue::Remove(NormMessage* msg)
         tail = msg->prev;
 }  // end NormMessageQueue::Remove()
 
-NormMessage* NormMessageQueue::RemoveHead()
+NormMsg* NormMessageQueue::RemoveHead()
 {
     if (head)
     {
-        NormMessage* msg = head;
+        NormMsg* msg = head;
         if ((head = msg->next))
             msg->next->prev = NULL;
         else
@@ -247,11 +388,11 @@ NormMessage* NormMessageQueue::RemoveHead()
     }
 }  // end NormMessageQueue::RemoveHead()
 
-NormMessage* NormMessageQueue::RemoveTail()
+NormMsg* NormMessageQueue::RemoveTail()
 {
     if (tail)
     {
-        NormMessage* msg = tail;
+        NormMsg* msg = tail;
         if ((tail = msg->prev))
             msg->prev->next = NULL;
         else

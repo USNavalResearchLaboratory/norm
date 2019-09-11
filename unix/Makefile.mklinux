@@ -66,6 +66,8 @@ SYSTEM_LIBS = -ldl
 export SYSTEM_HAVES = -DHAVE_CUSERID -DHAVE_LOCKF -DHAVE_DIRFD $(NETSEC)
 
 export CC = gcc
+export RANLIB = ranlib
+export AR = ar
 
 include Makefile.common
 

@@ -32,6 +32,6 @@
  
 #ifndef _NORM_VERSION
 #define _NORM_VERSION
-#define VERSION "1.0x1"
+#define VERSION "1.0b2"
 #endif // _NORM_VERSION
         

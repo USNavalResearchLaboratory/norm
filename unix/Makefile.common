@@ -13,7 +13,7 @@ NS = ../ns
 
 INCLUDES = $(TCL_INCL_PATH) $(SYSTEM_INCLUDES) -I$(UNIX) -I$(COMMON) -I$(PROTOLIB)/common
 
-CFLAGS = -g -DPROTO_DEBUG -DUNIX -Wall -O -fPIC $(SYSTEM_HAVES) $(INCLUDES)
+CFLAGS = -g -DPROTO_DEBUG -DUNIX -O -fPIC $(SYSTEM_HAVES) $(INCLUDES)
 
 LDFLAGS = $(SYSTEM_LDFLAGS)
 
@@ -49,7 +49,7 @@ TARGETS = mdp tkMdp
 # MDP depends upon the NRL Protean Group's development library
 LIBPROTO = $(PROTOLIB)/unix/libProto.a
 $(PROTOLIB)/unix/libProto.a: 
-	make -C $(PROTOLIB)/unix -f Makefile.common libProto.a
+	cd $(PROTOLIB)/unix; $(MAKE) -f Makefile.$(SYSTEM) libProto.a
 
 NORM_SRC = $(COMMON)/normMessage.cpp $(COMMON)/normSession.cpp \
            $(COMMON)/normNode.cpp $(COMMON)/normObject.cpp \
@@ -63,8 +63,8 @@ LIB_SRC = $(NORM_SRC)
 LIB_OBJ = $(LIB_SRC:.cpp=.o)
 
 libnorm.a:    $(LIB_OBJ)
-	ar rcv $@ $(LIB_OBJ)
-	ranlib $@
+	$(AR) rcv $@ $(LIB_OBJ)
+	$(RANLIB) $@
 
 .cpp-sim.o:
 	$(CC) -c $(CFLAGS) -DSIMULATE -o $*-sim.o $*.cpp
@@ -77,15 +77,15 @@ libnormSim.a:   $(SIM_OBJ)
 	ranlib $@
     
 # (mdp) command-line file broadcaster/receiver
-APP_SRC = $(COMMON)/normApp.cpp
+APP_SRC = $(COMMON)/normApp.cpp $(COMMON)/normPostProcess.cpp
 APP_OBJ = $(APP_SRC:.cpp=.o)
 
 norm:    $(APP_OBJ) libnorm.a $(LIBPROTO) 
-	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) $(LIBS) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO)  $(LIBS)  
     	    
 clean:	
 	rm -f $(COMMON)/*.o  $(UNIX)/*.o $(UNIX)/libnorm.a $(UNIX)/norm $(NS)/*.o;
-	make -C $(PROTOLIB)/unix -f Makefile.common clean
+	cd $(PROTOLIB)/unix; $(MAKE) -f Makefile.$(SYSTEM) clean
 
 # DO NOT DELETE THIS LINE -- mkdep uses it.
 # DO NOT PUT ANYTHING AFTER THIS LINE, IT WILL GO AWAY.

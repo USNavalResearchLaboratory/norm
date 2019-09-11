@@ -62,8 +62,10 @@ SYSTEM_LIBS =
 # (We export these for other Makefiles as needed)
 #
 
-export SYSTEM_HAVES =  -DHAVE_GETLOGIN -DHAVE_ASSERT -DHAVE_FLOCK -DHAVE_DIRFD $(DNETSEC) 
+export SYSTEM_HAVES = -DHAVE_GETLOGIN -DHAVE_ASSERT -DHAVE_FLOCK -DHAVE_DIRFD $(DNETSEC) 
 
 export CC = gcc
+export RANLIB = ranlib
+export AR = ar
 
 include Makefile.common

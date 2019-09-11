@@ -65,5 +65,7 @@ SYSTEM_LIBS =
 export SYSTEM_HAVES =  -DHAVE_GETLOGIN -DHAVE_FLOCK -DHAVE_DIRFD $(DNETSEC)
 
 export CC = gcc
+export RANLIB = ranlib
+export AR = ar
 
 include Makefile.common

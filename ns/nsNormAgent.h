@@ -36,21 +36,28 @@
 #include "nsProtoAgent.h" // from ProtoLib
 #include "normSimAgent.h"
 
-// The "NsNormAgent" is based on the ns agent class.
+#include "nsMgenAgent.h"
+
+// The "NsProtoAgent" is based on the ns Agent class.
 // This lets us have a send/recv attachment to the NS
 // simulation environment
 
 // IMPORTANT NOTE! NsProtoAgent must be listed _first_ here
 // (because we can't dynamic_cast install_data void* pointers)
-class NsNormAgent : public NormSimAgent, public NsProtoAgent
+class NsNormAgent : public NsProtoAgent, public NormSimAgent, public MgenSink
 {
     public:
         NsNormAgent();
         ~NsNormAgent();
                 
-        // NsProtoAgent base class overrides
-        int command(int argc, const char*const* argv);         
-        unsigned long GetAgentId() {return (unsigned long)addr();}      
+        // NsProtoAgent base class override
+        int command(int argc, const char*const* argv);      
+        // NormSimAgent override   
+        unsigned long GetAgentId() {return (unsigned long)addr();} 
+        // MgenSink override
+        bool SendMgenMessage(const NetworkAddress* dstAddr,
+                             const char*           txBuffer,
+                             unsigned int          len);     
 };  // end class NsNormAgent
 
 

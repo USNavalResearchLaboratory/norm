@@ -39,10 +39,10 @@ class NormEncoder
 {
     // Members
     private:
-	    int		        npar;	   // No. of parity packets (N-k)
-	    int		        vecSize;   // Size of biggest vector to encode
-	    unsigned char*  genPoly;   // Ptr to generator polynomial
-	    unsigned char*  scratch;  // scratch space for encoding
+	    int		        npar;	      // No. of parity packets (N-k)
+	    int		        vector_size;  // Size of biggest vector to encode
+	    unsigned char*  genPoly;      // Ptr to generator polynomial
+	    unsigned char*  scratch;      // scratch space for encoding
 	
     // Methods
     public:
@@ -53,7 +53,7 @@ class NormEncoder
         bool IsReady(){return (bool)(genPoly != NULL);}
 	    void Encode(const char *dataVector, char **parityVectorList);
 	    int NumParity() {return npar;}
-	    int VectorSize() {return vecSize;}
+	    int VectorSize() {return vector_size;}
 	
     private:
 	    bool CreateGeneratorPolynomial();

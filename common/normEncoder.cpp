@@ -39,8 +39,12 @@
 #include "galois.h"  // for Galois math routines
 #include "debug.h"
 
+#ifdef SIMULATE
+#include "normMessage.h"
+#endif // SIMULATE
+
 NormEncoder::NormEncoder()
-    : npar(0), vecSize(0), 
+    : npar(0), vector_size(0), 
       genPoly(NULL), scratch(NULL)
 {
 
@@ -58,7 +62,7 @@ bool NormEncoder::Init(int numParity, int vecSizeMax)
     ASSERT(vecSizeMax >= 0);    
     if (genPoly) Destroy();    
     npar = numParity;
-    vecSize = vecSizeMax;    
+    vector_size = vecSizeMax;    
     // Create generator polynomial 
     if(!CreateGeneratorPolynomial())
     {
@@ -166,11 +170,6 @@ bool NormEncoder::CreateGeneratorPolynomial()
 // Parity data is written to list of parity vectors supplied by caller
 void NormEncoder::Encode(const char *data, char **pVec)
 {
-	
-#if defined(NS2) || defined(OPNET)
-	return;  // lobotomize FEC for faster simulations
-#endif
-	
     int i, j;
     unsigned char *userData, *LSFR1, *LSFR2, *pVec0;
     int npar_minus_one = npar - 1;
@@ -178,6 +177,14 @@ void NormEncoder::Encode(const char *data, char **pVec)
     ASSERT(scratch);  // Make sure it's been init'd first    
     // Assumes parity vectors are zero-filled at block start !!! 
     // Copy pVec[0] for use in calculations 
+    
+#ifdef SIMULATE    
+    UINT16  vecSize = MIN(SIM_PAYLOAD_MAX, vector_size);
+    vecSize = MAX(vecSize, NormDataMsg::PayloadHeaderLength());
+#else
+    UINT16 vecSize = vector_size;
+#endif // if/else SIMULATE
+    
     memcpy(scratch, pVec[0], vecSize);
     if (npar > 1)
     {
@@ -322,17 +329,20 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
     ASSERT(Lambda);     
     ASSERT(erasureCount && (erasureCount<=npar));
     
-#if defined(NS2) || defined (OPNET)
-	return erasureCount;  // lobotomize FEC for faster simulations
-#endif
-	
+    
     // (A) Compute syndrome vectors 
     
     // First zero out erasure vectors (MDP provides zero-filled vecs) 
 	
 	// Then calculate syndrome (based on zero value erasures) 
     int nvecs = npar + ndata;
+#ifdef SIMULATE
+    int vecSize = MIN(SIM_PAYLOAD_MAX, vector_size);
+    vecSize = MAX(NormDataMsg::PayloadHeaderLength(), vecSize);
+#else
     int vecSize = vector_size;
+#endif // if/else SIMUATE
+    
     for (int i = 0; i < npar; i++)
     {
 	    int X = gexp(i+1);
@@ -382,7 +392,7 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
     for (int i = 0; i < erasureCount; i++)
     {       
         // Only fill _data_ erasures
-        if (erasureLocs[i] >= ndata) return erasureCount;
+        if (erasureLocs[i] >= ndata) break;//return erasureCount;
         
         // evaluate Lambda' (derivative) at alpha^(-i) 
 	    // ( all odd powers disappear) 
@@ -413,6 +423,7 @@ int NormDecoder::Decode(char** dVec, int ndata, UINT16 erasureCount, UINT16* era
 	        data++;
 	    }
     }
+    
     return erasureCount;
 }  // end NormDecoder::Decode()
 

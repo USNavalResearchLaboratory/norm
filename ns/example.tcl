@@ -33,7 +33,7 @@ for {set i 1} {$i <= $numNodes} {incr i} {
 
 puts "Creating topology ..."
 for {set i 1} {$i <= $numNodes} {incr i} {
-    $ns_ duplex-link $n(0) $n($i) 64kb 100ms DropTail
+    $ns_ duplex-link $n(0) $n($i) 1Mb 1ms DropTail
     $ns_ queue-limit $n(0) $n($i) 100
     #$ns_ duplex-link-op $n(0) $n($i) orient right
     $ns_ duplex-link-op $n(0) $n($i) queuePos 0.5
@@ -53,7 +53,7 @@ puts "Configuring NORM agents ..."
 
 # 5) Configure global NORM agent parameters (debugging/logging is global)
 #    (Uncomment the "log" command to direct NORM debug output to a file)
-$norm(1) debug 2
+$norm(1) debug 1
 #$norm(1) log normLog.txt
 
 # 6) Configure NORM server agent at node 1
@@ -63,7 +63,7 @@ $norm(1) block 1
 $norm(1) parity 0
 $norm(1) repeat -1
 $norm(1) interval 0.0
-$norm(1) txloss 10.0
+$norm(1) txloss 0.0
 # Enabl NORM message tracing at the server
 #$norm(1) trace
 
@@ -71,7 +71,7 @@ $norm(1) txloss 10.0
 for {set i 2} {$i <= $numNodes} {incr i} {
     $norm($i) address $group/5000
     $norm($i) rxbuffer 100000
-    $norm($i) txloss 10.0
+    $norm($i) rxloss 0.0
     #$norm($i) trace
 }
 

@@ -10,44 +10,45 @@ set backoffFactor "4.0"
 set sendRate "64kb"
 set duration "120.0"
 set nsTracing 0
+set unicastNacks "off"
+set cc "off"
 
 #Parse optionList for parameters
-set state flag
+set state "flag"
 foreach option $optionList {
+    if {"flag" != $state} {
+        set reset true
+    } else {
+        set reset false
+    } 
     switch -- $state {
         "flag" {
             switch -glob -- $option {
-                "gsize" {set state "gsize"}
-                "rate" {set state "rate"}
-                "backoff" {set state "backoff"}
-                "duration" {set state "duration"}
+                "unicast" {set unicastNacks "on"}
+                "cc" {set cc "on"}
                 "trace" {set nsTracing 1}
-                default {error "simplenorm: Bad option argument $option"}
+                default {set state $option}
             }
         
         }
         "gsize" {
             set groupSize $option
-            set state "flag"
         }
         "backoff" {
             set backoffFactor $option
-            set state "flag"
         }
         "rate" {
             set sendRate $option
-            set state "flag"
         }
         "duration" {
             set duration $option
-            set state "flag"
         }
         default {
-            error "simplenorm: Bad option parse state!"
+            error "simplenorm: bad option: $state"
         }
     }
+    if {$reset == "true"} {set state "flag"}
 }
-
 
 
 # 1) An ns-2 simulator instance is created an configured
@@ -87,6 +88,7 @@ for {set i 1} {$i <= $numNodes} {incr i} {
 
 puts "simplenorm: Creating spoke links ..."
 set linkRate [expr $groupSize * [bw_parse $sendRate]]
+puts "simplenorm: linkRate = [expr $linkRate / 1000.0] kbps"
 for {set i 1} {$i <= $numNodes} {incr i} {
     $ns_ duplex-link $n(0) $n($i) $linkRate 100ms DropTail
     $ns_ queue-limit $n(0) $n($i) 100
@@ -108,26 +110,28 @@ puts "simplenorm: Configuring NORM agents ..."
 
 # 6) Configure global NORM agent commands (using norm(1))
 $norm(1) debug 2
-$norm(1) log normLog.txt
+#$norm(1) log normLog.txt
 
 # 7) Configure NORM server agent at node 1
 $norm(1) address $group/5000
 $norm(1) rate [bw_parse $sendRate]
 $norm(1) backoff $backoffFactor
 $norm(1) parity 0
-$norm(1) repeat -1
+$norm(1) repeat 50
 $norm(1) interval 0.0
 $norm(1) txloss 10.0
 $norm(1) gsize $groupSize
-#$norm(1) trace
+$norm(1) cc off
+#$norm(1) trace on
 
 # 8) Configure NORM client agents at other nodes
 for {set i 2} {$i <= $numNodes} {incr i} {
     $norm($i) address $group/5000
     $norm($i) backoff $backoffFactor
-    $norm($i) rxbuffer 100000
-    $norm($i) txloss 10.0
+    $norm($i) rxbuffer 1000000
+    #$norm($i) txloss 10.0
     $norm($i) gsize $groupSize
+    $norm($i) unicastNacks $unicastNacks
     #$norm($i) trace
 }
 

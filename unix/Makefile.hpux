@@ -65,5 +65,7 @@ SYTSTEM_LIBS =
 export SYSTEM_HAVES =  -DHAVE_CUSERID -DHAVE_LOCKF
 
 export CC = gcc
+export RANLIB = touch
+export AR = ar
 
 include Makefile.common

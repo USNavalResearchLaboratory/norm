@@ -24,11 +24,13 @@ class NormSegmentPool
             seg_list = segment;
             seg_count++;
         }
-        bool IsEmpty() {return (NULL == seg_list);}
+        bool IsEmpty() const {return (NULL == seg_list);}
         
-        unsigned long CurrentUsage() {return (seg_total - seg_count);}
-        unsigned long PeakUsage() {return peak_usage;}
-        unsigned long OverunCount() {return overruns;}
+        unsigned long CurrentUsage() const {return (seg_total - seg_count);}
+        unsigned long PeakUsage() const {return peak_usage;}
+        unsigned long OverunCount() const {return overruns;}
+        
+        unsigned int GetSegmentSize() {return seg_size;}
         
     private: 
         unsigned int    seg_size;
@@ -117,8 +119,7 @@ class NormBlock
         bool TxReset(UINT16 ndata, UINT16 nparity, UINT16 autoParity, 
                      UINT16 segmentSize);
         bool TxUpdate(NormSegmentId nextId, NormSegmentId lastId,
-                      UINT16 ndata, UINT16 nparity, 
-                      UINT16 segmentSize, UINT16 erasureCount);
+                      UINT16 ndata, UINT16 nparity, UINT16 erasureCount);
         
         bool HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
                                   UINT16 ndata, UINT16 nparity, 
@@ -130,6 +131,11 @@ class NormBlock
             parity_offset = MIN(parity_offset, nparity);
             parity_count = 0;
         }
+        bool AppendRepairAdv(NormCmdRepairAdvMsg& cmd, 
+                             NormObjectId         objectId,
+                             bool                 repairInfo,
+                             UINT16               ndata,
+                             UINT16               segmentSize);
         
         // Client routines
         void RxInit(NormBlockId& blockId, UINT16 ndata, UINT16 nparity)
@@ -143,11 +149,12 @@ class NormBlock
             parity_offset = 0;
             flags = 0;
         }
+        // Note: This invalidates the repair_mask state.
         bool IsRepairPending(UINT16 ndata, UINT16 nparity); 
         void DecrementErasureCount() {erasure_count--;}
         UINT16 ErasureCount() const {return erasure_count;}
         void IncrementParityCount() {parity_count++;}
-        UINT16 ParityCount() {return parity_count;}
+        UINT16 ParityCount() const {return parity_count;}
         
         NormSymbolId FirstPending() const
             {return pending_mask.FirstSet();}
@@ -196,7 +203,7 @@ class NormBlock
                                  UINT16          segmentSize);
         //void DisplayPendingMask(FILE* f) {pending_mask.Display(f);}
         
-        bool IsEmpty();
+        bool IsEmpty() const;
         void EmptyToPool(NormSegmentPool& segmentPool);
             
     private:
@@ -222,7 +229,7 @@ class NormBlockPool
         ~NormBlockPool();
         bool Init(UINT32 numBlocks, UINT16 blockSize);
         void Destroy();
-        bool IsEmpty() {return (NULL == head);}
+        bool IsEmpty() const {return (NULL == head);}
         NormBlock* Get()
         {
             NormBlock* b = head;
@@ -243,7 +250,7 @@ class NormBlockPool
             b->next = head;
             head = b;
         }
-        unsigned long OverrunCount() {return overruns;}
+        unsigned long OverrunCount() const {return overruns;}
         
     private:
         NormBlock*      head;
@@ -266,9 +273,9 @@ class NormBlockBuffer
         bool Remove(const NormBlock* theBlock);
         NormBlock* Find(const NormBlockId& blockId) const;
         
-        NormBlockId RangeLo() {return range_lo;}
-        NormBlockId RangeHi() {return range_hi;}
-        bool IsEmpty() {return (0 == range);}
+        NormBlockId RangeLo() const {return range_lo;}
+        NormBlockId RangeHi() const {return range_hi;}
+        bool IsEmpty() const {return (0 == range);}
         bool CanInsert(NormBlockId blockId) const;
         
         class Iterator

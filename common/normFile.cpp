@@ -121,15 +121,18 @@ bool NormFile::Lock()
 {
 #ifndef WIN32    // WIN32 files are automatically locked
     fchmod(fd, 0640 | S_ISGID);
+    
 #ifdef HAVE_FLOCK
     if (flock(fd, LOCK_EX | LOCK_NB))
-#else
-//#ifdef HAVE_LOCKF
-    if (lockf(fd, F_LOCK, 0))  // assume lockf if not flock
-//#endif // HAVE_LOCKF
-#endif // if/else HAVE_FLOCK
         return false;
     else
+#else
+#ifdef HAVE_LOCKF
+    if (lockf(fd, F_LOCK, 0))  // assume lockf if not flock
+        return false;
+    else
+#endif // HAVE_LOCKF
+#endif // if/else HAVE_FLOCK
 #endif // !WIN32
         return true;
 }  // end NormFile::Lock()
@@ -143,7 +146,7 @@ void NormFile::Unlock()
 #ifdef HAVE_LOCKF
     lockf(fd, F_ULOCK, 0);
 #endif // HAVE_LOCKF
-#endif // HAVE_FLOCK
+#endif // if/elseHAVE_FLOCK
     fchmod(fd, 0640);
 #endif // !WIN32
 }  // end NormFile::UnLock()

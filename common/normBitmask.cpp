@@ -3,6 +3,7 @@
 #include "debug.h"
 #include "sysdefs.h"
 
+
 // Hamming weights for given one-byte bit masks
 static unsigned char WEIGHT[256] = 
 {
@@ -191,7 +192,7 @@ void NormBitmask::Destroy()
 {
     if (mask) 
     {
-        delete []mask;
+        delete[] mask;
         mask = (unsigned char*)NULL;
         num_bits = first_set = 0;
     }
@@ -425,7 +426,7 @@ void NormBitmask::Display(FILE* stream)
         if (0x07 == (i & 0x07)) fprintf(stream, " ");
         if (0x3f == (i & 0x3f)) fprintf(stream, "\n");
     }
-}  // end NormSlidingMask::NormBitmask()
+}  // end NormBitmask::Display()
 
 
 
@@ -433,7 +434,7 @@ void NormBitmask::Display(FILE* stream)
 
 
 NormSlidingMask::NormSlidingMask()
- : mask((unsigned char*)0), mask_len(0), num_bits(0), 
+ : mask((unsigned char*)NULL), mask_len(0), num_bits(0), 
    start(0), end(0), offset(0)
 {
 }
@@ -446,6 +447,7 @@ NormSlidingMask::~NormSlidingMask()
 
 bool NormSlidingMask::Init(long numBits)
 {
+    
     if (mask) Destroy();
     if (numBits <= 0) return false;
     unsigned long len = (numBits + 7) >> 3;
@@ -519,6 +521,7 @@ bool NormSlidingMask::CanSet(unsigned long index) const
 
 bool NormSlidingMask::Set(unsigned long index)
 {
+    ASSERT(CanSet(index));
     if (IsSet())
     {        
         // Determine position with respect to current start
@@ -571,6 +574,8 @@ bool NormSlidingMask::Set(unsigned long index)
                 if ((pos > end) || (pos < start)) end = pos;
             }
         }
+        ASSERT((pos >> 3) >= 0);
+        ASSERT((pos >> 3) < (long)mask_len);
         mask[(pos >> 3)] |= (0x80 >> (pos & 0x07));
     }
     else
@@ -584,6 +589,7 @@ bool NormSlidingMask::Set(unsigned long index)
 
 bool NormSlidingMask::Unset(unsigned long index)
 {
+    //ASSERT(CanSet(index));
     if (IsSet())
     {
         long pos = index - offset;
@@ -602,6 +608,8 @@ bool NormSlidingMask::Unset(unsigned long index)
                 if ((pos < start) || (pos > end)) return true;   
             }
             // Unset the corresponding bit
+            ASSERT((pos >> 3) >= 0);
+            ASSERT((pos >> 3) < (long)mask_len);
             mask[(pos >> 3)] &= ~(0x80 >> (pos & 0x07));
             if (start == end) 
             {
@@ -640,6 +648,8 @@ bool NormSlidingMask::Unset(unsigned long index)
 
 bool NormSlidingMask::SetBits(unsigned long index, long count)
 {
+    ASSERT(CanSet(index));
+    ASSERT(CanSet(index+count-1));
     if (count < 0) return false;
     if (0 == count) return true;
     long firstPos, lastPos;
@@ -691,19 +701,28 @@ bool NormSlidingMask::SetBits(unsigned long index, long count)
             long maskIndex = firstPos >> 3;
             int bitIndex = firstPos & 0x07;
             int bitRemainder = 8 - bitIndex;
+            ASSERT(maskIndex >= 0);
             if (count <= bitRemainder)
             {
+                ASSERT(maskIndex < (long)mask_len);
                 mask[maskIndex] |= (0x00ff >> bitIndex) &
                                    (0x00ff << (bitRemainder - count)); 
             }
             else
             {
+                ASSERT(maskIndex < (long)mask_len);
                 mask[maskIndex] |= 0x00ff >> bitIndex;
                 count -= bitRemainder;
-                unsigned long nbytes = count >> 3;  
+                long nbytes = count >> 3;  
+                ASSERT((maskIndex+1+nbytes) <= (long)mask_len);
                 memset(&mask[++maskIndex], 0xff, nbytes);
                 count &= 0x07;  
-                if (count) mask[maskIndex+nbytes] |= 0xff << (8-count);
+                if (count) 
+                {
+                    ASSERT((maskIndex+nbytes) >= 0);
+                    ASSERT((maskIndex+nbytes) < (long)mask_len);
+                    mask[maskIndex+nbytes] |= 0xff << (8-count);
+                }
             }
             firstPos = 0;
         }
@@ -720,25 +739,36 @@ bool NormSlidingMask::SetBits(unsigned long index, long count)
     long maskIndex = firstPos >> 3;
     int bitIndex = firstPos & 0x07;
     int bitRemainder = 8 - bitIndex;
+    ASSERT(maskIndex >= 0);
     if (count <= bitRemainder)
     {
+        ASSERT(maskIndex < (long)mask_len);
         mask[maskIndex] |= (0x00ff >> bitIndex) &
                             (0x00ff << (bitRemainder - count)); 
     }
     else
     {
+        ASSERT(maskIndex < (long)mask_len);
         mask[maskIndex] |= 0x00ff >> bitIndex;
         count -= bitRemainder;
-        unsigned long nbytes = count >> 3;  
+        long nbytes = count >> 3;
+        ASSERT((maskIndex+1+nbytes) <= (long)mask_len);  
         memset(&mask[++maskIndex], 0xff, nbytes);
         count &= 0x07;  
-        if (count) mask[maskIndex+nbytes] |= 0xff << (8-count);
+        if (count) 
+        {
+            ASSERT((maskIndex+nbytes) >= 0);
+            ASSERT((maskIndex+nbytes) < (long)mask_len);
+            mask[maskIndex+nbytes] |= 0xff << (8-count);
+        }
     }
     return true;
 }  // end NormSlidingMask::SetBits()
 
 bool NormSlidingMask::UnsetBits(unsigned long index, long count)
 {
+    //ASSERT(CanSet(index));
+    //ASSERT(CanSet(index+count-1));
     if (IsSet())
     {
         // Trim to fit as needed.
@@ -782,17 +812,24 @@ bool NormSlidingMask::UnsetBits(unsigned long index, long count)
             int bitRemainder = 8 - bitIndex;
             if (count <= bitRemainder)
             {
+                ASSERT(maskIndex < (long)mask_len);
                 mask[maskIndex] &= (0x00ff << bitRemainder) |
                                    (0x00ff >> (bitIndex + count));
             }
             else
             {
+                ASSERT(maskIndex < (long)mask_len);
                 mask[maskIndex] &= 0x00ff << bitRemainder;
                 count -= bitRemainder;
                 unsigned long nbytes = count >> 3;  
+                ASSERT((maskIndex+1+nbytes) <= mask_len);
                 memset(&mask[++maskIndex], 0, nbytes);
                 count &= 0x07;  
-                if (count) mask[maskIndex+nbytes] &= 0xff >> count;
+                if (count) 
+                {
+                    ASSERT((maskIndex+nbytes) < mask_len);
+                    mask[maskIndex+nbytes] &= 0xff >> count;
+                }
             }
             startPos = 0;
         }
@@ -807,17 +844,24 @@ bool NormSlidingMask::UnsetBits(unsigned long index, long count)
         int bitRemainder = 8 - bitIndex;
         if (count <= bitRemainder)
         {
+            ASSERT(maskIndex < (long)mask_len);
             mask[maskIndex] &= (0x00ff << bitRemainder) |
                                (0x00ff >> (bitIndex + count)); 
         }
         else
         {
+            ASSERT(maskIndex < (long)mask_len);
             mask[maskIndex] &= 0x00ff << bitRemainder;
             count -= bitRemainder;
-            unsigned long nbytes = count >> 3;  
+            unsigned long nbytes = count >> 3;
+            ASSERT((maskIndex+1+nbytes) <= mask_len);
             memset(&mask[++maskIndex], 0, nbytes);
             count &= 0x07;  
-            if (count) mask[maskIndex+nbytes] &= 0xff >> count;
+            if (count) 
+            {   
+                ASSERT((maskIndex+nbytes) < mask_len);
+                mask[maskIndex+nbytes] &= 0xff >> count;
+            }
         }
         // Calling these will update the start/end state
         if (start == firstPos) 
@@ -1078,8 +1122,11 @@ bool NormSlidingMask::Copy(const NormSlidingMask& b)
             long endIndex = b.end >> 3;
             if (b.end < b.start)
             {
+                ASSERT((b.mask_len - startIndex) <= mask_len);
                 memcpy(mask, b.mask+startIndex, b.mask_len - startIndex);
-                memcpy(mask+b.mask_len-startIndex, b.mask, endIndex+1);
+                ASSERT((b.mask_len - startIndex + endIndex) <= mask_len);
+                //memcpy(mask+b.mask_len-startIndex, b.mask, endIndex+1);  // old
+                memcpy(mask+b.mask_len-startIndex, b.mask, endIndex);    // new
                 // Clear any possible start/end overlap
                 if (mask_len > b.mask_len)
                 {
@@ -1087,11 +1134,15 @@ bool NormSlidingMask::Copy(const NormSlidingMask& b)
                     if (remainder) mask[0] &= 0xff >> remainder;
                     remainder = end & 0x7;
                     if (remainder) 
+                    {
+                        ASSERT((startIndex+endIndex) < (long)mask_len);
                         mask[startIndex+endIndex] &= 0xff << (8 - remainder);
+                    }
                 }            
             }
             else
             {
+                ASSERT((endIndex-startIndex+1) <= (long)mask_len);
                 memcpy(mask, b.mask+startIndex, endIndex-startIndex+1);
             }        
             return true;

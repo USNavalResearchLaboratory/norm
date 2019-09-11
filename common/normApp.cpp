@@ -3,11 +3,11 @@
 
 #include "protoLib.h"
 #include "normSession.h"
+#include "normPostProcess.h"
 
 #include <stdio.h>   // for stdout/stderr printouts
 #include <signal.h>  // for SIGTERM/SIGINT handling
 #include <errno.h>
-
 
 // Command-line application using Protolib EventDispatcher
 class NormApp : public NormController
@@ -23,7 +23,13 @@ class NormApp : public NormController
         bool ProcessCommand(const char* cmd, const char* val);
 		bool ParseCommandLine(int argc, char* argv[]);
         
+        static void DoInputReady(EventDispatcher::Descriptor descriptor, 
+                                 EventDispatcher::EventType  theEvent, 
+                                 const void* userData);
+        
     private:
+        void OnInputReady();
+            
         enum CmdType {CMD_INVALID, CMD_NOARG, CMD_ARG};
         CmdType CommandType(const char* cmd);
     
@@ -40,41 +46,62 @@ class NormApp : public NormController
         static const char* const cmd_list[];
 
         static void SignalHandler(int sigNum);
+        bool IsPostProcessing() {return post_processor.IsActive();}
+        void HandleSIGCHLD() {post_processor.HandleSIGCHLD();}
     
         EventDispatcher     dispatcher;        
         NormSessionMgr      session_mgr;
         NormSession*        session;
-        NormStreamObject*   stream;
+        NormStreamObject*   tx_stream;
+        NormStreamObject*   rx_stream;
         
         // application parameters
         FILE*               input;  // input stream
         FILE*               output; // output stream
-        char                input_buffer[512];
+        char                input_buffer[1250];
         unsigned int        input_index;
         unsigned int        input_length;
+        bool                input_active;
+        bool                push_stream;
+        bool                input_messaging; // stream input mode   
+        UINT16              input_msg_length;
+        UINT16              input_msg_index;
+        char                output_buffer[65536];
+        UINT16              output_index;
+        bool                output_messaging;
+        UINT16              output_msg_length;
+        bool                output_msg_sync;
         
-        // NormSession parameters
+        // NormSession common parameters 
         char*               address;        // session address
         UINT16              port;           // session port number
         UINT8               ttl;
         double              tx_rate;        // bits/sec
+        bool                cc_enable;
+        
+        // NormSession server-only parameters
         UINT16              segment_size;
         UINT8               ndata;
         UINT8               nparity;
         UINT8               auto_parity;
+        UINT8               extra_parity;
+        double              backoff_factor;
         unsigned long       tx_buffer_size; // bytes
-        unsigned long       rx_buffer_size; // bytes
-            
         NormFileList        tx_file_list;
         double              tx_object_interval;
         int                 tx_repeat_count;
         double              tx_repeat_interval;
+        ProtocolTimer       interval_timer;
+        
+        // NormSession client-only parameters
+        unsigned long       rx_buffer_size; // bytes
         NormFileList        rx_file_cache;
         char*               rx_cache_path;
+        NormPostProcessor   post_processor;
+        bool                unicast_nacks;
+        bool                silent_client;
         
-        ProtocolTimer       interval_timer;  
-        
-        // protocol debug parameters
+        // Debug parameters
         bool                tracing;
         double              tx_loss;
         double              rx_loss;
@@ -82,13 +109,16 @@ class NormApp : public NormController
 }; // end class NormApp
 
 NormApp::NormApp()
- : session(NULL), stream(NULL), input(NULL), output(NULL), 
-   input_index(0), input_length(0),
-   address(NULL), port(0), ttl(3), tx_rate(64000.0),
-   segment_size(1024), ndata(32), nparity(16), auto_parity(0),
-   tx_buffer_size(1024*1024), rx_buffer_size(1024*1024),
+ : session(NULL), tx_stream(NULL), rx_stream(NULL), input(NULL), output(NULL), 
+   input_index(0), input_length(0), input_active(false),
+   push_stream(false), input_messaging(false), input_msg_length(0), input_msg_index(0),
+   output_index(0), output_messaging(false), output_msg_length(0), output_msg_sync(false),
+   address(NULL), port(0), ttl(3), tx_rate(64000.0), cc_enable(false),
+   segment_size(1024), ndata(32), nparity(16), auto_parity(0), extra_parity(0),
+   backoff_factor(NormSession::DEFAULT_BACKOFF_FACTOR),
+   tx_buffer_size(1024*1024), 
    tx_object_interval(0.0), tx_repeat_count(0), tx_repeat_interval(0.0),
-   rx_cache_path(NULL),
+   rx_buffer_size(1024*1024), rx_cache_path(NULL), unicast_nacks(false), silent_client(false),
    tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
     // Init tx_timer for 1.0 second interval, infinite repeats
@@ -97,6 +127,10 @@ NormApp::NormApp()
                      this);    
     interval_timer.Init(0.0, 0, (ProtocolTimerOwner*)this, 
                         (ProtocolTimeoutFunc)&NormApp::OnIntervalTimeout);
+    
+    struct timeval currentTime;
+    GetSystemTime(&currentTime);
+    srand(currentTime.tv_usec);
 }
 
 NormApp::~NormApp()
@@ -108,27 +142,36 @@ NormApp::~NormApp()
 
 const char* const NormApp::cmd_list[] = 
 {
-    "+debug",
-    "+log",
-    "-trace",
-    "+txloss",
-    "+rxloss",
-    "+address",
-    "+ttl",
-    "+rate",
-    "+input",
-    "+output",
-    "+sendfile",
-    "+interval",
-    "+repeatcount",
-    "+rinterval",  // repeat interval
-    "+rxcachedir",
-    "+segment",
-    "+block",
-    "+parity",
-    "+auto",
-    "+txbuffer",
-    "+rxbuffer",
+    "+debug",        // debug level
+    "+log",          // log file name
+    "-trace",        // message tracing on
+    "+txloss",       // tx packet loss percent (for testing)
+    "+rxloss",       // rx packet loss percent (for testing)
+    "+address",      // session destination address
+    "+ttl",          // multicast hop count scope
+    "+cc",           // congestion control on/off
+    "+rate",         // tx date rate (bps)
+    "-push",         // push stream writes for real-time messaging
+    "+input",        // send stream input
+    "+output",       // recv stream output
+    "+minput",       // send message stream input
+    "+moutput",      // recv message stream output
+    "+sendfile",     // file/directory list to transmit
+    "+interval",     // delay time (sec) between files (0.0 sec default)
+    "+repeatcount",  // How many times to repeat the file/directory list
+    "+rinterval",    // Interval (sec) between file/directory list repeats
+    "+rxcachedir",   // recv file cache directory
+    "+segment",      // payload segment size (bytes)
+    "+block",        // User data packets per FEC coding block (blockSize)
+    "+parity",       // FEC packets calculated per coding block (nparity)
+    "+auto",         // Number of FEC packets to proactively send (<= nparity)
+    "+extra",        // Number of extra FEC packets sent in response to repair requests
+    "+backoff",      // Backoff factor to use
+    "+txbuffer",     // Size of sender's buffer
+    "+rxbuffer",     // Size receiver allocates for buffering each sender
+    "-unicastNacks", // unicast instead of multicast feedback messages
+    "-silentClient", // "silent" (non-nacking) client (EMCON mode)
+    "+processor",    // receive file post processing command
     NULL         
 };
     
@@ -236,23 +279,90 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         tx_rate = txRate;
         if (session) session->SetTxRate(txRate);
     }
+    else if (!strncmp("cc", cmd, len))
+    {
+        if (!strcmp("on", val))
+        {
+            cc_enable = true;
+        }
+        else if (!strcmp("off", val))
+        {
+            cc_enable = false;   
+        }
+        else
+        {
+            DMSG(0, "NormApp::ProcessCommand(cc) invalid option!\n");   
+            return false;
+        }
+        if (session) session->SetCongestionControl(cc_enable);
+    }
     else if (!strncmp("input", cmd, len))
     {
-        if (!(input = fopen(val, "rb")))
+        if (!strcmp(val, "STDIN"))
+	{
+            input = stdin;
+	}
+        else if (!(input = fopen(val, "rb")))
         {
             DMSG(0, "NormApp::ProcessCommand(input) fopen() error: %s\n",
                     strerror(errno));
             return false;   
         }
+        input_index = input_length = 0;
+        input_messaging = false;
+        // Set input non-blocking
+        if(-1 == fcntl(fileno(input), F_SETFL, fcntl(fileno(input), F_GETFL, 0) | O_NONBLOCK))
+            perror("NormApp::ProcessCommand(input) fcntl(F_SETFL(O_NONBLOCK)) error");
     }
     else if (!strncmp("output", cmd, len))
     {
-        if (!(output = fopen(val, "wb")))
+        if (!strcmp(val, "STDOUT"))
+	{
+            output = stdout;
+	}
+        else if (!(output = fopen(val, "wb")))
         {
             DMSG(0, "NormApp::ProcessCommand(output) fopen() error: %s\n",
                     strerror(errno));
             return false;   
         }
+        output_messaging = false;
+        output_index = 0;
+        output_msg_sync = true;
+    }
+    else if (!strncmp("minput", cmd, len))
+    {
+        if (!strcmp(val, "STDIN"))
+	{
+            input = stdin;
+	}
+        else if (!(input = fopen(val, "rb")))
+        {
+            DMSG(0, "NormApp::ProcessCommand(input) fopen() error: %s\n",
+                    strerror(errno));
+            return false;   
+        }
+        input_index = input_length = 0;
+        input_messaging = true;
+        // Set input non-blocking
+        if(-1 == fcntl(fileno(input), F_SETFL, fcntl(fileno(input), F_GETFL, 0) | O_NONBLOCK))
+            perror("NormApp::ProcessCommand(input) fcntl(F_SETFL(O_NONBLOCK)) error");
+    }
+    else if (!strncmp("moutput", cmd, len))
+    {
+        if (!strcmp(val, "STDOUT"))
+	{
+            output = stdout;
+	}
+        else if (!(output = fopen(val, "wb")))
+        {
+            DMSG(0, "NormApp::ProcessCommand(output) fopen() error: %s\n",
+                    strerror(errno));
+            return false;   
+        }
+        output_messaging = true;
+        output_msg_length = output_index = 0;
+        output_msg_sync = false;
     }
     else if (!strncmp("sendfile", cmd, len))
     {
@@ -350,6 +460,28 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         auto_parity = autoParity;
         if (session) session->ServerSetAutoParity(autoParity);
     }
+    else if (!strncmp("extra", cmd, len))
+    {
+        int extraParity = atoi(val);
+        if ((extraParity < 0) || (extraParity > 254))
+        {
+            DMSG(0, "NormApp::ProcessCommand(extra) invalid value!\n");   
+            return false;
+        }
+        extra_parity = extraParity;
+        if (session) session->ServerSetExtraParity(extraParity);
+    }
+    else if (!strncmp("backoff", cmd, len))
+    {
+        double backoffFactor = atof(val);
+        if (backoffFactor < 0)
+        {
+            DMSG(0, "NormSimAgent::ProcessCommand(backoff) invalid txRate!\n");   
+            return false;
+        }
+        backoff_factor = backoffFactor;
+        if (session) session->SetBackoffFactor(backoffFactor);
+    }
     else if (!strncmp("txbuffer", cmd, len))
     {
         if (1 != sscanf(val, "%lu", &tx_buffer_size))
@@ -363,6 +495,28 @@ bool NormApp::ProcessCommand(const char* cmd, const char* val)
         if (1 != sscanf(val, "%lu", &rx_buffer_size))
         {
             DMSG(0, "NormApp::ProcessCommand(rxbuffer) invalid value!\n");   
+            return false;
+        }
+    }
+    else if (!strncmp("unicastNacks", cmd, len))
+    {
+        unicast_nacks = true;
+        if (session) session->SetUnicastNacks(true);
+    }
+    else if (!strncmp("silentClient", cmd, len))
+    {
+        silent_client = true;
+        if (session) session->ClientSetSilent(true);
+    }
+    else if (!strncmp("push", cmd, len))
+    {
+        push_stream = true;
+    }
+    else if (!strncmp("processor", cmd, len))
+    {
+        if (!post_processor.SetCommand(val))
+        {
+            DMSG(0, "NormApp::ProcessCommand(processor) error!\n");   
             return false;
         }
     }
@@ -436,6 +590,159 @@ bool NormApp::ParseCommandLine(int argc, char* argv[])
     return true;
 }  // end NormApp::ParseCommandLine()
 
+void NormApp::DoInputReady(EventDispatcher::Descriptor /*descriptor*/, 
+                           EventDispatcher::EventType  /*theEvent*/, 
+                           const void*                 userData)
+{
+    ((NormApp*)userData)->OnInputReady();
+}  // end NormApp::DoDataReady()
+
+
+void NormApp::OnInputReady()
+{
+    
+    //TRACE("NormApp::OnInputReady() ...\n");
+    bool flush = false;
+    // write to the stream while input is available _and_
+    // the stream has buffer space for input
+    while (input)
+    {
+        if (0 == input_length)
+        {
+            // We need input ...
+            UINT16 readLength;
+            if (input_messaging)
+            {
+                if (input_msg_length)
+                {
+                    UINT16 bufferSpace = 1024 - input_index;
+                    UINT16 msgRemainder = input_msg_length - input_msg_index;
+                    readLength = MIN(bufferSpace, msgRemainder);
+                }
+                else if (input_index < 2)
+                {
+                    readLength = 2 - input_index;   
+                }
+                else
+                {
+                    input_msg_length = ntohs(*((UINT16*)input_buffer));  
+                    ASSERT(input_msg_length >= 2);
+                    UINT16 bufferSpace = 1024 - input_index;
+                    UINT16 msgRemainder = input_msg_length - 2;
+                    readLength = MIN(bufferSpace, msgRemainder);  
+                }
+            }
+            else
+            {
+                readLength = 1024;   
+            }            
+             
+            // Read from "input" into our "input_buffer"
+            size_t result = fread(input_buffer+input_index, sizeof(char), readLength, input);
+            if (result > 0)
+            {
+                if (input_messaging)
+                {
+                    if (input_msg_length)
+                    {
+                        input_length = input_index + result;
+                        input_index = 0;
+                    }
+                    else
+                    {
+                        input_length = 0;
+                        input_index += result;
+                    }
+                }
+                else
+                {
+                    input_length = input_index + result;
+                    input_index = 0;    
+                }             
+            }
+            else
+            {
+                if (feof(input))
+                {
+                    DMSG(0, "norm: input end-of-file.\n");
+                    if (input_active) 
+                    {
+                        dispatcher.RemoveGenericInput(fileno(input));
+                        input_active = false;
+                    }
+                    if (stdin != input) fclose(input);
+                    input = NULL;
+                    flush = true;   
+                }
+                else if (ferror(input))
+                {
+                    switch (errno)
+                    {
+                        case EINTR:
+                        case EAGAIN:
+                            // Input not ready, will get notification when ready
+                            break;
+                        default:
+                            DMSG(0, "norm: input error:%s\n", strerror(errno));
+                            break;   
+                    }
+                    clearerr(input);
+                }
+            } 
+        }  // end if (0 == input_length)
+        
+        unsigned int writeLength = input_length;// ? input_length - input_index : 0;
+            
+        if (writeLength || flush)
+        {
+            unsigned int wroteLength = tx_stream->Write(input_buffer+input_index, writeLength, flush, false, push_stream);
+            input_length -= wroteLength;
+            if (0 == input_length)
+                input_index = 0;
+            else
+                input_index += wroteLength;
+            if (input_messaging) 
+            {
+                input_msg_index += wroteLength;
+                if (input_msg_index == input_msg_length)
+                {
+                    input_msg_index = 0;
+                    input_msg_length = 0;  
+                    // Mark EOM
+                    tx_stream->Write(NULL, 0, false, true, false); 
+                }
+            }
+            if (wroteLength < writeLength) 
+            {
+                // Stream buffer full, temporarily deactive "input" and 
+                // wait for next TX_QUEUE_EMPTY notification
+                //TRACE("stream buffer full ...\n");
+                if (input_active)
+                {
+                    dispatcher.RemoveGenericInput(fileno(input)); 
+                    input_active = false;   
+                }
+                break;  
+            }
+        }
+        else
+        {
+            // Input not ready, wait for "input" to be ready
+            // (Activate/reactivate "input" as necessary
+            //TRACE("input starved ...\n");
+            if (!input_active)
+            {
+                if (dispatcher.AddGenericInput(fileno(input), NormApp::DoInputReady, this))
+                    input_active = true;
+                else
+                    DMSG(0, "NormApp::Notify(TX_QUEUE_EMPTY) error adding input notification!\n");
+            } 
+            break; 
+        }
+    }  // end while (1)
+}  // NormApp::OnInputReady()
+
+
 void NormApp::Notify(NormController::Event event,
                      class NormSessionMgr* sessionMgr,
                      class NormSession*    session,
@@ -447,45 +754,14 @@ void NormApp::Notify(NormController::Event event,
         case TX_QUEUE_EMPTY:
            // Write to stream as needed
             //DMSG(0, "NormApp::Notify(TX_QUEUE_EMPTY) ...\n");
-            if (object && (object == stream))
+            if (object && (object == tx_stream))
             {
-                bool flush = false;
-                if (input)
-                {
-                    if (input_index >= input_length)
-                    {
-                        size_t result = fread(input_buffer, sizeof(char), 512, input);
-                        if (result)
-                        {
-                            input_index = 0;
-                            input_length = result;
-                        }
-                        else
-                        {
-                            input_length = input_index = 0;
-                            if (feof(input))
-                            {
-                                DMSG(0, "norm: input end-of-file.\n");
-                                fclose(input);
-                                input = NULL;
-                                flush = true;   
-                            }
-                            else if (ferror(input))
-                            {
-                                DMSG(0, "norm: input error:%s\n", strerror(errno));
-                                clearerr(input);
-                                break;
-                            }
-                        } 
-                    }
-                    input_index += stream->Write(input_buffer+input_index, 
-                                                 input_length-input_index,
-                                                 flush);
-                }  // end if (input)
+                if (input) OnInputReady();
             }
             else
             {
                 // Can queue a new object for transmission  
+                if (interval_timer.IsActive()) interval_timer.Deactivate();
                 if (interval_timer.Interval() > 0.0)
                 {
                     InstallTimer(&interval_timer);            
@@ -505,8 +781,23 @@ void NormApp::Notify(NormController::Event event,
             {
                 case NormObject::STREAM:
                 {
-                    const NormObjectSize& size = object->Size();
-                    if (!((NormStreamObject*)object)->Accept(size.LSB()))
+                    // Only have one rx_stream at a time for now.
+                    // Reset stream i/o mgmt                    
+                    output_msg_length = output_index = 0;
+                    if (output_messaging) output_msg_sync = false;
+                    
+                    // object Size() has recommended buffering size
+                    NormObjectSize size;
+                    if (silent_client)
+                        size = NormObjectSize(rx_buffer_size);
+                    else
+                        size = object->Size();
+                    
+                    if (((NormStreamObject*)object)->Accept(size.LSB()))
+                    {
+                        rx_stream = (NormStreamObject*)object;
+                    }
+                    else
                     {
                         DMSG(0, "NormApp::Notify(RX_OBJECT_NEW) stream object accept error!\n");
                     }
@@ -544,7 +835,7 @@ void NormApp::Notify(NormController::Event event,
                     else
                     {
                         DMSG(0, "NormApp::Notify(RX_OBJECT_NEW) no rx cache for file\n");   
-                    }
+                    }                    
                 }
                 break;
                 case NormObject::DATA: 
@@ -599,22 +890,95 @@ void NormApp::Notify(NormController::Event event,
             switch (object->GetType())
             {
                 case NormObject::FILE:
-                    // (TBD) update progress
+                    // (TBD) update reception progress display when applicable
                     break;
                 
                 case NormObject::STREAM:
                 {
+                    if (object != rx_stream)
+                    {
+                        DMSG(0, "NormApp::Notify(RX_OBJECT_UPDATE) update for invalid stream\n");
+                        break;   
+                    }
                     // Read the stream when it's updated  
                     ASSERT(output);
-                    char buffer[256];
-                    unsigned int nBytes;
-                    while ((nBytes = ((NormStreamObject*)object)->Read(buffer, 256)))
+                    bool reading = true;
+                    bool findMsgSync;
+                    while (reading)
                     {
-                        unsigned int put = 0;
-                        while (put < nBytes)
+                        unsigned int readLength;
+                        if (output_messaging)
                         {
-                            size_t result = fwrite(buffer, sizeof(char), nBytes, output);
-                            fflush(output);
+                            if (output_msg_length)
+                            {
+                                readLength = output_msg_length - output_index;
+                            }
+                            else if (output_index < 2)
+                            {
+                                readLength = 2 - output_index;
+                            }
+                            else
+                            {
+                                output_msg_length = ntohs(*((UINT16*)output_buffer));
+                                ASSERT(output_msg_length >= 2);
+                                readLength = output_msg_length - output_index;
+                            }     
+                            findMsgSync = output_msg_sync ? false : true;                                            
+                        }
+                        else
+                        {
+                            output_index = 0;
+                            readLength = 512; 
+                            findMsgSync = false;   
+                        } 
+                        
+                        if(!((NormStreamObject*)object)->Read(output_buffer+output_index, 
+                                                             &readLength, findMsgSync))
+                        {
+                            // The stream broke
+                            if (output_messaging)
+                            {
+                                if (output_msg_sync)
+                                    DMSG(0, "NormApp::Notify() detected broken stream ...\n");
+                                output_msg_length = output_index = 0;
+                                output_msg_sync = false;
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            output_msg_sync = true;   
+                        }
+                        
+                        if (readLength)
+                            output_index += readLength;
+                        else
+                            reading = false;
+
+                        unsigned int writeLength;
+                        if (output_messaging)
+                        {
+                            if (output_msg_length && (output_index >= output_msg_length))
+                            {
+                                writeLength = output_msg_length;
+                                output_msg_length = 0;
+                                output_index = 0;
+                            }
+                            else
+                            {
+                                writeLength = 0;
+                            }
+                        }
+                        else
+                        {
+                            writeLength = readLength;
+                            output_index = 0;
+                        }      
+                        
+                        unsigned int put = 0;
+                        while (put < writeLength)
+                        {
+                            size_t result = fwrite(output_buffer+put, sizeof(char), writeLength-put, output);
                             if (result)
                             {
                                 put += result;   
@@ -637,22 +1001,35 @@ void NormApp::Notify(NormController::Event event,
                                 }
                             }   
                         }  // end while(put < nBytes)
-                    }
+                        if (writeLength) memset(output_buffer, 0, writeLength); 
+                    }  // end while (reading)
+                    fflush(output);
                     break;
                 }
                                         
                 case NormObject::DATA: 
-                    DMSG(0, "NormApp::Notify() FILE/DATA objects not _yet_ supported...\n");      
+                    DMSG(0, "NormApp::Notify() DATA objects not _yet_ supported...\n");      
                     break;
             }  // end switch (object->GetType())
             break;
+            
         case RX_OBJECT_COMPLETE:
         {
             switch(object->GetType())
             {
                 case NormObject::FILE:
-                    DMSG(0, "norm: Completed rx file: %s\n", ((NormFileObject*)object)->Path());
+                {
+                    const char* filePath = ((NormFileObject*)object)->Path();
+                    //DMSG(0, "norm: Completed rx file: %s\n", filePath);
+                    if (post_processor.IsEnabled())
+                    {
+                        if (!post_processor.ProcessFile(filePath))
+                        {
+                            DMSG(0, "norm: post processing error\n");
+                        }  
+                    }
                     break;
+                }
                     
                 case NormObject::STREAM:
                     ASSERT(0);
@@ -694,12 +1071,15 @@ bool NormApp::OnIntervalTimeout()
         temp[len] = '\0';
         if (!session->QueueTxFile(fileName, fileNameInfo, len))
         {
-            DMSG(0, "NormApp::OnIntervalTimeout() Error opening tx file: %s\n",
+            DMSG(0, "NormApp::OnIntervalTimeout() Error queuing tx file: %s\n",
                     fileName);
-            // Try the next file in the list
-            return OnIntervalTimeout();
+            // Wait a second, then try the next file in the list
+            if (interval_timer.IsActive()) interval_timer.Deactivate();
+            interval_timer.SetInterval(1.0);
+            InstallTimer(&interval_timer);
+            return false;
         }
-        DMSG(0, "norm: File \"%s\" queued for transmission.\n", fileName);
+        //DMSG(0, "norm: File \"%s\" queued for transmission.\n", fileName);
         interval_timer.SetInterval(tx_object_interval);
     }
     else if (tx_repeat_count)
@@ -738,17 +1118,18 @@ bool NormApp::OnStartup()
 
     signal(SIGTERM, SignalHandler);
     signal(SIGINT, SignalHandler);
+    signal(SIGCHLD, SignalHandler);
     
     // Validate our application settings
     if (!address)
     {
-        DMSG(0, "NormApp::OnStartup() Error! no session address given.");
+        DMSG(0, "NormApp::OnStartup() Error! no session address given.\n");
         return false;
     }
     if (!input && !output && tx_file_list.IsEmpty() && !rx_cache_path)
     {
         DMSG(0, "NormApp::OnStartup() Error! no \"input\", \"output\", "
-                "\"sendfile\", or \"rxcache\" given.");
+                "\"sendfile\", or \"rxcache\" given.\n");
         return false;
     }   
     
@@ -761,10 +1142,14 @@ bool NormApp::OnStartup()
         session->SetTrace(tracing);
         session->SetTxLoss(tx_loss);
         session->SetRxLoss(rx_loss);
-        
+        session->SetBackoffFactor(backoff_factor);          
+            
         if (input || !tx_file_list.IsEmpty())
         {
-            // StartServer(bufferMax, segmentSize, fec_ndata, fec_nparity)
+            NormObjectId baseId = (unsigned short)(rand() * (65535.0/ (double)RAND_MAX));
+            session->ServerSetBaseObjectId(baseId);
+            
+            session->SetCongestionControl(cc_enable);
             if (!session->StartServer(tx_buffer_size, segment_size, ndata, nparity))
             {
                 DMSG(0, "NormApp::OnStartup() start server error!\n");
@@ -772,12 +1157,12 @@ bool NormApp::OnStartup()
                 return false;
             }
             session->ServerSetAutoParity(auto_parity);
-                        
+            session->ServerSetExtraParity(extra_parity);              
             if (input)
             {
                 // Open a stream object to write to (QueueTxStream(stream bufferSize))
-                stream = session->QueueTxStream(tx_buffer_size);
-                if (!stream)
+                tx_stream = session->QueueTxStream(tx_buffer_size);
+                if (!tx_stream)
                 {
                     DMSG(0, "NormApp::OnStartup() queue tx stream error!\n");
                     session_mgr.Destroy();
@@ -788,8 +1173,9 @@ bool NormApp::OnStartup()
         
         if (output || rx_cache_path)
         {
-            TRACE("starting client ...\n");
             // StartClient(bufferMax (per-sender))
+            session->SetUnicastNacks(unicast_nacks);
+            session->ClientSetSilent(silent_client);
             if (!session->StartClient(rx_buffer_size))
             {
                 DMSG(0, "NormApp::OnStartup() start client error!\n");
@@ -808,11 +1194,23 @@ bool NormApp::OnStartup()
 
 void NormApp::OnShutdown()
 {
+    //TRACE("NormApp::OnShutdown() ...\n");
     session_mgr.Destroy();
-    if (input) fclose(input);
-    input = NULL;
-    if (output) fclose(output);
-    output = NULL;
+    if (input)
+    {
+        if (input_active) 
+        {
+            dispatcher.RemoveGenericInput(fileno(input));
+            input_active = false;
+        }
+        if (stdin != input) fclose(input);
+        input = NULL;
+    }
+    if (output) 
+    {
+        if (stdout != output) fclose(output);
+        output = NULL;
+    }
 }  // end NormApp::OnShutdown()
 
 
@@ -859,7 +1257,7 @@ int main(int argc, char* argv[])
     {
         if (theApp.OnStartup())
         {
-		    exitCode = theApp.MainLoop();
+            exitCode = theApp.MainLoop();
             theApp.OnShutdown();
             fprintf(stderr, "norm: Done.\n");
         }
@@ -886,6 +1284,8 @@ int main(int argc, char* argv[])
 	return exitCode;  // exitCode contains "signum" causing exit
 }  // end main();
 
+
+
 void NormApp::SignalHandler(int sigNum)
 {
     switch(sigNum)
@@ -893,6 +1293,11 @@ void NormApp::SignalHandler(int sigNum)
         case SIGTERM:
         case SIGINT:
             theApp.Stop(sigNum);  // causes theApp's main loop to exit
+            break;
+            
+        case SIGCHLD:
+            if (theApp.IsPostProcessing()) theApp.HandleSIGCHLD();
+            signal(SIGCHLD, SignalHandler);
             break;
             
         default:

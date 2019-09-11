@@ -28,6 +28,7 @@ class NormObject
             THRU_OBJECT 
         };
             
+        void Verify() const;
         
         virtual ~NormObject();
         NormObject::Type GetType() const {return type;}
@@ -39,14 +40,16 @@ class NormObject
         bool IsStream() const {return (STREAM == type);}
         
         NormNodeId LocalNodeId() const;
+        class NormServerNode* GetServer() {return server;}
         
+        bool IsOpen() {return (0 != segment_size);}
         // Opens (inits) object for tx operation
         bool Open(const NormObjectSize& objectSize, 
                   const char*           infoPtr, 
                   UINT16                infoLen);
         // Opens (inits) object for rx operation
         bool Open(const NormObjectSize& objectSize, bool hasInfo)
-            {return Open(objectSize, NULL, hasInfo ? 1 : 0);}
+            {return Open(objectSize, (char*)NULL, hasInfo ? 1 : 0);}
         void Close();
         
         virtual bool WriteSegment(NormBlockId   blockId, 
@@ -68,7 +71,7 @@ class NormObject
         NormBlockId FirstPending() {return pending_mask.FirstSet();}
         
         // Methods available to server for transmission
-        bool NextServerMsg(NormMessage* msg);
+        bool NextServerMsg(NormObjectMsg* msg);
         NormBlock* ServerRecoverBlock(NormBlockId blockId);
         bool CalculateBlockParity(NormBlock* block);
         
@@ -82,25 +85,18 @@ class NormObject
             NormBlockId blockId = theBlock->Id();
             bool result = theBlock->TxUpdate(firstSegmentId, lastSegmentId, 
                                              BlockSize(blockId), nparity, 
-                                             segment_size, numErasures);
-            if (result) 
-            {
-                result = pending_mask.Set(blockId);
-                ASSERT(result);
-            }
+                                             numErasures);
+            ASSERT(result ? pending_mask.Set(blockId) : true);
+            result = result ? pending_mask.Set(blockId) : false;
             return result; 
         }  // end NormObject::TxUpdateBlock()
         bool HandleInfoRequest();
         bool HandleBlockRequest(NormBlockId nextId, NormBlockId lastId);
-        bool SetPending(NormBlockId blockId)
-            {return pending_mask.Set(blockId);}
-        NormBlock* FindBlock(NormBlockId blockId) 
-        {
-            return block_buffer.Find(blockId);
-        }
+        bool SetPending(NormBlockId blockId) {return pending_mask.Set(blockId);}
+        NormBlock* FindBlock(NormBlockId blockId) {return block_buffer.Find(blockId);}
         bool ActivateRepairs();
-        bool IsRepairSet(NormBlockId blockId)
-            {return repair_mask.Test(blockId);}
+        bool IsRepairSet(NormBlockId blockId) {return repair_mask.Test(blockId);}
+        bool AppendRepairAdv(NormCmdRepairAdvMsg& cmd);
                
         // Used by session server for resource management scheme
         NormBlock* StealNonPendingBlock(bool excludeBlock, NormBlockId excludeId = 0);
@@ -108,29 +104,28 @@ class NormObject
         
         // Methods available to client for reception
         bool Accepted() {return accepted;}
-        void HandleObjectMessage(NormMessage&   msg, 
-                                 NormMsgType    msgType,
-                                 NormBlockId    blockId,
-                                 NormSegmentId  segmentId);
-        bool StreamUpdateStatus(NormBlockId blockId);
+        void HandleObjectMessage(const NormObjectMsg& msg,
+                                 NormMsg::Type        msgType,
+                                 NormBlockId          blockId,
+                                 NormSegmentId        segmentId);
+        
         
         // Used by remote server node for resource management scheme
         NormBlock* StealNewestBlock(bool excludeBlock, NormBlockId excludeId = 0);
-        
+        NormBlock* StealOldestBlock(bool excludeBlock, NormBlockId excludeId = 0);
         
         bool ClientRepairCheck(CheckLevel    level,
                                NormBlockId   blockId,
                                NormSegmentId segmentId,
-                               bool          timerActive);
+                               bool          timerActive,
+                               bool          holdoffPhase = false);
         bool IsRepairPending(bool flush);
         bool AppendRepairRequest(NormNackMsg& nack, bool flush);
         void SetRepairInfo() {repair_info = true;}
         bool SetRepairs(NormBlockId first, NormBlockId last)
         {
-            if (first == last)
-                return repair_mask.Set(first);
-            else
-                return repair_mask.SetBits(first, last-first+1); 
+            return (first == last) ? repair_mask.Set(first) :
+                                     repair_mask.SetBits(first, last-first+1); 
         }
         
     protected:
@@ -155,8 +150,10 @@ class NormObject
         NormSlidingMask       pending_mask;
         bool                  repair_info;
         NormSlidingMask       repair_mask;
-        NormBlockId           current_block_id;
-        NormSegmentId         next_segment_id;
+        NormBlockId           current_block_id;    // for suppression       
+        NormSegmentId         next_segment_id;     // for suppression       
+        NormBlockId           max_pending_block;   // for NACK construction 
+        NormSegmentId         max_pending_segment; // for NACK construction
         NormBlockId           last_block_id;
         NormSegmentId         last_block_size;
         UINT16                last_segment_size;
@@ -166,10 +163,7 @@ class NormObject
         
         bool                  accepted;
         
-        // Extra state for STREAM objects
-        bool                  stream_sync;
-        NormBlockId           stream_sync_id;
-        NormBlockId           stream_next_id;
+        
                    
         NormObject*           next; 
 };  // end class NormObject
@@ -191,15 +185,9 @@ class NormFileObject : public NormObject
         const char* Path() {return path;}
         bool Rename(const char* newPath) 
         {
-            if (file.Rename(path, newPath))
-            {
-                strncpy(path, newPath, PATH_MAX);
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+            bool result = file.Rename(path, newPath);
+            result ? strncpy(path, newPath, PATH_MAX) : NULL;
+            return result;
         }
         
         virtual bool WriteSegment(NormBlockId   blockId, 
@@ -231,7 +219,11 @@ class NormStreamObject : public NormObject
         void Close();
         
         bool Accept(unsigned long bufferSize);
-
+        bool StreamUpdateStatus(NormBlockId blockId);
+        void StreamResync(NormBlockId nextBlockId)
+            {stream_next_id = nextBlockId;}
+        void StreamAdvance();
+        
         virtual bool WriteSegment(NormBlockId   blockId, 
                                   NormSegmentId segmentId, 
                                   const char*   buffer);
@@ -239,8 +231,8 @@ class NormStreamObject : public NormObject
                                  NormSegmentId  segmentId,
                                  char*          buffer);
         
-        unsigned long Read(char* buffer, unsigned long len);
-        unsigned long Write(char* buffer, unsigned long len, bool flush = false);
+        bool Read(char* buffer, unsigned int* buflen, bool findMsgStart = false);
+        unsigned long Write(const char* buffer, unsigned long len, bool flush, bool eom, bool push);
         
         // For receive stream, we can rewind to earliest buffered offset
         void Rewind(); 
@@ -266,6 +258,11 @@ class NormStreamObject : public NormObject
                 NormBlockId     block;
                 NormSegmentId   segment; 
         };
+        // Extra state for STREAM objects
+        bool                        stream_sync;
+        NormBlockId                 stream_sync_id;
+        NormBlockId                 stream_next_id;
+        
         NormBlockPool               block_pool;
         NormSegmentPool             segment_pool;
         NormBlockBuffer             stream_buffer;
@@ -274,6 +271,7 @@ class NormStreamObject : public NormObject
         Index                       read_index;
         NormObjectSize              read_offset;
         bool                        flush_pending;
+        bool                        msg_start;
 };  // end class NormStreamObject
 
 #ifdef SIMULATE
@@ -317,17 +315,17 @@ class NormObjectTable
         bool Init(UINT16 rangeMax, UINT16 tableSize = 256);
         void Destroy();
         
-        bool IsInited() {return (NULL != table);}
+        bool IsInited() const {return (NULL != table);}
         bool CanInsert(NormObjectId objectId) const;
         bool Insert(NormObject* theObject);
         bool Remove(const NormObject* theObject);
         NormObject* Find(const NormObjectId& objectId) const;
         
-        NormObjectId RangeLo() {return range_lo;}
-        NormObjectId RangeHi() {return range_hi;}
-        bool IsEmpty() {return (0 == range);}
-        unsigned long Count() {return count;}
-        const NormObjectSize& Size() {return size;}
+        NormObjectId RangeLo() const {return range_lo;}
+        NormObjectId RangeHi() const {return range_hi;}
+        bool IsEmpty() const {return (0 == range);}
+        unsigned long Count() const {return count;}
+        const NormObjectSize& Size() const {return size;}
         
         class Iterator
         {

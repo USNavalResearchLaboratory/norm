@@ -5,8 +5,9 @@
 NormSegmentPool::NormSegmentPool()
  : seg_size(0), seg_count(0), seg_total(0), seg_list(NULL),
    peak_usage(0), overruns(0), overrun_flag(false)
-{    
+{
 }
+
 
 NormSegmentPool::~NormSegmentPool()
 {
@@ -18,6 +19,12 @@ bool NormSegmentPool::Init(unsigned int count, unsigned int size)
     if (seg_list) Destroy();
     peak_usage = 0;
     overruns = 0;    
+    
+#ifdef SIMULATE
+    // In simulations, don't really need big vectors for data
+    // since we don't actually read/write real data
+    size = MIN(size, (SIM_PAYLOAD_MAX+NormDataMsg::PayloadHeaderLength()+1));
+#endif  // SIMULATE
     // This makes sure we get appropriate alignment
     unsigned int alloc_size = size / sizeof(char*);
     if ((alloc_size*sizeof(char*)) < size) alloc_size++;
@@ -157,7 +164,7 @@ void NormBlock::EmptyToPool(NormSegmentPool& segmentPool)
     }
 }  // end NormBlock::EmptyToPool()
 
-bool NormBlock::IsEmpty()
+bool NormBlock::IsEmpty() const
 {
     ASSERT(segment_table);
     for (unsigned int i = 0; i < size; i++)
@@ -166,7 +173,7 @@ bool NormBlock::IsEmpty()
 }  // end NormBlock::EmptyToPool()
 
 // Used by client side to determine if NACK should be sent
-// Note: This clears the block's "repair_mask" state
+// Note: This invalidates the block's "repair_mask" state
 bool NormBlock::IsRepairPending(UINT16 ndata, UINT16 nparity)
 {
     // Clients ask for a block of parity to fulfill their
@@ -250,9 +257,10 @@ bool NormBlock::ActivateRepairs(UINT16 nparity)
 }  // end NormBlock::ActivateRepairs()
 
 // For NACKs arriving during server repair_timer "holdoff" time
+// (we directly update the "pending_mask" for blocks/segments
+//  greater than our current transmit index)
 bool NormBlock::TxUpdate(NormSegmentId nextId, NormSegmentId lastId,
-                         UINT16 ndata, UINT16 nparity, 
-                         UINT16 segmentSize, UINT16 erasureCount)
+                         UINT16 ndata, UINT16 nparity, UINT16 erasureCount)
 {
     bool increasedRepair = false;
         
@@ -314,7 +322,7 @@ bool NormBlock::TxUpdate(NormSegmentId nextId, NormSegmentId lastId,
 bool NormBlock::HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
                                      UINT16 ndata, UINT16 nparity, UINT16 erasureCount)
 {
-    DMSG(4, "NormBlock::HandleSegmentRequest() blk>%lu seg>%hu:%hu erasures:%hu\n",
+    DMSG(6, "NormBlock::HandleSegmentRequest() blk>%lu seg>%hu:%hu erasures:%hu\n",
             (UINT32)id, (UINT16)nextId, (UINT16)lastId, erasureCount);
     bool increasedRepair = false;
     if (nextId < ndata)
@@ -373,6 +381,78 @@ bool NormBlock::HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
 }  // end NormBlock::HandleSegmentRequest()
 
 
+bool NormBlock::AppendRepairAdv(NormCmdRepairAdvMsg& cmd, 
+                                NormObjectId         objectId,
+                                bool                 repairInfo,
+                                UINT16               ndata,
+                                UINT16               segmentSize)
+{
+    NormRepairRequest req;
+    req.SetFlag(NormRepairRequest::SEGMENT);
+    if (repairInfo) req.SetFlag(NormRepairRequest::INFO);
+    UINT16 nextId = repair_mask.FirstSet();
+    UINT16 blockSize = size;
+    NormRepairRequest::Form prevForm = NormRepairRequest::INVALID;
+    UINT16 segmentCount = 0;
+    UINT16 firstId = 0;
+    while (nextId < blockSize)
+    {
+        UINT16 currentId = nextId;
+        nextId = repair_mask.NextSet(++nextId);
+        if (!segmentCount) firstId = currentId;
+        
+        segmentCount++;
+        // Check for break in consecutive series or end
+        if (((nextId  - currentId) > 1) || (nextId >= blockSize))
+        {
+            NormRepairRequest::Form form;
+            switch (segmentCount)
+            {
+                case 0:
+                    form = NormRepairRequest::INVALID;
+                    break;
+                case 1:
+                case 2:
+                    form = NormRepairRequest::ITEMS;
+                    break;
+                default:
+                    form = NormRepairRequest::RANGES;
+                    break;
+            }
+            if (form != prevForm)
+            {
+                if (NormRepairRequest::INVALID != prevForm) 
+                    cmd.PackRepairRequest(req);            // (TBD) error check
+                req.SetForm(form);
+                cmd.AttachRepairRequest(req, segmentSize); // (TBD) error check
+                prevForm = form;
+            }            
+            switch(form)
+            {
+                case NormRepairRequest::INVALID:
+                    ASSERT(0);  // can't happen
+                    break;
+                case NormRepairRequest::ITEMS:
+                    req.AppendRepairItem(objectId, id, ndata, firstId);
+                    if (2 == segmentCount) 
+                        req.AppendRepairItem(objectId, id, ndata, currentId);
+                    break;
+                case NormRepairRequest::RANGES:
+                    req.AppendRepairRange(objectId, id, ndata, firstId,
+                                          objectId, id, ndata, currentId);
+                    break;
+                case NormRepairRequest::ERASURES:
+                    // erasure counts not used
+                    break;
+            } 
+            segmentCount = 0;  
+        }
+    }  // end while (nextId < blockSize)
+    if (NormRepairRequest::INVALID != prevForm) 
+        cmd.PackRepairRequest(req); // (TBD) error check
+    return true;
+}  // end NormBlock::AppendRepairAdv()
+
 // Called by client
 bool NormBlock::AppendRepairRequest(NormNackMsg&    nack, 
                                     UINT16          ndata, 
@@ -382,11 +462,7 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
                                     UINT16          segmentSize)
 {
     ASSERT(pending_mask.FirstSet() < ndata);
-    NormRepairRequest req;
-    nack.AttachRepairRequest(req, segmentSize);
-    req.SetFlag(NormRepairRequest::SEGMENT);
-    if (pendingInfo) req.SetFlag(NormRepairRequest::INFO);
-    NormSegmentId nextId, lastId;
+    NormSegmentId nextId, endId;
     
     if (erasure_count > nparity)
     {
@@ -397,30 +473,92 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
         while (i--)
         {
             nextId++;
-            nextId = pending_mask.NextSet(nextId);
+            endId = pending_mask.NextSet(nextId);
         }
-        lastId = ndata + nparity;
+        endId = ndata + nparity;
     }
     else
     {
         nextId = pending_mask.NextSet(ndata);
-        lastId = ndata + erasure_count;   
+        endId = ndata + erasure_count;   
     }
+    NormRepairRequest req;
+    req.SetFlag(NormRepairRequest::SEGMENT);                  
+    if (pendingInfo) req.SetFlag(NormRepairRequest::INFO);  
     NormRepairRequest::Form prevForm = NormRepairRequest::INVALID;
-    UINT16 reqCount = 0;
+    UINT16 segmentCount = 0;
+    // new code begins here  
+    UINT16 firstId = 0;
+    while (nextId < endId)
+    {
+        UINT16 currentId = nextId;
+        nextId = pending_mask.NextSet(++nextId);
+        if (0 == segmentCount) firstId = currentId;
+        segmentCount++;
+        // Check for break in consecutive series or end
+        if (((nextId  - currentId) > 1) || (nextId >= endId))
+        {
+            NormRepairRequest::Form form;
+            switch (segmentCount)
+            {
+                case 0:
+                    form = NormRepairRequest::INVALID;
+                    break;
+                case 1:
+                case 2:
+                    form = NormRepairRequest::ITEMS;
+                    break;
+                default:
+                    form = NormRepairRequest::RANGES;
+                    break;
+            }   
+            if (form != prevForm)
+            {
+                if (NormRepairRequest::INVALID != prevForm) 
+                    nack.PackRepairRequest(req);                       // (TBD) error check
+                nack.AttachRepairRequest(req, segmentSize);            // (TBD) error check
+                req.SetForm(form);
+                prevForm = form;
+            }
+            switch (form)
+            {
+                case NormRepairRequest::INVALID:
+                    ASSERT(0);
+                    break;
+                case NormRepairRequest::ITEMS:
+                    req.AppendRepairItem(objectId, id, ndata, firstId);       // (TBD) error check
+                    if (2 == segmentCount)
+                        req.AppendRepairItem(objectId, id, ndata, currentId); // (TBD) error check
+                    break;
+                case NormRepairRequest::RANGES:
+                    req.AppendRepairRange(objectId, id, ndata, firstId,       // (TBD) error check
+                                          objectId, id, ndata, currentId);    // (TBD) error check
+                    break;
+                case NormRepairRequest::ERASURES:
+                    // erasure counts not used
+                    break;
+            }  // end switch(form)
+            segmentCount = 0;
+        }       
+    }  // end while (nextId < lastId)
+    if (NormRepairRequest::INVALID != prevForm) 
+        nack.PackRepairRequest(req);                                   // (TBD) error check
+    
+    /*
+    // old code begins here
     NormSegmentId prevId = nextId;
-    while ((nextId <= lastId) || (reqCount > 0))
+    while ((nextId <= lastId) || (segmentCount > 0))
     {
         // force break of possible ending consec. series
         if (nextId == lastId) nextId++; 
-        if (reqCount && (reqCount == (nextId - prevId)))
+        if (segmentCount && (segmentCount == (nextId - prevId)))
         {
-            reqCount++;  // consecutive series continues
+            segmentCount++;  // consecutive series continues
         }
         else
         {
             NormRepairRequest::Form nextForm;
-            switch(reqCount)
+            switch(segmentCount)
             {
                 case 0:
                     nextForm = NormRepairRequest::INVALID;
@@ -464,15 +602,16 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
             }  // end switch(nextForm)
             prevId = nextId;
             if (nextId < lastId)
-                reqCount = 1;
+                segmentCount = 1;
             else
-                reqCount = 0;
+                segmentCount = 0;
         }  // end if/else (reqCount && (reqCount == (nextId - prevId)))
         nextId++;
         if (nextId <= lastId) nextId = pending_mask.NextSet(nextId);
     }  // end while(nextId <= lastId)
     if (NormRepairRequest::INVALID != prevForm)
         nack.PackRepairRequest(req);  // (TBD) error check
+    */
     return true;
 }  // end NormBlock::AppendRepairRequest()
          

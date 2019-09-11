@@ -117,6 +117,8 @@ class NormSlidingMask
         NormSlidingMask();
         ~NormSlidingMask();
         
+        const char* GetMask() const {return (const char*)mask;}
+        
         bool Init(long numBits);
         void Destroy();
         long Size() const {return num_bits;}
@@ -181,6 +183,7 @@ class NormSlidingMask
         long            start;
         long            end;
         unsigned long   offset;
+        unsigned char*  mask2;
 };  // end class NormSlidingMask
 
 #endif // _NORM_BITMASK_

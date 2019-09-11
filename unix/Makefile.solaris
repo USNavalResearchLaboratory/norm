@@ -63,5 +63,7 @@ SYSTEM_LIBS = -ldl -lnsl -lsocket
 export SYSTEM_HAVES =  -DHAVE_ASSERT -DHAVE_CUSERID -DHAVE_LOCKF $(NETSEC) -DSOLARIS 
 
 export CC = gcc
+export RANLIB = touch
+export AR = ar
 
 include Makefile.common

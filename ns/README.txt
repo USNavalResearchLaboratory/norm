@@ -25,8 +25,11 @@ suppress.tcl   - Executable TCL script which iteratively
                  invokes "ns" with the "simplenorm.tcl"
                  script and "nc" (nackCount) to evaluate
                  NORM NACK suppression performance.
-                 
 
+                 
+ns-2.1b9-Makefile.in  - Patched version of ns-2.1b9 Makefile.in
+                        with NORM, MDP & PROTOLIB stuff included.
+                        (MDP stuff can be removed if desired)
                  
 ns-2.1b7a-Makefile.in - Patched version of ns-2.1b7a Makefile.in
                         with NORM & PROTOLIB stuff included.

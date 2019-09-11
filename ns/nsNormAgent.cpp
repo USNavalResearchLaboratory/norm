@@ -39,17 +39,18 @@ static class NsNormAgentClass : public TclClass
 {
 	public:
 		NsNormAgentClass() : TclClass("Agent/NORM") {}
-	 	TclObject *create(int argc, const char*const* argv) 
+	 	TclObject* create(int argc, const char*const* argv) 
 			{return (new NsNormAgent());}
 } class_norm_agent;	
 
 
 NsNormAgent::NsNormAgent()
+ : NormSimAgent(ProtoSimAgent::TimerInstaller, 
+                static_cast<ProtoSimAgent*>(this),
+                ProtoSimAgent::SocketInstaller, 
+                static_cast<ProtoSimAgent*>(this))
 {
-    NormSimAgent::Init(ProtoSimAgent::TimerInstaller, 
-                       static_cast<ProtoSimAgent*>(this),
-                       ProtoSimAgent::SocketInstaller, 
-                       static_cast<ProtoSimAgent*>(this));
+ 
 }  
 
 NsNormAgent::~NsNormAgent()
@@ -62,6 +63,42 @@ int NsNormAgent::command(int argc, const char*const* argv)
     int i = 1;
     while (i < argc)
     {
+        // Intercept ns-specific commands
+        if (!strcmp(argv[i], "attach-mgen"))
+        {
+            // (TBD) this could be done as a generic NormSimAgent command
+            // Attach Agent/MGEN to this NormSimAgent 
+            if (++i >= argc)
+            {
+                DMSG(0, "NsNormAgent::command() ProcessCommand(attach-mgen) error: insufficent arguments\n");
+                return TCL_ERROR;
+            } 
+            Tcl& tcl = Tcl::instance();  
+            NsMgenAgent* mgenAgent = dynamic_cast<NsMgenAgent*> (tcl.lookup(argv[i]));
+            if (mgenAgent)
+            {
+                AttachMgen(mgenAgent->GetMgenInstance());
+                i++;
+                continue;
+            }
+            else
+            {
+                DMSG(0, "NsNormAgent::command() ProcessCommand(attach-mgen) error: invalid mgen agent\n");
+                return TCL_ERROR;
+            }
+        }
+        else if (!strcmp(argv[i], "active"))
+        {
+            // query agent's current state of activity
+            Tcl& tcl = Tcl::instance(); 
+            if (IsActive())
+                sprintf(tcl.result(), "on");
+            else
+                sprintf(tcl.result(), "off");
+            i++;
+            continue;
+        }
+        // Other commands are interpreted by the NormSimAgent base class
         NormSimAgent::CmdType cmdType = CommandType(argv[i]);
         switch (cmdType)
         {
@@ -92,6 +129,13 @@ int NsNormAgent::command(int argc, const char*const* argv)
     return TCL_OK; 
 }  // end NsNormAgent::command()
 
+bool NsNormAgent::SendMgenMessage(const NetworkAddress* dstAddr,
+                                  const char*           txBuffer,
+                                  unsigned int          len)
+{
+    return SendMessage(len, txBuffer);
+}  // end NsNormAgent::SendMgenMessage()
+        
 
 
 

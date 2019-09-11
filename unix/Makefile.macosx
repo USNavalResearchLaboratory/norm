@@ -1,38 +1,15 @@
 #
-# MacOS X Protean Makefile definitions
+# Protean MacOS X (Darwin) Makefile definitions
 #
 
-# TO BUILD THE TK GUI VERSION, EDIT THE FOLLOWING NUMBERED 
-# ITEMS AS NEEDED FOR YOUR SYSTEM
-# (This has only been tested with TCL/TK 8.0 but it probably
-#  will work with Tcl7.x/Tk4.x with a little tweaking to
-#  the list of TCL_SCRIPTS (library scripts) given below)
-
-# 1) Where to find the Tcl standard library scripts
-#    (e.g. init.tcl, ...)
-TCL_SCRIPT_PATH = /usr/local/lib/tcl8.0
-
-# 2) Where to find the Tk standard library scripts
-#    (e.g. button.tcl, entry.tcl, ...)
-TK_SCRIPT_PATH = /usr/local/lib/tk8.0
-
-# 3) Where to find Tcl/Tk header files
-#    (e.g. tcl.h, tk.h, ...)
-TCL_INCL_PATH = -I/usr/local/include/tcl8.0 -I/usr/local/include/tk8.0 
-
-# 4) Point to specific libtcl.a and libtk.a to use
-TCL_LIB = /usr/local/lib/libtcl80.a
-TK_LIB = /usr/local/lib/libtk80.a
-
-
-# 5) System specific additional libraries, include paths, etc
+# 1) System specific additional libraries, include paths, etc
 #    (Where to find X11 libraries, etc)
 #
 SYSTEM_INCLUDES = -I/usr/X11R6/include 
 SYSTEM_LDFLAGS = -L/usr/X11R6/lib 
 SYSTEM_LIBS =  
 
-# 6) System specific capabilities
+# 2) System specific capabilities
 # Must choose appropriate for the following:
 #
 # A) -DHAVE_CUSERID (preferred) or -DHAVE_GETLOGIN for cuserid() or getlogin()
@@ -48,22 +25,20 @@ SYSTEM_LIBS =
 # D) Optionally specify -DHAVE_ASSERT if your system has a built-in ASSERT()
 #    routine.
 #
-# E) The MDP code's use of offset pointers requires special treatment
-#    for some different compilers. Set -DUSE_INHERITANCE for some
-#    to keep some compilers (gcc 2.7.2) happy.
-#
-# F) Some systems (SOLARIS/SUNOS) have a few gotchas which require
+# E) Some systems (SOLARIS/SUNOS) have a few gotchas which require
 #    some #ifdefs to avoid compiler warnings ... so you might need
 #    to specify -DSOLARIS or -DSUNOS depending on your OS.
 #
-# G) Uncomment this if you have the NRL IPv6+IPsec software
+# F) Uncomment this if you have the NRL IPv6+IPsec software
 #DNETSEC = -DNETSEC -I/usr/inet6/include
 #
 # (We export these for other Makefiles as needed)
 #
 
-export SYSTEM_HAVES = -DHAVE_ASSERT -DHAVE_GETLOGIN -DHAVE_FLOCK -DHAVE_DIRFD $(DNETSEC)
+export SYSTEM_HAVES = -DHAVE_ASSERT -DHAVE_GETLOGIN -DHAVE_FLOCK -DHAVE_DIRFD $(DNETSEC) -DSOCKLEN_T=int
 
-export CC = cc
+export CC = g++
+export RANLIB = ranlib
+export AR = ar
 
 include Makefile.common
