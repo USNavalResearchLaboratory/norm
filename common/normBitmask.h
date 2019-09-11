@@ -128,6 +128,7 @@ class NormSlidingMask
         }
         void Reset(unsigned long index = 0)
         {
+            ASSERT(num_bits);
             memset(mask, 0xff, mask_len);
             mask[mask_len-1] = 0x00ff << ((8 - (num_bits & 0x07)) & 0x07);
             start = 0;
@@ -171,6 +172,7 @@ class NormSlidingMask
         bool Xor(const NormSlidingMask & b);        // this = this ^ b
         
         void Display(FILE* stream);
+        void Debug(long theCount);
         
     private:
         unsigned char*  mask;

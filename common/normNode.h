@@ -46,16 +46,19 @@ class NormServerNode : public NormNode
         NormServerNode(class NormSession* theSession, NormNodeId nodeId);  
         ~NormServerNode();
         
+        void HandleCommand(NormCommandMsg& cmd);
         void HandleObjectMessage(NormMessage& msg);
-        
+        void HandleNackMessage(NormNackMsg& nack);
+                
         bool Open(UINT16 segmentSize, UINT16 numData, UINT16 numParity);
         void Close();
         bool IsOpen() const {return is_open;}        
         
         bool SyncTest(const NormMessage& msg) const;
         void Sync(NormObjectId objectId);
-        ObjectStatus GetObjectStatus(NormObjectId objectId) const;
+        ObjectStatus UpdateSyncStatus(const NormObjectId& objectId);
         void SetPending(NormObjectId objectId);
+        ObjectStatus GetObjectStatus(const NormObjectId& objectId) const;
         
         void DeleteObject(NormObject* obj);
         
@@ -77,7 +80,7 @@ class NormServerNode : public NormNode
         
         void SetErasureLoc(UINT16 index, UINT16 value)
         {
-            ASSERT(index < (nparity));
+            ASSERT(index < nparity);
             erasure_loc[index] = value;
         }
         UINT16 GetErasureLoc(UINT16 index) 
@@ -87,7 +90,28 @@ class NormServerNode : public NormNode
             return decoder.Decode(segmentList, numData, erasureCount, erasure_loc);   
         }
         
-
+        void CalculateGrttResponse(struct timeval& grttResponse);
+        
+        unsigned long CurrentBufferUsage()
+            {return (segment_size * segment_pool.CurrentUsage());}
+        unsigned long PeakBufferUsage()
+            {return (segment_size * segment_pool.PeakUsage());}
+        unsigned long BufferOverunCount()
+            {return segment_pool.OverunCount() + block_pool.OverrunCount();}
+        
+        unsigned long RecvTotal() {return recv_total;}
+        unsigned long RecvGoodput() {return recv_goodput;}
+        void IncrementRecvTotal(unsigned long count) {recv_total += count;}
+        void IncrementRecvGoodput(unsigned long count) {recv_goodput += count;}
+        void ResetRecvStats() {recv_total = recv_goodput = 0;}
+        void IncrementResyncCount() {resync_count++;}
+        unsigned long ResyncCount() {return resync_count;}
+        unsigned long NackCount() {return nack_count;}
+        unsigned long SuppressCount() {return suppress_count;}
+        unsigned long CompletionCount() {return completion_count;}
+        unsigned long PendingCount() {return rx_table.Count();}
+        unsigned long FailureCount() {return failure_count;}
+        
     private:
         void RepairCheck(NormObject::CheckLevel checkLevel,
                          NormObjectId           objectId,  
@@ -116,6 +140,22 @@ class NormServerNode : public NormNode
         
         ProtocolTimer       repair_timer;
         NormObjectId        current_object_id; // index for repair
+                
+        double              grtt_estimate;
+        UINT8               grtt_quantized;
+        struct timeval      grtt_send_time;
+        struct timeval      grtt_recv_time;
+        double              gsize_estimate;
+        UINT8               gsize_quantized;
+        
+        // For statistics tracking
+        unsigned long       recv_total;   // total recvd accumulator
+        unsigned long       recv_goodput; // goodput recvd accumulator
+        unsigned long       resync_count;
+        unsigned long       nack_count;
+        unsigned long       suppress_count;
+        unsigned long       completion_count;
+        unsigned long       failure_count;  // due to re-syncs
         
 };  // end class NodeServerNode
     

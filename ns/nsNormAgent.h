@@ -29,17 +29,29 @@
  * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  ********************************************************************/
- 
-#ifndef _NORM_GALOIS
-#define _NORM_GALOIS
 
-namespace Norm
+#ifndef _NS_NORM_AGENT
+#define _NS_NORM_AGENT
+
+#include "nsProtoAgent.h" // from ProtoLib
+#include "normSimAgent.h"
+
+// The "NsNormAgent" is based on the ns agent class.
+// This lets us have a send/recv attachment to the NS
+// simulation environment
+
+// IMPORTANT NOTE! NsProtoAgent must be listed _first_ here
+// (because we can't dynamic_cast install_data void* pointers)
+class NsNormAgent : public NormSimAgent, public NsProtoAgent
 {
-extern const unsigned char GINV[256];
-extern const unsigned char GEXP[512];
-extern const unsigned char GMULT[256][256];
-}
-inline unsigned char gexp(unsigned int x) {return Norm::GEXP[x];}
-inline unsigned char gmult(unsigned int x, unsigned int y) {return Norm::GMULT[x][y];}
-inline unsigned char ginv(unsigned int x) {return Norm::GINV[x];}
-#endif // _NORM_GALOIS
+    public:
+        NsNormAgent();
+        ~NsNormAgent();
+                
+        // NsProtoAgent base class overrides
+        int command(int argc, const char*const* argv);         
+        unsigned long GetAgentId() {return (unsigned long)addr();}      
+};  // end class NsNormAgent
+
+
+#endif // _NS_NORM_AGENT

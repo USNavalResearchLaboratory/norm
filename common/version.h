@@ -30,16 +30,8 @@
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  ********************************************************************/
  
-#ifndef _NORM_GALOIS
-#define _NORM_GALOIS
-
-namespace Norm
-{
-extern const unsigned char GINV[256];
-extern const unsigned char GEXP[512];
-extern const unsigned char GMULT[256][256];
-}
-inline unsigned char gexp(unsigned int x) {return Norm::GEXP[x];}
-inline unsigned char gmult(unsigned int x, unsigned int y) {return Norm::GMULT[x][y];}
-inline unsigned char ginv(unsigned int x) {return Norm::GINV[x];}
-#endif // _NORM_GALOIS
+#ifndef _NORM_VERSION
+#define _NORM_VERSION
+#define VERSION "1.0x1"
+#endif // _NORM_VERSION
+        

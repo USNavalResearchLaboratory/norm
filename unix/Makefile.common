@@ -4,11 +4,11 @@
 
 SHELL=/bin/sh
 
-.SUFFIXES: .cpp $(.SUFFIXES)
+.SUFFIXES: .cpp -sim.o $(.SUFFIXES)
 
 PROTOLIB = ../protolib
 COMMON = ../common
-UNIX = ./
+UNIX = ../unix
 NS = ../ns
 
 INCLUDES = $(TCL_INCL_PATH) $(SYSTEM_INCLUDES) -I$(UNIX) -I$(COMMON) -I$(PROTOLIB)/common
@@ -54,26 +54,37 @@ $(PROTOLIB)/unix/libProto.a:
 NORM_SRC = $(COMMON)/normMessage.cpp $(COMMON)/normSession.cpp \
            $(COMMON)/normNode.cpp $(COMMON)/normObject.cpp \
            $(COMMON)/normSegment.cpp $(COMMON)/normBitmask.cpp \
-           $(COMMON)/normEncoder.cpp $(COMMON)/galois.cpp
+           $(COMMON)/normEncoder.cpp $(COMMON)/galois.cpp \
+           $(COMMON)/normFile.cpp
           
 NORM_OBJ = $(NORM_SRC:.cpp=.o)
 
 LIB_SRC = $(NORM_SRC)
 LIB_OBJ = $(LIB_SRC:.cpp=.o)
 
-libNorm.a:    $(LIB_OBJ)
+libnorm.a:    $(LIB_OBJ)
 	ar rcv $@ $(LIB_OBJ)
+	ranlib $@
+
+.cpp-sim.o:
+	$(CC) -c $(CFLAGS) -DSIMULATE -o $*-sim.o $*.cpp
+    
+SIM_SRC = $(NORM_SRC) $(COMMON)/normSimAgent.cpp    
+SIM_OBJ = $(SIM_SRC:.cpp=-sim.o)
+
+libnormSim.a:   $(SIM_OBJ)
+	ar rcv $@ $(SIM_OBJ)
 	ranlib $@
     
 # (mdp) command-line file broadcaster/receiver
 APP_SRC = $(COMMON)/normApp.cpp
 APP_OBJ = $(APP_SRC:.cpp=.o)
 
-norm:    $(APP_OBJ) libNorm.a $(LIBPROTO) 
-	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) $(LIBS) libNorm.a $(LIBPROTO) 
+norm:    $(APP_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS) $(LIBS) libnorm.a $(LIBPROTO) 
     	    
 clean:	
-	rm -f $(COMMON)/*.o  $(UNIX)/*.o $(UNIX)/libNorm.a $(UNIX)/norm;
+	rm -f $(COMMON)/*.o  $(UNIX)/*.o $(UNIX)/libnorm.a $(UNIX)/norm $(NS)/*.o;
 	make -C $(PROTOLIB)/unix -f Makefile.common clean
 
 # DO NOT DELETE THIS LINE -- mkdep uses it.

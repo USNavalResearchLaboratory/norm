@@ -26,14 +26,18 @@ class NormSegmentPool
         }
         bool IsEmpty() {return (NULL == seg_list);}
         
+        unsigned long CurrentUsage() {return (seg_total - seg_count);}
+        unsigned long PeakUsage() {return peak_usage;}
+        unsigned long OverunCount() {return overruns;}
+        
     private: 
         unsigned int    seg_size;
         unsigned int    seg_count;  
         unsigned int    seg_total;
         char*           seg_list;
         
-        unsigned int    peak_usage;
-        unsigned int    overruns;
+        unsigned long   peak_usage;
+        unsigned long   overruns;
         bool            overrun_flag;
 };  // end class NormSegmentPool
 
@@ -45,8 +49,7 @@ class NormBlock
     public:
         enum Flag 
         {
-            PARITY_READY = 0x01,
-            IN_REPAIR    = 0x02
+            IN_REPAIR    = 0x01
         };
             
         NormBlock();
@@ -57,8 +60,11 @@ class NormBlock
         void Destroy();   
         
         void SetFlag(NormBlock::Flag flag) {flags |= flag;}
-        bool ParityReady() {return (0 != (flags & PARITY_READY));}
         bool InRepair() {return (0 != (flags & IN_REPAIR));}
+        bool ParityReady(UINT16 ndata) {return (erasure_count == ndata);}
+        UINT16 ParityReadiness() {return erasure_count;}
+        void IncreaseParityReadiness() {erasure_count++;}
+        void SetParityReadiness(UINT16 ndata) {erasure_count = ndata;}
         
         char** SegmentList(UINT16 index = 0) {return &segment_table[index];}
         char* Segment(NormSegmentId sid)
@@ -71,7 +77,6 @@ class NormBlock
             ASSERT(sid < size);
             ASSERT(!segment_table[sid]);
             segment_table[sid] = segment;
-            erasure_count--;
         }    
         char* DetachSegment(NormSegmentId sid)
         {
@@ -87,25 +92,62 @@ class NormBlock
             segment_table[sid] = segment;
         }    
         
+        // Server routines
         void TxInit(NormBlockId& blockId, UINT16 ndata, UINT16 autoParity)
         {
             id = blockId;
             pending_mask.Clear();
             pending_mask.SetBits(0, ndata+autoParity);
             repair_mask.Clear();
-            erasure_count = size - ndata;
-            parity_count = 0;   
+            erasure_count = 0;
+            parity_count = 0; 
+            parity_offset = autoParity;  
             flags = 0;
         }
-        void RxInit(NormBlockId& blockId, UINT16 ndata)
+        void TxRecover(NormBlockId& blockId, UINT16 ndata, UINT16 nparity)
         {
             id = blockId;
-            pending_mask.Reset();
+            pending_mask.Clear();
             repair_mask.Clear();
-            erasure_count = size;
+            erasure_count = 0;
+            parity_count = nparity;  // force recovered blocks to 
+            parity_offset = nparity; // explicit repair mode ???  
+            flags = IN_REPAIR;
+        }
+        bool TxReset(UINT16 ndata, UINT16 nparity, UINT16 autoParity, 
+                     UINT16 segmentSize);
+        bool TxUpdate(NormSegmentId nextId, NormSegmentId lastId,
+                      UINT16 ndata, UINT16 nparity, 
+                      UINT16 segmentSize, UINT16 erasureCount);
+        
+        bool HandleSegmentRequest(NormSegmentId nextId, NormSegmentId lastId,
+                                  UINT16 ndata, UINT16 nparity, 
+                                  UINT16 erasureCount);
+        bool ActivateRepairs(UINT16 nparity);
+        void ResetParityCount(UINT16 nparity) 
+        {
+            parity_offset += parity_count;
+            parity_offset = MIN(parity_offset, nparity);
+            parity_count = 0;
+        }
+        
+        // Client routines
+        void RxInit(NormBlockId& blockId, UINT16 ndata, UINT16 nparity)
+        {
+            id = blockId;
+            pending_mask.Clear();
+            pending_mask.SetBits(0, ndata+nparity);
+            repair_mask.Clear();
+            erasure_count = ndata;
             parity_count = 0;   
+            parity_offset = 0;
             flags = 0;
         }
+        bool IsRepairPending(UINT16 ndata, UINT16 nparity); 
+        void DecrementErasureCount() {erasure_count--;}
+        UINT16 ErasureCount() const {return erasure_count;}
+        void IncrementParityCount() {parity_count++;}
+        UINT16 ParityCount() {return parity_count;}
         
         NormSymbolId FirstPending() const
             {return pending_mask.FirstSet();}
@@ -113,12 +155,21 @@ class NormBlock
             {return repair_mask.FirstSet();}
         bool SetPending(NormSymbolId s) 
             {return pending_mask.Set(s);}
+        bool SetPending(NormSymbolId firstId, UINT16 count)
+            {return pending_mask.SetBits(firstId, count);}
         void UnsetPending(NormSymbolId s) 
             {pending_mask.Unset(s);}
         void ClearPending()
             {pending_mask.Clear();}
         bool SetRepair(NormSymbolId s) 
             {return repair_mask.Set(s);}
+        bool SetRepairs(NormSymbolId first, NormSymbolId last)
+        {
+            if (first == last)
+                return repair_mask.Set(first);
+            else
+                return (repair_mask.SetBits(first, last-first+1));   
+        }
         void UnsetRepair(NormSymbolId s)
             {repair_mask.Unset(s);}
         void ClearRepairs()
@@ -126,12 +177,23 @@ class NormBlock
         bool IsPending(NormSymbolId s) const
             {return pending_mask.Test(s);}
         bool IsPending() const
-            {return pending_mask.IsSet();}
-        bool IsRepairPending(NormSegmentId end); 
+            {return pending_mask.IsSet();}   
+        bool IsRepairPending() const
+            {return repair_mask.IsSet();}
+        bool IsTransmitPending() const
+            {return (pending_mask.IsSet() || repair_mask.IsSet());}
+        
             
         NormSymbolId NextPending(NormSymbolId index) const
             {return pending_mask.NextSet(index);}
-        UINT16 ErasureCount() const {return erasure_count;}
+        
+        
+        bool AppendRepairRequest(NormNackMsg&    nack, 
+                                 UINT16          ndata, 
+                                 UINT16          nparity,
+                                 NormObjectId    objectId,
+                                 bool            pendingInfo,
+                                 UINT16          segmentSize);
         //void DisplayPendingMask(FILE* f) {pending_mask.Display(f);}
         
         bool IsEmpty();
@@ -145,6 +207,7 @@ class NormBlock
         int         flags;
         UINT16      erasure_count;
         UINT16      parity_count;
+        UINT16      parity_offset;
         
         NormBitmask pending_mask;
         NormBitmask repair_mask;
@@ -164,6 +227,15 @@ class NormBlockPool
         {
             NormBlock* b = head;
             head = b ? b->next : NULL;
+            if (b) 
+            {
+                overrun_flag = false;
+            }
+            else if (!overrun_flag)
+            {
+                overruns++;
+                overrun_flag = true;   
+            }
             return b;
         }
         void Put(NormBlock* b)
@@ -171,16 +243,20 @@ class NormBlockPool
             b->next = head;
             head = b;
         }
+        unsigned long OverrunCount() {return overruns;}
         
     private:
         NormBlock*      head;
+        unsigned long   overruns;
+        bool            overrun_flag;
 };  // end class NormBlockPool
 
 class NormBlockBuffer
 {
-    friend class NormBlockBuffer::Iterator;
-    
     public:
+        class Iterator;
+        friend class NormBlockBuffer::Iterator;
+            
         NormBlockBuffer();
         ~NormBlockBuffer();
         bool Init(unsigned long rangeMax, unsigned long tableSize = 256);

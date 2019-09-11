@@ -1,7 +1,5 @@
 #include "normMessage.h"
 
-#include "debug.h"
-
 NormRepairRequest::NormRepairRequest()
  : form(INVALID), flags(0), length(0), buffer(NULL), buffer_len(0)
 {
@@ -11,7 +9,13 @@ bool NormRepairRequest::AppendRepairItem(const NormObjectId& objectId,
                                          const NormBlockId&  blockId,
                                          UINT16              symbolId)
 {
-    if (buffer_len >= (CONTENT_OFFSET+length+RepairItemLength()))
+    if (RANGES == form)
+        DMSG(4, "NormRepairRequest::AppendRepairRange(obj>%hu blk>%lu seg>%hu) ...\n",
+            (UINT16)objectId, (UINT32)blockId, (UINT32)symbolId);
+    else
+        DMSG(4, "NormRepairRequest::AppendRepairItem(obj>%hu blk>%lu seg>%hu) ...\n",
+            (UINT16)objectId, (UINT32)blockId, (UINT32)symbolId);
+    if (buffer_len >= (length+CONTENT_OFFSET+RepairItemLength()))
     {
         UINT16 temp16 = htons((UINT16)objectId);
         memcpy(buffer+CONTENT_OFFSET+length, &temp16, 2);
@@ -35,7 +39,10 @@ bool NormRepairRequest::AppendRepairRange(const NormObjectId&   startObjectId,
                                           const NormBlockId&    endBlockId,
                                           UINT16                endSymbolId)
 {
-    if (buffer_len >= (CONTENT_OFFSET+length+RepairRangeLength()))
+    DMSG(4, "NormRepairRequest::AppendRepairRange(%hu:%lu:%hu->%hu:%lu:%hu) ...\n",
+            (UINT16)startObjectId, (UINT32)startBlockId, (UINT32)startSymbolId,
+            (UINT16)endObjectId, (UINT32)endBlockId, (UINT32)endSymbolId);
+    if (buffer_len >= (length+CONTENT_OFFSET+RepairRangeLength()))
     {
         // range start
         UINT16 temp16;
@@ -257,6 +264,28 @@ NormMessage* NormMessageQueue::RemoveTail()
     }
 }  // end NormMessageQueue::RemoveTail()
 
+
+/****************************************************************
+ *  RTT quantization routines:
+ *  These routines are valid for 1.0e-06 <= RTT <= 1000.0 seconds
+ *  They allow us to pack our RTT estimates into a 1 byte fields
+ */
+
+// valid for rtt = 1.0e-06 to 1.0e+03
+unsigned char NormQuantizeRtt(double rtt)
+{
+    if (rtt > NORM_RTT_MAX)
+        rtt = NORM_RTT_MAX;
+    else if (rtt < NORM_RTT_MIN)
+        rtt = NORM_RTT_MIN;
+    if (rtt < 3.3e-05) 
+        return ((unsigned char)ceil((rtt*NORM_RTT_MIN)) - 1);
+    else
+        return ((unsigned char)(ceil(255.0 - (13.0*log(NORM_RTT_MAX/rtt)))));
+}  // end NormQuantizeRtt()
+
+
+
 bool NormObjectSize::operator<(const NormObjectSize& size) const
 {
     UINT16 diff = msb - size.msb;
@@ -314,16 +343,15 @@ NormObjectSize NormObjectSize::operator*(const NormObjectSize& b) const
     return result;
 }  // end NormObjectSize::operator*(NormObjectSize size)
 
+// Note: This always rounds up if there is _any_ remainder
 NormObjectSize NormObjectSize::operator/(const NormObjectSize& b) const
 {    
     // Zero dividend is special case
     if ((0 == lsb) && (0 == msb)) return NormObjectSize(0, 0);
     // Zero divisor is special case
     if ((0 == b.lsb) && (0 == b.msb)) return NormObjectSize(0xffff, 0xffffffff);
-    // Dividend equals divisor is special case
-    if (*this == b) return NormObjectSize(0,1);
-    // Divisor > dividend is special case
-    if ((b.lsb > lsb) && (b.msb > msb)) return NormObjectSize(0,1);    
+    // Divisor >= dividend is special case
+    if ((b.lsb >= lsb) && (b.msb >= msb)) return NormObjectSize(0,1);    
     // divisor
     UINT32 divisor[2];
     divisor[0] = (UINT32)b.msb;

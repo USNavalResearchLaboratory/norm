@@ -2,18 +2,45 @@
 #define _NORM_MESSAGE
 
 // PROTOLIB includes
-#include <networkAddress.h> // for NetworkAddress class
-#include <sysdefs.h>  // for UINT typedefs
-#include <debug.h>
+#include "networkAddress.h" // for NetworkAddress class
+#include "sysdefs.h"        // for UINT typedefs
+#include "debug.h"
 
 // standard includes
 #include <string.h>  // for memcpy(), etc
+#include <math.h>
 
 // (TBD) Alot of the "memcpy()" calls could be eliminated by
 //       taking advantage of the alignment of NORM messsages
 
 const UINT16 NORM_MSG_SIZE_MAX = 8192;
 const int NORM_ROBUST_FACTOR = 20;  // default robust factor
+
+// These are the GRTT estimation bounds set for the current
+// NORM protocol.  (Note that our Grtt quantization routines
+// are good for the range of 1.0e-06 <= 1000.0)
+const double NORM_GRTT_MIN = 0.001;  // 1 msec
+const double NORM_GRTT_MAX = 15.0;   // 15 sec
+const double NORM_RTT_MIN = 1.0e-06;
+const double NORM_RTT_MAX = 1000.0;        
+inline double NormUnquantizeRtt(unsigned char qrtt)
+{
+	return ((qrtt < 31) ? 
+			(((double)(qrtt+1))/(double)NORM_RTT_MIN) :
+		    (NORM_RTT_MAX/exp(((double)(255-qrtt))/(double)13.0)));
+}
+unsigned char NormQuantizeRtt(double rtt);
+
+inline double NormUnquantizeGroupSize(unsigned char gsize)
+{
+    return ((double)(gsize >> 4) * pow(10.0, (double)(gsize & 0x0f)));   
+}
+inline unsigned char NormQuantizeGroupSize(double gsize)
+{
+    unsigned char exponent = (unsigned char)log10(gsize);
+    return ((((unsigned char)(gsize / pow(10.0, (double)exponent) + 0.5)) << 4)
+            | exponent);
+}
 
 // This class is used to describe object "size" and/or "offset"
 class NormObjectSize
@@ -139,9 +166,8 @@ class NormMsg
             UINT32 temp32 = htonl(sender);
             memcpy(buffer+SENDER_OFFSET, &temp32, 4);   
         } 
-        
-        void SetDestination(const NetworkAddress& dest)
-            {addr = dest;}
+        void SetDestination(const NetworkAddress& dst) {addr = dst;}
+        void SetLength(UINT16 len) {length = len;}
         
         // Message processing routines
         UINT8 GetVersion() const {return buffer[VERSION_OFFSET];}
@@ -158,13 +184,14 @@ class NormMsg
             memcpy(&temp32, buffer+SENDER_OFFSET, 4);
             return (ntohl(temp32));    
         }
-        
+        const NetworkAddress& GetDestination() {return addr;}
+        const NetworkAddress& GetSource() {return addr;}
+        UINT16 GetLength() {return length;}
+                
         // For message buffer transmission/reception and misc.
-        NetworkAddress* Src() {return &addr;}
-        NetworkAddress* Dest() {return &addr;}
-        char* GetBuffer() {return buffer;}                
-        UINT16 GetLength() const {return length;}
-        void SetLength(UINT16 len) {length = len;}
+        char* AccessBuffer() {return buffer;}                
+        UINT16 AccessLength() const {return length;}
+        NetworkAddress& AccessAddress() {return addr;}
         
         
     protected:
@@ -230,9 +257,9 @@ class NormObjectMsg : public NormMsg
         }   
         UINT16 GetFecBlockLen() const
         {
-            UINT16 nparity;
-            memcpy(&nparity, buffer+FEC_NDATA_OFFSET, 2);
-            return (ntohs(nparity)); 
+            UINT16 ndata;
+            memcpy(&ndata, buffer+FEC_NDATA_OFFSET, 2);
+            return (ntohs(ndata)); 
         } 
         NormObjectId GetObjectId() const
         {
@@ -242,7 +269,7 @@ class NormObjectMsg : public NormMsg
         }
         
         // Message building routines
-        
+        void ResetFlags() {buffer[FLAGS_OFFSET] = 0;}
         void SetFlag(NormObjectMsg::Flag flag)
             {buffer[FLAGS_OFFSET] |= flag;}
         void SetGrtt(UINT8 grtt) {buffer[GRTT_OFFSET] = grtt;}
@@ -370,10 +397,10 @@ class NormDataMsg : public NormObjectMsg
         }
         bool IsData() const {return (GetFecSymbolId() < GetFecBlockLen());}
         const char* GetData() {return (buffer + DATA_OFFSET);}
-        UINT16 GetDataLen() const {return (length - DATA_OFFSET);}
+        UINT16 GetDataLength() const {return (length - DATA_OFFSET);}
         
         const char* GetPayload() {return (buffer+LENGTH_OFFSET);}
-        UINT16 GetPayloadLen() const {return (length - LENGTH_OFFSET);}
+        UINT16 GetPayloadLength() const {return (length - LENGTH_OFFSET);}
         
         bool IsParity() const {return (GetFecSymbolId() >= GetFecBlockLen());}
         // (Note: "payload_len" and "offset" field spaces are in the FEC payload)
@@ -447,9 +474,9 @@ class NormCmdMsg : public NormMsg
             {buffer[FLAVOR_OFFSET] = flavor;}
         
         // Message processing
-        UINT8 GetGrtt() {return buffer[GRTT_OFFSET];}
-        UINT8 GetGroupSize() {return buffer[GSIZE_OFFSET];}
-        NormCmdMsg::Flavor GetFlavor() {return (Flavor)buffer[FLAVOR_OFFSET];} 
+        UINT8 GetGrtt() const {return buffer[GRTT_OFFSET];}
+        UINT8 GetGroupSize() const {return buffer[GSIZE_OFFSET];}
+        NormCmdMsg::Flavor GetFlavor() const {return (Flavor)buffer[FLAVOR_OFFSET];} 
             
     protected:
         enum
@@ -466,6 +493,11 @@ class NormCmdFlushMsg : public NormCmdMsg
         enum Flag {NORM_FLUSH_FLAG_EOT = 0x01};
     
         // Message building
+        void Reset() 
+        {
+            buffer[FLAGS_OFFSET] = 0;
+            length = SYMBOL_ID_OFFSET + 2;
+        }
         void SetFlag(NormCmdFlushMsg::Flag flag)
             {buffer[FLAGS_OFFSET] |= flag;}
         void UnsetFlag(NormCmdFlushMsg::Flag flag)
@@ -542,12 +574,13 @@ class NormCmdSquelchMsg : public NormCmdMsg
         }
         
         void ResetInvalidObjectList() {length = OBJECT_LIST_OFFSET;}
-        UINT16 AppendInvalidObject(NormObjectId objectId)
+        bool AppendInvalidObject(NormObjectId objectId, UINT16 segmentSize)
         {
+            if ((length-OBJECT_LIST_OFFSET+2) > segmentSize) return false;
             UINT16 temp16 = htons((UINT16)objectId);
             memcpy(buffer+length, &temp16, 2);
             length += 2;
-            return length;   
+            return true;   
         }
         
         // Message processing
@@ -716,8 +749,10 @@ class NormCmdApplicationMsg : public NormCmdMsg
         
 class NormRepairRequest
 {
-    friend class NormRepairRequest::Iterator;
     public:
+    class Iterator;
+    friend class NormRepairRequest::Iterator;
+            
         enum Form 
         {
             INVALID,
@@ -748,8 +783,9 @@ class NormRepairRequest
         
         // Repair request building
         void SetForm(NormRepairRequest::Form theForm) {form = theForm;}
+        void ResetFlags() {flags = 0;}
         void SetFlag(NormRepairRequest::Flag theFlag) {flags |= theFlag;}
-        void SetFlags(int theFlags) {flags |= theFlags;} 
+        //void SetFlags(int theFlags) {flags |= theFlags;} 
         void UnsetFlag(NormRepairRequest::Flag theFlag) {flags &= ~theFlag;} 
         
         
@@ -917,7 +953,7 @@ class NormReportMsg : public NormMsg
 // do some unions so we can easily use these
 // via casting or dereferencing the union members
 
-class NormCommandMessage
+class NormCommandMsg
 {
     public:
         union 
@@ -930,7 +966,7 @@ class NormCommandMessage
             NormCmdCCMsg            cc;
             NormCmdApplicationMsg   app;
         };
-};  // end class NormCommandMessage
+};  // end class NormCommandMsg
 
 class NormMessage
 {
@@ -942,7 +978,7 @@ class NormMessage
             NormObjectMsg       object;
             NormInfoMsg         info;
             NormDataMsg         data;
-            NormCommandMessage  cmd;
+            NormCommandMsg      cmd;
             NormNackMsg         nack;
             NormAckMsg          ack;
             NormReportMsg       report;

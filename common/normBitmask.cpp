@@ -1,5 +1,7 @@
 
 #include "normBitmask.h"
+#include "debug.h"
+#include "sysdefs.h"
 
 // Hamming weights for given one-byte bit masks
 static unsigned char WEIGHT[256] = 
@@ -377,7 +379,9 @@ bool NormBitmask::XCopy(const NormBitmask& b)
 {
     if (b.num_bits > num_bits) return false;
     unsigned int len = b.mask_len;
-    for (unsigned int i = 0; i < len; i++)
+    unsigned int begin = b.first_set >> 3;
+    if (begin) memset(mask, 0, begin);
+    for (unsigned int i = begin; i < len; i++)
         mask[i] = b.mask[i] & ~mask[i];
     if (len < mask_len) memset(&mask[len], 0, mask_len - len);
     if (b.first_set < first_set)
@@ -601,6 +605,7 @@ bool NormSlidingMask::Unset(unsigned long index)
             mask[(pos >> 3)] &= ~(0x80 >> (pos & 0x07));
             if (start == end) 
             {
+                ASSERT(pos == start);
                 start = end = num_bits;
                 return true;
             }
@@ -1133,7 +1138,7 @@ bool NormSlidingMask::Add(const NormSlidingMask& b)
 }  // end NormSlidingMask::Add()
 
 // A sort of logical subtraction "this = (this & ~b)"
-// This leaves us with bits uniquely set in this instance
+// This leaves us with bits uniquely set in "this" 
 bool NormSlidingMask::Subtract(const NormSlidingMask& b)
 {
     if (b.IsSet())
@@ -1150,11 +1155,15 @@ bool NormSlidingMask::Subtract(const NormSlidingMask& b)
             }
         } 
     }
+    else
+    {
+        Copy(b);
+    }
     return true;
 }  // end NormSlidingMask::Subtract()
 
 // A sort of logical subtraction "this = (~this & b)"
-// This leaves us with bits uniquely set in this instance
+// This leaves us with bits uniquely set in "b"
 bool NormSlidingMask::XCopy(const NormSlidingMask& b)
 {
     if (b.IsSet())
@@ -1174,6 +1183,10 @@ bool NormSlidingMask::XCopy(const NormSlidingMask& b)
                     Set(index);
                 index++;   
             }
+        }
+        else
+        {
+            Copy(b);   
         } 
     }
     return true;
@@ -1231,4 +1244,19 @@ void NormSlidingMask::Display(FILE* stream)
         if (0x07 == (i & 0x07)) fprintf(stream, " ");
         if (0x3f == (i & 0x3f)) fprintf(stream, "\n");
     }
+}  // end NormSlidingMask::Display()
+
+void NormSlidingMask::Debug(long theCount)
+{
+    unsigned long index = offset;
+    theCount = MIN(theCount, num_bits);
+    DMSG(0, "NormSlidingMask::Debug() offset:%lu\n   ", index);
+    long i;
+    for (i = 0; i < theCount; i++)
+    {
+        if (Test(index++)) DMSG(0, "1"); else DMSG(0, "0");
+        if (0x07 == (i & 0x07)) DMSG(0, " ");
+        if (0x3f == (i & 0x3f)) DMSG(0, "\n   ");
+    }
+    if (0x3f != (i & 0x3f)) DMSG(0, "\n");
 }  // end NormSlidingMask::Display()

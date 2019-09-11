@@ -83,3 +83,81 @@ for which the receiver is maintaining state.  That range may
 be application specific and senders/receivers are anticipated
 to use relatively compatible buffer ranges/sizes based on
 application needs.
+
+SENDER/RECEIVER RESOURCE MANAGEMENT
+
+The NORM implementation restricts the server (sender) to a
+user-defined,  fixed amount of buffer space (memory) for storing
+calculated parity segments and repair state (i.e. which
+blocks/segments are pending transmission, and any pending repairs). 
+The client (receiver) is similarly limited, but on  a "per-sender"
+basis (i.e. the client allocates a fixed pool of buffer space per
+sender).  However, the code is designed  to successfully work even
+when the buffer limits are exceeded.  It does this via resource
+management (i.e. stealing less critical buffer resources to cache
+transmit or receive repair  state).  The buffer space consists of a
+pool of NormBlock objects (keeps send/receive state on FEC coding
+blocks) and a pool of segments (vectors for buffering NORM data or
+parity payloads).  The server (sender) keeps pools on a "per-session"
+basis and the client (receiver) keeps pools on a "per-server" basis. 
+The policies for managing these pools are as follows:
+
+NORM Server (sender) resource management.
+
+When the NORM server is transmitting ordinally new objects/ blocks (or
+is required to store repair state for previously transmitted blocks
+when receiving a NACK) and its block or segment pools are empty, it
+will attempt to "steal" block and/or segment resources from
+non-pending blocks (oldest first) of objects in its "holding queue". 
+The  presumption is that requests for repair of oldest objects/blocks
+is less likely since clients (receivers) request repair of oldest
+objects first and older objects/blocks in the queue are more likely to
+have already been successfully received by all of the clients.  This
+results in most efficient use of CPU time on the sender side when
+BANDWIDTH*DELAY*LOSS product of the network topology falls well within
+the buffer space limits defined for the server.  NORM will still
+operate successfully at extremes of bandwidth*delay*loss, but a cost
+of additional CPU demand for recalculating parity repair segments. 
+When there are no "non-pending" blocks to steal, repairs may be
+ignored, or tranmission paused, until the repair process, and
+subsequent transmissions, cause blocks to be marked as non-pending (no
+pending segment transmissions or  repairs).
+
+Also note the oldest object is removed from the "holding queue" when
+the count of objects in the holding queue exceeds the "transmit
+hold" buffer limits when a new object is queued for transmission by
+the server (sender) application.  When these objects are removed, any
+block or segment resources used by those objects are returned to the
+respective server pools.  The "transmit hold" buffer limits will be
+defined as the minimum of 1) total size of objects  in the queue
+exceeding a "maxSize" parameter, or 2) total count of objects in the
+queue exceeding a "maxCount" parameter.  The "maxSize" limit is
+overridden if a "minCount" value of greater than one is defined.  The
+"transmit hold" buffer limits define how far back the NORM server is
+willing/able to go to provide repair information previous to its
+current oridinal transmission point.
+
+NORM Client (receiver) resource management.
+
+The client portion of NORM similarly has pre-determined limits on the
+quantity of buffering resources (memory) it will use on a per-server
+basis.  Again, NORM will still successfully operate when the
+bandwidth*delay*loss product of the network topology exceed these
+expected/allocated buffer limits.  The cost, when this occurs, is a
+decrease in the repair _efficiency_ of the NORM protocol.  When the
+client (receiver) becomes buffer limited, it attempts to "steal"
+buffer/segment resources from ordinally _newer_  objects/blocks for
+which it has accumulated state (Thus giving priority to the repair of
+ordinally oldest objects/blocks).  When the bandwidth*delay*loss
+product of the network topology causes this to occur, the result is
+less efficient repair since the client will either "forget" about some
+segments it has already succesfully received (when newer blocks are
+"stolen") or ignore received segments for the most ordinally recent
+blocks in favor of holding state for older objects/blocks.  
+
+In summary, the NORM protocol will operate most efficiently when there
+is ample buffer space, but will still successfully converge when
+bandwidth*delay*loss of the network reaches extremes.  The amount of
+memory used by NORM can be controlled by the application.
+
+
