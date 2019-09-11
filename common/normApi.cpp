@@ -214,6 +214,10 @@ void NormInstance::Notify(NormController::Event   event,
                           class NormServerNode*   server,
                           class NormObject*       object)
 {
+    // (TBD) set a limit on how many pending notifications
+    // we allow to queue up (it could be large and probably
+    // we could base it on how much memory space the pending
+    // notifications are allowed to consume.
     Notification* n = notify_pool.RemoveHead();
     if (!n)
     {
@@ -385,10 +389,25 @@ void NormInstance::PurgeObjectNotifications(NormObjectHandle objectHandle)
     Notification* next = notify_queue.GetHead();
     while (next)
     {
+        // TBD - return these to the pool?
         if (objectHandle == next->event.object)
+        {
+            switch (next->event.type)
+            {
+                case RX_OBJECT_COMPLETED:
+                case TX_OBJECT_PURGED:
+                case RX_OBJECT_ABORTED:
+                    ((NormObject*)(next->event.object))->Release();
+                    break;
+                default:
+                    break;
+            }
             next->event.type = NORM_EVENT_INVALID;
+        }
         next = next->GetNext();
     }
+    // (TBD) if we put these in the pool, should we check that the queue has been emptied
+    // and possible reset event/fd 
 }  // end NormInstance::PurgeObjectNotifications()
 
 // NormInstance::dispatcher MUST be suspended _before_ calling this
@@ -426,8 +445,8 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
                              GetErrorString());
                 }
 #else
-               char byte;
-               while (read(notify_fd[0], &byte, 1) > 0);  // TBD - error check
+               char byte[32];
+               while (read(notify_fd[0], byte, 32) > 0);  // TBD - error check
 #endif // if/else WIN32/UNIX
         }
         switch (n->event.type)
@@ -633,6 +652,7 @@ NormDescriptor NormGetDescriptor(NormInstanceHandle instanceHandle)
         return NORM_DESCRIPTOR_INVALID;
 }  // end NormGetDescriptor()
 
+// (TBD) add a timeout option to this?
 bool NormGetNextEvent(NormInstanceHandle instanceHandle, NormEvent* theEvent)
 {
     bool result = false;
@@ -721,7 +741,7 @@ const void* NormGetUserData(NormSessionHandle sessionHandle)
 NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle)
 {
     NormSession* session = (NormSession*)sessionHandle;
-    if (session)
+    if (NULL != session)
         return session->LocalNodeId();
     else
         return NORM_NODE_NONE;      
@@ -731,7 +751,7 @@ void NormSetTxPort(NormSessionHandle sessionHandle,
                    unsigned short    txPort)
 {
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
-    if (instance)
+    if (NULL != instance)
     {
         if (instance->dispatcher.SuspendThread())
         {    
@@ -747,7 +767,7 @@ bool NormSetMulticastInterface(NormSessionHandle sessionHandle,
 {
     bool result = false;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
-    if (instance)
+    if (NULL != instance)
     {
         if (instance->dispatcher.SuspendThread())
         {    
@@ -765,7 +785,7 @@ bool NormSetTTL(NormSessionHandle sessionHandle,
 {
     bool result = false;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
-    if (instance)
+    if (NULL != instance)
     {
         if (instance->dispatcher.SuspendThread())
         {    
@@ -924,10 +944,13 @@ void NormSetAutoParity(NormSessionHandle sessionHandle, unsigned char autoParity
 void NormSetGrttEstimate(NormSessionHandle sessionHandle,
                          double            grttEstimate)
 {
-    // (TBD) suspend instance if timer reschedule is
-    //       added to ServerSetGrtt() method.
-    NormSession* session = (NormSession*)sessionHandle;
-    if (session) session->ServerSetGrtt(grttEstimate);
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) session->ServerSetGrtt(grttEstimate);
+        instance->dispatcher.ResumeThread();
+    }
 }  // end NormSetGrttEstimate()
 
 bool NormAddAckingNode(NormSessionHandle  sessionHandle,
@@ -1017,9 +1040,26 @@ NormObjectHandle NormStreamOpen(NormSessionHandle  sessionHandle,
     return objectHandle;
 }  // end NormStreamOpen()
 
-void NormStreamClose(NormObjectHandle streamHandle)
+void NormStreamClose(NormObjectHandle streamHandle, bool graceful)
 {
-    NormObjectCancel(streamHandle);
+    NormStreamObject* stream =
+        static_cast<NormStreamObject*>((NormObject*)streamHandle);
+    if (NULL != stream)
+    {
+        if (graceful && (NULL == stream->GetServer()))
+        {
+            NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
+            if (instance && instance->dispatcher.SuspendThread())
+            {
+                stream->Close(true);  // graceful stream closure
+                instance->dispatcher.ResumeThread();
+            }  
+        }
+        else
+        {
+            NormObjectCancel(streamHandle);
+        }
+    }
 }  // end NormStreamClose()
 
 unsigned int NormStreamWrite(NormObjectHandle   streamHandle,
@@ -1075,6 +1115,20 @@ void NormStreamSetPushEnable(NormObjectHandle streamHandle, bool state)
     if (stream) stream->SetPushMode(state);
 }  // end NormStreamSetPushEnable()
 
+bool NormStreamHasVacancy(NormObjectHandle streamHandle)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormStreamObject* stream = 
+            static_cast<NormStreamObject*>((NormObject*)streamHandle);
+        if (NULL != stream)
+            result = stream->HasVacancy();
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+}  // end NormStreamHasVacancy()
 
 void NormStreamMarkEom(NormObjectHandle streamHandle)
 {

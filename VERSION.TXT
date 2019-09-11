@@ -1,5 +1,22 @@
 			           NORM Version History
 
+Version 1.3b2
+=============
+    - Added "graceful" stream shutdown option to
+      NORM API via the NormStreamClose() call.
+    - Embedded FLAG_STREAM_END flag in "payload_reserved"
+      field of NORM_DATA messages.  This is beyond 
+      the current RFC 3940 spec for NORM, but probably
+      something to push for addition to the next revision
+      of the spec.
+    - Embedded equivalent FLAG_MSG_START in "payload_reserved"
+      field of NORM_DATA messages.  This allows message
+      boundary recovery for streams upon FEC decoding.
+      Again, this is "beyond" the current NORM spec, but
+      probably a good idea (Other stream control functions
+      might use this field as well)
+    - Added Visual Studio .NET project files
+
 Version 1.3b1
 =============
     - Prevented pile-up of TX_QUEUE_VACANCY notifications

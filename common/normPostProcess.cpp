@@ -24,10 +24,10 @@ void NormPostProcessor::GetCommand(char* buffer, unsigned int buflen)
         while (buflen && (i < process_argc))
         {
             strncpy(buffer, process_argv[i], buflen);
-            unsigned int len = strlen(process_argv[i]);
+            size_t len = strlen(process_argv[i]);
             if (len < buflen)
             {
-                buflen -= len;
+                buflen -= (unsigned int)len;
                 buffer += len;
             }
             else
@@ -102,7 +102,7 @@ bool NormPostProcessor::SetCommand(const char* cmd)
     {
         const char* argStart = ptr;
         while (!isspace(*ptr) && ('\0' != *ptr)) ptr++;
-        unsigned int argLength = ptr - argStart;
+        unsigned int argLength = (unsigned int)(ptr - argStart);
         char* arg;
         if (!(arg = new char[argLength+1]))
         {

@@ -219,7 +219,7 @@ bool NormDataEnqueue(const char*   dataPtr,
 NormObjectHandle NormStreamOpen(NormSessionHandle sessionHandle,
                                 unsigned long     bufferSize);
 
-void NormStreamClose(NormObjectHandle streamHandle);
+void NormStreamClose(NormObjectHandle streamHandle, bool graceful = false);
 
 unsigned int NormStreamWrite(NormObjectHandle streamHandle,
                              const char*      buffer,
@@ -234,6 +234,9 @@ void NormStreamSetAutoFlush(NormObjectHandle streamHandle,
 
 void NormStreamSetPushEnable(NormObjectHandle streamHandle, 
                              bool             pushEnable);
+
+
+bool NormStreamHasVacancy(NormObjectHandle streamHandle);
 
 void NormStreamMarkEom(NormObjectHandle streamHandle);
 

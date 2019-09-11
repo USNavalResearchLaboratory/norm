@@ -1,4 +1,3 @@
-////////////////////////////////////////////////////
 // This is a test application for experimenting
 // with the NORM API implementation during its
 // development.  A better-documented and complete
@@ -9,14 +8,19 @@
 #include "protokit.h"  // for protolib debug, stuff, etc
 
 #include <stdio.h>
+#include <stdlib.h>  // for srand()
+
 #ifdef UNIX
 #include <unistd.h>  // for "sleep()"
 #endif // UNIX
 int main(int argc, char* argv[])
 {
     printf("normTest starting ...\n");
+    
+    
+    
 
-    SetDebugLevel(2);
+    
     
     NormInstanceHandle instance = NormCreateInstance();
 
@@ -32,14 +36,21 @@ int main(int argc, char* argv[])
                                                   "224.1.2.3", 
                                                    6003,
                                                    NORM_NODE_ANY);
-    // Uncomment to turn on debug NORM message tracing
-    //NormSetMessageTrace(session, true);
     
+    // NOTE: These are debugging routines available (not for normal app use)
+    SetDebugLevel(2);
+    // Uncomment to turn on debug NORM message tracing
+    NormSetMessageTrace(session, true);
+    // Uncomment to turn on some random packet loss
     //NormSetTxLoss(session, 1.0);  // 10% packet loss
+    struct timeval currentTime;
+    ProtoSystemTime(currentTime);
+    // Uncomment to get different packet loss patterns from run to run
+    //srand(currentTime.tv_sec);  // seed random number generator
     
     NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 80.0e+06);  // in bits/second
+    NormSetTransmitRate(session, 60.0e+06);  // in bits/second
     
     NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK); 
     
@@ -77,8 +88,7 @@ int main(int argc, char* argv[])
     
     // Uncomment this line to send a stream instead of the file
     stream = NormStreamOpen(session, 4096*1024);
-    
-    
+       
     // NORM_FLUSH_PASSIVE automatically flushes full writes to
     // the stream.
     NormStreamSetAutoFlush(stream, NORM_FLUSH_PASSIVE);   
@@ -95,7 +105,7 @@ int main(int argc, char* argv[])
     int msgCount = 0;
     int recvCount = -1;  // used to monitor reliable stream reception
     int sendCount = 0;
-    int sendMax = 200;
+    int sendMax = 20;
     NormEvent theEvent;
     while (NormGetNextEvent(instance, &theEvent))
     {
@@ -105,7 +115,7 @@ int main(int argc, char* argv[])
             //    TRACE("NORM_TX_QUEUE_VACANCY ...\n");
             case NORM_TX_QUEUE_EMPTY:
                 //TRACE("NORM_TX_QUEUE_EMPTY ...\n");
-            
+                if (sendCount >= sendMax) break;
                 if (NORM_OBJECT_INVALID != stream)
                 {
                     // We loop here to keep stream buffer full ....
@@ -134,6 +144,13 @@ int main(int argc, char* argv[])
                             NormStreamMarkEom(stream);
                             txLen = txIndex = 0;
                             sendCount++;
+                            if (sendCount >= sendMax)
+                            {
+                                // Uncomment to gracefully shut down the stream
+                                // after "sendMax" messages
+                                //NormStreamClose(stream, true);  
+                                //keepWriting = false; 
+                            }
                         }
                     }
                 }
@@ -160,7 +177,7 @@ int main(int argc, char* argv[])
                 break;   
 
             case NORM_TX_OBJECT_PURGED:
-                DMSG(3, "normTest: NORM_TX_OBJECT_PURGED event ...\n");
+                DMSG(2, "normTest: NORM_TX_OBJECT_PURGED event ...\n");
                 break;
 
             case NORM_RX_OBJECT_NEW:
@@ -186,8 +203,6 @@ int main(int argc, char* argv[])
                     if (!NormFileRename(theEvent.object, fileName))
                         TRACE("normTest: NormSetFileName(%s) error\n", fileName);
                     DMSG(3, "normTest: recv'd info for file: %s\n", fileName);   
-
-
                 }
                 break;
 

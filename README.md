@@ -1,24 +1,105 @@
 
-            NORM PRELIMINARY CODE RELEASE
+                    NORM SOURCE CODE RELEASE
 
-The NORM code here is still preliminary but a functional "norm"
-command-line application can be built which can send and receive
-a set of files _or_ a stream piped to/from stdin/stdout.  The command-
-line options are not yet fully documented, but there is abbreviated "help"
-available in the "norm" application.  And many options are similar to the 
-preceding NRL MDP work (see http://mdp.pf.itd.nrl.navy.mil).
+AUTHORIZATION TO USE AND DISTRIBUTE
 
-A _very_ preliminary user's guide for the "norm" demo app is now included. 
-See the file "NormUserGuide.pdf"
+By receiving this distribution, you have agreed to the following 
+terms governing the use and redistribution of the prototype NRL
+NORM software release written and developed by Brian Adamson and
+Joe Macker:
 
-A "normTest.cpp" program is now included which is a simple demonstration 
-(and active test code) of the evolving NORM API.  When the API is
-further completed, I plan to provide a few different example applications
-(file transfer, streaming, etc) which use the API.
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that: 
 
-The Win32 code is not yet as well-tested as the Unix version, but
-might be OK at this point.  I will do more Win32 testing when I get
-caught up on the API development and documentation.
+(1) source code distributions retain this paragraph in its entirety, 
+
+(2) distributions including binary code include this paragraph in
+  its entirety in the documentation or other materials provided 
+  with the distribution, and 
+
+(3) all advertising materials mentioning features or use of this 
+  software display the following acknowledgment:
+
+   "This product includes software written and developed 
+    by Brian Adamson and Joe Macker of the Naval Research 
+    Laboratory (NRL)." 
+
+The name of NRL, the name(s) of NRL  employee(s), or any entity
+of the United States Government may not be used to endorse or
+promote  products derived from this software, nor does the 
+inclusion of the NRL written and developed software  directly or
+indirectly suggest NRL or United States  Government endorsement
+of this product.
+
+THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+
+---------------------------------------------------------------------
+
+
+This is a release of the NRL MDP source code.  For most
+purposes, the authors would prefer that the code not be
+re-distributed so that users will obtain the latest (and most
+debugged/improved) release from the official NORM web site:
+
+<http://norm.pf.itd.nrl.navy.mil>
+
+
+SOURCE CODE
+===========
+
+The following items can be build from this source code release:
+
+1) libnorm.a - static NORM library for Unix platforms, or
+
+   Norm.lib  - static NORM protocol library for Win32 platforms
+
+ (These libraries can be used by applications using the NORM API.
+  The file "normApi.h" provides function prototypes for NORM API
+  calls and the included "Norm Developer's Guide" provides a
+  reference manual for NORM application development using this
+  API.  Additional tutorial material and API usage examples will
+  be provided as additional documentation in the future)
+ 
+ 
+2) norm (or norm.exe (WIN32) - command-line "demo" application
+                               built from "common/normApp.cpp"
+ 
+ (The included "Norm User's Guide" provides a rough overview
+  of how to use this demo app.  This document requires some
+  updating to be accurate and complete.  This demo application
+  is useful for file transfers (and streaming on Unix))
+  
+3) normTest (or normTest.exe (WIN32)) - very simple test application
+
+ (The "normTest" application (see "common/normTest.cpp") is really
+  just a simple playground for preliminary testing of the NORM
+  API and does not do anything useful.  But it does provide
+  a very simple example of NORM API usage.  More sophisticated
+  (and better-documented) examples of NORM API usage will be 
+  provided in the future.
+  
+  
+OTHER FILES:
+============
+
+NormDeveloperGuide.pdf  - PDF version of NORM Developer's Guide
+                          (nice for printing)
+
+NormDeveloperGuide.html - HTML version of NORM Developer's Guide
+                          with Hyperlinked content 
+                          (nice for browsing)
+
+NormUserGuide.pdf       - Guide to "norm" demo app usage
+
+VERSION.TXT             - NORM version history notes
+
+README.TXT              - this file
+
+
+NOTES:
+======
 
 The NORM code depends upon the current "Protolib" release.  The NORM
 source code tarballs contain an appropriate release of "Protolib" as

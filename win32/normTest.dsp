@@ -43,6 +43,7 @@ RSC=rc.exe
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /W3 /GX /O2 /D "WIN32" /D "NDEBUG" /D "_CONSOLE" /D "_MBCS" /YX /FD /c
 # ADD CPP /nologo /MD /W3 /GX /O2 /I "..\common" /I "..\protolib\common" /I "..\protolib\win32" /D "NDEBUG" /D "PROTO_DEBUG" /D "HAVE_IPV6" /D "HAVE_ASSERT" /D "WIN32" /D "_CONSOLE" /D "_MBCS" /YX /FD /c
+# SUBTRACT CPP /Z<none>
 # ADD BASE RSC /l 0x409 /d "NDEBUG"
 # ADD RSC /l 0x409 /d "NDEBUG"
 BSC32=bscmake.exe

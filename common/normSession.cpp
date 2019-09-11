@@ -545,7 +545,7 @@ void NormSession::Serve()
                 else if (obj->IsStream())
                 {
                     // Is there room write to the stream
-                       
+                    // should we post TX_QUEUE_VACANCY here?      
                 }
             }
             else
@@ -554,7 +554,7 @@ void NormSession::Serve()
                 if (obj->IsStream())
                 {
                     NormStreamObject* stream = static_cast<NormStreamObject*>(obj);
-                    if (stream->IsFlushPending())
+                    if (stream->IsFlushPending() || stream->IsClosing())
                     {
                         // Queue flush message
                         if (!flush_timer.IsActive())
@@ -567,6 +567,15 @@ void NormSession::Serve()
                             DMSG(6, "NormSession::Serve() node>%lu server flush complete ...\n",
                                      LocalNodeId());
                             flush_count++;
+                            if (stream->IsClosing())
+                            {
+                                stream->Close();
+                                stream->Retain();
+                                Notify(NormController::TX_OBJECT_PURGED, (NormServerNode*)NULL, stream);
+                                stream->Release();
+                                DeleteTxObject(stream);   
+                                obj = NULL;
+                            }
                         }
                     }
                     if (!posted_tx_queue_empty)
@@ -784,7 +793,7 @@ void NormSession::ServerQueueFlush()
         flush->SetFecSymbolId(segmentId);
         QueueMessage(flush);
         flush_count++;
-        DMSG(0, "NormSession::ServerQueueFlush() node>%lu, flush queued (flush_count:%u)...\n",
+        DMSG(4, "NormSession::ServerQueueFlush() node>%lu, flush queued (flush_count:%u)...\n",
                 LocalNodeId(), flush_count);
     }
     else
@@ -1104,9 +1113,15 @@ void NormSession::TxSocketRecvHandler(ProtoSocket&       /*theSocket*/,
                               msgLength, 
                               msg.AccessAddress()))
     {
-        msg.InitFromBuffer(msgLength);
-        HandleReceiveMessage(msg, true);
-        msgLength = NormMsg::MAX_SIZE;
+        if (msg.InitFromBuffer(msgLength))
+        {
+            HandleReceiveMessage(msg, true);
+            msgLength = NormMsg::MAX_SIZE;
+        }
+        else
+        {
+            DMSG(0, "NormSession::TxSocketRecvHandler() warning: received bad message\n");   
+        }
     }
 }  // end NormSession::TxSocketRecvHandler()
 
@@ -1119,9 +1134,15 @@ void NormSession::RxSocketRecvHandler(ProtoSocket&       /*theSocket*/,
                               msgLength, 
                               msg.AccessAddress()))
     {
-        msg.InitFromBuffer(msgLength);
-        HandleReceiveMessage(msg, false);
-        msgLength = NormMsg::MAX_SIZE;
+        if (msg.InitFromBuffer(msgLength))
+        {
+            HandleReceiveMessage(msg, false);
+            msgLength = NormMsg::MAX_SIZE;
+        }
+        else
+        {
+            DMSG(0, "NormSession::RxSocketRecvHandler() warning: received bad message\n");   
+        }
     }
 }  // end NormSession::RxSocketRecvHandler()
 
@@ -1204,12 +1225,18 @@ void NormTrace(const struct timeval&    currentTime,
                     (UINT16)data.GetObjectId(),
                     (UINT32)data.GetFecBlockId(),
                     (UINT16)data.GetFecSymbolId());
-            if (data.IsData())
+            if (data.IsData() && data.IsStream())
             {
-                UINT16 x;
-                memcpy(&x, data.GetPayloadData(), 2);
-                if (data.FlagIsSet(NormObjectMsg::FLAG_MSG_START))
-                    DMSG(0, "start byte>%hu ", ntohs(x));   
+                if (NormDataMsg::StreamPayloadFlagIsSet(data.GetPayload(), NormDataMsg::FLAG_MSG_START))
+                {
+                    // We usually use the first two bytes of "messages"
+                    // as a "message length" header
+                    UINT16 x;
+                    memcpy(&x, data.GetPayloadData(), 2);
+                    DMSG(0, "start word>%hu ", ntohs(x));
+                }
+                if (NormDataMsg::StreamPayloadFlagIsSet(data.GetPayload(), NormDataMsg::FLAG_STREAM_END))
+                    DMSG(0, "(stream end) ");
             }
             break;
         }

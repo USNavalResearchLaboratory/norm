@@ -11,7 +11,8 @@
 
 #ifdef _WIN32_WCE
 #include <stdio.h>
-typedef fpos_t off_t;
+//typedef fpos_t off_t;
+typedef long off_t;
 #else
 #include <sys/types.h>  // for off_t
 #endif // if/else _WIN32_WCE
@@ -361,7 +362,8 @@ class NormMsg
         {
             const UINT32* currentBuffer =  ext.GetBuffer();
             UINT16 nextOffset = 
-                currentBuffer ? (currentBuffer - buffer + (ext.GetLength()/4)) : (header_length_base/4);
+                (UINT16)(currentBuffer ? (currentBuffer - buffer + (ext.GetLength()/4)) : 
+			                    (header_length_base/4));
             bool result = (nextOffset < (header_length/4));
             ext.AttachBuffer(result ? (buffer+nextOffset) : (UINT32*)NULL);
             return result;
@@ -652,6 +654,25 @@ class NormDataMsg : public NormObjectMsg
         // These routines are only applicable to messages containing NORM_OBJECT_STREAM content
         // Some static helper routines for reading/writing embedded payload length/offsets
         static UINT16 GetStreamPayloadHeaderLength() {return (PAYLOAD_DATA_OFFSET);}
+        
+        enum PayloadFlag
+        {
+            FLAG_STREAM_END = 0x01,
+            FLAG_MSG_START  = 0x04
+        };
+        static bool StreamPayloadFlagIsSet(const char*  payload, 
+                                           PayloadFlag  flag)
+        {
+            return (0 != (flag & ((UINT8*)payload)[PAYLOAD_FLAGS_OFFSET]));
+        }
+        static void ResetStreamPayloadFlags(char* payload) 
+        {
+            ((UINT8*)payload)[PAYLOAD_FLAGS_OFFSET] = 0;
+        }
+        static void SetStreamPayloadFlag(char* payload, PayloadFlag flag) 
+        {
+            ((UINT8*)payload)[PAYLOAD_FLAGS_OFFSET] |= flag;
+        }
         static void WriteStreamPayloadLength(char* payload, UINT16 len)
         {
             UINT16 temp16 = htons(len);
@@ -674,6 +695,8 @@ class NormDataMsg : public NormObjectMsg
             memcpy(&temp32, payload+PAYLOAD_OFFSET_OFFSET, 4);
             return (ntohl(temp32));
         }
+        
+        
           
     private:    
         enum
@@ -685,8 +708,9 @@ class NormDataMsg : public NormObjectMsg
         };
         enum
         {
-            PAYLOAD_RESERVED_OFFSET = 0,
-            PAYLOAD_LENGTH_OFFSET   = PAYLOAD_RESERVED_OFFSET+2,
+            PAYLOAD_FLAGS_OFFSET    = 0,
+            PAYLOAD_RESERVED_OFFSET = PAYLOAD_FLAGS_OFFSET+1,     // this is not in the NORM spec!
+            PAYLOAD_LENGTH_OFFSET   = PAYLOAD_RESERVED_OFFSET+1,
             PAYLOAD_OFFSET_OFFSET   = PAYLOAD_LENGTH_OFFSET+2,
             PAYLOAD_DATA_OFFSET     = PAYLOAD_OFFSET_OFFSET+4   
         };

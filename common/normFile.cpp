@@ -99,9 +99,9 @@ bool NormFile::Open(const char* thePath, int theFlags)
 	theFlags |= O_BINARY;
 #ifdef _WIN32_WCE
     if (theFlags & O_RDONLY)
-        file_ptr = fopen(thePath, "r");
+        file_ptr = fopen(thePath, "rb");
     else
-        file_ptr = fopen(thePath, "w+");
+        file_ptr = fopen(thePath, "w+b");
     if (NULL != file_ptr)
 #else
     // Allow sharing of read-only files but not of files being written

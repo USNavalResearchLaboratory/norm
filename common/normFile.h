@@ -17,7 +17,8 @@
 
 #ifdef _WIN32_WCE
 #include <stdio.h>
-typedef fpos_t off_t;
+//typedef fpos_t off_t;
+typedef long off_t;
 #else
 #include <sys/types.h>
 #endif // if/else _WIN32_WCE
@@ -37,7 +38,8 @@ enum
     O_TRUNC  = 0x02,    
     O_RDONLY = 0x04,
     O_WRONLY = 0x08,
-    O_RDWR   = 0x10
+    O_RDWR   = 0x10,
+    O_BINARY = 0x20
 };
 #endif // _WIN32_WCE
         

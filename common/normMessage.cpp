@@ -65,7 +65,6 @@ bool NormMsg::InitFromBuffer(UINT16 msgLength)
                 default:
                     DMSG(0, "NormMsg::InitFromBuffer() recv'd unkown cmd flavor:%d\n",
                         ((UINT8*)buffer)[NormCmdMsg::FLAVOR_OFFSET]);
-                    ASSERT(0);
                     return false;
             }
             break;

@@ -12,6 +12,10 @@
 #ifdef UNIX
 #include <sys/types.h>
 #include <sys/wait.h>  // for "waitpid()"
+#else
+#ifndef _WIN32_WCE
+#include <io.h>  // for _mktmp()
+#endif // _WIN32-WCE
 #endif // UNIX
 
 // Command-line application using Protolib EventDispatcher
@@ -319,7 +323,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
 {
     CmdType type = CommandType(cmd);
     ASSERT(CMD_INVALID != type);
-    unsigned int len = strlen(cmd);
+    size_t len = strlen(cmd);
     if ((CMD_ARG == type) && !val)
     {
         DMSG(0, "NormApp::OnCommand(%s) missing argument\n", cmd);
@@ -339,7 +343,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         char buffer[8192];
         buffer[0] = '\0';
         if (cmd) strncpy(buffer, cmd, 8191);
-        unsigned int len = strlen(buffer);
+        size_t len = strlen(buffer);
         len = (len > 8191) ? 8191 : len;
         if (val)
         {
@@ -412,7 +416,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     }
     else if (!strncmp("address", cmd, len))
     {
-        unsigned int len = strlen(val);
+        size_t len = strlen(val);
         if (address) delete address;
         if (!(address = new char[len+1]))
         {
@@ -630,7 +634,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     }
     else if (!strncmp("rxcachedir", cmd, len))
     {
-        unsigned int length = strlen(val);   
+        size_t length = strlen(val);   
         // Make sure there is a trailing PROTO_PATH_DELIMITER
         if (PROTO_PATH_DELIMITER != val[length-1]) 
             length += 2;
@@ -774,7 +778,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     }
     else if (!strncmp("flush", cmd, len))
     {
-        int valLen = strlen(val);
+        size_t valLen = strlen(val);
         if (!strncmp("none", val, valLen))
             msg_flush_mode = NormStreamObject::FLUSH_NONE;
         else if (!strncmp("passive", val, valLen))
@@ -820,7 +824,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
 NormApp::CmdType NormApp::CommandType(const char* cmd)
 {
     if (!cmd) return CMD_INVALID;
-    unsigned int len = strlen(cmd);
+    size_t len = strlen(cmd);
     bool matched = false;
     CmdType type = CMD_INVALID;
     const char* const* nextCmd = cmd_list;
@@ -947,7 +951,7 @@ void NormApp::OnInputReady()
                     else
                     {
                         input_length = 0;
-                        input_index += result;
+                        input_index += (unsigned int)result;
                     }
                 }
                 else
@@ -1196,7 +1200,7 @@ void NormApp::Notify(NormController::Event event,
                     // Rename rx file using newly received info
                     char fileName[PATH_MAX];
                     strncpy(fileName, rx_cache_path, PATH_MAX);
-                    UINT16 pathLen = strlen(rx_cache_path);
+                    UINT16 pathLen = (UINT16)strlen(rx_cache_path);
                     pathLen = MIN(pathLen, PATH_MAX);
                     UINT16 len = object->GetInfoLength();
                     len = MIN(len, (PATH_MAX - pathLen));
@@ -1327,7 +1331,7 @@ void NormApp::Notify(NormController::Event event,
                             size_t result = fwrite(output_buffer+put, sizeof(char), writeLength-put, output);
                             if (result)
                             {
-                                put += result;   
+                                put += (unsigned int)result;   
                             }
                             else
                             {
@@ -1413,9 +1417,9 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
         tx_repeat_clear = true;
         char pathName[PATH_MAX];
         tx_file_list.GetCurrentBasePath(pathName);
-        unsigned int len = strlen(pathName);
+        size_t len = strlen(pathName);
         len = MIN(len, PATH_MAX);
-        unsigned int maxLen = PATH_MAX - len;
+        size_t maxLen = PATH_MAX - len;
         char* ptr = fileName + len;
         len = strlen(ptr);
         len = MIN(len, maxLen);
@@ -1431,7 +1435,7 @@ bool NormApp::OnIntervalTimeout(ProtoTimer& /*theTimer*/)
         char temp[PATH_MAX];
         strncpy(temp, fileNameInfo, len);
         temp[len] = '\0';
-        if (!session->QueueTxFile(fileName, fileNameInfo, len))
+        if (!session->QueueTxFile(fileName, fileNameInfo, (UINT16)len))
         {
             DMSG(0, "NormApp::OnIntervalTimeout() Error queuing tx file: %s\n",
                     fileName);
