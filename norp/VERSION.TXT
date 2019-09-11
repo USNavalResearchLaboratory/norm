@@ -1,0 +1,29 @@
+NORP Version History
+
+Version 0.1b3
+=============
+    - Added "correspondent <remoteNorpAddr>" command to allow 'routing'
+      of proxied connections through specified remote 'norp' peer
+      instead of directly to connection destination address.
+    - Includes fix to NORM source code of receiver rate estimation
+      measured during 'slow start' phase of congestion control
+
+Version 0.1b2
+=============
+    - Adopted NORM_SYNC_STREAM policy to guarantee synchronization
+      of stream start at byte offset zero of proxied TCP stream data
+    - Added norp "persist" command-line option to allow control of how
+      persistently norp tries to deliver TCP data in disruptive network
+      environments.  A -1 persistence value is infinitely persistent.
+      The default persistence is 120 seconds (2 minutes).
+
+Version 0.1b1
+=============
+    - Fixed bugs with "forward" command recently added
+    - Updated "norm" with bug fix in normSession.cpp
+
+Version 0.1
+=============
+    - Started versioning
+    - This version adds the "forward" command for non-SOCKS proxying
+    

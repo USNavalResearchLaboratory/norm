@@ -1,0 +1,48 @@
+#
+# MacOS-X wxWindows Makefile definitions
+#
+
+# 1) wxWidgets flags and libs
+WX_CONFIG_PATH = /usr/local/bin/wx-config
+WX_CFLAGS = `$(WX_CONFIG_PATH) --cxxflags`
+WX_LIBS = `$(WX_CONFIG_PATH) --libs`
+
+# 2) System-specific flags and libs
+SYSTEM_CFLAGS = -arch x86_64
+SYSTEM_LIBS = -arch x86_64 -lresolv
+
+# 3) System-specific Protolib flags (_must_ correspond to Protolib SYSTEM_HAVES)
+# Must choose appropriate for the following:
+#
+# A) -DHAVE_CUSERID (preferred) or -DHAVE_GETLOGIN for cuserid() or getlogin()
+#     functions to obtain user's login name (We may change this to getpwd() 
+#     if that is better across different platforms and login environments)
+#
+# B) -DHAVE_LOCKF (preferred) or -D_LOCKF for lockf() or flock() file locking
+#     functions to attempt exclusive lock on writing to files
+# 
+# C) Specify -DHAVE_DIRFD if you system provides the "dirfd()" function
+#    (Most don't have it defined ... but some do)
+#
+# D) Optionally specify -DHAVE_ASSERT if your system has a built-in ASSERT()
+#    routine.
+#
+# E) Some systems (SOLARIS/SUNOS) have a few gotchas which require
+#    some #ifdefs to avoid compiler warnings ... so you might need
+#    to specify -DSOLARIS or -DSUNOS depending on your OS.
+# (We export these for other Makefiles as needed)
+#
+
+PROTO_CFLAGS = -DUNIX -DHAVE_IPV6 -DHAVE_ASSERT -DHAVE_GETLOGIN -DHAVE_FLOCK -DHAVE_DIRFD
+
+# Additional system-specific source code to use
+SYSTEM_SRC = 
+
+SYSTEM = macosx
+CC = c++
+RANLIB = ranlib
+AR = ar
+
+SYSTEM_BUNDLE = chant.app
+
+include Makefile.common

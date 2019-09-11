@@ -1,0 +1,37 @@
+
+
+The basic NORP server state machine is in place and pretty much ready for testing.  There are some details that need to be wrapped up:
+
+1) Implement ACK-based flow control using double-buffer markers,  explict positive acknowledgement, (DONE)  1a) Add option to NORM to
+only ACK after application has read stream data. (DONE)
+
+2) Clean up debugging messages. (SOME)
+
+3) Provide NORM congestion control options (DONE - CCE added)
+
+4) Session configuration options (ouch!) 4a) Src/Dst based proxy methods and parameters
+
+5) Implement auto handoff to TCP direct connnect on port unreachable (what about NORP request timeout, too?) (both DONE)
+
+6) Use protolibd for "safer" socket state
+
+7) norm_rx_stream can hangup shutdown - fix it (DONE)
+
+8) Win32 build and test
+
+8a) Win32 NORM-CCE support that's not WinPcap dependent
+
+9) Send / handle negative SOCKS replies 
+
+
+10) IMPORTANT: Detect remote "norp" failure _or_ make sure that we can _always_ detect when our local TCP socket (originator client, or
+correspondent remote) closes.  Right now, we stop TCP socket input notification upon NORM flow control block condition (e.g. failed
+watermark) ... we probably should have some  failed watermark timeout condition, perhaps in conjunction with using an
+application-defined command as a "keep-alive" mechanism.  For example, have each NORM sender send a "keep-alive" heart beat
+periodically, but upon multiple periods of failed watermark ACK _and_ missing "keep-alive", initiate session teardown?  Otherwise, this
+creates a condition of persistent requests of ACK indefinitely.
+
+
+11) To provide easier firewall traversal, should we split the "correspondent" norm tx & rx sessions so that it can "talk back" to the
+originator source port.  Can also use the NORP messaging to signal the norm ports to use.
+

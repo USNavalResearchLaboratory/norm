@@ -1,0 +1,54 @@
+#########################################################################
+# "norp" common Makefile portion
+#
+
+SHELL=/bin/sh
+
+.SUFFIXES: .cpp $(.SUFFIXES)
+
+# "chant" depends upon the NRL "norm" and "protolib" libraries
+NORM = ../norm
+PROTOLIB = $(NORM)/protolib
+LIBPROTO = $(PROTOLIB)/lib/libprotokit.a
+LIBNORM = $(NORM)/lib/libnorm.a
+
+COMMON = ../src/common
+
+NORP_SRC = $(COMMON)/norp.cpp $(COMMON)/norpApp.cpp \
+           $(COMMON)/protoPktSOCKS.cpp $(SYSTEM_SRC)
+          
+NORP_OBJ = $(NORP_SRC:.cpp=.o)
+
+INCLUDES =  -I../include -I$(NORM)/include -I$(PROTOLIB)/include
+
+CFLAGS = -g -DPROTO_DEBUG -Wall -O -fPIC $(SYSTEM_CFLAGS) $(PROTO_CFLAGS) $(INCLUDES)
+
+LIBS = $(SYSTEM_LIBS)
+
+TARGETS = norp
+
+# Rule for C++ .cpp extension
+.cpp.o:
+	$(CC) -c $(CFLAGS) -o $*.o $*.cpp
+    
+
+all:	norp
+
+$(PROTOLIB)/lib/libprotokit.a: 
+	$(MAKE) -C $(PROTOLIB)/makefiles -f Makefile.$(SYSTEM) libprotokit.a
+
+$(NORM)/lib/libnorm.a: 
+	$(MAKE) -C $(NORM)/makefiles -f Makefile.$(SYSTEM) libnorm.a
+
+norp: $(LIBPROTO) $(LIBNORM) $(NORP_OBJ)
+	$(CC) $(LDFLAGS) -o $@ $(NORP_OBJ) $(LIBS) $(LIBNORM) $(LIBPROTO)
+    
+clean:
+	rm -f norp $(COMMON)/*.o;
+	$(MAKE) -C $(NORM)/makefiles -f Makefile.$(SYSTEM) clean;
+	$(MAKE) -C $(PROTOLIB)/makefiles -f Makefile.$(SYSTEM) clean;
+    
+distclean:  clean
+    
+# DO NOT DELETE THIS LINE -- mkdep uses it.
+# DO NOT PUT ANYTHING AFTER THIS LINE, IT WILL GO AWAY.

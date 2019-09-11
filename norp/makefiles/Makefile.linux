@@ -1,0 +1,27 @@
+#
+# Linux wxWindows Makefile definitions
+#
+
+# 1) Where to find the wxWindows files
+WX_FLAGS = `wx-config --cxxflags`
+WX_LIBS = `wx-config --libs`
+
+# 2) System specific additional libraries, include paths, etc
+#    (Where to find X11 libraries, etc)
+#
+SYSTEM_FLAGS = 
+SYSTEM_INCLUDES = 
+SYSTEM_LIBS = -lm -lpthread
+SYSTEM_REZ = touch
+
+
+PROTO_CFLAGS  = -DLINUX -DUNIX -DHAVE_IPV6 -DHAVE_GETLOGIN -D_FILE_OFFSET_BITS=64 -DHAVE_LOCKF -DHAVE_OLD_SIGNALHANDLER -DHAVE_DIRFD -DHAVE_ASSERT
+
+SYSTEM = linux
+CC = g++
+RANLIB = ranlib
+AR = ar
+
+SYSTEM_SRC =
+
+include Makefile.common

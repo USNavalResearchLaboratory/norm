@@ -1,0 +1,567 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="transform.xsl"?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.1/docbookx.dtd">
+<article>
+  <articleinfo>
+    <title><inlinemediaobject>
+        <imageobject>
+          <imagedata align="center" fileref="resources/ProteanLogo.png"
+                     scale="30"/>
+        </imageobject>
+      </inlinemediaobject> <emphasis>norp</emphasis> User's Guide</title>
+
+    <titleabbrev><emphasis>norp</emphasis> User's Guide</titleabbrev>
+
+    <abstract>
+      <para>The NRL Nack-Oriented Proxy (<emphasis>norp</emphasis>) project
+      includes software for an RFC 1928 SOCKS5-compatible proxy server daemon
+      that is able to use the RFC 5740 Nack-Oriented Reliable Multicast (NORM)
+      transport protocol for efficient and robust data transfer between
+      <emphasis>norp</emphasis> proxy instances. The <emphasis>norp</emphasis>
+      proxy automatically supports conventional SOCKS TCP proxy operation when
+      a remote <emphasis>norp</emphasis> peer is unavailable. This software
+      was developed by the <ulink url="http://www.nrl.navy.mil/">Naval
+      Research Laboratory</ulink> (NRL) PROTocol Engineering Advanced
+      Networking Research Group.
+      The NRL reference implementation of NORM used here is available from
+      <ulink
+      url="http://www.nrl.navy.mil/itd/ncs/products/norm">http://www.nrl.navy.mil/itd/ncs/products/norm</ulink>.</para>
+    </abstract>
+  </articleinfo>
+
+  <sect1>
+    <title>Overview</title>
+
+    <para>The <emphasis>norp</emphasis> application ....</para>
+  </sect1>
+
+  <sect1 id="TheoryOfOperation">
+    <title>Theory of Operation</title>
+
+    <para>The <emphasis>norp</emphasis> program acts as a SOCKS proxy server.
+    It supports the SOCKS5 "CONNECT", "BIND" and "UDP-ASSOCIATE" proxy methods
+    for conventional SOCKS proxy operation. The current
+    <emphasis>norp</emphasis> implementation does not require (or support) any
+    client authentication. Future versions may provide authentication or other
+    access control mechanisms. The current <emphasis>norp</emphasis>
+    implementation only provides NORM transport for the SOCKS TCP "CONNECT"
+    requests. SOCKS "UDP-ASSOCIATE" over NORM will be supported in a future
+    version.</para>
+
+    <para>Unlike a conventional SOCKS server, it is expected that the
+    <emphasis>norp</emphasis> daemon can be installed and run as a local
+    "loopback" server that is co-resident on the host running applications
+    that wish to take advantage of NORM transport benefits. The
+    <emphasis>norp</emphasis> daemon implements its own signaling protocol
+    that will automatically determine, upon TCP (or UDP) connection
+    establishment, if a remote destination is also similarly
+    "<emphasis>norp</emphasis>-enabled" and establish a NORM transport
+    connection as the proxy connection. Otherwise a "business-as-usual" TCP
+    (or UDP) connection is established on the application's behalf and thus
+    compatibility with "non-<emphasis>norp</emphasis>" hosts is also
+    supported. <xref linkend="norpConcept"/> illustrates this high level
+    concept of operation.</para>
+
+    <para><figure id="norpConcept">
+        <title>NORP Concept of Operation</title>
+
+        <mediaobject>
+          <imageobject>
+            <imagedata fileref="resources/norpConcept.png" format="PNG"
+                       scale="50"/>
+          </imageobject>
+        </mediaobject>
+      </figure></para>
+
+    <para><emphasis>TBD - provide some more details on norp signaling for peer
+    detection and NORM session establishment</emphasis></para>
+
+    <para>Note that as an alternative to making proxied connections directly
+    to connection destination addresses as illustrated above, a remote
+    <emphasis>norp</emphasis> peer "correspondent" can be specified as part of
+    the <literal>forward</literal> command or, for SOCKS connections, with the
+    <literal>correspondent</literal> command (see command descriptions below).
+    Future versions of <emphasis>norp</emphasis> will include more
+    sophisticated "routing" options for different destinations and traffic
+    types.</para>
+
+    <sect2>
+      <title>SOCKS Loopback and Intermediate System</title>
+
+      <para>As noted above the principal use case for
+      <emphasis>norp</emphasis> is to act as a local, "loopback" SOCKS server
+      that can be used in conjunction with a properly configured SOCKS client.
+      In this way, all of the configuration parameters are localized and
+      implicit and no precoordinated configuration with
+      <emphasis>norp</emphasis> peers (or non-<emphasis>norp</emphasis> hosts)
+      is required other than using a common UDP port number for NORP
+      signaling.</para>
+
+      <para>However, there may be use cases where it may be desirable to
+      deploy <emphasis>norp</emphasis> on intermediate systems at the
+      connection originating site (or domain) and/or the destination site(s)
+      (or domain(s)). This is easily supported by the
+      <emphasis>norp</emphasis> design and future norp versions will provide
+      configuration options for this type of deployment.</para>
+    </sect2>
+
+    <sect2>
+      <title>NORM Protocol Usage</title>
+
+      <para><emphasis>TBD - describe how the NORM streaming capability is used
+      in a flow-controlled, positively-acknowledged fashion to provide a
+      reliable TCP proxy function. Also describe the NORM congestion control
+      options here.</emphasis></para>
+    </sect2>
+  </sect1>
+
+  <sect1 id="Usage">
+    <title>Usage</title>
+
+    <para>Typically, <emphasis>norp</emphasis> can be run in its default
+    configuration with no command-line options required. However, a number of
+    options are available via the command-line. This is a summary of
+    <emphasis>norp</emphasis> usage:</para>
+
+    <para><informalexample>
+        <programlisting><?dbfo keep-together="always"?>norp [interface &lt;ifaceName&gt;][address &lt;publicAddr&gt;][sport &lt;socksPort&gt;][port &lt;norpPort&gt;]
+     [norm {on|off}][id &lt;normId&gt;][nport &lt;normPort&gt;][cce | ccl | rate &lt;bits/sec&gt;]
+     [limit &lt;bits/sec&gt;][persist &lt;seconds&gt;][correspondent &lt;remoteNorpAddr&gt;]
+     [forward &lt;tcpPort&gt;,&lt;destAddr&gt;/&lt;destPort&gt;[,&lt;remoteNorpAddr&gt;]][version][debug &lt;level&gt;]
+     [trace][dlog &lt;debugLog&gt;][lport &lt;localNorpPort&gt;][rport &lt;remoteNorpPort&gt;]</programlisting>
+
+        <para>The <emphasis>norp</emphasis> program command-line options
+        include ...</para>
+      </informalexample></para>
+
+    <table>
+      <title><emphasis><emphasis>norp</emphasis></emphasis> Command-line
+      Options</title>
+
+      <?dbfo keep-together="always"?>
+
+      <tgroup cols="2">
+        <colspec colname="Command" colwidth="1*"/>
+
+        <colspec colname="Description" colwidth="2.5*"/>
+
+        <tbody>
+          <row>
+            <entry align="left"><literal>interface
+            &lt;interfaceName&gt;</literal></entry>
+
+            <entry>The given <literal>&lt;interfaceName&gt;</literal>
+            specifies the name (or IP address) of the host network interface
+            <emphasis>norp</emphasis> uses as its "public" proxy address.
+            Currently a single interface may be designated for an instance of
+            <emphasis>norp</emphasis>. Future version of
+            <emphasis>norp</emphasis> may allow for multiple interfaces to be
+            designated depending upon the source and/or destination address of
+            SOCKS proxy connections.</entry>
+          </row>
+
+          <row>
+            <entry><literal>address &lt;publicAddr&gt;</literal></entry>
+
+            <entry>This is similar to the "<literal>interface</literal>"
+            command, but allows a specific address to be set. For example,
+            hosts with multiple addresses assigned may wish to use a specific
+            address for proxy functions.</entry>
+          </row>
+
+          <row>
+            <entry><literal>sport &lt;socksPort&gt;</literal></entry>
+
+            <entry>This command is used to specify the port number on which
+            the <emphasis>norp</emphasis> server listens for SOCKS client
+            connections. The default port is currently port number
+            7000.</entry>
+          </row>
+
+          <row>
+            <entry><literal>port &lt;norpPort&gt;</literal></entry>
+
+            <entry>This command is used to specify the UDP port number used
+            for <emphasis>norp</emphasis> session setup signaling. The default
+            <emphasis>norp</emphasis> UDP signaling port is 7001. The
+            configured <emphasis>norp</emphasis> port number (and NORM port
+            number) MUST be unblocked by any network firewalls between
+            <emphasis>norp</emphasis> peers. The given port number is used by
+            <emphasis>norp</emphasis> to listen for remote connection request
+            and is used as the destination port to signal remote
+            <emphasis>norp</emphasis> peers.</entry>
+          </row>
+
+          <row>
+            <entry><literal>norm {on | off}</literal></entry>
+
+            <entry>By default, <emphasis>norp</emphasis> attempts to signal
+            the SOCKS connection endpoint to setup a NORM transport connection
+            to handle reliable data transfer for the TCP connection being
+            instantiated. This command with the "<literal>off</literal>"
+            argument will disable this function and <emphasis>norp</emphasis>
+            will act as a conventional SOCKS proxy server.</entry>
+          </row>
+
+          <row>
+            <entry><literal>id &lt;normId&gt;</literal></entry>
+
+            <entry>By default, <emphasis>norp</emphasis> will attempt to
+            self-configure a NORM protocol node identifier using the IP
+            address of the server host. This command allows a specific NORM
+            node identifier value to be set. It is generally not necessary to
+            explicitly set this value for <emphasis>norp</emphasis> unicast
+            proxy connections.</entry>
+          </row>
+
+          <row>
+            <entry><constant>nport &lt;normPort&gt;</constant></entry>
+
+            <entry>This command can be used to specify a UDP port number that
+            will be used for NORM protocol transport connections. The default
+            NORM port number used by <emphasis>norp</emphasis> is 7002. The
+            configured NORM port number (and <emphasis>norp</emphasis> UDP
+            signaling <literal>port</literal> number) MUST be unblocked by any
+            network firewalls between <emphasis>norp</emphasis> peers.</entry>
+          </row>
+
+          <row>
+            <entry><literal>cce</literal></entry>
+
+            <entry>This option enables NORM-CCE congestion control operation
+            that uses Explicit Congestion Notification (ECN) information for
+            NORM protocol end-to-end transmission rate adaption. This is an
+            alternative to the TCP-friendly congestion control mechanism used
+            for NORM by default. Routers in the path of the
+            <emphasis>norp</emphasis> peers using the NORM-CCE option MUST be
+            configured for ECN packet marking in response to
+            congestion.</entry>
+          </row>
+
+          <row>
+            <entry><literal>ccl</literal></entry>
+
+            <entry>This option enables experimental NORM-CCL ("Loss Tolerant")
+            congestion control operation that uses some simple heuristics to
+            try to differentiate packet loss due to congestion versus duo to
+            channel bit errors. This is another alternative to the
+            TCP-friendly congestion control mechanism used for NORM by
+            default. No special intermediate system configuration is required,
+            and while more loss tolerant than the default TCP-friendly
+            behavior, is not as effective as the NORM-CCE mode of
+            operation.</entry>
+          </row>
+
+          <row>
+            <entry><literal>rate &lt;bits/sec&gt;</literal></entry>
+
+            <entry>This option causes <emphasis>norp</emphasis> to use a
+            preset and fixed transmission rate for each proxied data flow
+            (e.g. TCP connection). This should only be used when the network
+            connectivity usage is carefully pre-planned and previsioned for
+            the expected (i.e. <emphasis>a priori</emphasis> known) flows. At
+            this time, one common transmission rate is used for all
+            flows.</entry>
+          </row>
+
+          <row>
+            <entry><literal>limit &lt;bits/sec&gt;</literal></entry>
+
+            <entry>This option sets a limit for the
+            <emphasis>cumulative</emphasis> transmit rate for
+            <emphasis>all</emphasis> flows that <emphasis>norp</emphasis> is
+            proxying. For automated congestion operation, this can also work
+            to "jump start" the usual "slow start" transport rate control by
+            setting the lower bound of rate adjustment based on the limit
+            <literal>&lt;bits/sec&gt; / &lt;numFlows&gt;</literal>. For
+            example, a single flow will immediately "jump" to close the full
+            limit rate, while the second of two flows would "jump" to half of
+            the "limit" rate. Also, by setting a limit based on <emphasis>a
+            priori</emphasis> connectivity information, this can avoid rate
+            adjustment "overshoot" and help congestion control operate more
+            effectively as compared to a "blind" situation. IMPORTANT: This
+            options should only be applied when the connectivity path is well
+            known and the impact of the lower bound enforcement here will not
+            adversely impact other network traffic flows. A future option may
+            be provided to further reduce or eliminate the lower bound
+            enforcement that would eliminate this concern in less controlled
+            network deployments. A limit value of "-1.0" (default) disables
+            the limit enforcement.</entry>
+          </row>
+
+          <row>
+            <entry><literal>correspondent
+            &lt;remoteNorpAddr&gt;</literal></entry>
+
+            <entry>This option causes <emphasis>norp</emphasis> to "route"
+            connections through a <emphasis>norp</emphasis> peer at the
+            specified <parameter>&lt;remoteNorpAddr&gt;</parameter>. This is
+            an alternative to the default behavior where
+            <emphasis>norp</emphasis> attempts to connect directly to the
+            connection destination addresses.</entry>
+          </row>
+
+          <row>
+            <entry><literal>persist &lt;seconds&gt;</literal></entry>
+
+            <entry>This option controls how persistently norp attempts to
+            deliver data to the remote endpoint when the remote endpoint fails
+            to acknowledge reception. A persist value of -1 makes norp
+            infinitely persistent and the corresponding norp session remains
+            in place until all data is delivered. If not, an orphaned session
+            will remain in place if the remote endpoint is permanently
+            disconnected. The default persist value is 120 seconds (2
+            minutes).</entry>
+          </row>
+
+          <row>
+            <entry><literal>forward
+            &lt;tcpPort&gt;,&lt;dstAddr&gt;/&lt;dstPort&gt;[,&lt;norpAddr&gt;]</literal></entry>
+
+            <entry>This command sets up a "preset" TCP proxy (non-SOCKS) port
+            forwarding session by listening on the specified TCP
+            <parameter>&lt;tcpPort&gt;</parameter> for connections and then
+            connecting to the given remote
+            <parameter>&lt;dstAddr&gt;/&lt;dstPort&gt;</parameter>.
+            Optionally, a separate remote
+            <parameter>&lt;norpAddr&gt;</parameter> may be given. Otherwise, a
+            <emphasis>norp</emphasis> proxy connection is attempted to the
+            given <parameter>&lt;dstAddr&gt;</parameter> platform on the
+            <emphasis>norp</emphasis> <parameter>&lt;port&gt;</parameter> (or
+            <parameter>&lt;rport&gt;</parameter> if specified). Note that
+            multiple such "preset" proxy sessions may be specified on the
+            command-line and each "preset" proxy session can handle multiple
+            connections as needed.</entry>
+          </row>
+
+          <row>
+            <entry><literal>debug &lt;debugLevel&gt;</literal></entry>
+
+            <entrytbl cols="1">
+              <tbody>
+                <row>
+                  <entry>This command can be used to control the verbosity of
+                  <emphasis>norp</emphasis> debug logging output. Generally,
+                  the range of the value is 0-12. A higher value results in
+                  more verbose, detailed debug output.</entry>
+                </row>
+              </tbody>
+            </entrytbl>
+          </row>
+
+          <row>
+            <entry><literal>trace</literal></entry>
+
+            <entry>This command enables NORM send and receive packet trace
+            logging.</entry>
+          </row>
+
+          <row>
+            <entry><literal>dlog &lt;fileName&gt;</literal></entry>
+
+            <entrytbl cols="1">
+              <tbody>
+                <row>
+                  <entry>This command can be used to direct
+                  <emphasis>norp</emphasis> debug logging output to a given
+                  file. The default <emphasis>norp</emphasis> debug logging is
+                  to STDERR.</entry>
+                </row>
+              </tbody>
+            </entrytbl>
+          </row>
+
+          <row>
+            <entry><literal>lport &lt;localNorpPort&gt;</literal></entry>
+
+            <entry>This command can enable single host, loopback testing by a
+            having <emphasis>norp</emphasis> listen on a different port number
+            than which it uses as the destination port for remote
+            <emphasis>norp</emphasis> peer signaling. E.g., two
+            <emphasis>norp</emphasis> instances on a single machine can be set
+            up with unique <literal>&lt;localNorpPort&gt;</literal> values and
+            then use the "<literal>rport</literal>" command to specify each
+            other's destination <emphasis>norp</emphasis> port
+            numbers.</entry>
+          </row>
+
+          <row>
+            <entry><literal>rport &lt;remoteNorpPort&gt;</literal></entry>
+
+            <entry>This command is intended to be used in conjunction with the
+            "<literal>lport</literal>" command to allow separate specification
+            of the destination port number used for remote
+            <emphasis>norp</emphasis> peer signaling.</entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </table>
+
+    <sect2>
+      <title>SOCKS Client Configuration</title>
+
+      <para><emphasis>TBD - provide overview and examples (for specific SOCKS
+      clients of note such as Dante, Proxifier, etc) of SOCKS client
+      configuration</emphasis></para>
+    </sect2>
+
+    <sect2 id="ExampleUsage">
+      <title>Usage Examples</title>
+
+      <para>The SOCKS client(s) must be configured to use the
+      <emphasis>norp</emphasis> server unless a preset TCP port
+      <literal>forward</literal> is specified. For example the Dante proxy
+      distribution (available from <ulink
+      url="http://www.inet.no/dante/">http://www.inet.no/dante/</ulink>) has a
+      <emphasis>socksify</emphasis> command that is installed and can be used
+      to launch existing network applications so their socket communications
+      are directed through the configured server. With Dante, a SOCKS
+      configuration file (typically <filename>/etc/socks.conf</filename>) or
+      the <constant>SOCKS5_SERVER</constant> environment variable can be used
+      to set the server address and port number.</para>
+
+      <para>The <emphasis>norp</emphasis> "server" is a lightweight module and
+      can be installed on the same end systems requiring the performance
+      benefits of NORM transport. In this case the SOCKS client server
+      configuration is the loopback address and <emphasis>norp</emphasis>
+      SOCKS port number (i.e. <literal>127.0.0.1:7000</literal>). The locally
+      installed norp SOCKS server will signal remote network destinations
+      (e.g., upon TCP connection initiation) to determine if the destination
+      is <emphasis>norp</emphasis>-capable. If possible, it will establish a
+      NORM-connection to the remote <emphasis>norp</emphasis> correspondent
+      that connects to the final destination. Otherwise a direct TCP
+      connection (or UDP relay) will be made to the remote destination.</para>
+    </sect2>
+  </sect1>
+
+  <sect1 id="Commands">
+    <title>The "NORP" UDP Signaling Message Format</title>
+
+    <para>The <emphasis>norp</emphasis> proxy uses UDP signaling to confirm
+    presence of a remote <emphasis>norp</emphasis> peer and to set up (and
+    tear down) NORM transport protocol sessions to support the proxied TCP
+    (and eventually UDP) transport connections. The norp instance originating
+    a SOCKS session request is referred to here as the "originator" and the
+    remote norp peer to which the request is directed is referred to as the
+    "correspondent". The <emphasis>norp</emphasis> "originator" is the server
+    associated with the SOCKS client making a request while the
+    "correspondent" establishes connections with the remote SOCKS
+    destination.</para>
+
+    <para>The following UDP payload format is used for NORP signaling:</para>
+
+    <para><programlisting><?dbfo keep-together="always"?>0                   1                   2                   3 
+0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   msgType     |    reserved   |           sessionId           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          normNodeId                           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          normSrcPort          |           normDstPort         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         timestamp_sec                         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         timestamp_usec                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                           content ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+</programlisting></para>
+
+    <para>The NORP message types include:</para>
+
+    <variablelist>
+      <varlistentry>
+        <term>SOCKS_REQ</term>
+
+        <listitem>
+          <para>The message content contains a SOCKS5 Request message from the
+          "originator" to the "correspondent" <emphasis>norp</emphasis>
+          server.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>ACK_REQ</term>
+
+        <listitem>
+          <para>The message is used to acknowledge receipt of a SOCKS_REQ
+          message. There is no "content"</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>SOCKS_REP</term>
+
+        <listitem>
+          <para>The message content contains a SOCKS5 Reply message from the
+          "correspondent" <emphasis>norp</emphasis> server.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>ACK_REP</term>
+
+        <listitem>
+          <para>The message is used to acknoledge receipt of a SOCKS_REP
+          message. There is no "content".</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>ORIG_END</term>
+
+        <listitem>
+          <para>This message indicates the "originator"
+          <emphasis>norp</emphasis> server is terminating the given session.
+          There is no "content".</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>CORR_END</term>
+
+        <listitem>
+          <para>This message indicates the "correspondent"
+          <emphasis>norp</emphasis> server is terminating the given session.
+          There is no "content".</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>ACK_END</term>
+
+        <listitem>
+          <para>This message is used to acknowledge receipt of either an
+          ORIG_END or CORR_END message. There is no "content".</para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+
+    <para><emphasis>TBD - describe NORP signaling and the message format given
+    here.</emphasis></para>
+  </sect1>
+
+  <sect1>
+    <title>Future Plans</title>
+
+    <para>There are a number of additional features and refinements planned
+    for the <emphasis>norp</emphasis> implementation. Some of these
+    include:</para>
+
+    <orderedlist>
+      <listitem>
+        <para>Source / destination configuration and "routing" options</para>
+      </listitem>
+
+      <listitem>
+        <para>Data compression options</para>
+      </listitem>
+
+      <listitem>
+        <para>Security features</para>
+      </listitem>
+    </orderedlist>
+  </sect1>
+</article>
