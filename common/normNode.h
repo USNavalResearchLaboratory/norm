@@ -171,7 +171,10 @@ class NormCCNode : public NormNode
        NormCCNode(class NormSession& theSession, NormNodeId nodeId);
        ~NormCCNode();
        
+       enum {ACTIVE_MAX = 7};
+       
        bool IsClr() const {return is_clr;}
+       bool IsPlr() const {return is_plr;}
        bool IsActive() const {return is_active;}
        bool HasRtt() const {return rtt_confirmed;}
        
@@ -179,9 +182,13 @@ class NormCCNode : public NormNode
        double GetLoss() const {return loss;}
        double GetRate() const {return rate;}
        UINT16 GetCCSequence() const {return cc_sequence;}
-       
+       const struct timeval& GetFeedbackTime()
+           {return feedback_time;}
+       void SetFeedbackTime(struct timeval& theTime)
+           {feedback_time = theTime;}
        void SetActive(bool state) {is_active = state;}
        void SetClrStatus(bool state) {is_clr = state;}
+       void SetPlrStatus(bool state) {is_plr = state;}
        void SetRttStatus(bool state) {rtt_confirmed = state;}
        void SetRtt(double value)  {rtt = value;}
        double UpdateRtt(double value)
@@ -194,14 +201,15 @@ class NormCCNode : public NormNode
        void SetCCSequence(UINT16 value) {cc_sequence = value;}
        
     private:
-        bool    is_clr; // true if worst path representative
-        bool    is_plr; // true if worst path candidate
-        bool    is_active;
-        bool    rtt_confirmed;
-        double  rtt;    // in seconds
-        double  loss;   // loss fraction
-        double  rate;   // in bytes per second
-        UINT16  cc_sequence;
+        bool            is_clr;         // true if worst path representative
+        bool            is_plr;         // true if worst path candidate
+        bool            rtt_confirmed;
+        bool            is_active;
+        struct timeval  feedback_time;  // time of last received feedback
+        double          rtt;            // in seconds
+        double          loss;           // loss fraction
+        double          rate;           // in bytes per second
+        UINT16          cc_sequence;
 };  // end class NormCCNode
 
 class NormServerNode : public NormNode
@@ -496,7 +504,7 @@ class NormNodeList
         {
             ASSERT(theNode);
             Remove(theNode);
-            delete theNode;
+            theNode->Release();
         }
         void Destroy();  // delete all nodes in list
         const NormNode* Head() {return head;}

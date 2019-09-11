@@ -60,11 +60,16 @@ SYSTEM_LIBS = -ldl -lnsl -lsocket
 # (We export these for other Makefiles as needed)
 #
 
-export SYSTEM_HAVES =  -DHAVE_ASSERT -DHAVE_CUSERID -DHAVE_LOCKF $(NETSEC) -DSOLARIS 
+SYSTEM_HAVES = -DHAVE_DIRFD -DHAVE_IPV6 -DHAVE_ASSERT -DHAVE_CUSERID -DHAVE_LOCKF \
+-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -DSOLARIS 
 
-export CC = gcc
-export RANLIB = touch
-export AR = ar
+SYSTEM = solaris
+
+SYSTEM_CFLAGS = -PIC -Wall -Wcast-align
+CC = gcc
+SYSTEM_SOFLAGS = -shared 
+RANLIB = touch
+AR = ar
 
 include Makefile.common
 

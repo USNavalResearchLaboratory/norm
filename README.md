@@ -63,7 +63,7 @@ The following items can be build from this source code release:
   be provided as additional documentation in the future)
  
  
-2) norm (or norm.exe (WIN32) - command-line "demo" application
+3) norm (or norm.exe (WIN32) - command-line "demo" application
                                built from "common/normApp.cpp"
  
  (The included "Norm User's Guide" provides a rough overview
@@ -71,7 +71,7 @@ The following items can be build from this source code release:
   updating to be accurate and complete.  This demo application
   is useful for file transfers (and streaming on Unix))
   
-3) normTest (or normTest.exe (WIN32)) - very simple test application
+4) normTest (or normTest.exe (WIN32)) - very simple test application
 
  (The "normTest" application (see "common/normTest.cpp") is really
   just a simple playground for preliminary testing of the NORM
@@ -79,6 +79,19 @@ The following items can be build from this source code release:
   a very simple example of NORM API usage.  More sophisticated
   (and better-documented) examples of NORM API usage will be 
   provided in the future.
+  
+5) There is also an "examples" directory in the source code tree
+   that contains some simplified examples of NORM API usage.  The
+   example set will be expanded as time progresses.
+   
+NRL also has started some apps built around NORM including:
+
+A) A reliable multicast "chat" application (users can share files
+   and images, too) with a GUI.  Like IRC with no server needed.
+   
+B) An application for reliably "tunneling" real-time UDP packet
+   streams (like RTP video or audio) using NORM's streaming
+   capability.
   
   
 OTHER FILES:
@@ -92,6 +105,8 @@ NormDeveloperGuide.html - HTML version of NORM Developer's Guide
                           (nice for browsing)
 
 NormUserGuide.pdf       - Guide to "norm" demo app usage
+                          (this document needs corrections and
+                           is currently incomplete)
 
 VERSION.TXT             - NORM version history notes
 

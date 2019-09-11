@@ -3,7 +3,7 @@
 #include "normSession.h"
 
 NormNode::NormNode(class NormSession& theSession, NormNodeId nodeId)
- : session(theSession), id(nodeId), reference_count(0),
+ : session(theSession), id(nodeId), reference_count(1),
    parent(NULL), right(NULL), left(NULL)
 {
     
@@ -323,7 +323,7 @@ void NormServerNode::HandleCommand(const struct timeval& currentTime,
             if (obj && (NormObject::STREAM == obj->GetType()))
             {
                 NormBlockId blockId = squelch.GetFecBlockId();
-                static_cast<NormStreamObject*>(obj)->Prune(blockId);   
+                static_cast<NormStreamObject*>(obj)->Prune(blockId, true);   
             }
             // 3) (TBD) Go ahead and discard any invalidated objects
             //   (although they will eventually get discarded anyway)
@@ -614,7 +614,7 @@ void NormServerNode::HandleRepairContent(const UINT32* buffer, UINT16 bufferLen)
     NormRepairRequest req;
     UINT16 requestLength = 0;
     bool freshObject = true;
-    NormObjectId prevObjectId;
+    NormObjectId prevObjectId(0);
     NormObject* object = NULL;
     bool freshBlock = true;
     NormBlockId prevBlockId = 0;
@@ -1005,10 +1005,9 @@ void NormServerNode::HandleObjectMessage(const NormObjectMsg& msg)
                 }
             }
             
-            if (obj)
+            if (NULL != obj)
             { 
                 rx_table.Insert(obj);
-                obj->Retain();  
                 NormFtiExtension fti;
                 while (msg.GetNextExtension(fti))
                 {
@@ -1458,7 +1457,7 @@ bool NormServerNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         if (is_clr) 
                             ext.SetCCFlag(NormCC::CLR);
                         else if (is_plr)
-                            ext.SetCCFlag(NormCC::CLR);
+                            ext.SetCCFlag(NormCC::PLR);
                         if (rtt_confirmed)
                             ext.SetCCFlag(NormCC::RTT);
                         ext.SetCCRtt(rtt_quantized);
@@ -1675,22 +1674,58 @@ void NormServerNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
 {
     if (prev_update_time.tv_sec || prev_update_time.tv_usec)
     {
+        recv_accumulator += msgSize;
+        
         double interval = (double)(currentTime.tv_sec - prev_update_time.tv_sec);
         if (currentTime.tv_usec > prev_update_time.tv_sec)
             interval += 1.0e-06*(double)(currentTime.tv_usec - prev_update_time.tv_usec);
         else
             interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);            
-        double rttEstimate = rtt_confirmed ? rtt_estimate : grtt_estimate;
+        double measurementInterval = rtt_confirmed ? rtt_estimate : grtt_estimate;
+        // Here, we put a 0.100 sec lower bound on our measurementInterval for the 
+        // recv_rate because of the typical limited granularity of our system clock
+        // (Note this does limit our ramp up of data rate during slow start)
+        if (measurementInterval < 0.100) measurementInterval = 0.100;
+        if (interval > 0.0)
+        {
+            double currentRecvRate = ((double)(recv_accumulator)) / interval;
+            if (currentRecvRate < recv_rate)
+            {
+                // Make sure we've allowed sufficient time for a measurement
+                double minInterval = 4.0 * ((double)nominal_packet_size) / recv_rate;
+                if (measurementInterval < minInterval) 
+                    measurementInterval = minInterval;
+            }
+            if (interval >= measurementInterval)
+            {
+                recv_rate = currentRecvRate; //((double)(recv_accumulator)) / interval;
+                prev_update_time = currentTime;
+                recv_accumulator = 0;
+            }
+        }
+        /*
         // We put a 0.100 sec lower bound on our rttEstimate for the recv_rate measurement
         // interval because of the typical limited granularity of our system clock
+        // (Note this does limit our ramp up of data rate during slow start)
+        if (rttEstimate < 0.1) rttEstimate = 0.1;
         rttEstimate = rttEstimate < 0.1 ? 0.1 : rttEstimate;
-        recv_accumulator += msgSize;
+        
+        // Also, don't update more than nominal_packet_size / recv_rate
+        // or our measurement is subject to quantization error
+        
+        double minterval = recv_rate > 0.0 ? 2.0 * ((double)nominal_packet_size) / recv_rate : rttEstimate;
+        
+        rttEstimate = rttEstimate < minterval ? minterval : rttEstimate;
+        
+        
         if (interval >= rttEstimate)
         {
             recv_rate = ((double)(recv_accumulator)) / interval;
             prev_update_time = currentTime;
             recv_accumulator = 0;
-        }
+        }*/
+        //TRACE("updated recv rate to %lf  (accum:%lu) (cc_rate:%lf)\n", recv_rate,
+        //        recv_accumulator, cc_rate);
     }
     else
     {
@@ -1956,6 +1991,7 @@ NormNode *NormNodeTree::FindNodeById(NormNodeId nodeId) const
 void NormNodeTree::AttachNode(NormNode *node)
 {
     ASSERT(node);
+    node->Retain();
     node->left = NULL;
     node->right = NULL;
     NormNode *x = root;
@@ -1995,6 +2031,7 @@ void NormNodeTree::AttachNode(NormNode *node)
 void NormNodeTree::DetachNode(NormNode* node)
 {
     ASSERT(node);
+    node->Release();
     NormNode* x;
     NormNode* y;
     if (!node->left || !node->right)
@@ -2056,7 +2093,7 @@ void NormNodeTree::Destroy()
     while ((n = root)) 
     {
         DetachNode(n);
-        delete n;
+        n->Release();
     }
 }  // end NormNodeTree::Destroy()
 
@@ -2141,6 +2178,7 @@ NormNode* NormNodeList::FindNodeById(NormNodeId nodeId) const
 void NormNodeList::Append(NormNode *theNode)
 {
     ASSERT(theNode);
+    theNode->Retain();
     theNode->left = tail;
     if (tail)
         tail->right = theNode;
@@ -2154,6 +2192,7 @@ void NormNodeList::Append(NormNode *theNode)
 void NormNodeList::Remove(NormNode *theNode)
 {
     ASSERT(theNode);
+    theNode->Release();
     if (theNode->right)
         theNode->right->left = theNode->left;
     else
@@ -2171,7 +2210,7 @@ void NormNodeList::Destroy()
     while ((n = head))
     {
         Remove(n);
-        delete n;
+        n->Release();
     }   
 }  // end NormNodeList::Destroy()
 

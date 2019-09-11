@@ -231,6 +231,7 @@ class NormHeaderExtension
         }; 
             
         NormHeaderExtension();
+        virtual ~NormHeaderExtension() {}
         virtual void Init(UINT32* theBuffer) 
         {
             buffer = theBuffer;

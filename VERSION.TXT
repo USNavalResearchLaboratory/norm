@@ -1,5 +1,51 @@
 			           NORM Version History
 
+Version 1.3b5
+=============
+    - Changed ProtoSocket::GetInterfaceAddress() and related methods on Win32
+      to use different system APIs depending on Windows version.  
+    - Fixed some details related to compilation with g++ 4.x.
+    - Various issues fixed thanks to input from Timothy Chaplin.
+    - Fixed some issues where attempt to resync rx stream after long
+      outages (at high data rates) called assertion failures
+      (Thanks to Charlie Davis for finding this one)
+    - Fixed problem where, on Win32, the sender GRTT estimate was not
+      being updated (in the downward direction) properly.
+    - Changes to Protolib & Norm to support build of shared libraries
+      (Thanks to Dave Talmage & Timothy Mann)
+    - Added "NormSetRxPortReuse()" API and code support to allow 
+      (with care) multiple NORM instances on the same host.
+    - Fixes to NORM congestion control including:
+      1) measurement of "recv_rate" at low transmission rates
+         fixed (made sure measurement was over sufficient
+         interval at low rates including cc startup)
+      2) Re-instated code to reduce rate when feedback stopped
+         being received.
+      3) Changed to time-based aging of feedback to "deactivate"
+         stale congestion control feedback representative state
+         kept by sender.
+      4) Fixed mis-set of PLR flag as CLR flag and fixed bug
+         in updating CC node list upon CC feedback reception.
+      (Thanks to Praveen Gopala for prompting all of this)
+    - Fixes for Win32 large file support "in normFile.cpp"
+      (Thanks to Titze Stefan for this fix).
+    - Added "NormSetGrttMax()", "NormSetGrttProbingMode()",
+      and "NormSetGrttProbingInterval()" APIs to control
+      NORM GRTT measurement/estimation process.
+      (Thanks to Dave Lucas for prompting me here)
+    - Changed posting of NORM_TX_QUEUE_VACANCY for streams such
+      that new postings of this event are made, _only_ after a
+      successful call to NormStreamWrite() ... This results in
+      reduced posting of unnecessary vacancy events, but now the
+      onus is on the app to pay attention to this event, since
+      another of it's type won't be posted until the app calls
+      NormStreamWrite() with non-zero content length.
+      (Thanks to Charlie Davis for bringing this to my attention) 
+    - Made sure messages from self are ignored unless loopback
+      is explicitly enabled (see NormSetLoopback()) even for
+      operating systems whose ProtoSocket::SetLoopback() doesn't
+      work properly.
+
 Version 1.3b4
 =============
     - Added NormSetTxCacheBounds(), see NormDevGuide for details
@@ -118,3 +164,7 @@ Version 1.1b3
     - Started keeping version history.  This release includes
       some bug fixes, smoother congestion control operation, etc
       over some of the earlier releases.
+      
+Please address bug reports, suggestions etc to the email list:
+
+mailto:norm-dev@pf.itd.nrl.navy.mil

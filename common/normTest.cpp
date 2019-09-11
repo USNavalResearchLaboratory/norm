@@ -13,9 +13,10 @@
 #ifdef UNIX
 #include <unistd.h>  // for "sleep()"
 #endif // UNIX
+
 int main(int argc, char* argv[])
 {
-    printf("normTest starting (sizeof(NormSize) = %d)...\n", sizeof(NormSize));
+    printf("normTest starting (sizeof(NormSize) = %d)...\n", (int)sizeof(NormSize));
     
     NormInstanceHandle instance = NormCreateInstance();
 
@@ -26,27 +27,62 @@ int main(int argc, char* argv[])
 #endif // if/else WIN32/UNIX
 
     NormSetCacheDirectory(instance, cachePath);
+    
+    
+    
+    // Here's a trick to generate a _hopefully_ unique NormNodeId
+    // based on an XOR of the system's IP address and the process id.
+    // (We use ProtoAddress::GetEndIdentifier() to get the local
+    //  "default" IP address for the system)
+    // (Note that passing "NORM_NODE_ANY" to the last arg of 
+    //  NormCreateSession() does a similar thing but without
+    //  the process id ... perhaps we should add the process id
+    //  hack to that default NormNodeId picker?
+    ProtoAddress localAddr;
+    if (!localAddr.ResolveLocalAddress())
+    {
+        fprintf(stderr, "normTest: error resolving local IP address\n");
+        NormDestroyInstance(instance);
+        return -1;
+    }
+    NormNodeId localId = localAddr.EndIdentifier();
+#ifdef WIN32
+    DWORD processId = GetCurrentProcessId();
+#else
+    pid_t processId = getpid();
+#endif // if/else WIN32/UNIX
+    localId ^= (NormNodeId)processId;
+    
+    // If needed, permutate to a valid, random NormNodeId
+    while ((NORM_NODE_ANY == localId) ||
+           (NORM_NODE_NONE == localId))
+    {
+        localId ^= (NormNodeId)rand();
+    }
+        
+    
+
 
     NormSessionHandle session = NormCreateSession(instance,
                                                   "224.1.2.3", 
                                                    6003,
-                                                   NORM_NODE_ANY);
+                                                   localId);
     
     // NOTE: These are debugging routines available (not for normal app use)
     SetDebugLevel(2);
     // Uncomment to turn on debug NORM message tracing
     //NormSetMessageTrace(session, true);
     // Uncomment to turn on some random packet loss
-    NormSetTxLoss(session, 10.0);  // 10% packet loss
+    //NormSetTxLoss(session, 10.0);  // 10% packet loss
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
     // Uncomment to get different packet loss patterns from run to run
     // (and a different sender sessionId)
     srand(currentTime.tv_sec);  // seed random number generator
     
-    NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
+    //NormSetGrttEstimate(session, 0.001);  // 1 msec initial grtt
     
-    NormSetTransmitRate(session, 60.0e+03);  // in bits/second
+    NormSetTransmitRate(session, 6000.0e+03);  // in bits/second
     
     NormSetDefaultRepairBoundary(session, NORM_BOUNDARY_BLOCK); 
     
@@ -56,25 +92,32 @@ int main(int argc, char* argv[])
     // possible!
     //NormSetTxPort(session, 6001); 
     
+    
+    // Uncomment to allow reuse of rx port
+    // (This allows multiple "normTest" instances on the same machine
+    //  for the same NormSession - note those instances must use
+    //  unique local NormNodeIds (see NormCreateSession() above).
+    NormSetRxPortReuse(session, true);
+    
     // Uncomment to receive your own traffic
     NormSetLoopback(session, true);     
     
     // Uncomment this line to participate as a receiver
-    NormStartReceiver(session, 1024*1024);
+    //NormStartReceiver(session, 1024*1024);
     
     // Uncomment to set large rx socket buffer size
     // (might be needed for high rate sessions)
-    // NormSetRxSocketBuffer(session, 512000);
+    NormSetRxSocketBuffer(session, 512000);
     
     // Uncomment to enable TCP-friendly congestion control
-    //NormSetCongestionControl(session, true);
+    NormSetCongestionControl(session, true);
     
     // We use a random "sessionId"
     NormSessionId sessionId = (NormSessionId)rand();
     
     
     // Uncomment the following line to start sender
-    NormStartSender(session, sessionId, 4096*1024, 1400, 64, 0);
+    NormStartSender(session, sessionId, 1024*1024, 1420, 64, 0);
 
     // Uncomment to set large tx socket buffer size
     // (might be needed for high rate sessions)
@@ -87,7 +130,7 @@ int main(int argc, char* argv[])
     const char* fileName = "ferrari.jpg";
     
     // Uncomment this line to send a stream instead of the file
-    //stream = NormStreamOpen(session, 4096*1024);
+    stream = NormStreamOpen(session, 10*1024*1024);
        
     // NORM_FLUSH_PASSIVE automatically flushes full writes to
     // the stream.
@@ -115,7 +158,7 @@ int main(int argc, char* argv[])
             //    TRACE("NORM_TX_QUEUE_VACANCY ...\n");
             case NORM_TX_QUEUE_EMPTY:
                 //TRACE("NORM_TX_QUEUE_EMPTY ...\n");
-                if (sendCount >= sendMax) break;
+                //if (sendCount >= sendMax) break;
                 if (NORM_OBJECT_INVALID != stream)
                 {
                     // We loop here to keep stream buffer full ....
@@ -150,7 +193,7 @@ int main(int argc, char* argv[])
                                 // after "sendMax" messages
                                 //NormStreamClose(stream, true);  
                                 //keepWriting = false; 
-                            }
+                            }                            
                         }
                     }
                 }
@@ -251,6 +294,8 @@ int main(int argc, char* argv[])
                                             //    TRACE("validated recv msg len:%d\n", len);
                                         }
                                         recvCount = value;   
+                                        //if (0 == msgCount % 100)
+                                        //    TRACE("recv stream msg count: %d\n", msgCount);
                                     }
                                     else
                                     {

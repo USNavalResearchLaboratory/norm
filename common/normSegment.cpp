@@ -155,7 +155,7 @@ void NormBlock::EmptyToPool(NormSegmentPool& segmentPool)
     ASSERT(segment_table);
     for (unsigned int i = 0; i < size; i++)
     {
-        if (segment_table[i]) 
+        if (NULL != segment_table[i]) 
         {
             segmentPool.Put(segment_table[i]);
             segment_table[i] = (char*)NULL;

@@ -19,12 +19,7 @@
 //  C++ code continues to evolve.  But, until this notice
 //  is removed, the API shouldn't be considered final.
 
-
-/** NORM API Data Types and Constants
- *  These are data types and constants defined
- * for the NORM API
- */
- 
+// NORM API control
 typedef const void* NormInstanceHandle;
 extern const NormInstanceHandle NORM_INSTANCE_INVALID;
 
@@ -69,6 +64,13 @@ enum NormNackingMode
     NORM_NACK_NONE,
     NORM_NACK_INFO_ONLY,
     NORM_NACK_NORMAL  
+};
+    
+enum NormProbingMode
+{
+    NORM_PROBE_NONE,
+    NORM_PROBE_PASSIVE,
+    NORM_PROBE_ACTIVE  
 };
     
 enum NormRepairBoundary
@@ -154,6 +156,9 @@ NormNodeId NormGetLocalNodeId(NormSessionHandle sessionHandle);
 void NormSetTxPort(NormSessionHandle sessionHandle,
                    unsigned short    txPortNumber);
 
+void NormSetRxPortReuse(NormSessionHandle sessionHandle,
+                        bool              state);
+
 bool NormSetMulticastInterface(NormSessionHandle sessionHandle,
                                const char*       interfaceName);
 
@@ -206,6 +211,16 @@ void NormSetAutoParity(NormSessionHandle sessionHandle,
 void NormSetGrttEstimate(NormSessionHandle sessionHandle,
                          double            grttEstimate);
 
+void NormSetGrttMax(NormSessionHandle sessionHandle,
+                    double            grttMax);
+
+void NormSetGrttProbingMode(NormSessionHandle sessionHandle,
+                            NormProbingMode   probingMode);
+
+void NormSetGrttProbingInterval(NormSessionHandle sessionHandle,
+                                double            intervalMin,
+                                double            intervalMax);
+
 bool NormAddAckingNode(NormSessionHandle  sessionHandle,
                        NormNodeId         nodeId);
 
@@ -217,10 +232,11 @@ NormObjectHandle NormFileEnqueue(NormSessionHandle sessionHandle,
                                  const char*  infoPtr = (const char*)0, 
                                  unsigned int infoLen = 0);
 
-bool NormDataEnqueue(const char*   dataPtr,
-                     unsigned long dataLen,
-                     const char*   infoPtr = (const char*)0, 
-                     unsigned int  infoLen = 0);
+NormObjectHandle NormDataEnqueue(NormSessionHandle sessionHandle,
+                                 const char*       dataPtr,
+                                 unsigned long     dataLen,
+                                 const char*       infoPtr = (const char*)0, 
+                                 unsigned int      infoLen = 0);
 
 
 
@@ -243,15 +259,14 @@ void NormStreamSetAutoFlush(NormObjectHandle streamHandle,
 void NormStreamSetPushEnable(NormObjectHandle streamHandle, 
                              bool             pushEnable);
 
-
 bool NormStreamHasVacancy(NormObjectHandle streamHandle);
+
+NormSize NormGetObjectSize(NormObjectHandle objectHandle);
 
 void NormStreamMarkEom(NormObjectHandle streamHandle);
 
 bool NormSetWatermark(NormSessionHandle  sessionHandle,
                       NormObjectHandle   objectHandle);
-
-/** NORM Receiver Functions */
 
 bool NormStartReceiver(NormSessionHandle  sessionHandle,
                        unsigned long      bufferSpace);
@@ -329,6 +344,7 @@ char* NormDataDetachData(NormObjectHandle objectHandle);
 
 NormNodeHandle NormObjectGetSender(NormObjectHandle objectHandle);
 
+char* NormGetData(NormObjectHandle dataHandle);
 
 /** NORM Node Functions */
 

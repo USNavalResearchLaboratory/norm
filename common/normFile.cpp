@@ -397,8 +397,8 @@ NormFile::Offset NormFile::GetSize() const
     return ((Offset)fileSize);
 #else
 #ifdef WIN32
-    struct _stat info;
-    int result = _fstat(fd, &info);
+    struct __stat64 info;                  // instead of "struct _stat"
+    int result = _fstat64(fd, &info);     // instead of "_fstat()"
 #else
     struct stat info;
     int result = fstat(fd, &info);
@@ -811,8 +811,8 @@ NormFile::Offset NormFile::GetSize(const char* path)
     }
 #else
 #ifdef WIN32
-    struct _stat info;
-    int result = _stat(path, &info);
+    struct __stat64 info;               // instead of "struct _stat"
+    int result = _stat64(path, &info); // instead of "_stat()"
 #else
     struct stat info;
     int result = stat(path, &info);
@@ -863,8 +863,8 @@ time_t NormFile::GetUpdateTime(const char* path)
     }
 #else
 #ifdef WIN32
-    struct _stat info;
-    int result = _stat(path, &info);
+    struct __stat64 info;               // instead of "struct _stat"
+    int result = _stat64(path, &info); // instead of "_stat()"
 #else
     struct stat info; 
     int result = stat(path, &info);
@@ -877,9 +877,9 @@ time_t NormFile::GetUpdateTime(const char* path)
     {
 #ifdef WIN32
         // Hack because Win2K and Win98 seem to work differently
-		time_t updateTime = MAX(info.st_ctime, info.st_atime);
+		__time64_t updateTime = MAX(info.st_ctime, info.st_atime);
 		updateTime = MAX(updateTime, info.st_mtime);
-		return updateTime;
+		return ((time_t)updateTime);
 #else
         return info.st_ctime; 
 #endif // if/else WIN32

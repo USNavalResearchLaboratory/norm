@@ -13,7 +13,7 @@ NS = ../ns
 
 INCLUDES = $(SYSTEM_INCLUDES) -I$(UNIX) -I$(COMMON) -I$(PROTOLIB)/common
 
-CFLAGS = -g -DPROTO_DEBUG -DUNIX -D_FILE_OFFSET_BITS=64 -O -fPIC -Wall -pedantic -Wcast-align $(SYSTEM_HAVES) $(INCLUDES)
+CFLAGS = -g -DPROTO_DEBUG -DUNIX -D_FILE_OFFSET_BITS=64 -O $(SYSTEM_CFLAGS) $(SYSTEM_HAVES) $(INCLUDES)
 
 LDFLAGS = $(SYSTEM_LDFLAGS)
 
@@ -44,12 +44,14 @@ NORM_OBJ = $(NORM_SRC:.cpp=.o)
 LIB_SRC = $(NORM_SRC)
 LIB_OBJ = $(LIB_SRC:.cpp=.o)
 
+# NORM as a static library
 libnorm.a:    $(LIB_OBJ)
 	$(AR) rcv $@ $(LIB_OBJ)
 	$(RANLIB) $@
 
-.cpp-sim.o:
-	$(CC) -c $(CFLAGS) -DSIMULATE -o $*-sim.o $*.cpp
+# NORM as a shared library
+libnorm.so: $(LIB_OBJ)
+	$(CC) $(SYSTEM_SOFLAGS) $(LIB_OBJ) $(LIBS) -o $@
     
 SIM_SRC = $(NORM_SRC) $(COMMON)/normSimAgent.cpp    
 SIM_OBJ = $(SIM_SRC:.cpp=-sim.o)
@@ -82,7 +84,8 @@ raft:    $(RAFT_OBJ) $(LIBPROTO)
 	$(CC) $(CFLAGS) -o $@ $(RAFT_OBJ) $(LDFLAGS) $(LIBPROTO)  $(LIBS)  
     	    
 clean:	
-	rm -f $(COMMON)/*.o  $(UNIX)/*.o $(UNIX)/libnorm.a $(UNIX)/norm $(NS)/*.o;
+	rm -f $(COMMON)/*.o  $(UNIX)/*.o $(UNIX)/libnorm.a \
+          $(UNIX)/libnorm.so $(UNIX)/norm $(NS)/*.o;
 	cd $(PROTOLIB)/unix; $(MAKE) -f Makefile.$(SYSTEM) clean
 
 # DO NOT DELETE THIS LINE -- mkdep uses it.

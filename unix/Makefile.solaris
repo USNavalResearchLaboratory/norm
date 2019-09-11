@@ -35,15 +35,16 @@ SYSTEM_LIBS = -ldl -lnsl -lsocket -lresolv
 # (We export these for other Makefiles as needed)
 #
 
-SYSTEM_HAVES =  -DHAVE_IPV6 -DHAVE_ASSERT -DHAVE_CUSERID -DHAVE_LOCKF \
+SYSTEM_HAVES = -DHAVE_DIRFD -DHAVE_IPV6 -DHAVE_ASSERT -DHAVE_CUSERID -DHAVE_LOCKF \
 -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -DSOLARIS 
 
 SYSTEM = solaris
 
-CC = g++
-
+CC = CC
+# -xarch=v9 makes the output run only on 64-bit Solaris
+SYSTEM_CFLAGS = -KPIC -Wall -Wcast-align
+SYSTEM_SOFLAGS = -shared
 RANLIB = touch
-
 AR = ar
 
 include Makefile.common

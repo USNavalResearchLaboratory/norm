@@ -11,6 +11,7 @@
 class NormController
 {
     public:
+        virtual ~NormController() {}
         enum Event
         {
             EVENT_INVALID = 0,
@@ -96,6 +97,7 @@ class NormSession
         static const double DEFAULT_GSIZE_ESTIMATE;
         static const UINT16 DEFAULT_NDATA;
         static const UINT16 DEFAULT_NPARITY;
+        enum ProbingMode {PROBE_NONE, PROBE_PASSIVE, PROBE_ACTIVE};
                
         // General methods
         const NormNodeId& LocalNodeId() const {return local_node_id;}
@@ -118,6 +120,7 @@ class NormSession
             return result; 
         }
         void SetTxPort(UINT16 txPort) {tx_port = txPort;}
+        void SetRxPortReuse(bool state) {rx_port_reuse = state;}
         static double CalculateRate(double size, double rtt, double loss);
         
         NormSessionMgr& GetSessionMgr() {return session_mgr;}
@@ -130,11 +133,23 @@ class NormSession
         // Session parameters
         double TxRate() {return (tx_rate * 8.0);}
         // (TBD) watch timer scheduling and min/max bounds
-        void SetTxRate(double txRate);
+        void SetTxRate(double txRate)
+        {
+            txRate /= 8.0;  // convert to bytes/sec
+            SetTxRateInternal(txRate);   
+        }
         double BackoffFactor() {return backoff_factor;}
         void SetBackoffFactor(double value) {backoff_factor = value;}
         bool CongestionControl() {return cc_enable;}
-        void SetCongestionControl(bool state) {cc_enable = state;}
+        void SetCongestionControl(bool state) 
+        {
+            cc_enable = state;
+        }
+        // GRTT measurement management
+        void SetGrttProbingMode(ProbingMode  probingMode);
+        void SetGrttProbingInterval(double intervalMin, double intervalMax);
+        void SetGrttMax(double grttMax) {grtt_max = grttMax;}
+        
         void SetTxRateBounds(double rateMin, double rateMax);
         void SetTxCacheBounds(NormObjectSize sizeMax,
                               unsigned long  countMin,
@@ -321,13 +336,15 @@ class NormSession
         void ServerUpdateGrttEstimate(double clientRtt);
         double CalculateRtt(const struct timeval& currentTime,
                             const struct timeval& grttResponse);
-        void ServerHandleCCFeedback(NormNodeId nodeId,
-                                    UINT8      ccFlags,
-                                    double     ccRtt,
-                                    double     ccLoss,
-                                    double     ccRate,
-                                    UINT16      ccSequence);
+        void ServerHandleCCFeedback(struct timeval currentTime,
+                                    NormNodeId     nodeId,              
+                                    UINT8          ccFlags,             
+                                    double         ccRtt,               
+                                    double         ccLoss,              
+                                    double         ccRate,              
+                                    UINT16         ccSequence);         
         void AdjustRate(bool onResponse);
+        void SetTxRateInternal(double txRate);  // here, txRate is bytes/sec
         bool ServerQueueSquelch(NormObjectId objectId);
         void ServerQueueFlush();
         bool ServerQueueWatermarkFlush();
@@ -359,6 +376,7 @@ class NormSession
         ProtoAddress                    address;  // session destination address & port
         UINT8                           ttl;      // session multicast ttl   
         bool                            loopback; // to receive own traffic
+        bool                            rx_port_reuse; // enable port reuse
         char                            interface_name[32];    
         double                          tx_rate;  // bytes per second
         double                          tx_rate_min;
@@ -409,6 +427,7 @@ class NormSession
         bool                            probe_proactive;
         bool                            probe_pending; // true while CMD(CC) enqueued
         bool                            probe_reset;   
+        struct timeval                  probe_time_last;
         
         double                          grtt_interval;     // current GRTT update interval
         double                          grtt_interval_min; // minimum GRTT update interval

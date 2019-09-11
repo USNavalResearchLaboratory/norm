@@ -460,8 +460,8 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
                 ((NormObject*)n->event.object)->SetNotifyOnUpdate(true);
                 break;
             case NORM_TX_QUEUE_VACANCY:
-                if (NULL != n->event.object)
-                    static_cast<NormStreamObject*>((NormObject*)n->event.object)->ResetPostedTxQueueVacancy();
+                //if (NULL != n->event.object)
+                //    static_cast<NormStreamObject*>((NormObject*)n->event.object)->ResetPostedTxQueueVacancy();
                 // (TBD) support session-level queue vacancy notify
                 break;
             default:
@@ -764,6 +764,21 @@ void NormSetTxPort(NormSessionHandle sessionHandle,
     } 
 }  // end NormSetTxPort()
 
+void NormSetRxPortReuse(NormSessionHandle sessionHandle,
+                        bool              state)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (NULL != instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {    
+            NormSession* session = (NormSession*)sessionHandle;
+            if (session) session->SetRxPortReuse(state);
+            instance->dispatcher.ResumeThread();
+        }
+    } 
+}  // end NormSetTxPort()
+
 bool NormSetMulticastInterface(NormSessionHandle sessionHandle,
                                const char*       interfaceName)
 {
@@ -971,6 +986,46 @@ void NormSetGrttEstimate(NormSessionHandle sessionHandle,
     }
 }  // end NormSetGrttEstimate()
 
+void NormSetGrttMax(NormSessionHandle sessionHandle,
+                    double            grttMax)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) session->SetGrttMax(grttMax);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetGrttMax()
+
+void NormSetGrttProbingMode(NormSessionHandle sessionHandle,
+                            NormProbingMode   probingMode)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) 
+            session->SetGrttProbingMode((NormSession::ProbingMode)probingMode);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetGrttProbingMode()
+
+void NormSetGrttProbingInterval(NormSessionHandle sessionHandle,
+                                double            intervalMin,
+                                double            intervalMax)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session) session->SetGrttProbingInterval(intervalMin, intervalMax);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetGrttProbingInterval()
+
+
+
 bool NormAddAckingNode(NormSessionHandle  sessionHandle,
                        NormNodeId         nodeId)
 {
@@ -1021,8 +1076,8 @@ NormObjectHandle NormFileEnqueue(NormSessionHandle  sessionHandle,
 NormObjectHandle NormDataEnqueue(NormSessionHandle  sessionHandle,
                                  const char*        dataPtr,
                                  unsigned long      dataLen,
-                                 const char*        infoPtr = NULL, 
-                                 unsigned int       infoLen = 0)
+                                 const char*        infoPtr, 
+                                 unsigned int       infoLen)
 {
     NormObjectHandle objectHandle = NORM_OBJECT_INVALID;
     NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
@@ -1460,7 +1515,7 @@ bool NormFileGetName(NormObjectHandle   fileHandle,
             static_cast<NormFileObject*>((NormObject*)fileHandle);
         bufferLen = (bufferLen < PATH_MAX) ? bufferLen : PATH_MAX;
         strncpy(nameBuffer, file->GetPath(), bufferLen);
-        nameBuffer[bufferLen=1] = '\0';
+        nameBuffer[bufferLen] = '\0';
         result = true;
     }
     return result;

@@ -26,10 +26,6 @@ SYSTEM_LIBS =
 # D) Optionally specify -DHAVE_ASSERT if your system has a built-in ASSERT()
 #    routine.
 #
-# E) The MDP code's use of offset pointers requires special treatment
-#    for some different compilers. Set -DUSE_INHERITANCE for some
-#    to keep some compilers (gcc 2.7.2) happy.
-#
 # F) Some systems (SOLARIS/SUNOS) have a few gotchas which require
 #    some #ifdefs to avoid compiler warnings ... so you might need
 #    to specify -DSOLARIS or -DSUNOS depending on your OS.
@@ -46,7 +42,15 @@ SYSTEM_SRC =
 
 SYSTEM = sgi
 
+# g++
+#CC = g++
+#SYSTEM_CFLAGS = -Wall -Wcast-align -pedantic -fPIC 
+
+# SGI CC
 CC = CC
+SYSTEM_CFLAGS = -KPIC -pedantic
+
+SYSTEM_SOFLAGS = -shared 
 RANLIB = touch
 AR = ar
 

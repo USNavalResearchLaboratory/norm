@@ -147,7 +147,7 @@ class NormBlock
             pending_mask.SetBits(0, ndata+nparity);
             repair_mask.Clear();
             erasure_count = ndata;
-            parity_count = 0;   
+            parity_count = 0;
             parity_offset = 0;
             flags = 0;
         }

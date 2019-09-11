@@ -1624,7 +1624,7 @@ void NormApp::OnShutdown()
 }  // end NormApp::OnShutdown()
 
 // Out application instance 
-PROTO_INSTANTIATE_APP(NormApp);
+PROTO_INSTANTIATE_APP(NormApp)
 
 #ifdef UNIX
 void NormApp::SignalHandler(int sigNum)

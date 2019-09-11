@@ -37,14 +37,16 @@ SYSTEM_LIBS = -lresolv
 #
 
 SYSTEM_HAVES = -DMACOSX -DHAVE_IPV6 -DHAVE_ASSERT -DHAVE_GETLOGIN -DHAVE_FLOCK \
--D_FILE_OFFSET_BITS=64 -DHAVE_DIRFD -DSOCKLEN_T=int
+-D_FILE_OFFSET_BITS=64 -DHAVE_DIRFD 
 
-SYSTEM_SRC = bsdRouteMgr.cpp
+SYSTEM_SRC = 
 
 # The "SYSTEM" keyword can be used for dependent makes
 SYSTEM = macosx
 
 CC = g++
+SYSTEM_CFLAGS = -fPIC -Wall -pedantic -Wcast-align
+SYSTEM_SOFLAGS = -shared 
 RANLIB = ranlib
 AR = ar
 

@@ -6,7 +6,7 @@ const UINT8 NormSession::DEFAULT_TTL = 255; // bits/sec
 const double NormSession::DEFAULT_TRANSMIT_RATE = 64000.0; // bits/sec
 const double NormSession::DEFAULT_GRTT_INTERVAL_MIN = 1.0;        // sec
 const double NormSession::DEFAULT_GRTT_INTERVAL_MAX = 30.0;       // sec
-const double NormSession::DEFAULT_GRTT_ESTIMATE = 0.5;    // sec
+const double NormSession::DEFAULT_GRTT_ESTIMATE = 0.25;    // sec
 const double NormSession::DEFAULT_GRTT_MAX = 10.0;        // sec
 const unsigned int NormSession::DEFAULT_GRTT_DECREASE_DELAY = 3;
 const double NormSession::DEFAULT_BACKOFF_FACTOR = 4.0;   
@@ -18,7 +18,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
  : session_mgr(sessionMgr), notify_pending(false), tx_port(0), 
    tx_socket(&tx_socket_actual), tx_socket_actual(ProtoSocket::UDP), 
    rx_socket(ProtoSocket::UDP), local_node_id(localNodeId), 
-   ttl(DEFAULT_TTL), loopback(false),
+   ttl(DEFAULT_TTL), loopback(false), rx_port_reuse(false), 
    tx_rate(DEFAULT_TRANSMIT_RATE/8.0), tx_rate_min(-1.0), tx_rate_max(-1.0),
    backoff_factor(DEFAULT_BACKOFF_FACTOR), is_server(false), instance_id(0),
    ndata(DEFAULT_NDATA), nparity(DEFAULT_NPARITY), auto_parity(0), extra_parity(0),
@@ -28,7 +28,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    posted_tx_queue_empty(false), 
    acking_node_count(0), watermark_pending(false), advertise_repairs(false),
    suppress_nonconfirmed(false), suppress_rate(-1.0), suppress_rtt(-1.0),
-   probe_proactive(true), probe_pending(false), probe_reset(false),
+   probe_proactive(true), probe_pending(false), probe_reset(true),
    grtt_interval(0.5), 
    grtt_interval_min(DEFAULT_GRTT_INTERVAL_MIN),
    grtt_interval_max(DEFAULT_GRTT_INTERVAL_MAX),
@@ -64,6 +64,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
     probe_timer.SetListener(this, &NormSession::OnProbeTimeout);
     probe_timer.SetInterval(0.0);
     probe_timer.SetRepeat(-1);
+    probe_time_last.tv_sec = probe_time_last.tv_usec = 0;
     
     grtt_quantized = NormQuantizeRtt(DEFAULT_GRTT_ESTIMATE);
     grtt_measured = grtt_advertised = NormUnquantizeRtt(grtt_quantized);
@@ -107,11 +108,32 @@ bool NormSession::Open(const char* interfaceName)
     }
     if (!rx_socket.IsOpen())
     {
-        if (!rx_socket.Open(address.GetPort(), address.GetType()))
+        if (!rx_socket.Open(0, address.GetType(), false))
         {
             DMSG(0, "NormSession::Open() rx_socket open error\n");
             Close();
             return false;   
+        }
+        const ProtoAddress* bindAddr = NULL;
+        if (rx_port_reuse)
+        {
+            // Enable port/addr reuse and bind socket to destination address 
+            if (!rx_socket.SetReuse(true))
+            {
+                DMSG(0, "NormSession::Open() rx_socket reuse error\n");
+                Close();
+                return false;   
+            }
+#ifndef WIN32
+            if (address.IsMulticast())  // Win32 doesn't like to bind to multicast addr ???
+                bindAddr = &address;
+#endif // !WIN32
+        }
+        if(!rx_socket.Bind(address.GetPort(), bindAddr))
+        {
+            DMSG(0, "NormSession::Open() rx_socket bind error\n");
+            Close();
+            return false;
         }
     }
     
@@ -198,11 +220,13 @@ bool NormSession::SetMulticastInterface(const char* interfaceName)
 {
     if (interfaceName)
     {
+
         bool result = true;
         if (rx_socket.IsOpen())
             result &= rx_socket.SetMulticastInterface(interfaceName);
         if (tx_socket->IsOpen())
             result &= tx_socket->SetMulticastInterface(interfaceName);
+        strncpy(interface_name, interfaceName, 32);
         return result;
     }
     else
@@ -212,9 +236,8 @@ bool NormSession::SetMulticastInterface(const char* interfaceName)
     }
 }  // end NormSession::SetMulticastInterface()
 
-void NormSession::SetTxRate(double txRate)
+void NormSession::SetTxRateInternal(double txRate)
 {
-    txRate /= 8.0; // convert to bytes/sec
     if (tx_timer.IsActive())
     {
         tx_timer.Deactivate();
@@ -236,7 +259,19 @@ void NormSession::SetTxRate(double txRate)
     {
         tx_rate = txRate;   
     }
-}  // end NormSession::SetTxRate()
+    unsigned char grttQuantizedOld = grtt_quantized;
+    double pktInterval = (double)(44+segment_size)/tx_rate;
+    if (grtt_measured < pktInterval)
+        grtt_quantized = NormQuantizeRtt(pktInterval);
+    else
+        grtt_quantized = NormQuantizeRtt(grtt_measured);
+    grtt_advertised = NormUnquantizeRtt(grtt_quantized);
+    if (grttQuantizedOld != grtt_quantized)
+        DMSG(4, "NormSession::SetTxRateInternal() node>%lu %s to new grtt to: %lf sec\n",
+                LocalNodeId(), 
+                (grttQuantizedOld < grtt_quantized) ? "increased" : "decreased",
+                grtt_advertised);
+}  // end NormSession::SetTxRateInternal()
 
 void NormSession::SetTxRateBounds(double rateMin, double rateMax)
 {
@@ -264,7 +299,7 @@ void NormSession::SetTxRateBounds(double rateMin, double rateMax)
             tx_rate = tx_rate_min;
         if ((tx_rate_max >= 0.0) && (tx_rate > tx_rate_max))
             tx_rate = tx_rate_max;
-        SetTxRate(tx_rate*8.0);
+        SetTxRateInternal(tx_rate);
     }
 }  // end NormSession::SetTxRateBounds()
         
@@ -348,8 +383,6 @@ bool NormSession::StartServer(UINT16        instanceId,
     nparity = numParity;
     is_server = true;
     flush_count = NORM_ROBUST_FACTOR+1;  // (TBD) parameterize robust_factor
-    //probe_timer.SetInterval(0.0);
-    probe_pending = probe_reset = false;
     
     if (cc_enable) 
     {
@@ -359,16 +392,25 @@ bool NormSession::StartServer(UINT16        instanceId,
         if ((tx_rate_max >= 0.0) && (tx_rate > tx_rate_max))
             tx_rate = tx_rate_max;
     }
-            
-    OnProbeTimeout(probe_timer);
-    ActivateTimer(probe_timer);
+    grtt_age = 0.0;
+    probe_pending = false;
+    if (probe_reset)
+    {        
+        probe_reset = false;
+        OnProbeTimeout(probe_timer);
+        ActivateTimer(probe_timer);
+    }
     return true;
 }  // end NormSession::StartServer()
 
 
 void NormSession::StopServer()
 {
-    if (probe_timer.IsActive()) probe_timer.Deactivate();
+    if (probe_timer.IsActive()) 
+    {
+        probe_timer.Deactivate();
+        probe_reset = true;
+    }
     encoder.Destroy();
     acking_node_tree.Destroy();
     cc_node_list.Destroy();
@@ -685,7 +727,6 @@ void NormSession::ServerRemoveAckingNode(NormNodeId nodeId)
         if (watermark_pending && theNode->AckReceived())
             acks_collected--;
         acking_node_tree.DetachNode(theNode);
-        delete theNode;
         acking_node_count--;
     }
 }  // end NormSession::RemoveAckingNode()
@@ -863,7 +904,7 @@ NormFileObject* NormSession::QueueTxFile(const char* path,
     if (!file->Open(path, infoPtr, infoLen))
     {
        DMSG(0, "NormSession::QueueTxFile() file open error\n");
-       delete file;
+       file->Release();
        return NULL; 
     }    
     if (QueueTxObject(file))
@@ -873,7 +914,7 @@ NormFileObject* NormSession::QueueTxFile(const char* path,
     else
     {
         file->Close();
-        delete file;
+        file->Release();
         return NULL;
     }
 }  // end NormSession::QueueTxFile()
@@ -898,7 +939,7 @@ NormDataObject* NormSession::QueueTxData(const char* dataPtr,
     if (!obj->Open((char*)dataPtr, dataLen, false, infoPtr, infoLen))
     {
        DMSG(0, "NormSession::QueueTxData() object open error\n");
-       delete obj;
+       obj->Release();
        return NULL; 
     }    
     if (QueueTxObject(obj))
@@ -908,7 +949,7 @@ NormDataObject* NormSession::QueueTxData(const char* dataPtr,
     else
     {
         obj->Close();
-        delete obj;
+        obj->Release();
         return NULL;
     }
 }  // end NormSession::QueueTxData()
@@ -934,7 +975,7 @@ NormStreamObject* NormSession::QueueTxStream(UINT32         bufferSize,
     if (!stream->Open(bufferSize, doubleBuffer, infoPtr, infoLen))
     {
         DMSG(0, "NormSession::QueueTxStream() stream open error\n");
-        delete stream;
+        stream->Release();
         return NULL;
     }
     if (QueueTxObject(stream))
@@ -946,7 +987,7 @@ NormStreamObject* NormSession::QueueTxStream(UINT32         bufferSize,
     else
     {
         stream->Close();
-        delete stream;
+        stream->Release();
         return NULL;
     }
 }  // end NormSession::QueueTxStream()
@@ -970,7 +1011,7 @@ NormSimObject* NormSession::QueueTxSim(unsigned long objectSize)
     if (!simObject->Open(objectSize))
     {
         DMSG(0, "NormSession::QueueTxSim() open error\n");
-        delete simObject;
+        simObject->Release();
         return NULL;
     }
     if (QueueTxObject(simObject))
@@ -979,7 +1020,7 @@ NormSimObject* NormSession::QueueTxSim(unsigned long objectSize)
     }
     else
     {
-        delete simObject;
+        simObject->Release();
         return NULL;
     }
 }  // end NormSession::QueueTxSim()
@@ -1024,7 +1065,6 @@ bool NormSession::QueueTxObject(NormObject* obj)
         ASSERT(0);
         return false;
     }
-    obj->Retain();
     tx_pending_mask.Set(obj->GetId());
     ASSERT(tx_pending_mask.Test(obj->GetId()));
     next_tx_object_id++;
@@ -1351,11 +1391,12 @@ void NormTrace(const struct timeval&    currentTime,
 
 void NormSession::HandleReceiveMessage(NormMsg& msg, bool wasUnicast)
 {   
+    // Ignore messages from ourself unless "loopback" is enabled
+    if ((msg.GetSourceId() == LocalNodeId()) && !loopback)
+        return;
     // Drop some rx messages for testing
     if (UniformRand(100.0) < rx_loss_rate) 
-    {
         return;
-    }
     
     struct timeval currentTime;
     ::ProtoSystemTime(currentTime);
@@ -1434,7 +1475,6 @@ void NormSession::ClientHandleObjectMessage(const struct timeval&   currentTime,
             if (theServer->Open(msg.GetInstanceId()))
             {
                 server_tree.AttachNode(theServer);
-                theServer->Retain();
                 DMSG(4, "NormSession::ClientHandleObjectMessage() node>%lu new remote server:%lu ...\n",
                         LocalNodeId(), msg.GetSourceId());
             }
@@ -1492,7 +1532,6 @@ void NormSession::ClientHandleCommand(const struct timeval& currentTime,
             if (theServer->Open(cmd.GetInstanceId()))
             {
                 server_tree.AttachNode(theServer);
-                theServer->Retain();
                 DMSG(4, "NormSession::ClientHandleCommand() node>%lu new remote server:%lu ...\n",
                         LocalNodeId(), cmd.GetSourceId());
             }
@@ -1555,28 +1594,32 @@ double NormSession::CalculateRtt(const struct timeval& currentTime,
 void NormSession::ServerUpdateGrttEstimate(double clientRtt)
 {
     grtt_response = true;
-    //if ((clientRtt > grtt_current_peak) || !address.IsMulticast()) 
+    
+        
     if ((clientRtt > grtt_measured) || !address.IsMulticast())
     {
         // Immediately incorporate bigger RTT's
-        grtt_current_peak = clientRtt;
-        //if ((clientRtt > grtt_measured) || !address.IsMulticast()) 
-        {
-            grtt_decrease_delay_count = DEFAULT_GRTT_DECREASE_DELAY;
-            //grtt_measured = 0.25 * grtt_measured + 0.75 * clientRtt; 
-            grtt_measured = 0.9 * grtt_measured + 0.1 * clientRtt; 
-            if (grtt_measured > grtt_max) grtt_measured = grtt_max;
-            double pktInterval =  ((double)(44+segment_size))/tx_rate;
-            UINT8 grttQuantizedOld = grtt_quantized;
-            grtt_quantized = NormQuantizeRtt(MAX(pktInterval, grtt_measured));
-            // Calculate grtt_advertised since quantization rounds upward
-            grtt_advertised = NormUnquantizeRtt(grtt_quantized);
-            
-            if (grttQuantizedOld != grtt_quantized)
-                DMSG(4, "NormSession::ServerUpdateGrttEstimate() node>%lu new grtt>%lf sec\n",
-                        LocalNodeId(), grtt_advertised);
-        }
+        grtt_decrease_delay_count = DEFAULT_GRTT_DECREASE_DELAY;
+        //grtt_measured = 0.25 * grtt_measured + 0.75 * clientRtt; 
+        grtt_measured = 0.9 * grtt_measured + 0.1 * clientRtt; 
+        if (grtt_measured > grtt_max) grtt_measured = grtt_max;
+        UINT8 grttQuantizedOld = grtt_quantized;
+        double pktInterval =  ((double)(44+segment_size))/tx_rate;
+        if (grtt_measured < pktInterval)
+            grtt_quantized = NormQuantizeRtt(pktInterval);
+        else
+            grtt_quantized = NormQuantizeRtt(grtt_measured);
+        // Calculate grtt_advertised since quantization rounds upward
+        grtt_advertised = NormUnquantizeRtt(grtt_quantized);
+        grtt_current_peak = grtt_measured;
+        if (grttQuantizedOld != grtt_quantized)
+            DMSG(4, "NormSession::ServerUpdateGrttEstimate() node>%lu increased to new grtt>%lf sec\n",
+                    LocalNodeId(), grtt_advertised);
     } 
+    else if (clientRtt > grtt_current_peak) 
+    {
+        grtt_current_peak = clientRtt;
+    }
 }  // end NormSession::ServerUpdateGrttEstimate()
 
 double NormSession::CalculateRate(double size, double rtt, double loss)
@@ -1587,12 +1630,13 @@ double NormSession::CalculateRate(double size, double rtt, double loss)
     return (size / denom);    
 }  // end NormSession::CalculateRate()
 
-void NormSession::ServerHandleCCFeedback(NormNodeId nodeId,
-                                         UINT8      ccFlags,
-                                         double     ccRtt,
-                                         double     ccLoss,
-                                         double     ccRate,
-                                         UINT16     ccSequence)
+void NormSession::ServerHandleCCFeedback(struct timeval  currentTime,      
+                                         NormNodeId      nodeId,           
+                                         UINT8           ccFlags,          
+                                         double          ccRtt,            
+                                         double          ccLoss,           
+                                         double          ccRate,           
+                                         UINT16          ccSequence)       
 {
     // Keep track of current suppressing feedback
     // (non-CLR, lowest rate, unconfirmed RTT)
@@ -1641,6 +1685,7 @@ void NormSession::ServerHandleCCFeedback(NormNodeId nodeId,
             double savedLoss = next->GetLoss();
             double savedRate = next->GetRate();
             UINT16 savedSequence = next->GetCCSequence();
+            struct timeval savedTime = next->GetFeedbackTime();
             
             next->SetId(nodeId);
             next->SetClrStatus(true);
@@ -1649,7 +1694,8 @@ void NormSession::ServerHandleCCFeedback(NormNodeId nodeId,
             next->SetRate(ccRate);
             next->SetCCSequence(ccSequence);
             next->SetActive(true);
-            if (next->GetId() == nodeId)
+            next->SetFeedbackTime(currentTime);
+            if (savedId == nodeId)
             {
                 // This was feedback from the current CLR  
                 AdjustRate(true);
@@ -1668,6 +1714,7 @@ void NormSession::ServerHandleCCFeedback(NormNodeId nodeId,
             ccLoss = savedLoss;
             ccRate = savedRate,
             ccSequence = savedSequence;
+            currentTime = savedTime;
         }
     }
     else 
@@ -1688,12 +1735,14 @@ void NormSession::ServerHandleCCFeedback(NormNodeId nodeId,
         }  
         next->SetId(nodeId);
         next->SetClrStatus(true);
+        //next->SetPlrStatus(false);
         next->SetRttStatus(0 != (ccFlags & NormCC::RTT));
         next->SetRtt(ccRtt);
         next->SetLoss(ccLoss);
         next->SetRate(ccRate);
         next->SetCCSequence(ccSequence);
         next->SetActive(true);
+        next->SetFeedbackTime(currentTime);
         AdjustRate(true);
         return;
     }
@@ -1764,6 +1813,7 @@ void NormSession::ServerHandleCCFeedback(NormNodeId nodeId,
         {
             candidate->SetId(nodeId);
             candidate->SetClrStatus(false);
+            //candidate->SetPlrStatus(true);  // do this only 
             candidate->SetRttStatus(0 != (ccFlags & NormCC::RTT));
             candidate->SetRtt(ccRtt);
             candidate->SetLoss(ccLoss);
@@ -1789,28 +1839,28 @@ void NormSession::ServerHandleAckMessage(const struct timeval& currentTime, cons
     {
         if (NormHeaderExtension::CC_FEEDBACK == ext.GetType())
         {
-            ServerHandleCCFeedback(ack.GetSourceId(),
+            ServerHandleCCFeedback(currentTime,
+                                   ack.GetSourceId(),
                                    ext.GetCCFlags(),
                                    clientRtt >= 0.0 ?  
                                         clientRtt : NormUnquantizeRtt(ext.GetCCRtt()),
                                    NormUnquantizeLoss(ext.GetCCLoss()),
                                    NormUnquantizeRate(ext.GetCCRate()),
                                    ext.GetCCSequence());
+            if (wasUnicast && probe_proactive && Address().IsMulticast()) 
+            {
+                // for suppression of unicast cc feedback
+                advertise_repairs = true;
+                QueueMessage(NULL);
+            }
+            break;
         }
-        break;
-    }
-    
-    if (wasUnicast && probe_proactive && Address().IsMulticast()) 
-    {
-        // for suppression of unicast feedback
-        advertise_repairs = true;
-        QueueMessage(NULL);
     }
     
     switch (ack.GetAckType())
     {
         case NormAck::CC:
-            // Everything is in the ACK header for this one
+            // Everything is in the ACK header or extension for this one
             break;
             
         case NormAck::FLUSH:
@@ -1880,7 +1930,8 @@ void NormSession::ServerHandleNackMessage(const struct timeval& currentTime, Nor
     {
         if (NormHeaderExtension::CC_FEEDBACK == ext.GetType())
         {
-            ServerHandleCCFeedback(nack.GetSourceId(),
+            ServerHandleCCFeedback(currentTime,
+                                   nack.GetSourceId(),
                                    ext.GetCCFlags(),
                                    clientRtt >= 0.0 ?  
                                        clientRtt : NormUnquantizeRtt(ext.GetCCRtt()),
@@ -2583,9 +2634,8 @@ bool NormSession::OnTxTimeout(ProtoTimer& /*theTimer*/)
 {
     NormMsg* msg;  
     
-    // (TBD) sometimes need RepairAdv even when cc_enable is false ...                        
-    NormCmdRepairAdvMsg adv;
-        
+    // Note: sometimes need RepairAdv even when cc_enable is false ...                        
+    NormCmdRepairAdvMsg adv;        
     if (advertise_repairs && (probe_proactive || (repair_timer.IsActive() && 
                                                   repair_timer.GetRepeatCount())))
     {
@@ -2729,7 +2779,7 @@ bool NormSession::SendMessage(NormMsg& msg)
             break;
     }
     // Fill in common message fields
-     
+    
     msg.SetSourceId(local_node_id);
     UINT16 msgSize = msg.GetLength();
     bool result = true;
@@ -2798,6 +2848,82 @@ bool NormSession::SendMessage(NormMsg& msg)
     return result;
 }  // end NormSession::SendMessage()
 
+void NormSession::SetGrttProbingInterval(double intervalMin, double intervalMax)
+{
+    if ((intervalMin < 0.0) || (intervalMax < 0.0)) return;
+    double temp = intervalMin;
+    if (temp > intervalMax)
+    {
+        intervalMin = intervalMax;
+        intervalMax = temp;
+    }
+    if (intervalMin < 0.100) intervalMin = 0.100;
+    if (intervalMax < 0.100) intervalMax = 0.100;
+    grtt_interval_min = intervalMin;
+    grtt_interval_max = intervalMax;
+    if (grtt_interval < grtt_interval_min)
+        grtt_interval = grtt_interval_min;
+    if (grtt_interval > grtt_interval_max)
+    {
+        grtt_interval = grtt_interval_max;
+        if (probe_timer.IsActive() && !cc_enable)
+        {
+            double elapsed = probe_timer.GetInterval() - probe_timer.GetTimeRemaining();
+            if (elapsed < 0.0) elapsed = 0.0;  
+            probe_timer.Deactivate();
+            if (elapsed > grtt_interval)
+                probe_timer.SetInterval(0.0);
+            else 
+                probe_timer.SetInterval(grtt_interval - elapsed);
+            ActivateTimer(probe_timer);              
+        }           
+    }    
+}  // end NormSession::SetGrttProbingInterval()
+
+void NormSession::SetGrttProbingMode(ProbingMode probingMode)
+{
+    if (cc_enable) return;  // can't change probing mode when cc is enabled!
+                            // (cc _requires_ probing mode == PROBE_ACTIVE)
+    switch (probingMode)
+    {
+        case PROBE_NONE:
+            probe_reset = false;
+            if (probe_timer.IsActive())
+                probe_timer.Deactivate();
+            break;
+        case PROBE_PASSIVE:
+            probe_proactive = false;
+            if (IsServer())
+            {
+                if (!probe_timer.IsActive())
+                {
+                    probe_timer.SetInterval(0.0);
+                    ActivateTimer(probe_timer);      
+                }
+            }
+            else
+            {
+                probe_reset = true;
+            }
+            break;
+        case PROBE_ACTIVE:
+            probe_proactive = true;
+            if (IsServer())
+            {
+                if (!probe_timer.IsActive())
+                {
+                    probe_timer.SetInterval(0.0);
+                    ActivateTimer(probe_timer);      
+                }
+            }
+            else
+            {
+                probe_reset = true;
+            }
+            break;   
+    }
+}  // end NormSession::SetGrttProbingMode()
+
 bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
 {
     // 1) Temporarily kill probe_timer if CMD(CC) not yet tx'd
@@ -2809,17 +2935,45 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
     } 
     else if (0.0 == tx_rate)
     {
-        // Sender paused, just idle probing until transmission is resumed
+        // Sender paused, so just skip probing until transmission is resumed
         return true;
     }
     
     // 2) Update grtt_estimate _if_ sufficient time elapsed.
     // This new code allows more liberal downward adjustment of
     // of grtt when congestion control is enabled. 
-    grtt_age += probe_timer.GetInterval();
-    double ageMax = 3 * grtt_advertised;
-    ageMax = ageMax > grtt_interval_min ? ageMax : grtt_interval_min;
-    if (grtt_age >= ageMax)//grtt_interval)
+
+    // We have to keep track of the _actual_ deltaTime instead
+    // of relying on the probe_timer interval because in real-
+    // world operating systems, they're aren't the same and
+    // sometimes not even close.
+    struct timeval currentTime;
+    ProtoSystemTime(currentTime);
+    if ((0 == probe_time_last.tv_sec) && (0 == probe_time_last.tv_usec))
+    {
+        grtt_age += probe_timer.GetInterval();
+    }
+    else
+    {
+        double deltaTime = currentTime.tv_sec - probe_time_last.tv_sec;
+        if (currentTime.tv_usec > probe_time_last.tv_usec)
+            deltaTime += 1.0e-06*((double)(currentTime.tv_usec - probe_time_last.tv_usec));
+        else
+            deltaTime -= 1.0e-06*((double)(probe_time_last.tv_usec - currentTime.tv_usec));
+        grtt_age += deltaTime;
+    }
+    probe_time_last = currentTime;
+
+    // (TBD) We need to revisit the whole set of issues surrounding dynamic
+    // estimation of grtt, particularly when congestion control is involved.
+    // The main issue is when the rate increases rapidly with respect to
+    // how the grtt estimate is descreasing ... this is most notable at
+    // startup and thus the hack here to allow the grtt estimate to more
+    // rapidly decrease during "slow start"
+    double ageMax = grtt_advertised; 
+    if (!cc_enable && !cc_slow_start)   
+        ageMax = ageMax > grtt_interval_min ? ageMax : grtt_interval_min;
+    if (grtt_age >= ageMax)
     {
         if (grtt_response)
         {
@@ -2844,16 +2998,18 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
                 grtt_measured = NORM_GRTT_MIN;
             else if (grtt_measured > grtt_max)
                 grtt_measured = grtt_max;
+            UINT8 grttQuantizedOld = grtt_quantized;
             double pktInterval = (double)(44+segment_size)/tx_rate;
-            grtt_advertised = MAX(pktInterval, grtt_measured);
-            double grttQuantizedOld = grtt_quantized;
-            grtt_quantized = NormQuantizeRtt(grtt_advertised);
+            if (grtt_measured < pktInterval)
+                grtt_quantized = NormQuantizeRtt(pktInterval);
+            else
+                grtt_quantized = NormQuantizeRtt(grtt_measured);        
             // Recalculate grtt_advertise since quantization rounds upward
             grtt_advertised = NormUnquantizeRtt(grtt_quantized);
-            grtt_response = false;
             if (grttQuantizedOld != grtt_quantized)
-                DMSG(4, "NormSession::OnProbeTimeout() node>%lu new grtt: %lf\n",
+                DMSG(4, "NormSession::OnProbeTimeout() node>%lu decreased to new grtt to: %lf sec\n",
                         LocalNodeId(), grtt_advertised);
+            grtt_response = false;  // reset
         }
         grtt_age = 0.0;
     }
@@ -2876,10 +3032,9 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
     cmd->Init();
     cmd->SetDestination(address);
     cmd->SetGrtt(grtt_quantized);
-    
     cmd->SetBackoffFactor((unsigned char)backoff_factor);
     cmd->SetGroupSize(gsize_quantized);  
-    // SetSendTime() when message is being sent (in OnTxTimeout())
+    // defer SetSendTime() to when message is being sent (in OnTxTimeout())
     cmd->SetCCSequence(cc_sequence++);
     
     if (probe_proactive)
@@ -2900,7 +3055,10 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
             if (next->IsActive())
             {
                 UINT8 ccFlags = 0;
-                if (next->IsClr()) ccFlags |= (UINT8)NormCC::CLR;
+                if (next->IsClr()) 
+                    ccFlags |= (UINT8)NormCC::CLR;
+                else if (next->IsPlr())
+                    ccFlags |= (UINT8)NormCC::PLR;
                 ccFlags |= (UINT8)NormCC::RTT;
                 UINT8 rttQuantized = NormQuantizeRtt(next->GetRtt());
                 if (cc_slow_start) ccFlags |= (UINT8)NormCC::START;
@@ -2911,14 +3069,26 @@ bool NormSession::OnProbeTimeout(ProtoTimer& /*theTimer*/)
                                   ccFlags, 
                                   rttQuantized,
                                   rateQuantized);
-                if (!next->IsClr()) next->SetActive(false);
+                //if (!next->IsClr()) next->SetActive(false);
+                // Deactivate any nodes who have stopped providing feedback
+                struct timeval feedbackTime = next->GetFeedbackTime();
+                double feedbackAge = currentTime.tv_sec - feedbackTime.tv_sec;
+                if (currentTime.tv_usec > feedbackTime.tv_usec)
+                    feedbackAge += 1.0e-06*((double)(currentTime.tv_usec - feedbackTime.tv_usec));
+                else
+                    feedbackAge -= 1.0e-06*((double)(feedbackTime.tv_usec - currentTime.tv_usec));
+                double maxFeedbackAge = 5 * grtt_advertised;
+                if (maxFeedbackAge < 0.100) 
+                    maxFeedbackAge = 0.100;  // due computer clock coarseness
+                if (feedbackAge > maxFeedbackAge)
+                    next->SetActive(false);
             }             
         }
        
         AdjustRate(false);
         
         // Determine next probe_interval
-        const NormCCNode* clr = (const NormCCNode*)cc_node_list.Head();
+        const NormCCNode* clr = static_cast<const NormCCNode*>(cc_node_list.Head());
         probeInterval = clr ? MIN(grtt_advertised, clr->GetRtt()) : grtt_advertised;
         //double nominalRate = ((double)segment_size)/((double)tx_rate);
         //probeInterval = MAX(probeInterval, nominalRate);
@@ -2944,7 +3114,7 @@ void NormSession::AdjustRate(bool onResponse)
     const NormCCNode* clr = (const NormCCNode*)cc_node_list.Head();
     double ccRtt = clr ? clr->GetRtt() : grtt_measured;
     double ccLoss = clr ? clr->GetLoss() : 0.0;
-    double oldRate = tx_rate;
+    double txRate = tx_rate;
     if (onResponse)
     {
         // Adjust rate based on CLR feedback and
@@ -2953,28 +3123,28 @@ void NormSession::AdjustRate(bool onResponse)
         // (TBD) check feedback age
         if (cc_slow_start)
         {
-            tx_rate = clr->GetRate();
+            txRate = clr->GetRate();
             DMSG(6, "NormSession::AdjustRate(slow start) clr>%lu newRate>%lf (oldRate>%lf sentRate>%lf clrRate>%lf\n",
-                    clr->GetId(), tx_rate*8.0/1000.0,  oldRate*8.0/1000.0, sent_rate*8.0/1000.0, 
+                    clr->GetId(), txRate*8.0/1000.0,  tx_rate*8.0/1000.0, sent_rate*8.0/1000.0, 
                     clr->GetRate()*8.0/1000.0);          
         }
         else
         {
             double clrRate = clr->GetRate();
-            if (clrRate > tx_rate)
+            if (clrRate > txRate)
             {
-                double linRate = tx_rate + segment_size;
-                tx_rate = MIN(clrRate, linRate);
+                double linRate = txRate + segment_size;
+                txRate = MIN(clrRate, linRate);
             }
             else
             {
-                tx_rate = clrRate;
+                txRate = clrRate;
             }  
             DMSG(6, "NormSession::AdjustRate(stdy state) clr>%lu newRate>%lf (rtt>%lf loss>%lf)\n",
-                    clr->GetId(), tx_rate*8.0/1000.0, clr->GetRtt(), clr->GetLoss());
+                    clr->GetId(), txRate*8.0/1000.0, clr->GetRtt(), clr->GetLoss());
         }
     }
-    else if (clr)
+    else if (clr && clr->IsActive())
     {
         // (TBD) fix CC feedback aging ...
         /*int feedbackAge  = abs((int)cc_sequence - (int)clr->GetCCSequence());
@@ -2983,33 +3153,38 @@ void NormSession::AdjustRate(bool onResponse)
         
         if (feedbackAge > 50)
         {
-            double linRate = tx_rate - segment_size;
+            double linRate = txRate - segment_size;
             linRate = MAX(linRate, 0.0);
-            double expRate = tx_rate * 0.5;
+            double expRate = txRate * 0.5;
             if (feedbackAge > 4)
-                tx_rate = MIN(linRate, expRate);
+                txRate = MIN(linRate, expRate);
             else
-                tx_rate = MAX(linRate, expRate);
+                txRate = MAX(linRate, expRate);
             
         }*/
     }
+    else
+    {
+        // reduce rate if no active clr
+        txRate *= 0.5;
+    }
     
-    // Don't let tx_rate below MIN(one segment per grtt, one segment per second)
+    // Don't let txRate below MIN(one segment per grtt, one segment per 4 seconds)
     double minRate = ((double)segment_size) / grtt_measured;
-    minRate = MIN((double)segment_size, minRate);   
-    tx_rate = MAX(tx_rate, minRate);
+    if (minRate > ((double)(segment_size >> 2)))
+        minRate = (double)(segment_size >> 2);
+    if (txRate < minRate) 
+        txRate = minRate;
     
     // Keep "tx_rate" within user set rate bounds (if any)
-    if ((tx_rate_min >= 0.0) && (tx_rate < tx_rate_min))
-        tx_rate = tx_rate_min;
-    if ((tx_rate_max >= 0.0) && (tx_rate > tx_rate_max))
-        tx_rate = tx_rate_max;
+    if ((tx_rate_min >= 0.0) && (txRate < tx_rate_min))
+        txRate = tx_rate_min;
+    if ((tx_rate_max >= 0.0) && (txRate > tx_rate_max))
+        txRate = tx_rate_max;
     
-    struct timeval currentTime;
-    ::ProtoSystemTime(currentTime);
-    double theTime = (double)currentTime.tv_sec + 1.0e-06 * ((double)currentTime.tv_usec);
-    
-    if (tx_rate != oldRate)
+    if (txRate != tx_rate) SetTxRateInternal(txRate);
+  
+    /*if (txRate != oldRate)
     {
         if (tx_timer.IsActive())
         {
@@ -3020,8 +3195,10 @@ void NormSession::AdjustRate(bool onResponse)
             tx_timer.SetInterval(txInterval);
             tx_timer.Reschedule();
         }
-    }
-    
+    }*/
+    struct timeval currentTime;
+    ::ProtoSystemTime(currentTime);
+    double theTime = (double)currentTime.tv_sec + 1.0e-06 * ((double)currentTime.tv_usec);
     DMSG(8, "ServerRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n\n", theTime, tx_rate*(8.0/1000.0), ccRtt, ccLoss);
 }  // end NormSession::AdjustRate()
 

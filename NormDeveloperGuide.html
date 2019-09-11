@@ -1,12 +1,12 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
 <HTML>
 <HEAD>
-	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=iso-8859-15">
-	<TITLE>NORM Developer&rsquo;s Guide</TITLE>
-	<META NAME="GENERATOR" CONTENT="OpenOffice.org 1.1.3  (Linux)">
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=utf-8">
+	<TITLE>NORM Developer’s Guide</TITLE>
+	<META NAME="GENERATOR" CONTENT="NeoOffice/J 1.1  (Unix)">
 	<META NAME="AUTHOR" CONTENT="Robert Adamson">
-	<META NAME="CREATED" CONTENT="20040824;15180000">
-	<META NAME="CHANGED" CONTENT="20050621;14191600">
+	<META NAME="CREATED" CONTENT="20040824;14180000">
+	<META NAME="CHANGED" CONTENT="20050907;17092400">
 	<META NAME="DESCRIPTION" CONTENT="NORM Object Functions	42NORM Object FunctionsNORM_OBJECT_STREAMNORM Sender Functions	19NORM Sender Functions">
 	<META NAME="KEYWORDS" CONTENT="norm object value application function ">
 	<STYLE>
@@ -51,7 +51,7 @@
 		</TD>
 		<TD WIDTH=371>
 			<P ALIGN=LEFT STYLE="margin-left: 0.86in; margin-top: 0.17in; font-style: normal">
-			<FONT FACE="Helvetica, sans-serif"><FONT SIZE=6 STYLE="font-size: 28pt"><B>NORM<BR>Developer&rsquo;s
+			<FONT FACE="Helvetica, sans-serif"><FONT SIZE=6 STYLE="font-size: 28pt"><B>NORM<BR>Developer’s
 			<BR>Guide</B></FONT></FONT></P>
 		</TD>
 	</TR>
@@ -99,8 +99,6 @@ communication needs.</P>
 <H1 CLASS="western" ALIGN=CENTER STYLE="page-break-before: always">Table
 of Contents</H1>
 <DIV ID="Table of Contents1" DIR="LTR">
-	<P STYLE="margin-top: 0.25in; font-style: normal"><BR>
-	</P>
 	<P STYLE="margin-top: 0.25in; font-style: normal"><FONT FACE="Helvetica, sans-serif"><B>Overview</B></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>API
 	Initialization</B></FONT></P>
@@ -136,6 +134,10 @@ of Contents</H1>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormEventType">NormEventType</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormEvent">NormEvent</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormDescriptor">NormDescriptor</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormFlushMode">NormFlushMode</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormProbingMode">NormProbingMode</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormNackingMode">NormNackingMode</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormRepairBoundary">NormRepairBoundary</A></FONT></P>
 	<P STYLE="margin-top: 0.17in; font-style: normal"><FONT SIZE=2><B>API
 	Initialization and Operation</B></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormCreateInstance()">NormCreateInstance()</A></FONT></P>
@@ -151,6 +153,7 @@ of Contents</H1>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetUserData()">NormGetUserData()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormGetLocalNodeId()">NormGetLocalNodeId()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTxPort()">NormSetTxPort()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetRxPortReuse()">NormSetRxPortReuse()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetMulticastInterface()">NormSetMulticastInterface()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTTL()">NormSetTTL()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTOS()">NormSetTOS()</A></FONT></P>
@@ -166,6 +169,9 @@ of Contents</H1>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetTransmitCacheBounds()">NormSetTransmitCacheBounds()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetAutoParity()">NormSetAutoParity()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttEstimate()">NormSetGrttEstimate()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttMax()">NormSetGrttMax()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttProbingMode()">NormSetGrttProbingMode()</A></FONT></P>
+	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormSetGrttProbingInterval()">NormSetGrttProbingInterval()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormAddAckingNode()">NormAddAckingNode()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormRemoveAckingNode()">NormRemoveAckingNode()</A></FONT></P>
 	<P STYLE="margin-left: 0.17in; margin-top: 0in; font-style: normal"><FONT SIZE=2><A HREF="#NormFileEnqueue()">NormFileEnqueue()</A></FONT></P>
@@ -252,7 +258,7 @@ can be roughly summarized with the following categories of functions:</P>
 categories roughly reflects the order of function calls required to
 use NORM in an application.  The first step is to create and
 initialize, as needed, at least one instance of the NORM API.  Then
-one or more NORM transport sessions (where a &ldquo;session&rdquo;
+one or more NORM transport sessions (where a “session”
 corresponds to data exchanges on a given multicast group and host
 port number) may be created and controlled.  Applications may
 participate as senders and/or receivers within a NORM session.  NORM
@@ -311,10 +317,10 @@ include the types <FONT FACE="Courier"><I>NORM_OBJECT_FILE</I></FONT>
 and <FONT FACE="Courier"><I>NORM_OBJECT_DATA</I></FONT> which
 represent predetermined, fixed-size application data content.  The
 only differentiation with respect to these two types is the implicit
-&ldquo;hint&rdquo; to the receiver to use non-volatile (i.e. file
-system) storage or memory.  This &ldquo;hint&rdquo; lets the receiver
-allocate appropriate storage space with no other information on the
-incoming data.  The NORM implementation reads/writes data for the
+“hint” to the receiver to use non-volatile (i.e. file system)
+storage or memory.  This “hint” lets the receiver allocate
+appropriate storage space with no other information on the incoming
+data.  The NORM implementation reads/writes data for the
 <FONT FACE="Courier"><I>NORM_OBJECT_FILE</I></FONT> type directly
 from/to file storage, while application memory space is accessed for
 the <FONT FACE="Courier"><I>NORM_OBJECT_DATA</I></FONT> type.  The
@@ -324,9 +330,9 @@ Using this transport paradigm, traditional, byte-oriented streaming
 transport service (e.g. similar to that provided by a TCP socket) can
 be provided.  Additionally, NORM has provisions for
 application-defined message-oriented transport where receivers can
-recover message boundaries without any &ldquo;handshake&rdquo; with
-the sender.  Stream content is buffered by the NORM implementation
-for transmission/retransmission and as it is received.</P>
+recover message boundaries without any “handshake” with the
+sender.  Stream content is buffered by the NORM implementation for
+transmission/retransmission and as it is received.</P>
 <H3 CLASS="western">NORM Data Transmission</H3>
 <P CLASS="western" STYLE="font-style: normal">The behavior of data
 transport operation is largely placed in the control of the NORM
@@ -337,14 +343,13 @@ operate in a session, each with independent transmission parameters.
 NORM receivers learn needed parameter values from fields in NORM
 message headers.</P>
 <P CLASS="western" STYLE="font-style: normal">NORM transport
-&ldquo;objects&rdquo; (file, data, or stream) are queued for
-transmission by NORM senders.  NORM senders may also cancel
-transmission of objects at any time.  The NORM sender controls the
-transmission rate either manually (fixed transmission rate) or
-automatically when NORM congestion control operation is enabled.  The
-NORM congestion control mechanism is designed to be &quot;friendly&quot;
-to other data flows on the network, fairly sharing available
-bandwidth.</P>
+“objects” (file, data, or stream) are queued for transmission by
+NORM senders.  NORM senders may also cancel transmission of objects
+at any time.  The NORM sender controls the transmission rate either
+manually (fixed transmission rate) or automatically when NORM
+congestion control operation is enabled.  The NORM congestion control
+mechanism is designed to be &quot;friendly&quot; to other data flows
+on the network, fairly sharing available bandwidth.</P>
 <P CLASS="western" STYLE="font-style: normal">By default, the NORM
 sender transmits application-enqueued data content, providing repair
 transmissions (usually in the form of FEC messages) only when
@@ -427,15 +432,15 @@ application.  Thus the &quot;POSIX Threads&quot; library must be
 included (&quot;-'pthread&quot;) in the linking step.  MacOS/BSD also
 requires the addition of the &quot;-lresolv&quot; (resolver) library
 and Solaris requires the dynamic loader, network/socket, and resolver
-libraries (&quot;&ndash;lnsl &ndash;lsocket &ndash;lresolv&quot;) to
-achieve successful compilation.  The Makefiles in the NORM source
-code distribution are a reference for these requirements.  Note that
-MacOS 9 and earlier are not supported.</P>
+libraries (&quot;–lnsl –lsocket –lresolv&quot;) to achieve
+successful compilation.  The Makefiles in the NORM source code
+distribution are a reference for these requirements.  Note that MacOS
+9 and earlier are not supported.</P>
 <P CLASS="western" STYLE="font-style: normal">Additionally, it is
 critical that the _FILE_OFFSET_BITS macro be consistently defined for
 the NORM library build and the application build using the library. 
-The distributed NORM Makefiles have &ndash;D_FILE_OFFSET_BITS=64 set
-in the compilation to enable &quot;large file support&quot;. 
+The distributed NORM Makefiles have –D_FILE_OFFSET_BITS=64 set in
+the compilation to enable &quot;large file support&quot;. 
 Applications built using NORM should have the same compilation option
 set to operate correctly (The definition of the <FONT FACE="Courier"><A HREF="#NormSize">NormSize</A></FONT>
 type in &quot;normApi.h&quot; depends upon this compilation flag).</P>
@@ -583,10 +588,10 @@ session as part of protocol operation.  Typically, the application
 should not need access to these values, but an API call
 <FONT FACE="Courier">NormObjectGetTransportId() </FONT>is provided to
 retrieve these values if needed.  (<I>Note this type may be
-deprecated &ndash; it may not be needed at all if the
-NormObjectRequeue() function (TBD) is implemented using handles only,
-but _some_ applications requiring persistence even after a system
-reboot may need the ability to recall previous transport ids?</I>)</P>
+deprecated – it may not be needed at all if the NormObjectRequeue()
+function (TBD) is implemented using handles only, but _some_
+applications requiring persistence even after a system reboot may
+need the ability to recall previous transport ids?</I>)</P>
 <H3 CLASS="functionheading-western"><A NAME="NormEventType">NormEventType</A></H3>
 <P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormEventType">NormEventType</A></FONT>
 is an enumeration of NORM API events.  &quot;Events&quot; are used by
@@ -625,6 +630,41 @@ appropriate system calls (e.g. <I>select()</I> or
 NORM protocol engine for notification events (see <FONT FACE="Courier"><A HREF="#NormEvent">NormEvent</A></FONT>
 description). 
 </P>
+<H3 CLASS="functionheading-western"><A NAME="NormFlushMode">NormFlushMode</A></H3>
+<P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormFlushMode">NormFlushMode</A></FONT>
+consist of the following enumeration:</P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>enum
+<A HREF="#NormFlushMode">NormFlushMode</A><BR>{<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_FLUSH_NONE,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_FLUSH_PASSIVE,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_FLUSH_ACTIVE<BR>};</FONT></FONT></P>
+<P CLASS="western" STYLE="font-style: normal">The interpretation of
+these values is given  in the descriptions of <FONT FACE="Courier"><A HREF="#NormStreamFlush()">NormStreamFlush()</A></FONT>
+and <FONT FACE="Courier"><A HREF="#NormStreamSetAutoFlush()">NormStreamSetAutoFlush()</A></FONT> functions.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormProbingMode">NormProbingMode</A></H3>
+<P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormProbingMode">NormProbingMode</A></FONT>
+consist of the following enumeration:</P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>enum
+<A HREF="#NormProbingMode">NormProbingMode</A><BR>{<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_PROBE_NONE,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_PROBE_PASSIVE,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_PROBE_ACTIVE<BR>};</FONT></FONT></P>
+<P CLASS="western" STYLE="font-style: normal">The interpretation of
+these values is given  in the description of <FONT FACE="Courier"><A HREF="#NormSetGrttProbingMode()">NormSetGrttProbingMode()</A></FONT>
+function.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormNackingMode">NormNackingMode</A></H3>
+<P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormNackingMode">NormNackingMode</A></FONT>
+consist of the following enumeration:</P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>enum
+<A HREF="#NormNackingMode">NormNackingMode</A><BR>{<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_NACK_NONE,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_NACK_INFO_ONLY,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_NACK_NORMAL<BR>};</FONT></FONT></P>
+<P CLASS="western" STYLE="font-style: normal">The interpretation of
+these values is given  in the descriptions of  the
+<FONT FACE="Courier"><A HREF="#NormSetDefaultNackingMode()">NormSetDefaultNackingMode()</A></FONT>,
+<FONT FACE="Courier"><A HREF="#NormNodeSetNackingMode()">NormNodeSetNackingMode()</A></FONT> and
+<FONT FACE="Courier"><A HREF="#NormObjectSetNackingMode()">NormObjectSetNackingMode()</A></FONT> functions.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormRepairBoundary">NormRepairBoundary</A></H3>
+<P CLASS="western" STYLE="font-style: normal">The <FONT FACE="Courier"><A HREF="#NormRepairBoundary">NormRepairBoundary</A></FONT>
+consist of the following enumeration:</P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>enum
+<A HREF="#NormRepairBoundary">NormRepairBoundary</A><BR>{<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_BOUNDARY_BLOCK,<BR>&nbsp;&nbsp;&nbsp;&nbsp;NORM_BOUNDARY_OBJECT<BR>};</FONT></FONT></P>
+<P CLASS="western" STYLE="font-style: normal">The interpretation of
+these values is given  in the descriptions of  the
+<FONT FACE="Courier"><A HREF="#NormSetDefaultRepairBoundary()">NormSetDefaultRepairBoundary()</A> </FONT>and
+<FONT FACE="Courier"><A HREF="#NormNodeSetRepairBoundary()">NormNodeSetRepairBoundary()</A></FONT> functions.</P>
 <H2 CLASS="western">API Initialization and Operation</H2>
 <P CLASS="western" STYLE="font-style: normal">The first step in using
 the NORM API is to create an &quot;instance&quot; of the NORM
@@ -1220,9 +1260,57 @@ reception.  However, the use of separate transmit/receive ports
 allows NORM to discriminate when unicast feedback is occurring and
 thus it is not generally recommended that the transmit port be set to
 the same value as the <FONT FACE="Courier"><U>session</U></FONT>
-receive port.  This call <I>must</I> be made <I>before</I> any calls
-to <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT> or
-<FONT FACE="Courier"><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT> to succeed.</P>
+receive port.  
+</P>
+<P CLASS="western" STYLE="font-style: normal">Note this call <I>must</I>
+be made <I>before</I> any calls to <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT>
+or <FONT FACE="Courier"><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT> for the given
+<FONT FACE="Courier"><U>session</U></FONT> to succeed.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function has no
+return values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetRxPortReuse()">NormSetRxPortReuse()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
+NormSetRxPortReuse(<A HREF="#NormSessionHandle">NormSessionHandle</A>
+session,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bool
+             state);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function allows
+the user to control the port reuse and binding behavior for the
+receive socket used for the given NORM <FONT FACE="Courier"><U>session</U></FONT>.
+ When the <FONT FACE="Courier"><U>state</U></FONT> parameter is set
+to <FONT FACE="Courier"><I>true</I></FONT>:</P>
+<OL>
+	<LI><P CLASS="western" STYLE="font-style: normal">Reuse of the
+	<I>NormSession</I> port number is enabled, and</P>
+	<LI><P CLASS="western" STYLE="font-style: normal">the underlying
+	socket is also bound (see the <FONT FACE="Courier">bind()</FONT>
+	system call) to the <I>NormSession</I> destination address instead
+	of the default behavior of binding to INADDR_ANY.  
+	</P>
+</OL>
+<P CLASS="western" STYLE="font-style: normal">The default binding to
+INADDR_ANY (<FONT FACE="Courier"><U>state</U></FONT> equals <FONT FACE="Courier"><I>false</I></FONT>)
+allows the <I>NormSession</I> receive socket to receive any multicast
+or unicast transmissions to the given port number.  This allows a
+NORM receiver to receive from senders sending to a multicast session
+address or the receiver's unicast address.  Enabling port reuse and
+binding the session destination address allows multiple NORM sessions
+on the same port number, but participating in different multicast
+groups.</P>
+<P CLASS="western" STYLE="font-style: normal">Note this call <I>must</I>
+be made <I>before</I> any calls to <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT>
+or <FONT FACE="Courier"><A HREF="#NormStartReceiver()">NormStartReceiver()</A></FONT> for the given
+<FONT FACE="Courier"><U>session</U></FONT> to succeed.</P>
+<P CLASS="western" STYLE="font-style: normal">This call could also be
+used in conjunction with <FONT FACE="Courier"><A HREF="#NormSetMulticastInterface()">NormSetMulticastInterface()</A></FONT>
+so that multiple <I>NormSessions</I>, using the same port and
+multicast address, could separately cover multiple network interfaces
+(and some sort of application-layer bridging of reliable multicast
+could be realized if desired).</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function has no
 return values.</P>
@@ -1462,7 +1550,7 @@ function call include:</P>
 			The maximum <FONT FACE="Courier"><U>blockSize</U></FONT> allowed
 			by the 8-bit Reed-Solomon codes in NORM is 255, with the further
 			limitation that (<FONT FACE="Courier"><U>blockSize</U></FONT> +
-			<FONT FACE="Courier"><U>numParity</U></FONT>) &le; 255.</P>
+			<FONT FACE="Courier"><U>numParity</U></FONT>) ≤ 255.</P>
 		</TD>
 	</TR>
 	<TR VALIGN=TOP>
@@ -1483,15 +1571,14 @@ function call include:</P>
 			that one parity segment can fill any one erasure (missing segment
 			(packet)) for a coding block.  For a given <FONT FACE="Courier"><U>blockSize</U></FONT>,
 			the maximum <FONT FACE="Courier"><U>numParity</U></FONT> value is
-			(255 &ndash; <FONT FACE="Courier"><U>blockSize</U></FONT>). 
-			However, note that computational complexity increases
-			significantly with increasing <FONT FACE="Courier"><U>numParity</U></FONT>
-			values and applications may wish to be conservative with respect
-			to <FONT FACE="Courier"><U>numParity</U></FONT> selection, given
-			anticipated network packet loss conditions and group size
-			scalability concerns.  Additional FEC code options may be provided
-			for this NORM implementation in the future with different
-			parameters, capabilities, trade-offs, and computational
+			(255 – <FONT FACE="Courier"><U>blockSize</U></FONT>).  However,
+			note that computational complexity increases significantly with
+			increasing <FONT FACE="Courier"><U>numParity</U></FONT> values and
+			applications may wish to be conservative with respect to <FONT FACE="Courier"><U>numParity</U></FONT>
+			selection, given anticipated network packet loss conditions and
+			group size scalability concerns.  Additional FEC code options may
+			be provided for this NORM implementation in the future with
+			different parameters, capabilities, trade-offs, and computational
 			requirements.</P>
 		</TD>
 	</TR>
@@ -1516,7 +1603,7 @@ implementation.</P>
 is returned upon success and <FONT FACE="Courier"><I>false</I></FONT>
 upon failure.  The reasons failure may occur include limited system
 resources or that the network sockets required for communication
-failed to open or properly configure.  <I>(TBD &ndash; Provide a
+failed to open or properly configure.  <I>(TBD – Provide a
 <FONT FACE="Courier">NormGetError(<A HREF="#NormSessionHandle">NormSessionHandle</A> session)</FONT>
 function to retrieve a more specific error indication for this and
 other functions.)</I></P>
@@ -1777,8 +1864,9 @@ NormSetGrttEstimate(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;sess
 <BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;double&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;grtt);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function sets the
-sender's estimate of group round-trip timing (GRTT).  This function
-is expected to most typically used to initialize the sender's GRTT
+sender's estimate of group round-trip timing (GRTT) for the given
+NORM <FONT FACE="Courier"><U>session</U></FONT>.  This function is
+expected to most typically used to initialize the sender's GRTT
 estimate prior to the call to <FONT FACE="Courier"><A HREF="#NormStartSender()">NormStartSender()</A></FONT>
 when the application has <I>a priori</I> confidence that the default
 initial GRTT value of 0.5 second is inappropriate.  The sender GRTT
@@ -1788,7 +1876,7 @@ is active.  For experimental purposes (or very special application
 needs), this API provides a mechanism to control or disable the
 sender GRTT update process (see <FONT FACE="Courier">NormSetGrttProbing()</FONT>).
  The <FONT FACE="Courier"><U>grtt</U></FONT> value will be limited to
-the maximum GRTT as set (see <FONT FACE="Courier">NormSetGrttMax())
+the maximum GRTT as set (see <FONT FACE="Courier"><A HREF="#NormSetGrttMax()">NormSetGrttMax()</A>)
 </FONT>or the default maximum of 10 seconds.  
 </P>
 <P CLASS="western" STYLE="font-style: normal">The sender GRTT is
@@ -1800,7 +1888,125 @@ additional latency into the reliability process (resulting in a
 larger virtual <I>delay*bandwidth</I> product for the protocol and
 potentially requiring more buffer space to maintain reliability).  An
 overly-small GRTT estimate may introduce the potential for feedback
-implosion, limiting the scalability of group size.</P>
+implosion, limiting the scalability of group size.  
+</P>
+<P CLASS="western" STYLE="font-style: normal">Also note that the
+advertised GRTT estimate can also be limited by transmission rate. 
+When the sender transmission rate is low, the GRTT is also governed
+to a lower bound of the nominal packet transmission interval (i.e.,
+<FONT FACE="Courier">1/txRate</FONT>).  This maintains the “event
+driven” nature of the NORM protocol with respect to receiver
+reception of NORM sender data and commands.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function has no
+return values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetGrttMax()">NormSetGrttMax()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
+NormSetGrttMax(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;session,
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;double&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;grttMax);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function sets the
+sender's maximum advertised GRTT value for the given NORM <FONT FACE="Courier"><U>session</U></FONT>.
+ The <FONT FACE="Courier"><U>grttMax</U></FONT> parameter, in units
+of <I>seconds</I>, limits the GRTT used by the group for scaling
+protocol timers, regardless of larger measured round trip times.  
+The default maximum for the NRL NORM library is 10 seconds.  See the
+<FONT FACE="Courier"><A HREF="#NormSetGrttEstimate()">NormSetGrttEstimate()</A></FONT> function
+description for the purpose of the NORM GRTT measurement process.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function has no
+return values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetGrttProbingMode()">NormSetGrttProbingMode()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
+NormSetGrttProbingMode(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;session,
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NormProbingMode&nbsp;&nbsp;&nbsp;probingMode);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function sets the
+sender's mode of probing for round trip timing measurement responses
+from the receiver set for the given NORM <FONT FACE="Courier"><U>session</U></FONT>.
+ Possible values for the <FONT FACE="Courier"><U>probingMode</U></FONT>
+parameter include <FONT FACE="Courier"><I>NORM_PROBE_NONE</I></FONT>,
+<FONT FACE="Courier"><I>NORM_PROBE_PASSIVE</I></FONT>, and
+<FONT FACE="Courier"><I>NORM_PROBE_ACTIVE</I></FONT>.  The default
+probing mode is <FONT FACE="Courier"><I>NORM_PROBE_ACTIVE</I></FONT>.
+ In this mode, the receiver set explicitly acknowledges NORM sender
+GRTT probes (NORM_CMD(CC) messages) with NORM_ACK responses that are
+group-wise suppressed.  Note that NORM receivers also will include
+their response to GRTT probing piggy-backed on any NORM_NACK messages
+sent in this mode as well to minimize feedback.  
+</P>
+<P CLASS="western" STYLE="font-style: normal">Note that the
+<FONT FACE="Courier"><I>NORM_PROBE_ACTIVE</I></FONT> probing mode is
+<I>required</I> and automatically set when NORM congestion control
+operation is enabled (see <FONT FACE="Courier"><A HREF="#NormSetCongestionControl()">NormSetCongestionControl()</A></FONT>).
+ Thus, when congestion control is enabled, the
+<FONT FACE="Courier"><A HREF="#NormSetGrttProbingMode()">NormSetGrttProbingMode()</A></FONT> function has no
+effect.</P>
+<P CLASS="western" STYLE="font-style: normal">If congestion control
+operation is not enabled, the NORM applicaiton may elect to reduce
+the volume of feedback traffic by setting the <FONT FACE="Courier"><U>probingMode</U></FONT>
+to <FONT FACE="Courier"><I>NORM_PROBE_PASSIVE.</I></FONT>  Here, the
+NORM sender still transmits NORM_CMD(CC) probe messages multiplexed
+with its data transmission, but the receiver set does not explicitly
+acknowledge these probes.  Instead the receiver set is limited to
+piggy-backing responses when NORM_NACK messages are generated.  Note
+that this may, in some cases, introduce some opportunity for bursts
+of large volume receiver feedback when the sender’s estimate of
+GRTT is incorrect due to the reduced probing feedback.  But, in some
+controlled network environments, this option for passive probing may
+provide some benefits in reducing protocol overhead.</P>
+<P CLASS="western" STYLE="font-style: normal">Finally, the
+<FONT FACE="Courier"><U>probingMode</U></FONT> can be set to
+<FONT FACE="Courier"><I>NORM_PROBE_NONE</I></FONT> to eliminate the
+overhead (and benefits) of NORM GRTT measurement entirely.  In this
+case, the sender application must explicitly set its estimate of GRTT
+using the <FONT FACE="Courier"><A HREF="#NormSetGrttEstimate()">NormSetGrttEstimate()</A></FONT> function.
+ See this function for a description of the purpose of the NORM GRTT
+measurement.</P>
+<H4 CLASS="western">Return Values</H4>
+<P CLASS="western" STYLE="font-style: normal">This function has no
+return values.</P>
+<H3 CLASS="functionheading-western"><A NAME="NormSetGrttProbingInterval()">NormSetGrttProbingInterval()</A></H3>
+<H4 CLASS="western">Synopsis</H4>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
+&lt;normApi.h&gt;</FONT></FONT></P>
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
+NormSetGrttProbingInterval(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;session,
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;double&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;intervalMin,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;double&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;intervalMax);</FONT></FONT></P>
+<H4 CLASS="western">Description</H4>
+<P CLASS="western" STYLE="font-style: normal">This function controls
+the sender GRTT measurement and estimation process for the given NORM
+<FONT FACE="Courier"><U>session</U></FONT>.  The NORM sender
+multiplexes periodic transmission of NORM_CMD(CC) messages with its
+ongoing data transmission or when data transmission is idle.  When
+NORM congestion control operation is enabled, these probes are sent
+once per RTT of the current limiting receiver (with respect to
+congestion control rate).  In this case the <FONT FACE="Courier"><U>intervalMin</U></FONT>
+and <FONT FACE="Courier"><U>intervalMax</U></FONT> parameters (in
+units of <I>seconds</I>) control the rate at which the sender’s
+estimate of GRTT is updated.  At session start, the estimate is
+updated at <FONT FACE="Courier"><U>intervalMin</U></FONT> and the
+update interval time is doubled until <FONT FACE="Courier"><U>intervalMax</U></FONT>
+is reached.  This dynamic allows for a rapid initial estimation of
+GRTT and a slower, steady-state update of GRTT.  When congestion
+control is disabled and NORM GRTT probing is enabled
+(NORM_PROBE_ACTIVE or NORM_PROBE_PASSIVE) the <FONT FACE="Courier"><U>intervalMin</U></FONT>
+and <FONT FACE="Courier"><U>intervalMax</U></FONT> values also
+determine the rate at which NORM_CMD(CC) probes are transmitted by
+the sender.  Thus by setting larger values for <FONT FACE="Courier"><U>intervalMin</U></FONT>
+and <FONT FACE="Courier"><U>intervalMax</U></FONT>, the NORM sender
+application can reduce the overhead of the GRTT measurement process. 
+However, this also reduces the ability of NORM to adapt to changes in
+GRTT.</P>
+<P CLASS="western" STYLE="font-style: normal">The default NORM GRTT
+<FONT FACE="Courier"><U>intervalMin</U></FONT> and <FONT FACE="Courier"><U>intervalMax</U></FONT>
+values are 1.0 second and 30.0 seconds, respectively.</P>
 <H4 CLASS="western">Return Values</H4>
 <P CLASS="western" STYLE="font-style: normal">This function has no
 return values.</P>
@@ -2057,7 +2263,7 @@ limit.</P>
 <H4 CLASS="western">Synopsis</H4>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>#include
 &lt;normApi.h&gt;</FONT></FONT></P>
-<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>bool
+<P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
 NormStreamClose(<A HREF="#NormObjectHandle">NormObjectHandle</A>
 streamHandle,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bool&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;graceful
 = false);</FONT></FONT></P>
@@ -2135,7 +2341,7 @@ transmission.</P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
 NormStreamFlush(<A HREF="#NormObjectHandle">NormObjectHandle</A>
 streamHandle,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bool&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;eom
-= false,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NormFlushMode&nbsp;&nbsp;&nbsp;&nbsp;flushMode
+= false,<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormFlushMode">NormFlushMode</A>&nbsp;&nbsp;&nbsp;&nbsp;flushMode
 = NORM_FLUSH_PASSIVE);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function causes an
@@ -2157,7 +2363,7 @@ NORM to immediately transmit all enqueued data for the stream
 (subject to session transmit rate limits), even if this results in
 NORM_DATA messages with &quot;small&quot; payloads.  If the optional
 <FONT FACE="Courier"><U>flushMode</U></FONT> parameter is set to
-<FONT FACE="Courier"><I>NORM_FLUSH_ACTIV</I></FONT>, the application
+<FONT FACE="Courier"><I>NORM_FLUSH_ACTIVE</I></FONT>, the application
 can achieve reliable delivery of stream content up to the current
 write position in an even more proactive fashion.  In this case, the
 sender additionally, <I>actively</I> transmits NORM_CMD(FLUSH)
@@ -2193,7 +2399,7 @@ return values.</P>
 &lt;normApi.h&gt;</FONT></FONT></P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
 NormStreamSetAutoFlush(<A HREF="#NormObjectHandle">NormObjectHandle</A>
-streamHandle<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NormFlushMode&nbsp;&nbsp;&nbsp;&nbsp;flushMode);</FONT></FONT></P>
+streamHandle<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormFlushMode">NormFlushMode</A>&nbsp;&nbsp;&nbsp;&nbsp;flushMode);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function sets
 &quot;<I>automated</I> flushing&quot; for the NORM transmit stream
@@ -2387,7 +2593,7 @@ does not exist in NORM's default NACK-only operation.</P>
 <P CLASS="western" STYLE="font-style: normal">The function returns
 <FONT FACE="Courier"><I>true</I></FONT> upon successful establishment
 of the watermark point.  The function may return <FONT FACE="Courier"><I>false</I></FONT>
-upon failure (<I>why would it fail? &ndash; TBD</I>).</P>
+upon failure (<I>why would it fail? – TBD</I>).</P>
 <H2 CLASS="western">NORM Receiver Functions</H2>
 <H3 CLASS="functionheading-western"><A NAME="NormStartReceiver()">NormStartReceiver()</A></H3>
 <H4 CLASS="western">Synopsis</H4>
@@ -2552,7 +2758,7 @@ NACK-messages as well as some ACK messages such as congestion control
 feedback.  Explicitly solicited ACK messages, such as those used to
 satisfy sender watermark acknowledgement requests (see
 <FONT FACE="Courier"><A HREF="#NormSetWatermark()">NormSetWatermark()</A></FONT>) are always unicast to
-the applicable sender.  (TBD &ndash; provide API option so that <I>all</I>
+the applicable sender.  (TBD – provide API option so that <I>all</I>
 messages are multicast.)  The default session-wide behavior for
 unicast NACKing can be overridden via the <FONT FACE="Courier"><A HREF="#NormNodeSetUnicastNack()">NormNodeSetUnicastNack()</A></FONT>
 function for individual remote senders.</P>
@@ -2583,7 +2789,7 @@ return values.</P>
 &lt;normApi.h&gt;</FONT></FONT></P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
 NormSetDefaultNackingMode(<A HREF="#NormSessionHandle">NormSessionHandle</A> session,
-<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NormNackingMode&nbsp;&nbsp;&nbsp;nackingMode);</FONT></FONT></P>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormNackingMode">NormNackingMode</A>&nbsp;&nbsp;&nbsp;nackingMode);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function sets the
 default &quot;nacking mode&quot; used when receiving objects.  This
@@ -2650,7 +2856,7 @@ return values.</P>
 &lt;normApi.h&gt;</FONT></FONT></P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
 NormNodeSetNackingMode(<A HREF="#NormNodeHandle">NormNodeHandle</A>&nbsp;&nbsp;nodeHandle,
-<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NormNackingMode
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormNackingMode">NormNackingMode</A>
 nackingMode);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function sets the
@@ -2670,7 +2876,7 @@ return values.</P>
 &lt;normApi.h&gt;</FONT></FONT></P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
 NormObjectSetNackingMode(<A HREF="#NormObjectHandle">NormObjectHandle</A> objectHandle,
-<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NormNackingMode&nbsp;&nbsp;nackingMode);</FONT></FONT></P>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormNackingMode">NormNackingMode</A>&nbsp;&nbsp;nackingMode);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function sets the
 &quot;nacking mode&quot; used for receiving a specific transport
@@ -2689,7 +2895,7 @@ return values.</P>
 &lt;normApi.h&gt;</FONT></FONT></P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
 NormSetDefaultRepairBoundary(<A HREF="#NormSessionHandle">NormSessionHandle</A>&nbsp;&nbsp;sessionHandle,
-<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NormRepairBoundary
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormRepairBoundary">NormRepairBoundary</A>
 repairBoundary);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function allows
@@ -2723,7 +2929,7 @@ return values.</P>
 &lt;normApi.h&gt;</FONT></FONT></P>
 <P STYLE="font-style: normal; page-break-after: avoid"><FONT FACE="Courier"><FONT SIZE=2>void
 NormNodeSetRepairBoundary(<A HREF="#NormNodeHandle">NormNodeHandle</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;nodeHandle,
-<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NormRepairBoundary
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A HREF="#NormRepairBoundary">NormRepairBoundary</A>
 repairBoundary);</FONT></FONT></P>
 <H4 CLASS="western">Description</H4>
 <P CLASS="western" STYLE="font-style: normal">This function allows

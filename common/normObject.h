@@ -36,7 +36,7 @@ class NormObject
             NACK_INFO_ONLY,
             NACK_NORMAL
         };
-            
+        
         virtual ~NormObject();
         void Retain();
         void Release();
@@ -93,8 +93,7 @@ class NormObject
                                    char*          buffer) = 0;
         
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId,
-                                      bool&         tempRetrieval) = 0;
+                                      NormSegmentId segmentId) = 0;
         
         NackingMode GetNackingMode() const {return nacking_mode;}
         void SetNackingMode(NackingMode nackingMode) 
@@ -304,8 +303,7 @@ class NormFileObject : public NormObject
                                    char*          buffer);
         
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId,
-                                      bool&         tempRetrieval);
+                                      NormSegmentId segmentId);
             
     private:
         char            path[PATH_MAX];
@@ -348,8 +346,7 @@ class NormDataObject : public NormObject
                                    char*          buffer);
         
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId,
-                                      bool&         tempRetrieval);
+                                      NormSegmentId segmentId);
             
     private:
         NormObjectSize  large_block_length;
@@ -407,9 +404,12 @@ class NormStreamObject : public NormObject
         UINT32 GetCurrentReadOffset() {return read_offset;}
         
         bool StreamUpdateStatus(NormBlockId blockId);
-        void StreamResync(NormBlockId nextBlockId)
+        // Note that the "pending_mask" should be cleared and the 
+        // "block_buffer" emptied before "StreamResync()" is invoked
+        void StreamResync(NormBlockId blockId) 
         {
-            stream_next_id = nextBlockId;
+            stream_sync = false;       
+            StreamUpdateStatus(blockId);
         }
         void StreamAdvance();
         
@@ -422,8 +422,7 @@ class NormStreamObject : public NormObject
                                    char*          buffer);
         
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId,
-                                      bool&         tempRetrieval);
+                                      NormSegmentId segmentId);
         
         
         // For receive stream, we can rewind to earliest buffered offset
@@ -433,7 +432,7 @@ class NormStreamObject : public NormObject
         bool LockSegments(NormBlockId blockId, NormSegmentId firstId,
                           NormSegmentId lastId);
         NormBlockId StreamBufferLo() {return stream_buffer.RangeLo();}
-        void Prune(NormBlockId blockId);
+        void Prune(NormBlockId blockId, bool updateStatus);
         
         bool IsFlushPending() {return flush_pending;}
         NormBlockId FlushBlockId()
@@ -518,8 +517,7 @@ class NormSimObject : public NormObject
                                    char*          buffer);
         
         virtual char* RetrieveSegment(NormBlockId   blockId,
-                                      NormSegmentId segmentId,
-                                      bool&         tempRetrieval);
+                                      NormSegmentId segmentId);
 };  // end class NormSimObject
 #endif // SIMULATE
 
@@ -537,7 +535,7 @@ class NormObjectTable
         bool IsInited() const {return (NULL != table);}
         bool CanInsert(NormObjectId objectId) const;
         bool Insert(NormObject* theObject);
-        bool Remove(const NormObject* theObject);
+        bool Remove(NormObject* theObject);
         NormObject* Find(const NormObjectId& objectId) const;
         
         NormObjectId RangeLo() const {return range_lo;}
