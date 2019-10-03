@@ -115,5 +115,8 @@ NOTES:
 ======
 
 The NORM code depends upon the current "Protolib" release:
-  https://www.nrl.navy.mil/itd/ncs/products/protolib
-  https://github.com/USNavalResearchLaboratory/protolib
+
+  https://github.com/USNavalResearchLaboratory/protolib 
+  
+The "protolib" source tree (or a symbolic link to it) must be placed in the top level of the "norm" source tree.  The NORM build will build the protolib as needed.
+  
