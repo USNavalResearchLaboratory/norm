@@ -7,7 +7,7 @@
 #
 SYSTEM_INCLUDES = 
 SYSTEM_LDFLAGS = 
-SYSTEM_LIBS = -ldl -lnsl -lsocket -lresolv
+SYSTEM_LIBS = -ldl -lnsl -lsocket -lresolv -lpthread
 
 # 2) System specific capabilities
 # Must choose appropriate for the following:

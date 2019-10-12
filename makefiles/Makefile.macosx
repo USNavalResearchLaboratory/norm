@@ -8,7 +8,7 @@
 
 SYSTEM_INCLUDES = 
 SYSTEM_LDFLAGS = 
-SYSTEM_LIBS = -lresolv -lpcap
+SYSTEM_LIBS = -lresolv -lpcap -lpthread
 
 # 2) System specific capabilities
 # Must choose appropriate for the following:
