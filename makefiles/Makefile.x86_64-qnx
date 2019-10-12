@@ -1,5 +1,5 @@
 #
-# NORM NetBSD Makefile
+# NORM QNX 7 x86_64 Makefile
 #
 
 # 5) System specific additional libraries, include paths, etc
