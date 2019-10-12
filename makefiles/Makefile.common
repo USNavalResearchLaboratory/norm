@@ -20,7 +20,7 @@ CFLAGS = -g -DPROTO_DEBUG -DUNIX -D_FILE_OFFSET_BITS=64 -O $(SYSTEM_CFLAGS) $(SY
 LDFLAGS = $(SYSTEM_LDFLAGS)
 
 # Note: Even command line app needs X11 for Netscape post-processing
-LIBS = $(SYSTEM_LIBS) -lm -lpthread
+LIBS = $(SYSTEM_LIBS) -lm
 XLIBS = -lXmu -lXt -lX11
 
 

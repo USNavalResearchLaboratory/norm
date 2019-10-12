@@ -7,7 +7,7 @@
 #
 SYSTEM_INCLUDES = -I/usr/X11R6/include 
 SYSTEM_LDFLAGS = -L/usr/X11R6/lib 
-SYSTEM_LIBS =  
+SYSTEM_LIBS = -lpthread
 
 # 6) System specific capabilities
 # Must choose appropriate for the following:

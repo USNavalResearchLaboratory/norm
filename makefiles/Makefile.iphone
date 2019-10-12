@@ -12,7 +12,7 @@ SYSROOT = $(SDK)/SDKs/iPhoneOS2.2.1.sdk
 
 SYSTEM_INCLUDES = 
 SYSTEM_LDFLAGS = -L$(SYSROOT)/usr/lib
-SYSTEM_LIBS = -lresolv
+SYSTEM_LIBS = -lresolv -lpthread
 
 # 2) System specific capabilities
 # Must choose appropriate for the following:

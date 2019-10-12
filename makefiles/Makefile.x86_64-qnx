@@ -1,15 +1,13 @@
 #
-# NORM mklinux Makefile
+# NORM NetBSD Makefile
 #
-
 
 # 5) System specific additional libraries, include paths, etc
 #    (Where to find X11 libraries, etc)
 #
-SYSTEM_INCLUDES = -I/usr/X11R6/include
-
+SYSTEM_INCLUDES = -I/usr/X11R6/include 
 SYSTEM_LDFLAGS = -L/usr/X11R6/lib 
-SYSTEM_LIBS = -ldl -lpthread
+SYSTEM_LIBS = -lsocket
 
 # 6) System specific capabilities
 # Must choose appropriate for the following:
@@ -37,13 +35,13 @@ SYSTEM_LIBS = -ldl -lpthread
 # (We export these for other Makefiles as needed)
 #
 
-export SYSTEM_HAVES = -DHAVE_CUSERID -DHAVE_LOCKF -DHAVE_DIRFD $(NETSEC)
+SYSTEM_HAVES = -DHAVE_GETLOGIN -DHAVE_LOCKF -DHAVE_ASSERT -DHAVE_DIRFD $(DNETSEC) 
+SYSTEM = x86_64-qnx
 
-export CC = gcc
-export SYSTEM_CFLAGS = -fPIC -Wall -pedantic -Wcast-align
-export SYSTEM_SOFLAGS = -shared 
-export RANLIB = ranlib
-export AR = ar
+CC = ntox86_64-g++
+SYSTEM_CFLAGS = -fPIC -Wall -pedantic -Wcast-align -Wno-variadic-macros
+SYSTEM_SOFLAGS = -shared -Wl,-soname,libnorm.so.1
+RANLIB = ntox86_64-ranlib
+AR = ntox86_64-ar
 
 include Makefile.common
-
