@@ -48,9 +48,6 @@ system = platform.system().lower()
 def options(ctx):
     ctx.recurse('protolib')    
     build_opts = ctx.parser.add_option_group('Compile/install Options', 'Use during build/install step.')
-    build_opts.add_option('--enable-static-library', action='store_true',
-            help='Enable building and installing static library. [default:false]')
-
 
 def configure(ctx):
     ctx.recurse('protolib')
@@ -103,6 +100,7 @@ def build(ctx):
 	# (so we don't have to worry about LD_LIBRARY_PATH)
     ctx.shlib(
         target = 'norm',
+        name = 'norm_shlib',
         includes = ['include'],
         export_includes = ['include'],
         vnum = VERSION,
@@ -112,18 +110,18 @@ def build(ctx):
         features = 'cxx cxxshlib',
     )
 
-    if ctx.options.enable_static_library:
-        ctx.stlib(
-            target = 'norm',
-            includes = ['include'],
-            export_includes = ['include'],
-            vnum = VERSION,
-            stlib = ["protolib"],
-            use = ['objs'] + ctx.env.USE_BUILD_NORM,
-            source = [],
-            features = 'cxx cxxstlib',
-            install_path = '${LIBDIR}',
-        )
+    ctx.stlib(
+        target = 'norm',
+        name = 'norm_stlib',
+        includes = ['include'],
+        export_includes = ['include'],
+        vnum = VERSION,
+        stlib = ["protolib"],
+        use = ['objs'] + ctx.env.USE_BUILD_NORM,
+        source = [],
+        features = 'cxx cxxstlib',
+        install_path = '${LIBDIR}',
+    )
 
     if ctx.env.BUILD_PYTHON:
         ctx(
@@ -136,7 +134,7 @@ def build(ctx):
         ctx.shlib(
             target = 'mil_navy_nrl_norm',
             includes = ['include'],
-            use = ['norm', 'JAVA'],
+            use = ['norm_shlib', 'JAVA'],
 		    vnum = VERSION,
             source = ['src/java/jni/{0}.cpp'.format(x) for x in [
                 'normJni',
@@ -158,16 +156,18 @@ def build(ctx):
             destfile = 'norm.jar',
         )
 
+    # Links to static library since it uses C++ objects directly instead of API
     normapp = ctx.program(
         # Need to explicitly set a different name, because 
         # the  library is also named "norm"
         name = 'normapp',
         target = 'normapp',
+        includes = ['include'],
         use = ['protolib', 'norm_stlib'],
         defines = [],
-        source = ['src/common/{0}'.format(x) for x in [
-            'normPostProcess.cpp',
-            'normApp.cpp',
+        source = ['src/common/{0}.cpp'.format(x) for x in [
+            'normPostProcess',
+            'normApp',
         ]],
         # Disabled by default
         posted = True,
@@ -182,7 +182,7 @@ def build(ctx):
         normapp.stlib = (["Shell32"]);
 
     for example in (
-            'normDataExample',
+            #'normDataExample',
             'normDataRecv',
             'normDataSend',
             'normFileRecv',
@@ -193,7 +193,7 @@ def build(ctx):
             'normStreamer',
             'normClient',
             'normServer',
-            'wintest'
+            #'wintest'  # Windows only (can uncomment on Windows)
             ):
         _make_simple_example(ctx, example)
 
@@ -229,6 +229,7 @@ def _make_simple_example(ctx, name, path='examples'):
         source.append('%s/normSocket.cpp' % path)
     example = ctx.program(
         target = name,
+        includes = ['include', 'protolib/include'],
         use = ['protolib'],
         defines = [],
         source = source,

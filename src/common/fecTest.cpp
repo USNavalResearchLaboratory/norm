@@ -59,7 +59,7 @@ int main(int argc, char* argv[])
         startTime.GetCurrentTime();
         for (unsigned int i = 0; i < SHORT_DATA; i++)
         {
-            encoder.Encode(txDataPtr[i], txDataPtr + SHORT_DATA);
+            encoder.Encode(i, txDataPtr[i], txDataPtr + SHORT_DATA);
         }
         stopTime.GetCurrentTime();
         double encodeTime = ProtoTime::Delta(stopTime, startTime);

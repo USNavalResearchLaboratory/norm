@@ -3,7 +3,7 @@
 // The "data" sent and received are simple text messages
 // of randomly-varying length.
 
-XXXX - THIS CODE IS NOT YET COMPLETE !!!!!
+XXX - THIS CODE IS NOT YET A COMPLETE EXAMPLE !!!!!
 
 #include <normApi.h>
 
@@ -11,6 +11,8 @@ XXXX - THIS CODE IS NOT YET COMPLETE !!!!!
 // cross-platform portability
 #include <protoDebug.h>
 #include <protoTime.h>
+
+#include <stdlib.h>  // for rand(), srand()
 
 void Usage()
 {
