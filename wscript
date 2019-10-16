@@ -19,7 +19,6 @@ To build examples, use the --target directive.  For example:
 '''
 
 import platform
-
 import waflib
 
 # Fetch VERSION from include/normVersion.h file
@@ -74,7 +73,7 @@ def build(ctx):
     # Setup to install NORM header file
     ctx.install_files("${PREFIX}/include/", "include/normApi.h")
     
-    ctx.objects(
+    obj = ctx.objects(
         target = 'objs',
         includes = ['include'],
         export_includes = ['include'],
@@ -108,6 +107,7 @@ def build(ctx):
         use = ['objs'] + ctx.env.USE_BUILD_NORM,
         source = [],
         features = 'cxx cxxshlib',
+        install_path = '${LIBDIR}',
     )
 
     ctx.stlib(
@@ -163,7 +163,7 @@ def build(ctx):
         name = 'normapp',
         target = 'normapp',
         includes = ['include'],
-        use = ['protolib', 'norm_stlib'],
+        use = ['protolib', 'norm_stlib'], 
         defines = [],
         source = ['src/common/{0}.cpp'.format(x) for x in [
             'normPostProcess',
@@ -172,7 +172,11 @@ def build(ctx):
         # Disabled by default
         posted = True,
     )
-
+    
+    # Hack to force clang to link static libnorm.a
+    if ctx.env.COMPILER_CXX == 'clang++': 
+        normapp.linkflags ='libnorm.a'
+        
     if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
         normapp.source.append('src/unix/unixPostProcess.cpp')
 
@@ -218,7 +222,8 @@ def build(ctx):
         if system == "gnu":
             static_libs += ' -lpcap'
     ctx(source='norm.pc.in', STATIC_LIBS = static_libs)
-
+    
+    
 def _make_simple_example(ctx, name, path='examples'):
     '''Makes a task from a single source file in the examples directory.
 
@@ -243,4 +248,8 @@ def _make_simple_example(ctx, name, path='examples'):
         example.defines.append('_CONSOLE')
     else:
         example.use.append('norm_stlib')
+        
+    # Hack to force clang to link static libnorm.a
+    if ctx.env.COMPILER_CXX == 'clang++': 
+        example.linkflags ='libnorm.a'
     
