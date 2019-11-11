@@ -1,50 +1,43 @@
 
                     NORM SOURCE CODE RELEASE
 
-AUTHORIZATION TO USE AND DISTRIBUTE
-
-By receiving this distribution, you have agreed to the following 
-terms governing the use and redistribution of the prototype NRL
-NORM software release written and developed by Brian Adamson and
-Joe Macker:
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that: 
-
-(1) source code distributions retain this paragraph in its entirety, 
-
-(2) all advertising materials mentioning features or use of this 
-  software display the following acknowledgment:
-
-   "This product includes software written and developed 
-    by the Naval Research Laboratory (NRL)." 
-
-The name of NRL, the name(s) of NRL  employee(s), or any entity
-of the United States Government may not be used to endorse or
-promote  products derived from this software, nor does the 
-inclusion of the NRL written and developed software  directly or
-indirectly suggest NRL or United States  Government endorsement
-of this product.
-
-THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
-IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
-
----------------------------------------------------------------------
+/*********************************************************************
+ *
+ * AUTHORIZATION TO USE AND DISTRIBUTE
+ * 
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that: 
+ *
+ * (1) source code distributions retain this paragraph in its entirety, 
+ *  
+ * (2) distributions including binary code include this paragraph in
+ *     its entirety in the documentation or other materials provided 
+ *     with the distribution.
+ * 
+ *      "This product includes software written and developed 
+ *       by Code 5520 of the Naval Research Laboratory (NRL)." 
+ *         
+ *  The name of NRL, the name(s) of NRL  employee(s), or any entity
+ *  of the United States Government may not be used to endorse or
+ *  promote  products derived from this software, nor does the 
+ *  inclusion of the NRL written and developed software  directly or
+ *  indirectly suggest NRL or United States  Government endorsement
+ *  of this product.
+ * 
+ * THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+ *
+ ********************************************************************/
 
 
-This is a release of the NRL MDP source code.  For most
-purposes, the authors would prefer that the code not be
-re-distributed so that users will obtain the latest (and most
-debugged/improved) release from the official NORM web site:
-
-<https://www.nrl.navy.mil/itd/ncs/products/norm>
+This is a release of the NRL NORM source code. 
 
 
 SOURCE CODE
 ===========
 
-The following items can be build from this source code release:
+The following items can be built from this source code release:
 
 1) libnorm.a - static NORM library for Unix platforms, or
 
