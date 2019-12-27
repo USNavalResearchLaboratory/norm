@@ -273,10 +273,7 @@ bool NormCaster::Start(bool sender, bool receiver)
         NormSetBackoffFactor(norm_session, 0);
         
         // Pick a random instance id for now
-        struct timeval currentTime;
-        gettimeofday(&currentTime, NULL);
-        srand(currentTime.tv_usec);  // seed random number generator
-        NormSessionId instanceId = (NormSessionId)rand();
+        NormSessionId instanceId = NormGetRandomSessionId();
         if (!NormStartSender(norm_session, instanceId, bufferSize, segmentSize, blockSize, numParity))
         {
             fprintf(stderr, "normCast error: unable to start NORM sender\n");
@@ -298,7 +295,7 @@ bool NormCaster::TxReady() const
     // NORM_TX_QUEUE_VACANCY notifications (tracked by the "norm_tx_vacancy" variable,
     // _and_ (if ack-based flow control is enabled) the norm_tx_queue_count or 
     // norm_stream_buffer_count status.
-    if (norm_tx_vacancy)
+	if (norm_tx_vacancy)
     {
         if (norm_tx_queue_count >= norm_tx_queue_max)
             return false;  // still waiting for ACK
@@ -617,6 +614,8 @@ int main(int argc, char* argv[])
     bool silentReceiver = false;
     double txloss = 0.0;
     bool loopback = false;
+
+	TRACE("parsing command-line ...\n");
     
     NormCaster normCast;
     
@@ -861,20 +860,30 @@ int main(int argc, char* argv[])
         Usage();
         return -1;
     }
+
+	TRACE("calling NormCreateInstance() ...\n");
     
     // TBD - should provide more error checking of calls
     NormInstanceHandle normInstance = NormCreateInstance();
+	TRACE("calling NormSetDebugLevel() ...\n");
     NormSetDebugLevel(debugLevel);
-    if (NULL != debugLog)
-        NormOpenDebugLog(normInstance, debugLog);
+	if (NULL != debugLog)
+	{
+		TRACE("calling NormOpenDebugLog() ...\n");
+		NormOpenDebugLog(normInstance, debugLog);
+	}
     
+	TRACE("calling NormSetCacheDirectory() (recv:%d) ...\n", recv);
     // TBD - enhance NORM to support per-session or perhaps per-sender rx cache directories?
     if (recv)
         NormSetCacheDirectory(normInstance, normCast.GetRxCacheDirectory());
     
+	TRACE("calling SetLoopback() ...\n");
     normCast.SetLoopback(loopback);
-    normCast.SetFlushing(flushing);
+	TRACE("calling SetFlushing() ...\n");
+	normCast.SetFlushing(flushing);
         
+	TRACE("calling OpenNormSession() ...\n");
     if (!normCast.OpenNormSession(normInstance, sessionAddr, sessionPort, (NormNodeId)nodeId))
     {
         fprintf(stderr, "normCast error: unable to open NORM session\n");
@@ -896,17 +905,18 @@ int main(int argc, char* argv[])
     
     if (trace) normCast.SetNormMessageTrace(true);
     
+	TRACE("calling Start() ...\n");
     // TBD - set NORM session parameters
     normCast.Start(send, recv); 
 
+	TRACE("calling SendFiles() ...\n");
     if (normCast.TxFilePending()) normCast.SendFiles();
     
 #ifdef WIN32
-    HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
-    Win32InputHandler inputHandler;
-    inputHandler.Open();
+    //Win32InputHandler inputHandler;
+    //inputHandler.Open();
     HANDLE handleArray[2];
-    handleArray[0] = NormGetDescriptor(instance);
+    handleArray[0] = NormGetDescriptor(normInstance);
     bool inputNeeded = false;  // set this to 'true', and uncomment next line for STDIN input notification
     //handleArray[1] = inputHandler.GetEventHandle();
 #else
@@ -916,6 +926,7 @@ int main(int argc, char* argv[])
     FD_ZERO(&fdsetInput);
 #endif  // if/else WIN32/UNIX
     
+	TRACE("entering main loop ...\n");
     while (normCast.IsRunning())
     {
         // TBD - could add "stdin" as a descriptor to monitor 
@@ -924,6 +935,7 @@ int main(int argc, char* argv[])
         bool normEventPending = false;
         bool inputEventPending = false;
 #ifdef WIN32
+		TRACE("calling MsgWaitForMultipleObjectsEx() ...\n");
         DWORD handleCount = inputNeeded ? 2 : 1;
         DWORD waitStatus =  
             MsgWaitForMultipleObjectsEx(handleCount,   // number of handles in array
