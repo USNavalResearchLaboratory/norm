@@ -45,7 +45,7 @@ class NormApp : public NormController, public ProtoApp
     private:
         // we use this class to cache tx file paths
         // and their last tx object id to support the
-         // "requeue" option      
+        // "requeue" option      
         class FileCacheItem  : public ProtoTree::Item
         {
             public:
@@ -1983,7 +1983,7 @@ void NormApp::Notify(NormController::Event event,
                 PLOG(PL_INFO, "%02d:%02d:%02d.%06u completed rx object>%hu ",
 		                (int)timePtr->tm_hour, (int)timePtr->tm_min, (int)timePtr->tm_sec, (unsigned int)currentTime.tv_usec, 
                         (UINT16)object->GetId());
-                TRACE("sender>%lu\n", sender->GetId());
+                //TRACE("sender>%lu\n", sender->GetId());
             }
             switch(object->GetType())
             {

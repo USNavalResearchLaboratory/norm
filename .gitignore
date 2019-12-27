@@ -1,14 +1,26 @@
-# protolib
+# protolib source tree
 protolib/
 
 # build executables
 build/
 lib/
+bin/
 makefiles/norm
 makefiles/normMsgr
 makefiles/normStreamer
+makefiles/normCast
+makefiles/normClient
+makefiles/normServer
 makefiles/npc
 makefiles/raft
+
+# build object files
+*.o
+*.a
+
+# waf cruft
+.waf*
+.lock-waf*
 
 # OS generated files #
 .DS_Store

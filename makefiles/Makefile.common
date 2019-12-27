@@ -178,12 +178,21 @@ normMsgr:    $(MSGR_OBJ) libnorm.a $(LIBPROTO)
 	mkdir -p ../bin
 	cp $@ ../bin/$@
 
-# (normStreamer) message sender/receiver
+# (normStreamer) stream sender/receiver
 STREAMER_SRC = $(EXAMPLE)/normStreamer.cpp
 STREAMER_OBJ = $(STREAMER_SRC:.cpp=.o)
 
 normStreamer:    $(STREAMER_OBJ) libnorm.a $(LIBPROTO) 
 	$(CC) $(CFLAGS) -o $@ $(STREAMER_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+    
+# (nocmCast) file sender/receiver
+CAST_SRC = $(EXAMPLE)/normCast.cpp
+CAST_OBJ = $(CAST_SRC:.cpp=.o)
+
+normCast:    $(CAST_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(CAST_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
 	mkdir -p ../bin
 	cp $@ ../bin/$@
 

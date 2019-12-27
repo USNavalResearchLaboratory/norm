@@ -195,6 +195,7 @@ def build(ctx):
             'normStreamSend',
             'normMsgr',
             'normStreamer',
+            'normCast',
             'normClient',
             'normServer',
             #'wintest'  # Windows only (can uncomment on Windows)

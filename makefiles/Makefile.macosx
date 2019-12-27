@@ -45,7 +45,7 @@ SYSTEM_SRC = ../protolib/src/unix/bpfCap.cpp
 SYSTEM = macosx
 
 CC = g++
-SYSTEM_CFLAGS = -Wall -Wcast-align -fPIC -arch x86_64 -arch i386
+SYSTEM_CFLAGS = -Wall -Wcast-align -fPIC -arch x86_64
 SYSTEM_SOFLAGS = -dynamiclib 
 SYSTEM_SOEXT = dylib
 RANLIB = ranlib
