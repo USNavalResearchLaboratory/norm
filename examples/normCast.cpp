@@ -9,7 +9,7 @@
 #include <sys/select.h>
 #endif  // if/else WIN32/UNIX
 
-#define SHOOT_NOW 1
+#define SHOOT_FIRST 1
 
 // I usually avoid using Protlib stuff for NORM API examples to keep things clearer,  
 // but the couple of classes here are useful helpers from the Protolib C++ toolkit.
@@ -107,7 +107,7 @@ class NormCaster
             {NormSetTxLoss(norm_session, txloss);}
             
     private:
-        bool                                is_running;      
+        bool                                is_running;  
         NormSessionHandle                   norm_session;
         ProtoFile::PathList                 tx_file_list;
         ProtoFile::PathList::PathIterator   tx_file_iterator;
@@ -190,7 +190,6 @@ bool NormCaster::OpenNormSession(NormInstanceHandle instance, const char* addr, 
     }
     
     // Set some default parameters (maybe we should put all parameter setting in Start())
-    fprintf(stderr, "setting rx cache limit to %u\n", norm_tx_queue_max);
     if (norm_tx_queue_max > 65535/2) norm_tx_queue_max = 65535/2;
     NormSetRxCacheLimit(norm_session, norm_tx_queue_max);
     NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_ALL);
@@ -259,7 +258,7 @@ bool NormCaster::Start(bool sender, bool receiver)
         // Note: NormPreallocateRemoteSender() MUST be called AFTER NormStartReceiver()
         NormPreallocateRemoteSender(norm_session, bufferSize, segmentSize, blockSize, numParity, bufferSize);
         NormSetRxSocketBuffer(norm_session, rxSockBufferSize);
-        fprintf(stderr, "normCast: receiver ready.\n");
+        fprintf(stderr, "normCast: receiver ready ...\n");
     }
     if (sender)
     {
@@ -357,21 +356,16 @@ void NormCaster::SendFiles()
         {
             sent_count++;
             // Get next file name from our "tx_file_list"
-            if (!!StageNextTxFile())
+            if (!StageNextTxFile())
             {
                 // We have reach end of tx_file_list, so either
                 // we're done or we reset tx_file_iterator
-                
                 // If we're done and requesting ACK, finish up nicely with final waterrmark
                 if (norm_acking)
                 {
-                    if (NORM_OBJECT_INVALID == norm_last_object)
+                    if ((NORM_OBJECT_INVALID != norm_last_object) && !norm_flushing)
                     {
-                        TRACE("normCast sender STOP 2 ...\n");
-                        is_running = false;  // everything already sent and acked
-                    }
-                    else if (!norm_flushing)
-                    {
+                        // End-of-transmission ack request (not needed if "norm_flushing"
                         NormSetWatermark(norm_session, norm_last_object, true);
                     }
                 }
@@ -379,7 +373,7 @@ void NormCaster::SendFiles()
         }
         else
         {
-            // locked by NORM flow control ...
+            // blocked by NORM flow control ... will get cued by notification as described above
             ASSERT(!TxReady());
             break;
         }
@@ -426,7 +420,7 @@ bool NormCaster::EnqueueFileObject()
         norm_tx_vacancy = false;     
         return false;
     }
-    fprintf(stderr, "normCast: enqueued \"%s\" for transmision ...\n", namePtr);
+    fprintf(stderr, "normCast: enqueued \"%s\" for transmission ...\n", namePtr);
     if (norm_acking)
     {
         // ack-based flow control has been enabled
@@ -437,7 +431,7 @@ bool NormCaster::EnqueueFileObject()
             norm_last_object = object;
             norm_flow_control_pending = true;
         }
-        else if (norm_flushing)  // per-message acking
+        else if (norm_flushing)  // per-file flushing/acking
         {
 #ifdef SHOOT_FIRST
             NormSetWatermark(norm_session, object, true);
@@ -458,7 +452,6 @@ bool NormCaster::EnqueueFileObject()
         {
             norm_last_object = object;
         }
-        TRACE("norm_last_object: %p\n", norm_last_object);
     }
     return true;
 }  // end NormCaster::EnqueueFileObject()
@@ -480,8 +473,8 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
         case NORM_TX_WATERMARK_COMPLETED:
             if (NORM_ACK_SUCCESS == NormGetAckingStatus(norm_session))
             {
-                //fprintf(stderr, "WATERMARK COMPLETED\n");
                 norm_last_object = NORM_OBJECT_INVALID;
+                bool txFilePending = TxFilePending();  // need to check this _before_ possible call to SendFiles()
                 if (norm_flow_control_pending)
                 {
                     norm_tx_queue_count -= (norm_tx_queue_max / 2);
@@ -492,10 +485,12 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                         norm_last_object = norm_flush_object;
                         norm_flush_object = NORM_OBJECT_INVALID;
                     }
+                    if (txFilePending) SendFiles();
                 }
-                if (NORM_OBJECT_INVALID == norm_last_object)
+                if (!txFilePending)
                 {
-                    TRACE("normCast sender STOP 1 ...\n");
+                    // No more files to send and all have been acknowledged
+                    fprintf(stderr, "normCast: final file acknowledged, exiting ...\n");
                     is_running = false;
                 }
             }
@@ -560,8 +555,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                 if ('/' == fileName[i]) 
                     fileName[i] = PROTO_PATH_DELIMITER;
             }
-			TRACE("got info renaming to: %s\n", fileName);
-            if (!NormFileRename(event.object, fileName))
+			if (!NormFileRename(event.object, fileName))
                 perror("normCast: rx file rename error");
             break;
         }   
@@ -1011,16 +1005,13 @@ int main(int argc, char* argv[])
     
     NormCloseDebugLog(normInstance);
     
-    fprintf(stderr, "destroying session ...\n");
     normCast.CloseNormSession();
-    
-    fprintf(stderr, "destroying instance ...\n");
     
     NormDestroyInstance(normInstance);
     
     normCast.Destroy();
     
-    fprintf(stderr, "normCast exiting ...\n");
+    fprintf(stderr, "normCast done.\n");
     
 }  // end main()
 
