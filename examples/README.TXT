@@ -2,16 +2,45 @@
 
 This directory contains some purposely simplified examples of NORM
 API usage. See comments in the source code files on how to build
-these on Unix platforms.  Eventually, "Makefiles" (and hopefully
-"waf" configure/build scripts) will be provided as well as Visual
-C++ project files for Win32 builds.  
+these on Unix platforms.  Most of these can be built with either the
+Makefiles or Visual Studio projects, but the 'waf' build option is more
+straightforward to use, particularly for Java and Python builds.  
 
-The following example programs are included:
+The most complete examples are the following:
 
-(These two programs use a hard-coded multicast address and port,
-but take a file name and directory name, respectively, as a
-command-line argument to determine the file sent and the directory
-to which receive files are stored.)
+normMsgr.cpp    - Also java/NormMsgr.java and python/normMsgr.py
+                  implementations are available with same functionality.
+                  This sends messages piped to STDIN and receiver
+                  instances can pipe received messages to STDOUT.
+                  "Messages" are binary with a two-byte (Big Endian)
+                  message length header.  A normMsgr instnace can act
+                  as a sender and/or receiver.  This program uses
+                  NORM_OBJECT_DATA as its transport mode.  It has options
+                  to illustrate ACK-based flow control, and passive/active
+                  flushing of NORM transmission stream.
+                  
+normStreamer.cpp - Similar to normMsgr, but uses NORM_OBJECT_STREAM.
+                   It can support byte- and message-stream transport
+                   with the same 2-byte message length header.
+                   (TBD - implement Java and Python versions of this)
+                   
+normCast.cpp    - Similar to above two, but uses NORM_OBEJCT_FILE 
+                  to transmit files and/or or directories of files.
+                  This will eventually have the same file casting
+                  options as the "norm" demo app has such as
+                  repeat iterations through the file/directory list
+                  and ability to monitor one or more directories
+                  as live "outboxes" where files can be deposited
+                  for transmission.                  
+  
+normClient/normServer - illustrate use of the NormSocket API extension
+                        that is a work in progress, but fully functional
+                        for TCP-like byte-streaming applications.
+
+
+The following example programs are mainly "sketches" that illustrate
+the NORM API at a high level.  These programs primarily use a hard-coded 
+multicast address and port, but some have simple options:
 
 normFileSend.cpp - simple file transmission program.  Sends one
                    file and exits.
@@ -34,32 +63,15 @@ normDataRecv.cpp - simple NORM_OBJECT_DATA reception program.  This
 
 java -             There is a README.TXT in the java directory.
                    It explains the java examples, how to build
-				   them, and how to run them.
-
-NOTES:
-
-Althought the normDataSend/Recv example use relatively small data
-object sizes, the _intended_ use of NORM_OBJECT_DATA is for bulkier
-content stored in application memory space.
-
-For "messaging" applications that use modestly small message
-sizes,  the NORM_OBJECT_STREAM transport option in NORM is likely
-to provide more efficient service than NORM_OBJECT_DATA for small
-objects due to the packet level Forward Error Correction (FEC)
-based packet  recovery mechanism that NORM uses.
-
-In the future, a similar "simple" example pair will be provided to
-illustrate the NORM_OBJECT_STREAM form of transport.  Meanwhile,
-the "normTest.cpp" file in the "norm/src/common" directory 
-provides an example of the NORM API calls related to this.
-  
-Other examples will be added later including examples using the
-"NormGetDescriptor()" function to allow NORM API events to be
-multiplexed with other possible application events (e.g. other I/O
-or Windows messages, etc).
+				   them, and how to run them.  Other than 
+                   'NormMsgr.java', the examples there
+                   haven't been tested thoroughly/recently.
+                   
+python -           Other than 'normMsgr.py', the examples there
+                   haven't been tested thoroughly/recently. 
 
 Brian Adamson  
-<mailto:adamson@itd.nrl.navy.mil>
-20 August 2010
+<mailto: badamson@gmail.com>
+27 December 2019
 
 
