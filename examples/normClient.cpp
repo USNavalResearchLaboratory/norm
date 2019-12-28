@@ -136,11 +136,21 @@ int main(int argc, char* argv[])
     }  
     
     NormInstanceHandle instance = NormCreateInstance();
+	NormSocketHandle normSocket = NormOpen(instance);
+
+	if (trace)
+	{
+		NormSetMessageTrace(NormGetSocketSession(normSocket), true);
+		if (NULL != groupAddrPtr)
+			NormSetMessageTrace(NormGetSocketMulticastSession(normSocket), true);
+	}
+	if (0 != debugLevel) NormSetDebugLevel(debugLevel);
+
+	//NormSetDebugLevel(3);
+	//NormSetMessageTrace(NormGetSocketSession(normSocket), true);
     
     // Initate connection to server ...
-    fprintf(stderr, "normClient: connecting to %s/%hu ...\n", serverAddr, serverPort);
-    NormSocketHandle normSocket = NormOpen(instance);
-            
+    fprintf(stderr, "normClient: connecting to %s/%hu ...\n", serverAddr, serverPort);        
     // setting 'localPort' param here to zero lets an ephemeral port be picked
     NormConnect(normSocket, serverAddr, serverPort, 0, groupAddrPtr, clientId);
     /* // Optional code to test NormWrite() immediately after NormConnect() call
@@ -150,16 +160,7 @@ int main(int argc, char* argv[])
     NormWrite(normSocket, helloStr, helloLen);
     NormFlush(normSocket);*/
     
-    if (trace)
-    {
-        NormSetMessageTrace(NormGetSocketSession(normSocket), true);
-        if (NULL != groupAddrPtr)
-            NormSetMessageTrace(NormGetSocketMulticastSession(normSocket), true);
-    }
-    if (0 != debugLevel) NormSetDebugLevel(debugLevel);
     
-    //NormSetDebugLevel(3);
-    //NormSetMessageTrace(NormGetSocketSession(normSocket), true);
     
 #ifdef WIN32
     HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);

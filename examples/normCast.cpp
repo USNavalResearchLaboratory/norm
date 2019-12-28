@@ -85,10 +85,18 @@ class NormCaster
          unsigned long GetSentCount()
             {return sent_count;}
         
-        
         // Receiver methods
         void SetRxCacheDirectory(const char* path)
-            {strncpy(rx_cache_path, path, PATH_MAX);}
+		{
+			strncpy(rx_cache_path, path, PATH_MAX);
+			unsigned int len = strlen(rx_cache_path);
+			if (PROTO_PATH_DELIMITER != rx_cache_path[len - 1])
+			{
+				if (PATH_MAX == len) len--;
+				rx_cache_path[len] = PROTO_PATH_DELIMITER;
+				rx_cache_path[len + 1] = '\0';
+			}
+		}
         const char* GetRxCacheDirectory() const
             {return rx_cache_path;}
         
@@ -231,7 +239,6 @@ void NormCaster::SetNormCongestionControl(CCMode ccMode)
 
 bool NormCaster::Start(bool sender, bool receiver)
 {
-    fprintf(stderr, "enter NormCaster::Start() ...\n");
     // TBD - make these command-line accessible
     unsigned int bufferSize = 64*1024*1024;
     unsigned int segmentSize = 1400;
@@ -242,7 +249,6 @@ bool NormCaster::Start(bool sender, bool receiver)
     
     norm_tx_segment_size = segmentSize;
     
-    TRACE("NormCaster::Start(%d, %d) ...\n", sender, receiver);
     if (receiver)
     {
         if (!NormStartReceiver(norm_session, bufferSize))
@@ -403,7 +409,7 @@ bool NormCaster::EnqueueFileObject()
     char nameInfo[PATH_MAX + 1];
     strncpy(nameInfo, namePtr, nameLen);
     // Normalize path delimiters to '/' for transfer
-    for (int i = 0; i < nameLen; i++)
+    for (unsigned int i = 0; i < nameLen; i++)
     {
         if (PROTO_PATH_DELIMITER == nameInfo[i])
             nameInfo[i] = '/';
@@ -554,7 +560,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                 if ('/' == fileName[i]) 
                     fileName[i] = PROTO_PATH_DELIMITER;
             }
-            TRACE("got info renaming to \"%s\" ...\n", fileName);
+			TRACE("got info renaming to: %s\n", fileName);
             if (!NormFileRename(event.object, fileName))
                 perror("normCast: rx file rename error");
             break;
@@ -591,7 +597,7 @@ void Usage()
 
 int main(int argc, char* argv[])
 {
-    // REQUIRED parameters initiailization
+	// REQUIRED parameters initiailization
     NormNodeId nodeId = NORM_NODE_NONE;
     bool send = false;
     bool recv = false;
@@ -615,8 +621,6 @@ int main(int argc, char* argv[])
     double txloss = 0.0;
     bool loopback = false;
 
-	TRACE("parsing command-line ...\n");
-    
     NormCaster normCast;
     
     // Parse command-line
@@ -861,30 +865,20 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-	TRACE("calling NormCreateInstance() ...\n");
-    
-    // TBD - should provide more error checking of calls
+	// TBD - should provide more error checking of calls
     NormInstanceHandle normInstance = NormCreateInstance();
-	TRACE("calling NormSetDebugLevel() ...\n");
-    NormSetDebugLevel(debugLevel);
+	NormSetDebugLevel(debugLevel);
 	if (NULL != debugLog)
-	{
-		TRACE("calling NormOpenDebugLog() ...\n");
 		NormOpenDebugLog(normInstance, debugLog);
-	}
     
-	TRACE("calling NormSetCacheDirectory() (recv:%d) ...\n", recv);
-    // TBD - enhance NORM to support per-session or perhaps per-sender rx cache directories?
+	// TBD - enhance NORM to support per-session or perhaps per-sender rx cache directories?
     if (recv)
         NormSetCacheDirectory(normInstance, normCast.GetRxCacheDirectory());
     
-	TRACE("calling SetLoopback() ...\n");
-    normCast.SetLoopback(loopback);
-	TRACE("calling SetFlushing() ...\n");
+	normCast.SetLoopback(loopback);
 	normCast.SetFlushing(flushing);
         
-	TRACE("calling OpenNormSession() ...\n");
-    if (!normCast.OpenNormSession(normInstance, sessionAddr, sessionPort, (NormNodeId)nodeId))
+	if (!normCast.OpenNormSession(normInstance, sessionAddr, sessionPort, (NormNodeId)nodeId))
     {
         fprintf(stderr, "normCast error: unable to open NORM session\n");
         NormDestroyInstance(normInstance);
@@ -905,12 +899,10 @@ int main(int argc, char* argv[])
     
     if (trace) normCast.SetNormMessageTrace(true);
     
-	TRACE("calling Start() ...\n");
-    // TBD - set NORM session parameters
+	// TBD - set NORM session parameters
     normCast.Start(send, recv); 
 
-	TRACE("calling SendFiles() ...\n");
-    if (normCast.TxFilePending()) normCast.SendFiles();
+	 if (normCast.TxFilePending()) normCast.SendFiles();
     
 #ifdef WIN32
     //Win32InputHandler inputHandler;
@@ -926,7 +918,6 @@ int main(int argc, char* argv[])
     FD_ZERO(&fdsetInput);
 #endif  // if/else WIN32/UNIX
     
-	TRACE("entering main loop ...\n");
     while (normCast.IsRunning())
     {
         // TBD - could add "stdin" as a descriptor to monitor 
@@ -935,8 +926,7 @@ int main(int argc, char* argv[])
         bool normEventPending = false;
         bool inputEventPending = false;
 #ifdef WIN32
-		TRACE("calling MsgWaitForMultipleObjectsEx() ...\n");
-        DWORD handleCount = inputNeeded ? 2 : 1;
+		DWORD handleCount = inputNeeded ? 2 : 1;
         DWORD waitStatus =  
             MsgWaitForMultipleObjectsEx(handleCount,   // number of handles in array
                                         handleArray,   // object-handle array
