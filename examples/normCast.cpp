@@ -315,7 +315,7 @@ bool NormCaster::TxReady() const
 
 bool NormCaster::StageNextTxFile()
 {
-    // Pull next file path from "tx_file_list" as stage as "tx_pending_path"
+    // Pull next file path from "tx_file_list" and stage as "tx_pending_path"
     if (tx_file_iterator.GetNextFile(tx_pending_path))
     {
         // This code omits the source directory prefix from the name transmitted
@@ -333,12 +333,12 @@ bool NormCaster::StageNextTxFile()
         else
         {
             // Adjust the prefix len so only the file basename is conveyed.
-            // (We use a reverse ProtoTokenator tokenization to get the
-            //  file basename string).
+            // (We use a reverse ProtoTokenator tokenization limited to a
+            //  single split to get the file basename string).
             ProtoTokenator tk(tx_pending_path, PROTO_PATH_DELIMITER, true, 1, true);
             const char* basename = tk.GetNextItem();
             ASSERT(NULL != basename);
-            unsigned namelen = strlen(basename);
+            unsigned int namelen = strlen(basename);
             tx_pending_prefix_len = strlen(tx_pending_path) - namelen;
         }
         return true;
@@ -932,7 +932,7 @@ int main(int argc, char* argv[])
         DWORD waitStatus =  
             MsgWaitForMultipleObjectsEx(handleCount,   // number of handles in array
                                         handleArray,   // object-handle array
-                                        INFINITE,           // time-out interval
+                                        INFINITE,      // time-out interval
                                         QS_ALLINPUT,   // input-event type
                                         0);
         if ((WAIT_OBJECT_0 <= waitStatus) && (waitStatus < (WAIT_OBJECT_0 + handleCount)))
