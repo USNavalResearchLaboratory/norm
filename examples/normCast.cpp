@@ -341,7 +341,6 @@ bool NormCaster::StageNextTxFile()
             unsigned namelen = strlen(basename);
             tx_pending_prefix_len = strlen(tx_pending_path) - namelen;
         }
-        TRACE("next file staged: %s\n", tx_pending_path + tx_pending_prefix_len);
         return true;
     }
     else
