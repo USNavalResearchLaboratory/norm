@@ -331,8 +331,16 @@ bool NormCaster::StageNextTxFile()
         }
         else
         {
-            tx_pending_prefix_len = 0;
+            // Adjust the prefix len so only the file basename is conveyed.
+            // (We use a reverse ProtoTokenator tokenization to get the
+            //  file basename string).
+            ProtoTokenator tk(tx_pending_path, PROTO_PATH_DELIMITER, true, 1, true);
+            const char* basename = tk.GetNextItem();
+            ASSERT(NULL != basename);
+            unsigned namelen = strlen(basename);
+            tx_pending_prefix_len = strlen(tx_pending_path) - namelen;
         }
+        TRACE("next file staged: %s\n", tx_pending_path + tx_pending_prefix_len);
         return true;
     }
     else

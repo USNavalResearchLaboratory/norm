@@ -31,7 +31,7 @@ for line in vfile.readlines():
     if "#define" == line[0] and "VERSION" == line[1]:
         VERSION = line[2].strip('"')
 if VERSION is None:
-    print "Warning: NORM VERSION not found!?"
+    print ("Warning: NORM VERSION not found!?")
 
 # So you don't need to do ./waf configure if you are just using the defaults
 waflib.Configure.autoconfig = True
