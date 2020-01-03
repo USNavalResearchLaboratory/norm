@@ -1,6 +1,11 @@
 			           NORM Version History
 
 
+Version 1.5.9 (in progress)
+=============
+    - Added "normCast" file send/receive example 
+    - Protolib ProtoTimer fix for "long" timeout intervals
+
 Version 1.5.8
 =============
     - Modified waf build to build pkg-config file.cThanks to Luca Boccassi
