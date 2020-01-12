@@ -10,13 +10,42 @@
 #include <sys/select.h>
 #endif  // if/else WIN32/UNIX
 
-#define SHOOT_FIRST 1
+// When the "ack" option _and_ flushing is used, there are a couple of strategies
+// that can be used.  Here, the two options implemented are  titled
+// "SHOOT_FIRST" and "ACK_LATER".  If "SHOOT_FIRST" is #defined, then
+// NormSetWatermark() is called immediately after each enqueued transmit
+// object.  This call to "NormSetWatermark()" cancels any previous 
+// watermark request, immediately advancing the "watermark" to the current
+// transmit object id.  Generally, this is OK, but in very high bandwidth*delay,
+// this may cause some dead air time since flow control might not be advanced any
+// until the ack for watermark is received.  When SHOOT_FIRST is _not_ #defined,
+// the NormSetWatermark() call is deferred if an existing flow control watermark
+// request is pending acknowledgment.  This potentially allows the flow control
+// to be advanced sooner instead of the sender "chasing its own tail" with the 
+// SHOOT_FIRST strategy.  Both strategies are implemented here, because under
+// certain cases, the SHOOT_FIRST _may_ have benefit.  Try them both, and you 
+// decide ...
 
-// I usually avoid using Protlib stuff for NORM API examples to keep things clearer,  
+// By the way, this SHOOT_FIRST/ACK_LATER only applies to the case when both
+// the "ack" and "flush" options are used.  The "flush" option controls the
+// NORM sender behavior when object objects are transmitted intermittently.
+// I.e., determines if/when NORM_CMD(FLUSH) messages are sent prior to 
+// final end-of-transmission (e.g., when a pause in transmission occurs).  
+// This will be applicable when normCast gets a few additional options like
+// repeat iterations of transmit file/directory list on user-controlled
+// timer interval, etc.  For example, "flush active" means NORM_CMD(FLUSH)
+// would be sent during such pauses, while "flush none" would result in
+// sender immediately going silent at pauses in file transmission.
+
+// Uncomment this to enable the "SHOOT_FIRST" strategy, as opposed to "ACK_LATER"
+// #define SHOOT_FIRST 1
+
+// I usually avoid using Protolib stuff for NORM API examples to keep things clearer,  
 // but the couple of classes here are useful helpers from the Protolib C++ toolkit.
 
 #include "protoFile.h"    // for ProtoFile::PathList and iterator for tx file/directory queue
 #include "protoString.h"  // for ProtoTokenator
+#include "protoAddress.h" // for ProtoAddress
 
 class NormCaster
 {
@@ -34,6 +63,8 @@ class NormCaster
                              unsigned short     port,
                              NormNodeId         nodeId);
         void CloseNormSession();
+        
+        NormSessionHandle GetSession() const {return norm_session;}
         
         void SetNormCongestionControl(CCMode ccMode);
         
@@ -102,6 +133,13 @@ class NormCaster
             {return rx_cache_path;}
         
         // These can only be called post-OpenNormSession()
+        
+        void SetAutoAck(bool enable)
+        {
+                NormTrackingStatus trackingMode = enable? NORM_TRACK_RECEIVERS : NORM_TRACK_NONE;
+                NormSetAutoAckingNodes(norm_session, trackingMode);
+                norm_acking = enable;
+        }
         void SetSilentReceiver(bool state)
             {NormSetSilentReceiver(norm_session, true);}
         void SetTxLoss(double txloss)
@@ -257,7 +295,7 @@ bool NormCaster::Start(bool sender, bool receiver)
             return false;
         }
         // Note: NormPreallocateRemoteSender() MUST be called AFTER NormStartReceiver()
-        NormPreallocateRemoteSender(norm_session, bufferSize, segmentSize, blockSize, numParity, bufferSize);
+        //NormPreallocateRemoteSender(norm_session, bufferSize, segmentSize, blockSize, numParity, bufferSize);
         NormSetRxSocketBuffer(norm_session, rxSockBufferSize);
         fprintf(stderr, "normCast: receiver ready ...\n");
     }
@@ -332,9 +370,9 @@ bool NormCaster::StageNextTxFile()
         }
         else
         {
-            // Adjust the prefix len so only the file basename is conveyed.
-            // (We use a reverse ProtoTokenator tokenization limited to a
-            //  single split to get the file basename string).
+            // Set the tx_pending_prefix_len" so only the file basename is conveyed.
+            // (We use a reverse ProtoTokenator tokenization limited to a single
+            //  split to get the file basename string).
             ProtoTokenator tk(tx_pending_path, PROTO_PATH_DELIMITER, true, 1, true);
             const char* basename = tk.GetNextItem();
             ASSERT(NULL != basename);
@@ -367,7 +405,7 @@ void NormCaster::SendFiles()
             if (!StageNextTxFile())
             {
                 // We have reach end of tx_file_list, so either
-                // we're done or we reset tx_file_iterator
+                // we're done or we reset tx_file_iterator (when 'repeat' option (TBD) is enabled)
                 // If we're done and requesting ACK, finish up nicely with final waterrmark
                 if (norm_acking)
                 {
@@ -489,6 +527,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                     norm_flow_control_pending = false;
                     if (NORM_OBJECT_INVALID != norm_flush_object)
                     {
+                        // Set the deferred watermark per our ACK_LATER strategy
                         NormSetWatermark(norm_session, norm_flush_object, true);
                         norm_last_object = norm_flush_object;
                         norm_flush_object = NORM_OBJECT_INVALID;
@@ -526,9 +565,18 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             if(event.object == norm_flush_object)
                 norm_flush_object = NORM_OBJECT_INVALID;
             // This is where we could delete the associated tx file if desired
-            // (e.g., for an "outbox" use case
+            // (e.g., for an "outbox" use case)
             break;
         }   
+        
+        case NORM_ACKING_NODE_NEW:
+        {
+            NormNodeId id = NormNodeGetId(event.sender);
+            UINT32 tmp = htonl(id);
+            ProtoAddress addr;
+            addr.SetRawHostAddress(ProtoAddress::IPv4, (char*)&tmp, 4);
+            fprintf(stderr, "normCast: new acking node: %lu (IP address: %s)\n", (unsigned long)id, addr.GetHostString());
+        }
         
         case NORM_REMOTE_SENDER_INACTIVE:
             //fprintf(stderr, "REMOTE SENDER INACTIVE node: %u\n", NormNodeGetId(event.sender));
@@ -608,6 +656,7 @@ int main(int argc, char* argv[])
     strcpy(sessionAddr, "224.1.2.3");
     unsigned int sessionPort = 6003;
     
+    bool autoAck = false;
     NormNodeId ackingNodeList[256]; 
     unsigned int ackingNodeCount = 0;
     bool flushing = false;
@@ -721,20 +770,28 @@ int main(int argc, char* argv[])
                 return -1;
             }
             const char* alist = argv[i++];
-            while ((NULL != alist) && (*alist != '\0'))
+            if (0 == strcmp("auto", alist))
             {
-                // TBD - Do we need to skip leading white space?
-                int id;
-                if (1 != sscanf(alist, "%d", &id))
+                autoAck = true;
+            }
+            else
+            {
+                autoAck = false;
+                while ((NULL != alist) && (*alist != '\0'))
                 {
-                    fprintf(stderr, "normCast error: invalid acking node list!\n");
-                    Usage();
-                    return -1;
+                    // TBD - Do we need to skip leading white space?
+                    int id;
+                    if (1 != sscanf(alist, "%d", &id))
+                    {
+                        fprintf(stderr, "normCast error: invalid acking node list!\n");
+                        Usage();
+                        return -1;
+                    }
+                    ackingNodeList[ackingNodeCount] = NormNodeId(id);
+                    ackingNodeCount++;
+                    alist = strchr(alist, ',');
+                    if (NULL != alist) alist++;  // point past comma
                 }
-                ackingNodeList[ackingNodeCount] = NormNodeId(id);
-                ackingNodeCount++;
-                alist = strchr(alist, ',');
-                if (NULL != alist) alist++;  // point past comma
             }
         }
         else if (0 == strncmp(cmd, "flush", len))
@@ -860,12 +917,6 @@ int main(int argc, char* argv[])
         Usage();
         return -1;
     }
-    if (NORM_NODE_NONE == nodeId)
-    {
-        fprintf(stderr, "normCast error: no local 'id' provided!\n");
-        Usage();
-        return -1;
-    }
 
 	// TBD - should provide more error checking of calls
     NormInstanceHandle normInstance = NormCreateInstance();
@@ -887,11 +938,33 @@ int main(int argc, char* argv[])
         return -1;
     }
     
+    
+    if (NORM_NODE_NONE == nodeId)
+    {
+        // local node id was auto-assigned so let's see what it was assigned
+        nodeId = NormGetLocalNodeId(normCast.GetSession());
+        // For cross-platform, use ProtoAddress to see if a reasonable IP address was used
+        UINT32 tmp = htonl(nodeId);
+        ProtoAddress addr;
+        addr.SetRawHostAddress(ProtoAddress::IPv4, (char*)&tmp, 4);
+        fprintf(stderr, "normCast: auto assigned NormNodeId: %lu (IP address: %s)\n",
+                (unsigned long)nodeId, addr.GetHostString());
+    }
+    
+    
     if (silentReceiver) normCast.SetSilentReceiver(true);
     if (txloss > 0.0) normCast.SetTxLoss(txloss);
     
-    for (unsigned int i = 0; i < ackingNodeCount; i++)
-        normCast.AddAckingNode(ackingNodeList[i]);
+    
+    if (autoAck)
+    {
+        normCast.SetAutoAck(true);
+    }
+    else
+    {
+        for (unsigned int i = 0; i < ackingNodeCount; i++)
+            normCast.AddAckingNode(ackingNodeList[i]);
+    }
     
     normCast.SetNormCongestionControl(ccMode);
     if (NormCaster::NORM_FIXED == ccMode)
@@ -1019,7 +1092,7 @@ int main(int argc, char* argv[])
     
     normCast.Destroy();
     
-    fprintf(stderr, "normCast done.\n");
+    fprintf(stderr, "normCast: done.\n");
     
 }  // end main()
 
