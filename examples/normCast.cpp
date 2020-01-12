@@ -519,6 +519,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
         case NORM_TX_WATERMARK_COMPLETED:
             if (NORM_ACK_SUCCESS == NormGetAckingStatus(norm_session))
             {
+                // All receivers acknowledged.
                 norm_last_object = NORM_OBJECT_INVALID;
                 bool txFilePending = TxFilePending();  // need to check this _before_ possible call to SendFiles()
                 if (norm_flow_control_pending)
@@ -543,10 +544,28 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             }
             else
             {
-                // TBD - we could see who did and how didn't ACK and possibly remove them
-                //       from our acking "membership".  For now, we are infinitely
-                //       persistent by resetting watermark ack request without clearing
-                //       flow control
+                
+                // In multicast, there is a chance some nodes ACK ...
+                // so let's see who did, if any.
+                // This iterates through the acking nodes looking for responses
+                // to our application-defined NormSetWatermarkEx() request
+                NormAckingStatus ackingStatus;
+                NormNodeId nodeId = NORM_NODE_NONE;  // this inits NormGetNextAckingNode() iteration
+                while (NormGetNextAckingNode(event.session, &nodeId, &ackingStatus))
+                {
+                    UINT32 tmp = htonl(nodeId);
+                    ProtoAddress addr;
+                    addr.SetRawHostAddress(ProtoAddress::IPv4, (char*)&tmp, 4);
+                    if (NORM_ACK_SUCCESS != ackingStatus)
+                        fprintf(stderr, "normCast: node %lu (IP address: %s) failed to acnowledge.\n",
+                                        (unsigned long)nodeId, addr.GetHostString());
+                    else
+                        fprintf(stderr, "normCast: node %lu (IP address: %s) acknowledged.\n",
+                                        (unsigned long)nodeId, addr.GetHostString());
+                }
+                // TBD - we could eventually time out and remove nodes that fail to ack
+                // but for now, we are infinitely persistent by resetting watermark 
+                // ack request without clearing flow control
                 if (NORM_OBJECT_INVALID == norm_flush_object)
                 {
                     NormResetWatermark(norm_session);
