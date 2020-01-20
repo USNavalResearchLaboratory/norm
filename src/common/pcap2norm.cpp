@@ -105,7 +105,7 @@ int main(int argc, char* argv[])
         else
         {
             memcpy(ethBuffer, pktData, numBytes);
-            ProtoPktETH ethPkt((UINT32*)ethBuffer, maxBytes);
+            ProtoPktETH ethPkt(ethBuffer, maxBytes);
             if (!ethPkt.InitFromBuffer(hdr.len))
             {
                 fprintf(stderr, "pcap2norm error: invalid Ether frame in pcap file\n");
