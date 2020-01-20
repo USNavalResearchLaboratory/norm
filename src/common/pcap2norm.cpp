@@ -113,7 +113,9 @@ int main(int argc, char* argv[])
             }    
             ethType = ethPkt.GetType();
             payloadLength = ethPkt.GetPayloadLength();
-            payloadPtr = (UINT32*)ethPkt.AccessPayload();
+            // This is done know we offset the ethBuffer above
+            payloadPtr = alignedBuffer + (2 + ethPkt.GetLength() - ethPkt.GetPayloadLength())/4;
+            //payloadPtr = (UINT32*)ethPkt.AccessPayload();
         }
         
         ProtoPktIP ipPkt;
@@ -264,7 +266,7 @@ void NormTrace2(const struct timeval&    currentTime,
                     seq, 
                     //data.IsData() ? "DATA" : "PRTY",
                     (UINT16)data.GetObjectId(),
-                    (UINT32)data.GetFecBlockId(fecM),  
+                    (UINT32)data.GetFecBlockId(fecM).GetValue(),  
                     (UINT16)data.GetFecSymbolId(fecM));
             
             if (data.IsStream())
@@ -308,7 +310,7 @@ void NormTrace2(const struct timeval&    currentTime,
                         static_cast<const NormCmdSquelchMsg&>(msg);
                     PLOG(PL_ALWAYS, " obj>%hu blk>%lu seg>%hu ",
                             (UINT16)squelch.GetObjectId(),
-                            (UINT32)squelch.GetFecBlockId(fecM),
+                            (UINT32)squelch.GetFecBlockId(fecM).GetValue(),
                             (UINT16)squelch.GetFecSymbolId(fecM));
                     break;
                 }
@@ -318,7 +320,7 @@ void NormTrace2(const struct timeval&    currentTime,
                         static_cast<const NormCmdFlushMsg&>(msg);
                     PLOG(PL_ALWAYS, " obj>%hu blk>%lu seg>%hu ",
                             (UINT16)flush.GetObjectId(),
-                            (UINT32)flush.GetFecBlockId(fecM),  
+                            (UINT32)flush.GetFecBlockId(fecM).GetValue(),  
                             (UINT16)flush.GetFecSymbolId(fecM));
                     
                     // Print acking node list (if any)

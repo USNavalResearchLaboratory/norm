@@ -11,7 +11,7 @@
 #endif  // if/else WIN32/UNIX
 
 // When the "ack" option _and_ flushing is used, there are a couple of strategies
-// that can be used.  Here, the two options implemented are  titled
+// that can be used.  Here, the two options implemented are titled
 // "SHOOT_FIRST" and "ACK_LATER".  If "SHOOT_FIRST" is #defined, then
 // NormSetWatermark() is called immediately after each enqueued transmit
 // object.  This call to "NormSetWatermark()" cancels any previous 
@@ -23,8 +23,9 @@
 // request is pending acknowledgment.  This potentially allows the flow control
 // to be advanced sooner instead of the sender "chasing its own tail" with the 
 // SHOOT_FIRST strategy.  Both strategies are implemented here, because under
-// certain cases, the SHOOT_FIRST _may_ have benefit.  Try them both, and you 
-// decide ...
+// certain cases, the SHOOT_FIRST _may_ have benefit. For example, low duty cycle
+// transmission may benefit if acknowledgment is requested after each object.  
+// Try them both, and you decide ...
 
 // By the way, this SHOOT_FIRST/ACK_LATER only applies to the case when both
 // the "ack" and "flush" options are used.  The "flush" option controls the
