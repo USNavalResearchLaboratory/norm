@@ -111,5 +111,12 @@ The NORM code depends upon the current "Protolib" release:
 
   https://github.com/USNavalResearchLaboratory/protolib 
   
-The "protolib" source tree (or a symbolic link to it) must be placed in the top level of the "norm" source tree.  The NORM build will build the protolib as needed.
-  
+It has been addded as a git submodule to the NORM git repository.  So, to 
+to build you will need to do the following step to download the protolib code
+after cloning the 'norm' repository:
+
+cd norm
+git submodule update --init
+
+
+
