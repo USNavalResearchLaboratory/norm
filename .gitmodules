@@ -1,0 +1,3 @@
+[submodule "protolib"]
+	path = protolib
+	url = https://github.com/USNavalResearchLaboratory/protolib.git
