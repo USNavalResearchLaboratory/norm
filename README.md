@@ -118,5 +118,14 @@ after cloning the 'norm' repository:
 cd norm
 git submodule update --init
 
+To keep the 'protolib' submodule up to date, you will need to do the 
+following:
+
+cd norm/protolib
+git checkout master
+
+This will enable you to issue 'git pull', etc to treat the 'protolib' 
+sub-directory as its own (sub-) repository.
+
 
 
