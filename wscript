@@ -241,7 +241,7 @@ def _make_simple_example(ctx, name, path='examples'):
     example = ctx.program(
         target = name,
         includes = ['include', 'protolib/include'],
-        use = ['protolib'],
+        use = ['protolib_st'],
         defines = [],
         source = source,
         # Don't build examples by default
