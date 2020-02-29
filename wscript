@@ -57,8 +57,8 @@ def configure(ctx):
     if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
         ctx.env.DEFINES_BUILD_NORM += ['ECN_SUPPORT']
 
-    if system == 'windows':
-        ctx.env.DEFINES_BUILD_NORM += ['NORM_USE_DLL']
+    #if system == 'windows':
+    #    ctx.env.DEFINES_BUILD_NORM += ['NORM_USE_DLL']
 
     if ctx.env.COMPILER_CXX == 'g++' or ctx.env.COMPILER_CXX == 'clang++':
         ctx.env.CFLAGS += ['-fvisibility=hidden', '-Wno-attributes']
@@ -75,13 +75,7 @@ def build(ctx):
     # Setup to install NORM header file
     ctx.install_files("${PREFIX}/include/", "include/normApi.h")
     
-    obj = ctx.objects(
-        target = 'norm_objs',
-        includes = ['include'],
-        export_includes = ['include'],
-        use = ctx.env.USE_BUILD_NORM + ['protolib_st'],
-        #stlib = ["protokit"],
-        source = ['src/common/{0}.cpp'.format(x) for x in [
+    normSrc = ['src/common/{0}.cpp'.format(x) for x in [
             'galois',
             'normApi',
             'normEncoder',
@@ -94,8 +88,7 @@ def build(ctx):
             'normObject',
             'normSegment',
             'normSession',
-        ]],
-    )
+        ]]
     
     # Use static lib for Unix examples for convenience
 	# (so we don't have to worry about LD_LIBRARY_PATH)
@@ -104,30 +97,29 @@ def build(ctx):
         name = 'norm_shlib',
         includes = ['include'],
         export_includes = ['include'],
+        use = ctx.env.USE_BUILD_NORM + ['protolib_st'],
+        defines = ['NORM_USE_DLL'] if 'windows' == system else [],
         vnum = VERSION,
-        stlib = ["protokit"],
-        use = ['norm_objs'],
-        source = [],
+        source = normSrc,
         features = 'cxx cxxshlib',
         install_path = '${LIBDIR}',
     )
     
     ctx.stlib(
-        target = 'norm',
+        target = 'norm' if 'windows' != system else 'norm_static',
         name = 'norm_stlib',
         includes = ['include'],
         export_includes = ['include'],
+        use = ctx.env.USE_BUILD_NORM + ['protolib_st'],
         vnum = VERSION,
-        stlib = ["protokit"],
-        use = ['norm_objs'],
-        source = [],
+        source = normSrc,
         features = 'cxx cxxstlib',
         install_path = '${LIBDIR}',
     )
-    
 
     if ctx.env.BUILD_PYTHON:
         ctx(
+            use = ['norm_shlib'],
             features='py',
             source=ctx.path.ant_glob('src/pynorm/**/*.py'),
             install_from='src',
@@ -138,7 +130,8 @@ def build(ctx):
             target = 'mil_navy_nrl_norm',
             includes = ['include'],
             use = ['norm_shlib', 'JAVA'],
-		    vnum = VERSION,
+            vnum = VERSION,
+            defines = ['NORM_USE_DLL'] if 'windows' == system else [],
             source = ['src/java/jni/{0}.cpp'.format(x) for x in [
                 'normJni',
                 'normInstanceJni',
@@ -165,8 +158,8 @@ def build(ctx):
         # the  library is also named "norm"
         name = 'normapp',
         target = 'normapp',
-        includes = ['include'],
-        use = ['protokit', 'norm_stlib'], 
+        #includes = ['include'],
+        use = ['protolib_st', 'norm_stlib'], 
         defines = [],
         source = ['src/common/{0}.cpp'.format(x) for x in [
             'normPostProcess',
@@ -249,8 +242,11 @@ def _make_simple_example(ctx, name, path='examples'):
         # Don't install examples
         install_path = False,
     )
+
+    # TBD - figure out how build NORM DLL and stil
+    # enable Windows examples to link against static lib
     if 'windows' == system:
-        example.use.append('norm_shlib')
+        example.use.append('norm_stlib')
         example.defines.append('_CONSOLE')
     else:
         example.use.append('norm_stlib')
