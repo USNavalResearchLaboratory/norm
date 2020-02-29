@@ -565,7 +565,8 @@ bool NormStreamer::OpenNormSession(NormInstanceHandle instance, const char* addr
     // Set some default parameters (maybe we should put parameter setting in Start())
     NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_STREAM);
     
-    NormSetDefaultUnicastNack(norm_session, true);
+    if (!is_multicast)
+        NormSetDefaultUnicastNack(norm_session, true);
     
     NormSetTxRobustFactor(norm_session, 20);
     
