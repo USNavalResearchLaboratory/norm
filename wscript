@@ -52,8 +52,8 @@ def configure(ctx):
     ctx.recurse('protolib')
 
     # Use this USE variable to add flags to NORM's compilation
-    ctx.env.USE_BUILD_NORM += ['BUILD_NORM', 'protokit']
-
+    ctx.env.USE_BUILD_NORM += ['BUILD_NORM']
+    
     if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
         ctx.env.DEFINES_BUILD_NORM += ['ECN_SUPPORT']
 
@@ -76,11 +76,11 @@ def build(ctx):
     ctx.install_files("${PREFIX}/include/", "include/normApi.h")
     
     obj = ctx.objects(
-        target = 'objs',
+        target = 'norm_objs',
         includes = ['include'],
         export_includes = ['include'],
-        use = ctx.env.USE_BUILD_NORM,
-        stlib = ["protokit"],
+        use = ctx.env.USE_BUILD_NORM + ['protolib_st'],
+        #stlib = ["protokit"],
         source = ['src/common/{0}.cpp'.format(x) for x in [
             'galois',
             'normApi',
@@ -97,7 +97,7 @@ def build(ctx):
         ]],
     )
     
-	# Use static lib for Unix examples for convenience
+    # Use static lib for Unix examples for convenience
 	# (so we don't have to worry about LD_LIBRARY_PATH)
     ctx.shlib(
         target = 'norm',
@@ -106,12 +106,12 @@ def build(ctx):
         export_includes = ['include'],
         vnum = VERSION,
         stlib = ["protokit"],
-        use = ['objs'] + ctx.env.USE_BUILD_NORM,
+        use = ['norm_objs'],
         source = [],
         features = 'cxx cxxshlib',
         install_path = '${LIBDIR}',
     )
-
+    
     ctx.stlib(
         target = 'norm',
         name = 'norm_stlib',
@@ -119,11 +119,12 @@ def build(ctx):
         export_includes = ['include'],
         vnum = VERSION,
         stlib = ["protokit"],
-        use = ['objs'] + ctx.env.USE_BUILD_NORM,
+        use = ['norm_objs'],
         source = [],
         features = 'cxx cxxstlib',
         install_path = '${LIBDIR}',
     )
+    
 
     if ctx.env.BUILD_PYTHON:
         ctx(
@@ -219,12 +220,14 @@ def build(ctx):
     # Generate pkg-config file
     # Add additional static compilation dependencies based on the system.
     # libpcap is used by protolib on GNU/Hurd based systems.
+    '''
     static_libs = ''
     if ctx.options.enable_static_library:
         static_libs += ' -lstdc++ -lprotokit'
         if system == "gnu":
             static_libs += ' -lpcap'
     ctx(source='norm.pc.in', STATIC_LIBS = static_libs)
+    '''
     
     
 def _make_simple_example(ctx, name, path='examples'):
