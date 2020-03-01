@@ -163,7 +163,7 @@ def build(ctx):
     if 'clang++' == ctx.env.COMPILER_CXX:
         use = ['protoObjs', 'normObjs']
     else:
-        use = ['norm.stlib']
+        use = ['norm_stlib', 'protolib_st']
     
     normapp = ctx.program(
         # Need to explicitly set a different name, because 
@@ -238,8 +238,8 @@ def _make_simple_example(ctx, name, path='examples'):
     if 'clang++' == ctx.env.COMPILER_CXX:
         use = ['protoObjs', 'normObjs']
     else:
-        use = ['norm.stlib']
-    
+        use = ['norm_stlib', 'protolib_st']
+    source = ['{0}/{1}.cpp'.format(path, name)]
     if 'normClient' == name or 'normServer' == name:
         source.append('%s/normSocket.cpp' % path)
     example =  ctx.program(
@@ -247,7 +247,7 @@ def _make_simple_example(ctx, name, path='examples'):
         includes = ['include', 'protolib/include'],
         use = use,
         defines = [],
-        source = ['{0}/{1}.cpp'.format(path, name)],
+        source = source,
         # Don't build examples by default
         posted = True,
         # Don't install examples
