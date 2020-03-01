@@ -98,7 +98,10 @@ def build(ctx):
         includes = ['include'],
         export_includes = ['include'],
         use = ctx.env.USE_BUILD_NORM + ['protolib_st'],
+        #stlib = ['protokit'],
         defines = ['NORM_USE_DLL'] if 'windows' == system else [],
+        # Hack so clang links to libprotokit.a static library instead of dynamic
+        linkflags = ['protolib/libprotokit.a'] if ctx.env.COMPILER_CXX == 'clang++' else [],
         vnum = VERSION,
         source = normSrc,
         features = 'cxx cxxshlib',
@@ -116,7 +119,7 @@ def build(ctx):
         features = 'cxx cxxstlib',
         install_path = '${LIBDIR}',
     )
-
+    
     if ctx.env.BUILD_PYTHON:
         ctx(
             use = ['norm_shlib'],
@@ -129,7 +132,8 @@ def build(ctx):
         ctx.shlib(
             target = 'mil_navy_nrl_norm',
             includes = ['include'],
-            use = ['norm_shlib', 'JAVA'],
+            use = ['norm_shlib', 'protolib_st', 'JAVA'],
+            stlib = ['protokit'],
             vnum = VERSION,
             defines = ['NORM_USE_DLL'] if 'windows' == system else [],
             source = ['src/java/jni/{0}.cpp'.format(x) for x in [
