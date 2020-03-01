@@ -82,7 +82,6 @@ def build(ctx):
         use = ctx.env.USE_BUILD_NORM + ctx.env.USE_BUILD_PROTOLIB, 
         source = ['src/common/{0}.cpp'.format(x) for x in [
             'galois',
-            'normApi',
             'normEncoder',
             'normEncoderMDP',
             'normEncoderRS16',
@@ -105,7 +104,7 @@ def build(ctx):
         use = ['protoObjs', 'normObjs'],
         defines = ['NORM_USE_DLL'] if 'windows' == system else [],
         vnum = VERSION,
-        source = [],
+        source = ['src/common/normApi.cpp'],
         features = 'cxx cxxshlib',
         install_path = '${LIBDIR}',
     )
@@ -117,7 +116,7 @@ def build(ctx):
         export_includes = ['include'],
         use = ['protoObjs', 'normObjs'],
         vnum = VERSION,
-        source = [],
+        source = ['src/common/normApi.cpp'],
         features = 'cxx cxxstlib',
         install_path = '${LIBDIR}',
     )
