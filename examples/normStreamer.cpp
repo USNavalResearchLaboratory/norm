@@ -43,7 +43,7 @@ const unsigned int LOOP_MAX = 100;
 // flow control buffer limits are reached and end up with 
 // "dead air" time.  There are always tradeoffs!
 
-#define SHOOT_FIRST 0
+//#define SHOOT_FIRST 0
 
 class NormStreamer
 {
