@@ -75,7 +75,12 @@ def build(ctx):
     # Setup to install NORM header file
     ctx.install_files("${PREFIX}/include/", "include/normApi.h")
     
-    normSrc = ['src/common/{0}.cpp'.format(x) for x in [
+    ctx.objects(
+        target = 'normObjs',
+        includes = ['include', 'protolib/include'],
+        export_includes = ['include'],
+        use = ctx.env.USE_BUILD_NORM + ctx.env.USE_BUILD_PROTOLIB, 
+        source = ['src/common/{0}.cpp'.format(x) for x in [
             'galois',
             'normApi',
             'normEncoder',
@@ -88,22 +93,19 @@ def build(ctx):
             'normObject',
             'normSegment',
             'normSession',
-        ]]
+        ]],
+    )
     
-    # Use static lib for Unix examples for convenience
-	# (so we don't have to worry about LD_LIBRARY_PATH)
+    # Protolib is incorporated into static and dynmamic NORM libs
     ctx.shlib(
         target = 'norm',
         name = 'norm_shlib',
         includes = ['include'],
         export_includes = ['include'],
-        use = ctx.env.USE_BUILD_NORM + ['protolib_st'],
-        #stlib = ['protokit'],
+        use = ['protoObjs', 'normObjs'],
         defines = ['NORM_USE_DLL'] if 'windows' == system else [],
-        # Hack so clang links to libprotokit.a static library instead of dynamic
-        linkflags = ['protolib/libprotokit.a'] if ctx.env.COMPILER_CXX == 'clang++' else [],
         vnum = VERSION,
-        source = normSrc,
+        source = [],
         features = 'cxx cxxshlib',
         install_path = '${LIBDIR}',
     )
@@ -113,9 +115,9 @@ def build(ctx):
         name = 'norm_stlib',
         includes = ['include'],
         export_includes = ['include'],
-        use = ctx.env.USE_BUILD_NORM + ['protolib_st'],
+        use = ['protoObjs', 'normObjs'],
         vnum = VERSION,
-        source = normSrc,
+        source = [],
         features = 'cxx cxxstlib',
         install_path = '${LIBDIR}',
     )
@@ -132,8 +134,7 @@ def build(ctx):
         ctx.shlib(
             target = 'mil_navy_nrl_norm',
             includes = ['include'],
-            use = ['norm_shlib', 'protolib_st', 'JAVA'],
-            stlib = ['protokit'],
+            use = ['norm_shlib', 'JAVA'],
             vnum = VERSION,
             defines = ['NORM_USE_DLL'] if 'windows' == system else [],
             source = ['src/java/jni/{0}.cpp'.format(x) for x in [
@@ -157,13 +158,20 @@ def build(ctx):
         )
 
     # Links to static library since it uses C++ objects directly instead of API
+    
+    # Hack to force clang to statically link stuff
+    if 'clang++' == ctx.env.COMPILER_CXX:
+        use = ['protoObjs', 'normObjs']
+    else:
+        use = ['norm.stlib']
+    
     normapp = ctx.program(
         # Need to explicitly set a different name, because 
         # the  library is also named "norm"
         name = 'normapp',
         target = 'normapp',
-        #includes = ['include'],
-        use = ['protolib_st', 'norm_stlib'], 
+        includes = ['include', 'protolib/include'],
+        use = use, 
         defines = [],
         source = ['src/common/{0}.cpp'.format(x) for x in [
             'normPostProcess',
@@ -172,11 +180,7 @@ def build(ctx):
         # Disabled by default
         posted = True,
     )
-    
-    # Hack to force clang to link static libnorm.a
-    if ctx.env.COMPILER_CXX == 'clang++': 
-        normapp.linkflags ='libnorm.a'
-        
+       
     if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
         normapp.source.append('src/unix/unixPostProcess.cpp')
 
@@ -217,45 +221,39 @@ def build(ctx):
     # Generate pkg-config file
     # Add additional static compilation dependencies based on the system.
     # libpcap is used by protolib on GNU/Hurd based systems.
-    '''
     static_libs = ''
     if ctx.options.enable_static_library:
         static_libs += ' -lstdc++ -lprotokit'
         if system == "gnu":
             static_libs += ' -lpcap'
     ctx(source='norm.pc.in', STATIC_LIBS = static_libs)
-    '''
-    
     
 def _make_simple_example(ctx, name, path='examples'):
     '''Makes a task from a single source file in the examples directory.
-
-    Note these tasks are not built by default.  Use the --targets flag.
+       Note these tasks are not built by default.  
+      Use the waf build --targets flag.
     '''
-    source = ['{0}/{1}.cpp'.format(path, name)]
+    
+    # Hack to force clang to statically link stuff
+    if 'clang++' == ctx.env.COMPILER_CXX:
+        use = ['protoObjs', 'normObjs']
+    else:
+        use = ['norm.stlib']
+    
     if 'normClient' == name or 'normServer' == name:
         source.append('%s/normSocket.cpp' % path)
-    example = ctx.program(
+    example =  ctx.program(
         target = name,
         includes = ['include', 'protolib/include'],
-        use = ['protolib_st'],
+        use = use,
         defines = [],
-        source = source,
+        source = ['{0}/{1}.cpp'.format(path, name)],
         # Don't build examples by default
         posted = True,
         # Don't install examples
         install_path = False,
     )
 
-    # TBD - figure out how build NORM DLL and stil
-    # enable Windows examples to link against static lib
     if 'windows' == system:
-        example.use.append('norm_stlib')
         example.defines.append('_CONSOLE')
-    else:
-        example.use.append('norm_stlib')
         
-    # Hack to force clang to link static libnorm.a
-    if ctx.env.COMPILER_CXX == 'clang++': 
-        example.linkflags ='libnorm.a'
-    
