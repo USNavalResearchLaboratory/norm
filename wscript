@@ -161,8 +161,10 @@ def build(ctx):
     # Hack to force clang to statically link stuff
     if 'clang++' == ctx.env.COMPILER_CXX:
         use = ['protoObjs', 'normObjs']
+        source = ['src/common/normApi.cpp']
     else:
         use = ['norm_stlib', 'protolib_st']
+        source = []
     
     normapp = ctx.program(
         # Need to explicitly set a different name, because 
@@ -172,7 +174,7 @@ def build(ctx):
         includes = ['include', 'protolib/include'],
         use = use, 
         defines = [],
-        source = ['src/common/{0}.cpp'.format(x) for x in [
+        source = source + ['src/common/{0}.cpp'.format(x) for x in [
             'normPostProcess',
             'normApp',
         ]],
@@ -236,9 +238,11 @@ def _make_simple_example(ctx, name, path='examples'):
     # Hack to force clang to statically link stuff
     if 'clang++' == ctx.env.COMPILER_CXX:
         use = ['protoObjs', 'normObjs']
+        source = ['src/common/normApi.cpp']
     else:
         use = ['norm_stlib', 'protolib_st']
-    source = ['{0}/{1}.cpp'.format(path, name)]
+        source = []
+    source += ['{0}/{1}.cpp'.format(path, name)]
     if 'normClient' == name or 'normServer' == name:
         source.append('%s/normSocket.cpp' % path)
     example =  ctx.program(
