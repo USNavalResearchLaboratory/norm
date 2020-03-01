@@ -1145,11 +1145,7 @@ void NormSession::Serve()
                     NormBlock* block = nextObj->FindBlock(nextBlockId);
                     if (block) 
                     {
-#ifdef PROTO_DEBUG
-                        ASSERT(block->GetFirstPending(nextSegmentId));
-#else
                         block->GetFirstPending(nextSegmentId);
-#endif  // if/else PROTO_DEBUG
                         // Adjust so watermark segmentId < block length
                         UINT16 nextBlockSize = nextObj->GetBlockSize(nextBlockId);
                         if (nextSegmentId >= nextBlockSize) nextSegmentId = nextBlockSize - 1;
@@ -2243,7 +2239,10 @@ void NormSession::TxSocketRecvHandler(ProtoSocket&       theSocket,
             else
             {
                 // Probably an ICMP "port unreachable" error
-				if (Address().IsUnicast())
+                // Note we purposefull do _not_ set the "posted_send_error"
+                // status here because we do not want this notification
+                // cleared due to SEND_OK status since it's receiver driven
+                if (Address().IsUnicast())
                     Notify(NormController::SEND_ERROR, NULL, NULL);
                 break;
             }
@@ -2361,6 +2360,9 @@ void NormSession::RxSocketRecvHandler(ProtoSocket&       theSocket,
             else
             {   
                 // Probably an ICMP "port unreachable" error
+                // Note we purposefull do _not_ set the "posted_send_error"
+                // status here because we do not want this notification
+                // cleared due to SEND_OK status since it's receiver driven
 				if (Address().IsUnicast())
                     Notify(NormController::SEND_ERROR, NULL, NULL);
                 break;

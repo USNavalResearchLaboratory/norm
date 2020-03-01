@@ -27,7 +27,7 @@
 
 void Usage()
 {
-    fprintf(stderr, "Usage: normClient [connect <serverAddr>[/<port>][,<groupAddr>]][debug <level>][trace]\n");
+    fprintf(stderr, "Usage: normClient [connect <serverAddr>/<port>[,<groupAddr>]][debug <level>][trace]\n");
 }
 
 const unsigned int MSG_LENGTH_MAX = 64;
@@ -257,9 +257,10 @@ int main(int argc, char* argv[])
             {
 				// Input stream has likely closed, initiate client shutown
                 // TBD - initiate client shutdown
-                if (NULL == groupAddrPtr)
+                //if (NULL == groupAddrPtr)
                 {
-                    fprintf(stderr, "normClient: CLOSING connection to server ...\n");
+                    fprintf(stderr, "normClient: CLOSING connection to %sserver ...\n",
+                                    (NULL != groupAddrPtr) ? : "multicast " : "");
                     NormShutdown(normSocket);
                 }
                 inputNeeded = false;  // TBD -should we also fclose(inputFile)???
@@ -277,9 +278,10 @@ int main(int argc, char* argv[])
             else if (feof(inputFile))
             {
                 // TBD - initiate client shutdown
-                if (NULL == groupAddrPtr)
+                //if (NULL == groupAddrPtr)
                 {
-                    fprintf(stderr, "normClient: CLOSING connection to server ...\n");
+                    fprintf(stderr, "normClient: CLOSING connection to %sserver ...\n",
+                                    (NULL != groupAddrPtr) ? "multicast " : "");
                     NormShutdown(normSocket);
                 }
                 inputNeeded = false;  // TBD -should we also fclose(inputFile)???
@@ -326,9 +328,12 @@ int main(int argc, char* argv[])
 						unsigned int addrLen = 16;
 						UINT16 remotePort;
 						NormGetPeerName(normSocket, remoteAddr, &addrLen, &remotePort);
-						fprintf(stderr, "normClient: CONNECTED to server %s/%hu\n", serverAddr, remotePort);
+						fprintf(stderr, "normClient: CONNECTED to %sserver %s/%hu\n",
+                                (NULL != groupAddrPtr) ? "multicast " : "", serverAddr, remotePort);
                         inputNeeded = true;
                         writeReady = true;
+                        if (trace && (NULL != groupAddrPtr))
+                            NormSetMessageTrace(NormGetSocketMulticastSession(normSocket), true);
                         break;   
                     }
                     case NORM_SOCKET_READ:
@@ -366,13 +371,15 @@ int main(int argc, char* argv[])
                         writeReady = true;
 				        break;     
                     case NORM_SOCKET_CLOSING:
-                        fprintf(stderr, "normClient: server CLOSING connection ...\n");
+                        fprintf(stderr, "normClient: %sserver CLOSING connection ...\n",
+                                        (NULL != groupAddrPtr) ? "multicast " : "");
                         writeReady = false;
                         inputNeeded = false;
 				        break;   
                     case NORM_SOCKET_CLOSE:
                     {
-                        fprintf(stderr, "normClient: connection to server CLOSED.\n");
+                        fprintf(stderr, "normClient: connection to %sserver CLOSED.\n",
+                                        (NULL != groupAddrPtr) ? "multicast " : "");
                         writeReady = false;
                         inputNeeded = false;
                         keepGoing = false;
