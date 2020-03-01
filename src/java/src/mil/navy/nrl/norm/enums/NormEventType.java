@@ -5,7 +5,7 @@ package mil.navy.nrl.norm.enums;
  * the native implementation and therefore is tied to the specific version of
  * NORM.
  * 
- * @author Jason Rush
+ * @author Jason Rush and Brian Adamson
  */
 public enum NormEventType {                 
   NORM_EVENT_INVALID,

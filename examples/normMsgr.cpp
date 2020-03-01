@@ -1051,9 +1051,8 @@ int main(int argc, char* argv[])
     {
         fprintf(stderr, "normMsgr error: unable to open NORM session\n");
         NormDestroyInstance(normInstance);
-        return false;
+        return -1;
     }
-    
     
     if (silentReceiver) normMsgr.SetSilentReceiver(true);
     if (txloss > 0.0) normMsgr.SetTxLoss(txloss);

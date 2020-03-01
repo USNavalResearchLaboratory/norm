@@ -201,7 +201,9 @@ bool NormObject::Open(const NormObjectSize& objectSize,
         pending_mask.SetBits(0, numBlocks.LSB());
         // Compute FEC block structure per NORM Protocol Spec Section 5.1.1
         // (Note NormObjectSize divide operator always rounds _up_, i.e., ceil(numSegments/numBlocks))
-        NormObjectSize largeBlockSize = numSegments / numBlocks;
+        NormObjectSize largeBlockSize;
+        if ((0 != numBlocks.MSB()) || (0 != numBlocks.LSB()))
+            largeBlockSize = numSegments / numBlocks;
         ASSERT(0 == largeBlockSize.MSB());
         large_block_size = largeBlockSize.LSB();
         if (numSegments == (numBlocks*largeBlockSize))
@@ -2336,7 +2338,7 @@ bool NormFileObject::Open(const char* thePath,
         if (file.Open(thePath, O_RDONLY))
         {
             NormObjectSize::Offset size = file.GetSize(); 
-            if (size)
+            //if (size)
             {
                 if (!NormObject::Open(NormObjectSize(size), 
                                       infoPtr, 
@@ -2352,12 +2354,13 @@ bool NormFileObject::Open(const char* thePath,
                     return false;
                 }
             }
+            /*
             else
             {
                 PLOG(PL_FATAL, "NormFileObject::Open() send file.GetSize() error!\n"); 
                 file.Close();
                 return false;
-            }  
+            }*/ 
         } 
         else
         {

@@ -57,7 +57,9 @@ class NormController
             CC_INACTIVE,            // posted when no cc feedback and min rate reached 
             ACKING_NODE_NEW,
             SEND_ERROR,
-            USER_TIMEOUT
+            USER_TIMEOUT,
+            // The ones below here are not exposed via the NORM API
+            SEND_OK,
         };
                   
         virtual void Notify(NormController::Event event,
@@ -266,6 +268,9 @@ class NormSession
             SetTxRateInternal(txRate);
         }
         void SetTxRateBounds(double rateMin, double rateMax);
+        
+        void ClearSendError()
+            {posted_send_error = false;}
         
         double BackoffFactor() 
             {return backoff_factor;}
@@ -778,6 +783,7 @@ class NormSession
         int                             flush_count;
         bool                            posted_tx_queue_empty;
         bool                            posted_tx_rate_changed;
+        bool                            posted_send_error;
         
         // For postive acknowledgement collection
         NormNodeTree                    acking_node_tree;

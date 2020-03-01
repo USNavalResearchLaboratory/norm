@@ -116,51 +116,12 @@ class NormInstance : public NormController
             return static_cast<NormInstance*>(session.GetSessionMgr().GetController());   
         }
         
-        class Notification
+        class Notification : public ProtoList::Item
         {
             public:
                 NormEvent   event;
-                
-                void Append(Notification* n) {next = n;}
-                
-                Notification* GetNext() const {return next;}
-                
-            class Queue
-            {
-                public:
-                    Queue();
-                    ~Queue();
-                    bool IsEmpty() const {return (NULL == head);}
-                    void Destroy();
-                    void Append(Notification* n)
-                    {
-                        n->Append(NULL); 
-                        if (tail)
-                            tail->Append(n);
-                        else
-                            head = n;  
-                        tail = n;                            
-                    }
-                    Notification* RemoveHead()
-                    {
-                        Notification* n = head;
-                        if (n)
-                        {
-                            head = n->GetNext();
-                            tail = head ? tail : NULL;
-                        }
-                        return n;   
-                    }
-                    Notification* GetHead() {return head;}
-                    void SetTail(Notification* n) {tail = n;}
-                private:
-                    Notification* head;
-                    Notification* tail;
-                    
-            };  // end class NormInstance::Notification::Queue 
-                
-            private:
-                Notification*           next;
+            
+            class Queue : public ProtoListTemplate<Notification> {};
         };  // end class NormInstance::Notification
         
         ProtoDispatcher             dispatcher;
@@ -193,25 +154,6 @@ class NormInstance : public NormController
 #endif // if/else WIN32/UNIX
 };  // end class NormInstance
 
-////////////////////////////////////////////////////
-// NormInstance::Notification::Queue implementation
-NormInstance::Notification::Queue::Queue()
- : head(NULL), tail(NULL)
-{   
-   
-}
-
-
-NormInstance::Notification::Queue::~Queue()
-{
-    Destroy();   
-}
-
-void NormInstance::Notification::Queue::Destroy()
-{
-    Notification* n;
-    while ((n = RemoveHead())) delete n;   
-}  // end NormInstance::Notification::Queue::Destroy()
 
 ////////////////////////////////////////////////////
 // NormInstance implementation
@@ -274,17 +216,26 @@ void NormInstance::Notify(NormController::Event   event,
                           class NormNode*         node,
                           class NormObject*       object)
 {
+    switch (event)
+    {
+        case SEND_OK:
+            // Purge any pending NORM_SEND_ERROR notifications for session
+            PurgeNotifications(session, NORM_SEND_ERROR);
+            return;
+        default:
+            break;
+    }
+    
     // (TBD) set a limit on how many pending notifications
     // we allow to queue up (it could be large and probably
     // we could base it on how much memory space the pending
     // notifications are allowed to consume.
-    Notification* n = notify_pool.RemoveHead();
-    if (!n)
+    Notification* next = notify_pool.RemoveHead();
+    if (NULL == next)
     {
-        if (!(n = new Notification))
+        if (NULL == (next = new Notification))
         {
-            PLOG(PL_FATAL, "NormInstance::Notify() new Notification error: %s\n",
-                    GetErrorString());
+            PLOG(PL_FATAL, "NormInstance::Notify() new Notification error: %s\n", GetErrorString());
             return;   
         }
     }
@@ -306,7 +257,7 @@ void NormInstance::Notify(NormController::Event   event,
                     if (!stream->Accept(size.LSB(), true))
                     {
                         PLOG(PL_FATAL, "NormInstance::Notify() stream accept error\n");
-                        notify_pool.Append(n);
+                        notify_pool.Append(*next);
                         return;   
                     }
                     // By setting a non-zero "block pool threshold", this
@@ -375,6 +326,7 @@ void NormInstance::Notify(NormController::Event   event,
                     {
                         // we're ignoring files
                         PLOG(PL_DETAIL, "NormInstance::Notify() warning: receive file but no cache directory set, so ignoring file\n");
+                        notify_pool.Append(*next);
                         return;    
                     }                
                     break;
@@ -387,7 +339,8 @@ void NormInstance::Notify(NormController::Event   event,
                     if (NULL == dataPtr)
                     {
                         PLOG(PL_FATAL, "NormInstance::Notify(RX_OBJECT_NEW) new dataPtr error: %s\n",
-                             GetErrorString());
+                                       GetErrorString());
+                        notify_pool.Append(*next);
                         return;   
                     }
                     // Note that the "true" parameter means the
@@ -395,11 +348,17 @@ void NormInstance::Notify(NormController::Event   event,
                     // data on object deletion, so the app should
                     // use NormDataDetachData() to keep the received
                     // data (or copy it before the data object is deleted)
-                    dataObj->Accept(dataPtr, dataLen, true);
+                    if (!dataObj->Accept(dataPtr, dataLen, true))
+                    {
+                        PLOG(PL_FATAL, "NormInstance::Notify() data object accept error\n");
+                        notify_pool.Append(*next);
+                        return;   
+                    }
                     break;
                 }
                 default:
                     // This shouldn't occur
+                    notify_pool.Append(*next);
                     return;
             }  // end switch(object->GetType())
             break;
@@ -416,11 +375,11 @@ void NormInstance::Notify(NormController::Event   event,
         ((NormNode*)node)->Retain();
     
     bool doNotify = notify_queue.IsEmpty();
-    n->event.type = (NormEventType)event;
-    n->event.session = session;
-    n->event.sender = node;
-    n->event.object = object;
-    notify_queue.Append(n);
+    next->event.type = (NormEventType)event;
+    next->event.session = session;
+    next->event.sender = node;
+    next->event.object = object;
+    notify_queue.Append(*next);
     
     if (doNotify)
     {
@@ -428,7 +387,7 @@ void NormInstance::Notify(NormController::Event   event,
         if (0 == SetEvent(notify_event))
         {
             PLOG(PL_ERROR, "NormInstance::Notify() SetEvent() error: %s\n",
-                         GetErrorString());
+                           GetErrorString());
         }
 #else
         char byte = 0;
@@ -437,7 +396,7 @@ void NormInstance::Notify(NormController::Event   event,
             if ((EINTR != errno) && (EAGAIN != errno))
             {
                 PLOG(PL_FATAL, "NormInstance::Notify() write() error: %s\n",
-                         GetErrorString());
+                               GetErrorString());
                 break;
             }
         }    
@@ -449,35 +408,25 @@ void NormInstance::Notify(NormController::Event   event,
 void NormInstance::PurgeObjectNotifications(NormObjectHandle objectHandle)
 {
     if (NORM_OBJECT_INVALID == objectHandle) return;
-    Notification* prev = NULL;
-    Notification* next = notify_queue.GetHead();
-    while (next)
+    
+    Notification::Queue::Iterator iterator(notify_queue);
+    Notification* next;
+    while (NULL != (next = iterator.GetNextItem()))
     {
         if (objectHandle == next->event.object)
         {
             // "Release" the previously-retained object handle
             ((NormObject*)objectHandle)->Release();
-            // Remove this notification from queue and return to pool
-            Notification* current = next;
-            next = next->GetNext();
-            if (NULL != prev) 
-                prev->Append(next);
-            else
-                notify_queue.RemoveHead();
-            if (NULL == next) notify_queue.SetTail(prev);
-            notify_pool.Append(current);
-        }
-        else
-        {
-            prev = next;
-            next = next->GetNext();
+            // Remove from queue and put in pool
+            notify_queue.Remove(*next);
+            notify_pool.Append(*next);
         }
     }
     if ((NULL != previous_notification) && (objectHandle == previous_notification->event.object))
     {
         // "Release" any previously-retained object or node handle
         ((NormObject*)(previous_notification->event.object))->Release();
-        notify_pool.Append(previous_notification);   
+        notify_pool.Append(*previous_notification);   
         previous_notification = NULL;   
     }
     // TBD - check if event queue is emptied and reset event/fd
@@ -487,28 +436,17 @@ void NormInstance::PurgeObjectNotifications(NormObjectHandle objectHandle)
 void NormInstance::PurgeNodeNotifications(NormNodeHandle nodeHandle)
 {
     if (NORM_NODE_INVALID == nodeHandle) return;
-    Notification* prev = NULL;
-    Notification* next = notify_queue.GetHead();
-    while (next)
+    Notification::Queue::Iterator iterator(notify_queue);
+    Notification* next;
+    while (NULL != (next = iterator.GetNextItem()))
     {
         if (nodeHandle == next->event.sender)
         {
             // "Release" the previously-retained object handle
             ((NormNode*)nodeHandle)->Release();
             // Remove this notification from queue and return to pool
-            Notification* current = next;
-            next = next->GetNext();
-            if (NULL != prev) 
-                prev->Append(next);
-            else
-                notify_queue.RemoveHead();
-            if (NULL == next) notify_queue.SetTail(prev);
-            notify_pool.Append(current);
-        }
-        else
-        {
-            prev = next;
-            next = next->GetNext();
+            notify_queue.Remove(*next);
+            notify_pool.Append(*next);
         }
     }
     if ((NULL != previous_notification) && (nodeHandle == previous_notification->event.sender))
@@ -518,7 +456,7 @@ void NormInstance::PurgeNodeNotifications(NormNodeHandle nodeHandle)
             ((NormObject*)(previous_notification->event.object))->Release();
         else
             ((NormNode*)(previous_notification->event.sender))->Release();
-        notify_pool.Append(previous_notification);   
+        notify_pool.Append(*previous_notification);   
         previous_notification = NULL;   
     }
     if (notify_queue.IsEmpty()) ResetNotificationEvent();
@@ -527,31 +465,20 @@ void NormInstance::PurgeNodeNotifications(NormNodeHandle nodeHandle)
 void NormInstance::PurgeSessionNotifications(NormSessionHandle sessionHandle)
 {
     if (NORM_SESSION_INVALID == sessionHandle) return;
-    Notification* prev = NULL;
-    Notification* next = notify_queue.GetHead();
-    while (NULL != next)
+    Notification::Queue::Iterator iterator(notify_queue);
+    Notification* next;
+    while (NULL != (next = iterator.GetNextItem()))
     {
         if (next->event.session == sessionHandle)
         {
+             if (NORM_OBJECT_INVALID != next->event.object)
+                ((NormObject*)next->event.object)->Release();
+            else if (NORM_NODE_INVALID != next->event.sender)
+                ((NormNode*)next->event.sender)->Release();
             // Remove this notification from queue and return to pool
-            Notification* current = next;
-            next = next->GetNext();
-            if (NULL != prev) 
-                prev->Append(next);
-            else
-                notify_queue.RemoveHead();
-            if (NULL == next) notify_queue.SetTail(prev);
-            if (NORM_OBJECT_INVALID != current->event.object)
-                ((NormObject*)current->event.object)->Release();
-            else if (NORM_NODE_INVALID != current->event.sender)
-                ((NormNode*)current->event.sender)->Release();
-            notify_pool.Append(current);
-        }
-        else
-        {
-            prev = next;
-            next = next->GetNext();
-        }     
+            notify_queue.Remove(*next);
+            notify_pool.Append(*next);
+        }   
     }
     if ((NULL != previous_notification) && (sessionHandle == previous_notification->event.session))
     {
@@ -560,7 +487,7 @@ void NormInstance::PurgeSessionNotifications(NormSessionHandle sessionHandle)
             ((NormObject*)(previous_notification->event.object))->Release();
         else if (NORM_NODE_INVALID != previous_notification->event.sender)
             ((NormNode*)(previous_notification->event.sender))->Release();
-        notify_pool.Append(previous_notification);   
+        notify_pool.Append(*previous_notification);   
         previous_notification = NULL;   
     }
     if (notify_queue.IsEmpty()) ResetNotificationEvent();
@@ -570,32 +497,21 @@ void NormInstance::PurgeSessionNotifications(NormSessionHandle sessionHandle)
 void NormInstance::PurgeNotifications(NormSessionHandle sessionHandle, NormEventType eventType)
 {
     if (NORM_SESSION_INVALID == sessionHandle) return;
-    Notification* prev = NULL;
-    Notification* next = notify_queue.GetHead();
-    while (next)
+    Notification::Queue::Iterator iterator(notify_queue);
+    Notification* next;
+    while (NULL != (next = iterator.GetNextItem()))
     {
         if ((next->event.session == sessionHandle) &&
             (next->event.type == eventType))
         {
+            if (NORM_OBJECT_INVALID != next->event.object)
+                ((NormObject*)next->event.object)->Release();
+            else if (NORM_NODE_INVALID != next->event.sender)
+                ((NormNode*)next->event.sender)->Release();
             // Remove this notification from queue and return to pool
-            Notification* current = next;
-            next = next->GetNext();
-            if (NULL != prev) 
-                prev->Append(next);
-            else
-                notify_queue.RemoveHead();
-            if (NULL == next) notify_queue.SetTail(prev);
-            if (NORM_OBJECT_INVALID != current->event.object)
-                ((NormObject*)current->event.object)->Release();
-            else if (NORM_NODE_INVALID != current->event.sender)
-                ((NormNode*)current->event.sender)->Release();
-            notify_pool.Append(current);
+            notify_queue.Remove(*next);
+            notify_pool.Append(*next);
         }
-        else
-        {
-            prev = next;
-            next = next->GetNext();
-        }     
     }
     if (notify_queue.IsEmpty()) ResetNotificationEvent();
 }  // end NormInstance::PurgeNotifications()
@@ -611,19 +527,19 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
             ((NormObject*)(previous_notification->event.object))->Release();
         else if (NORM_NODE_INVALID != previous_notification->event.sender)
             ((NormNode*)(previous_notification->event.sender))->Release();
-        notify_pool.Append(previous_notification);   
+        notify_pool.Append(*previous_notification);   
         previous_notification = NULL;   
     }
-    Notification* n;
-    while (NULL != (n = notify_queue.RemoveHead()))
+    Notification* next;
+    while (NULL != (next = notify_queue.RemoveHead()))
     {
-        switch (n->event.type)
+        switch (next->event.type)
         {
             case NORM_EVENT_INVALID:
                 if (!notify_queue.IsEmpty())
                 {
                     // Discard this invalid event and get next one
-                    notify_pool.Append(n);
+                    notify_pool.Append(*next);
                     continue;
                 }
                 break;
@@ -631,20 +547,25 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
             {
                 // reset update event notification for non-streams
                 // (NormStreamRead() takes care of streams)
-                NormObject* obj = ((NormObject*)n->event.object);
-                if (!obj->IsStream())
-                    obj->SetNotifyOnUpdate(true);
+                NormObject* obj = ((NormObject*)next->event.object);
+                if (!obj->IsStream()) obj->SetNotifyOnUpdate(true);
+                break;
+            }
+            case NORM_SEND_ERROR:
+            {
+                NormSession* session = (NormSession*)next->event.session;
+                session->ClearSendError();
                 break;
             }
             default:
                 break;   
         }
-	break;
+	    break;
     }
-    if (NULL != n)
+    if (NULL != next)
     {
-        previous_notification = n;  // keep dispatched event for garbage collection
-        if (NULL != theEvent) *theEvent = n->event;
+        previous_notification = next;  // keep dispatched event for garbage collection
+        if (NULL != theEvent) *theEvent = next->event;
     }
     else if (NULL != theEvent)
     {
@@ -653,9 +574,8 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
 	    theEvent->sender = NORM_NODE_INVALID;
 	    theEvent->object = NORM_OBJECT_INVALID;
     }
-    if (notify_queue.IsEmpty()) 
-            ResetNotificationEvent();
-    return (NULL != n); 
+    if (notify_queue.IsEmpty()) ResetNotificationEvent();
+    return (NULL != next); 
 }  // end NormInstance::GetNextEvent()
 
 bool NormInstance::WaitForEvent()
@@ -737,7 +657,7 @@ void NormInstance::ReleasePreviousEvent()
             ((NormObject*)(previous_notification->event.object))->Release();
         else if (NORM_NODE_INVALID != previous_notification->event.sender)
             ((NormNode*)(previous_notification->event.sender))->Release();
-        notify_pool.Append(previous_notification);   
+        notify_pool.Append(*previous_notification);   
         previous_notification = NULL;   
     }
 }  // end NormInstance::ReleasePreviousEvent()
@@ -785,18 +705,18 @@ void NormInstance::Shutdown()
             ((NormObject*)(previous_notification->event.object))->Release();
         else if (NORM_NODE_INVALID != previous_notification->event.sender)
             ((NormNode*)(previous_notification->event.sender))->Release();
-        notify_pool.Append(previous_notification);   
+        notify_pool.Append(*previous_notification);   
         previous_notification = NULL;   
     }
     
-    Notification* n;
-    while ((n = notify_queue.RemoveHead()))
+    Notification* next;
+    while (NULL != (next = notify_queue.RemoveHead()))
     {
-        switch (n->event.type)
+        switch (next->event.type)
         {
             case NORM_RX_OBJECT_NEW:
             {
-                NormObject* obj = (NormObject*)n->event.object;
+                NormObject* obj = (NormObject*)next->event.object;
                 switch (obj->GetType())
                 {
                     case NormObject::FILE:
@@ -810,30 +730,33 @@ void NormInstance::Shutdown()
             default:
                 break;
         }   
-        if (NORM_OBJECT_INVALID != n->event.object)
-            ((NormObject*)(n->event.object))->Release();
-        else if (NORM_NODE_INVALID != n->event.sender)
-            ((NormNode*)(n->event.sender))->Release();
-        delete n;        
+        if (NORM_OBJECT_INVALID != next->event.object)
+            ((NormObject*)(next->event.object))->Release();
+        else if (NORM_NODE_INVALID != next->event.sender)
+            ((NormNode*)(next->event.sender))->Release();
+        delete next;        
     }
     notify_pool.Destroy();
 }  // end NormInstance::Shutdown()
 
+/*
+This function doesn't make sense?
 UINT32 NormInstance::CountCompletedObjects(NormSession* session)
 {
 	UINT32 result = 0UL;
-	Notification* n = notify_queue.GetHead();
-	while (NULL != n) 
+    Notification::Queue::Iterator iterator(notify_queue);
+    Notification* next;
+    while (NULL != (next = iterator.GetNextItem()))
     {
-		if ((session == n->event.session) &&
-			(NORM_RX_OBJECT_COMPLETED == n->event.type))
+		if ((session == next->event.session) &&
+			(NORM_RX_OBJECT_COMPLETED == next->event.type))
         {
 			result ++;
         }
-		n = n->GetNext();
 	}
 	return result;
 } // end NormInstance::CountCompletedObjects()
+*/
 
 //////////////////////////////////////////////////////////////////////////
 // NORM API FUNCTION IMPLEMENTATIONS
@@ -3051,7 +2974,7 @@ void NormNodeRelease(NormNodeHandle nodeHandle)
 //         is done so that this current approach is not very costly)
 //
 
-
+/*
 // Not sure why this function exists.  It just counts the number
 // of RX_OBJECT_COMPLETED events currently in notification queue
 // which is a temporary and transitory thing???
@@ -3068,3 +2991,4 @@ UINT32 NormCountCompletedObjects(NormSessionHandle sessionHandle)
     }
 	return result;
 }  // end NormCountCompletedObjects()
+*/

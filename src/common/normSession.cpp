@@ -53,7 +53,7 @@ NormSession::NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId)
    tx_cache_count_min(DEFAULT_TX_CACHE_MIN), 
    tx_cache_count_max(DEFAULT_TX_CACHE_MAX),
    tx_cache_size_max(DEFAULT_TX_CACHE_SIZE),
-   posted_tx_queue_empty(false), posted_tx_rate_changed(false),
+   posted_tx_queue_empty(false), posted_tx_rate_changed(false), posted_send_error(false),
    acking_node_count(0), acking_auto_populate(TRACK_NONE), watermark_pending(false), watermark_flushes(false),
    tx_repair_pending(false), advertise_repairs(false),
    suppress_nonconfirmed(false), suppress_rate(-1.0), suppress_rtt(-1.0),
@@ -4907,40 +4907,54 @@ NormSession::MessageStatus NormSession::SendMessage(NormMsg& msg)
     {
         unsigned int numBytes = msgSize;
 		bool result = tx_socket->SendTo(msg.GetBuffer(), numBytes, msg.GetDestination());
-        if (numBytes == msgSize)
+        
+        if (result)
         {
-            // Separate send/recv tracing
-            if (trace) 
+            if (numBytes == msgSize)
             {
-                struct timeval currentTime;
-                ProtoSystemTime(currentTime); 
-                NormTrace(currentTime, LocalNodeId(), msg, true, fecM, instId);
+                if (posted_send_error)
+                {
+                    // Clear SEND_ERROR indication
+                    posted_send_error = false;
+                    Notify(NormController::SEND_OK, NULL, NULL);
+                }   
+                // Separate send/recv tracing
+                if (trace) 
+                {
+                    struct timeval currentTime;
+                    ProtoSystemTime(currentTime); 
+                    NormTrace(currentTime, LocalNodeId(), msg, true, fecM, instId);
+                }
+                // To keep track of _actual_ sent rate 
+                sent_accumulator.Increment(msgSize);
+                // Update nominal packet size
+                nominal_packet_size += 0.01 * (((double)msgSize) - nominal_packet_size); 
             }
-            // To keep track of _actual_ sent rate 
-            sent_accumulator.Increment(msgSize);
-            // Update nominal packet size
-            nominal_packet_size += 0.01 * (((double)msgSize) - nominal_packet_size);    
+            else
+            {
+                // packet not sent
+                tx_sequence--;
+                // TBD - is PL_WARN too verbose here
+                PLOG(PL_WARN, "NormSession::SendMessage() sendto(%s/%hu) 'blocked' warning: %s\n",
+                        msg.GetDestination().GetHostString(), msg.GetDestination().GetPort(), GetErrorString());
+                return MSG_SEND_BLOCKED;
+            }
         }
         else
         {
             // packet not sent
             tx_sequence--;
-            if (result)
+            PLOG(PL_WARN, "NormSession::SendMessage() sendto(%s/%hu) 'failed' warning: %s\n",
+                    msg.GetDestination().GetHostString(), msg.GetDestination().GetPort(), GetErrorString());
+            if (!posted_send_error)
             {
-                // TBD - is PL_WARN too verbose here
-                PLOG(PL_WARN, "NormSession::SendMessage() sendto(%s/%hu) warning: %s\n",
-                        msg.GetDestination().GetHostString(), msg.GetDestination().GetPort(), GetErrorString());
-                return MSG_SEND_BLOCKED;
+                // Post a Notify(NormController::SEND_ERROR, NULL, NULL);
+                posted_send_error = true;
+                Notify(NormController::SEND_ERROR, NULL, NULL);
             }
-            else
-            {
-                PLOG(PL_WARN, "NormSession::SendMessage() sendto(%s/%hu) warning: %s\n",
-                        msg.GetDestination().GetHostString(), msg.GetDestination().GetPort(), GetErrorString());
-                return MSG_SEND_FAILED;
-            }
+            return MSG_SEND_FAILED;
         }
     }
-    
     if (isProbe)
     {
         probe_pending = false;

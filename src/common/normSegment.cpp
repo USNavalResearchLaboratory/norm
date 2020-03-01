@@ -701,7 +701,8 @@ bool NormBlockBuffer::Init(unsigned long rangeMax, unsigned long tableSize, UINT
 {
     Destroy();
     // Make sure tableSize is greater than 0 and 2^n
-    if (!rangeMax || !tableSize) 
+    //if (!rangeMax || !tableSize) 
+    if (0 == tableSize)
     {
         PLOG(PL_FATAL, "NormBlockBuffer::Init() bad range(%lu) or tableSize(%lu)\n",
                         rangeMax, tableSize);
