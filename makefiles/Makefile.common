@@ -187,7 +187,7 @@ normStreamer:    $(STREAMER_OBJ) libnorm.a $(LIBPROTO)
 	mkdir -p ../bin
 	cp $@ ../bin/$@
     
-# (nocmCast) file sender/receiver
+# (normCast) file sender/receiver
 CAST_SRC = $(EXAMPLE)/normCast.cpp
 CAST_OBJ = $(CAST_SRC:.cpp=.o)
 
@@ -195,6 +195,27 @@ normCast:    $(CAST_OBJ) libnorm.a $(LIBPROTO)
 	$(CC) $(CFLAGS) -o $@ $(CAST_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
 	mkdir -p ../bin
 	cp $@ ../bin/$@
+        
+# These are the new "NormSocket" API extension examples
+SERVER_SRC = $(EXAMPLE)/normServer.cpp  $(EXAMPLE)/normSocket.cpp
+SERVER_OBJ = $(SERVER_SRC:.cpp=.o)
+
+normServer:    $(SERVER_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(SERVER_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+    
+    
+CLIENT_SRC = $(EXAMPLE)/normClient.cpp  $(EXAMPLE)/normSocket.cpp
+CLIENT_OBJ = $(CLIENT_SRC:.cpp=.o)
+
+normClient:    $(CLIENT_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(CLIENT_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+    
+           
+    
 
 # (pcap2norm) - parses pcap (e.g. tcpdump) file and prints NORM trace
 PCAP_SRC = $(COMMON)/pcap2norm.cpp

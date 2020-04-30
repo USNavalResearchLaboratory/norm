@@ -134,7 +134,7 @@ class NormLossEstimator2
             history[1] = (unsigned int)((1.0 / lossFraction) + 0.5);
         }
         unsigned long CurrentLossInterval() {return history[0];}
-        unsigned int LastLossInterval() {return history[1];}
+        unsigned long LastLossInterval() {return history[1];}
         
         void SetIgnoreLoss(bool state) 
             {ignore_loss = state;}

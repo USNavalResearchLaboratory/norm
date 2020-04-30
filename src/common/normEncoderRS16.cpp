@@ -156,7 +156,7 @@ inline gf gf_mul(int x, int y)
 }
 
 #define init_mul_table()
-#define USE_GF_MULC register gf * __gf_mulc_
+#define USE_GF_MULC gf * __gf_mulc_
 #define GF_MULC0(c) __gf_mulc_ = &gf_exp[ gf_log[c] ]
 #define GF_ADDMULC(dst, x) { if (x) dst ^= __gf_mulc_[ gf_log[x] ] ; }
 
@@ -261,8 +261,8 @@ static void generate_gf()
 static void addmul1(gf* dst1, gf* src1, gf c, int sz)
 {
     USE_GF_MULC ;
-    register gf* dst = dst1;
-    register gf* src = src1 ;
+    gf* dst = dst1;
+    gf* src = src1 ;
     gf* lim = &dst[sz - UNROLL + 1] ;
     
     GF_MULC0(c) ;

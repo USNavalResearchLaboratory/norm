@@ -690,7 +690,7 @@ bool NormDirectoryIterator::GetNextFile(char* fileName)
         NormFile::Type type = NormFile::GetType(fileName);        
         if (NormFile::NORMAL == type)
         {
-            int nameLen = strlen(fileName);
+            size_t nameLen = strlen(fileName);
             nameLen = MIN(PATH_MAX, nameLen);
             nameLen -= path_len;
             memmove(fileName, fileName+path_len, nameLen);

@@ -367,6 +367,9 @@ void NormSetRxPortReuse(NormSessionHandle sessionHandle,
 NORM_API_LINKAGE
 UINT16 NormGetRxPort(NormSessionHandle sessionHandle);
 
+NORM_API_LINKAGE
+bool NormGetRxBindAddress(NormSessionHandle sessionHandle, char* addr, unsigned int& addrLen, UINT16& port);
+
 // TBD - We should probably have a "NormSetCCMode(NormCCMode ccMode)" function for users
 NORM_API_LINKAGE
 void NormSetEcnSupport(NormSessionHandle  sessionHandle, 
@@ -579,6 +582,9 @@ void NormStreamSetPushEnable(NormObjectHandle streamHandle,
 
 NORM_API_LINKAGE 
 bool NormStreamHasVacancy(NormObjectHandle streamHandle);
+
+NORM_API_LINKAGE
+unsigned int NormStreamGetVacancy(NormObjectHandle streamHandle, unsigned int bytesWanted = 0);
 
 NORM_API_LINKAGE 
 void NormStreamMarkEom(NormObjectHandle streamHandle);

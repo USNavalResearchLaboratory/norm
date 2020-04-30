@@ -254,6 +254,8 @@ bool NormSession::Open()
     if (!tx_socket->SetFragmentation(fragmentation))
         PLOG(PL_WARN, "NormSession::Open() warning: tx_socket.SetFragmentation() error\n");
     
+    
+    TRACE("NormSession::Open() address %s\n", address.GetHostString());
     if (address.IsMulticast())
     {
         if (!tx_socket->SetTTL(ttl))
@@ -774,14 +776,14 @@ bool NormSession::StartSender(UINT16        instanceId,
     if (numBlocks < 2) numBlocks = 2;
     unsigned long numSegments = numBlocks * numParity;
     
-    if (!block_pool.Init(numBlocks, blockSize))
+    if (!block_pool.Init((UINT32)numBlocks, blockSize))
     {
         PLOG(PL_FATAL, "NormSession::StartSender() block_pool init error\n");
         StopSender();
         return false;
     }
     
-    if (!segment_pool.Init(numSegments, segmentSize + NormDataMsg::GetStreamPayloadHeaderLength()))
+    if (!segment_pool.Init((unsigned int)numSegments, segmentSize + NormDataMsg::GetStreamPayloadHeaderLength()))
     {
         PLOG(PL_FATAL, "NormSession::StartSender() segment_pool init error\n");
         StopSender();
@@ -2098,9 +2100,9 @@ bool NormSession::SetTxCacheBounds(NormObjectSize  sizeMax,
 {
     bool result = true;
     tx_cache_size_max = sizeMax;
-    tx_cache_count_min = (countMin < countMax) ? countMin : countMax;
+    tx_cache_count_min = (unsigned int)((countMin < countMax) ? countMin : countMax);
     if (tx_cache_count_min < 1) tx_cache_count_min = 1;
-    tx_cache_count_max = (countMax > countMin) ? countMax : countMin;
+    tx_cache_count_max = (unsigned int)((countMax > countMin) ? countMax : countMin);
     if (tx_cache_count_max < 1) tx_cache_count_max = 1;
     
     tx_cache_count_min &= 0x00007fff;  // limited to one-half of 16-bit NormObjectId space
@@ -2127,15 +2129,15 @@ bool NormSession::SetTxCacheBounds(NormObjectSize  sizeMax,
         if (countMax != tx_table.GetRangeMax())
         {
             tx_table.SetRangeMax((UINT16)countMax);
-            result = tx_pending_mask.Resize(countMax);
-            result &= tx_repair_mask.Resize(countMax);
+            result = tx_pending_mask.Resize((UINT32)countMax);
+            result &= tx_repair_mask.Resize((UINT32)countMax);
             if (!result)
             {
                 countMax = tx_pending_mask.GetSize();
                 if (tx_repair_mask.GetSize() < countMax)
                     countMax = tx_repair_mask.GetSize(); 
                 if (tx_cache_count_max > countMax)
-                    tx_cache_count_max = countMax;
+                    tx_cache_count_max = (unsigned int)countMax;
                 if (tx_cache_count_min > tx_cache_count_max)
                     tx_cache_count_min = tx_cache_count_max;
             }
@@ -2238,6 +2240,7 @@ void NormSession::TxSocketRecvHandler(ProtoSocket&       theSocket,
             }
             else
             {
+                TRACE("NormSession::TxSocketRecvHandler() RecvFrom error\n");
                 // Probably an ICMP "port unreachable" error
                 // Note we purposefull do _not_ set the "posted_send_error"
                 // status here because we do not want this notification
@@ -2359,12 +2362,16 @@ void NormSession::RxSocketRecvHandler(ProtoSocket&       theSocket,
             }
             else
             {   
+                TRACE("NormSession::RxSocketRecvHandler() RecvFrom error  address:%s (unicast:%d)\n", Address().GetHostString(), Address().IsUnicast());
                 // Probably an ICMP "port unreachable" error
                 // Note we purposefull do _not_ set the "posted_send_error"
                 // status here because we do not want this notification
                 // cleared due to SEND_OK status since it's receiver driven
 				if (Address().IsUnicast())
+                {
+                    TRACE("posting send error ...\n");
                     Notify(NormController::SEND_ERROR, NULL, NULL);
+                }
                 break;
             }
         }
@@ -3324,7 +3331,7 @@ void NormSession::SenderHandleCCFeedback(struct timeval  currentTime,
                 ccFlags = NormCC::RTT;
             ccRtt = savedRtt;
             ccLoss = savedLoss;
-            ccRate = savedRate,
+            ccRate = savedRate;
             ccSequence = savedSequence;
             currentTime = savedTime;
         }
@@ -4344,6 +4351,27 @@ void NormSession::SenderCancelCmd()
     }
 }  // end NormSession::SenderCancelCmd()
 
+bool NormSession::SenderSendAppCmd(const char* buffer, unsigned int length, const ProtoAddress& dst)
+{
+    // Build/immediately send a NORM_CMD(APPLICATION) message
+    NormCmdAppMsg appMsg;
+    appMsg.Init();
+    appMsg.SetDestination(address);
+    appMsg.SetGrtt(grtt_quantized);
+    appMsg.SetBackoffFactor((unsigned char)backoff_factor);
+    appMsg.SetGroupSize(gsize_quantized);
+    // We use a surrogate segment_size in case sender not configured (e.g. server-listener)
+    appMsg.SetContent(buffer, length, segment_size ? segment_size : 64);
+    appMsg.SetDestination(dst);
+    if (MSG_SEND_OK != SendMessage(appMsg))
+        PLOG(PL_ERROR, "NormSession::SenderSendAppCmd() node>%lu sender unable to send app-defined cmd ...\n",
+                       (unsigned long)LocalNodeId());
+    else
+        PLOG(PL_DEBUG, "NormSession::SenderSendAppCmd() node>%lu sender sending app-defined cmd len:%u...\n",
+                       (unsigned long)LocalNodeId(), appMsg.GetLength());
+    return true;
+}  // end NormSession::SenderSendAppCmd()
+
 bool NormSession::SenderQueueAppCmd()    
 {
     if (0 == cmd_count) return false;
@@ -4388,27 +4416,6 @@ bool NormSession::OnCmdTimeout(ProtoTimer& theTimer)
     if (!tx_timer.IsActive()) PromptSender();
     return true;
 }  // end NormSession::OnCmdTimeout()
-
-bool NormSession::SenderSendAppCmd(const char* buffer, unsigned int length, const ProtoAddress& dst)
-{
-    // Build/immediately send a NORM_CMD(APPLICATION) message
-    NormCmdAppMsg appMsg;
-    appMsg.Init();
-    appMsg.SetDestination(address);
-    appMsg.SetGrtt(grtt_quantized);
-    appMsg.SetBackoffFactor((unsigned char)backoff_factor);
-    appMsg.SetGroupSize(gsize_quantized);
-    // We use a surrogate segment_size in case sender not configured (e.g. server-listener)
-    appMsg.SetContent(buffer, length, segment_size ? segment_size : 64);
-    appMsg.SetDestination(dst);
-    if (MSG_SEND_OK != SendMessage(appMsg))
-        PLOG(PL_ERROR, "NormSession::SenderSendAppCmd() node>%lu sender unable to send app-defined cmd ...\n",
-                       (unsigned long)LocalNodeId());
-    else
-        PLOG(PL_DEBUG, "NormSession::SenderSendAppCmd() node>%lu sender sending app-defined cmd len:%u...\n",
-                       (unsigned long)LocalNodeId(), appMsg.GetLength());
-    return true;
-}  // end NormSession::SenderSendAppCmd()
 
 void NormSession::ActivateFlowControl(double delay, NormObjectId objectId, NormController::Event event)
 {

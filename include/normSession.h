@@ -236,6 +236,9 @@ class NormSession
         
         UINT16 GetRxPort() const;
         
+        const ProtoAddress& GetRxBindAddr() const
+            {return rx_bind_addr;}
+        
         // "SetEcnSupport(true)" sets up raw packet capture (pcap) so that incoming packet
         // ECN status may be checked
         // NOTE: only effective _before_ sndr/rcvr startup!
@@ -427,6 +430,9 @@ class NormSession
         // App-defined command support methods
         bool SenderSendCmd(const char* cmdBuffer, unsigned int cmdLength, bool robust);
         void SenderCancelCmd();
+        
+        // The following method is currently only used for NormSocket purposes
+        bool SenderSendAppCmd(const char* buffer, unsigned int length, const ProtoAddress& dst);
         
         void SenderSetSynStatus(bool state)
             {syn_status = state;}
@@ -697,8 +703,6 @@ class NormSession
         bool SenderBuildRepairAdv(NormCmdRepairAdvMsg& cmd);
         void SenderUpdateGroupSize();
         bool SenderQueueAppCmd();  
-        // The following method is only used for NormSocket purposes
-        bool SenderSendAppCmd(const char* buffer, unsigned int length, const ProtoAddress& dst);
         
         // Receiver message handling routines
         void ReceiverHandleObjectMessage(const struct timeval& currentTime, 

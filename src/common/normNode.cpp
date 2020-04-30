@@ -238,7 +238,7 @@ bool NormSenderNode::AllocateBuffers(unsigned int   bufferSpace,
 
     unsigned long numSegments = numBlocks * segPerBlock;
 
-    if (!block_pool.Init(numBlocks, blockSize))
+    if (!block_pool.Init((UINT32)numBlocks, blockSize))
     {
         PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() block_pool init error\n");
         Close();
@@ -246,7 +246,7 @@ bool NormSenderNode::AllocateBuffers(unsigned int   bufferSpace,
     }
     
     // Segment buffers include space for NORM_OBJECT_STREAM stream payload header
-    if (!segment_pool.Init(numSegments, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()))
+    if (!segment_pool.Init((unsigned int)numSegments, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()))
     {
         PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() segment_pool init error\n");
         Close();
@@ -1571,8 +1571,12 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
                 }
                 // else wait for NORM_INFO message with sender FTI
             }
-            if (gotFTI && !AllocateBuffers(session.RemoteSenderBufferSize(), fecId, ftiData.GetFecInstanceId(), ftiData.GetFecFieldSize(), 
-                                           ftiData.GetSegmentSize(), ftiData.GetFecMaxBlockLen(), ftiData.GetFecNumParity()))
+            if (gotFTI && !AllocateBuffers((unsigned int)session.RemoteSenderBufferSize(),
+                                           fecId, ftiData.GetFecInstanceId(),
+                                           ftiData.GetFecFieldSize(),
+                                           ftiData.GetSegmentSize(),
+                                           ftiData.GetFecMaxBlockLen(),
+                                           ftiData.GetFecNumParity()))
             {
                 PLOG(PL_ERROR, "NormSenderNode::HandleObjectMessage() node>%lu sender>%lu buffer allocation error\n",
                                 (unsigned long)LocalNodeId(), (unsigned long)GetId());
@@ -1980,7 +1984,7 @@ void NormSenderNode::Sync(NormObjectId objectId)
                    incrementResyncCount = true;  // more than just a trim
                }
                unsigned long numBits = (UINT16)(objectId - firstPending);
-               rx_pending_mask.UnsetBits(firstPending, numBits); 
+               rx_pending_mask.UnsetBits(firstPending, (UINT32)numBits); 
                if (incrementResyncCount) IncrementResyncCount();
             }
         }  

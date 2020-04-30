@@ -78,6 +78,9 @@ bool NormConnect(NormSocketHandle   normSocket,
 NormSocketHandle NormAccept(NormSocketHandle    serverSocket, 
                             NormNodeHandle      clientNode, 
                             NormInstanceHandle  instance = NORM_INSTANCE_INVALID);
+
+void NormReject(NormSocketHandle    serverSocket,
+                NormNodeHandle      clientNode);
         
 void NormShutdown(NormSocketHandle normSocket);
 

@@ -220,8 +220,11 @@ void NormInstance::Notify(NormController::Event   event,
     {
         case SEND_OK:
             // Purge any pending NORM_SEND_ERROR notifications for session
+            TRACE("purging SEND_ERROR ...\n");
             PurgeNotifications(session, NORM_SEND_ERROR);
             return;
+        case SEND_ERROR:
+            TRACE("got SEND_ERROR\n");
         default:
             break;
     }
@@ -554,6 +557,7 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
             case NORM_SEND_ERROR:
             {
                 NormSession* session = (NormSession*)next->event.session;
+                TRACE("calling ClearSendError() ....\n");
                 session->ClearSendError();
                 break;
             }
@@ -1074,6 +1078,40 @@ UINT16 NormGetRxPort(NormSessionHandle sessionHandle)
 
 
 NORM_API_LINKAGE
+bool NormGetRxBindAddress(NormSessionHandle sessionHandle, char* addr, unsigned int& addrLen, UINT16& port)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if ((NULL != instance) && instance->dispatcher.SuspendThread())
+    {    
+        NormSession* session = (NormSession*)sessionHandle;
+        port = session->GetRxPort();
+        ProtoAddress bindAddr = session->GetRxBindAddr();
+        if (!bindAddr.IsValid())
+        {
+            addrLen = 0;
+            result = true;
+        }
+        else if (addrLen < bindAddr.GetLength())
+        {
+            addrLen = bindAddr.GetLength();
+        }
+        else
+        {
+            addrLen = bindAddr.GetLength();
+            memcpy(addr, bindAddr.GetRawHostAddress(), addrLen);
+            result = true;
+        }    
+        instance->dispatcher.ResumeThread();  
+    }
+    else
+    {
+        addrLen = port = 0;
+    }    
+    return result;
+}  // end NormGetRxBindAddress()
+
+NORM_API_LINKAGE
 bool NormSetTxPort(NormSessionHandle sessionHandle,
                    UINT16            txPort,
                    bool              enableReuse,
@@ -1132,7 +1170,7 @@ bool NormPresetObjectInfo(NormSessionHandle  sessionHandle,
         NormSession* session = (NormSession*)sessionHandle;
         if (session) 
         {
-            result = session->SetPresetFtiData(objectSize, segmentSize, numData, numParity);
+            result = session->SetPresetFtiData((unsigned int)objectSize, segmentSize, numData, numParity);
             if (result) session->SenderSetFtiMode(NormSession::FTI_PRESET);
         }
         instance->dispatcher.ResumeThread();
@@ -1511,7 +1549,7 @@ NormSessionId NormGetRandomSessionId()
 {
     ProtoTime currentTime;
     currentTime.GetCurrentTime();
-    srand(currentTime.usec());  // seed random number generator
+    srand((unsigned int)currentTime.usec());  // seed random number generator
     return (NormSessionId)rand();
 }  // end NormGetRandomSessionId()
 
@@ -1957,6 +1995,22 @@ bool NormStreamHasVacancy(NormObjectHandle streamHandle)
 }  // end NormStreamHasVacancy()
 
 NORM_API_LINKAGE
+unsigned int NormStreamGetVacancy(NormObjectHandle streamHandle, unsigned int bytesWanted)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormStreamObject* stream = 
+            static_cast<NormStreamObject*>((NormObject*)streamHandle);
+        if (NULL != stream)
+            result = stream->GetVacancy(bytesWanted);
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+}  // end NormStreamGetVacancy()
+
+NORM_API_LINKAGE
 void NormStreamMarkEom(NormObjectHandle streamHandle)
 {
     NormInstance* instance = NormInstance::GetInstanceFromObject(streamHandle);
@@ -2247,6 +2301,32 @@ void NormCancelCommand(NormSessionHandle sessionHandle)
     }
 }  // end NormCancelCommand()
 
+
+// This one is not part of the public API (for NormSocket use currently)
+NORM_API_LINKAGE
+bool NormSendCommandTo(NormSessionHandle  sessionHandle,
+                       const char*        cmdBuffer, 
+                       unsigned int       cmdLength, 
+                       const char*        addr,
+                       UINT16             port)
+{
+    bool result = false;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        ProtoAddress dest;
+        if (dest.ResolveFromString(addr))
+        {
+            dest.SetPort(port);
+            result = session->SenderSendAppCmd(cmdBuffer, cmdLength, dest);
+        }
+        instance->dispatcher.ResumeThread();
+    }
+    return result;
+}  // end NormSendCommandTo()
+
+
 NORM_API_LINKAGE 
 void NormSetSynStatus(NormSessionHandle sessionHandle, bool state)
 {
@@ -2457,7 +2537,7 @@ bool NormPreallocateRemoteSender(NormSessionHandle  sessionHandle,
     if (instance && instance->dispatcher.SuspendThread())
     {
         NormSession* session = (NormSession*)sessionHandle;
-        result = session->PreallocateRemoteSender(bufferSize, segmentSize, numData, numParity, streamBufferSize);
+        result = session->PreallocateRemoteSender((unsigned int)bufferSize, segmentSize, numData, numParity, streamBufferSize);
         instance->dispatcher.ResumeThread();
     }
     return result;
@@ -2754,7 +2834,7 @@ NORM_API_LINKAGE
 bool NormNodeGetAddress(NormNodeHandle  nodeHandle,
                         char*           addrBuffer, 
                         unsigned int*   bufferLen,
-                        UINT16* port)
+                        UINT16*         port)
 {
     bool result = false;
     if (NORM_NODE_INVALID != nodeHandle)

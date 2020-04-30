@@ -3982,6 +3982,48 @@ void NormStreamObject::Terminate()
     session.TouchSender();
 }  // end NormStreamObject::Terminate()
 
+unsigned int NormStreamObject::GetVacancy(unsigned int wanted)
+{
+    // Computes how many bytes are available for _immediate_ writing
+    ASSERT(Compare(write_index.block, tx_index.block) >= 0);
+    unsigned int maxDelta = block_pool.GetTotal() >> 1;
+    UINT32 blockDelta = (UINT32)Difference(write_index.block, tx_index.block);
+    if (blockDelta > maxDelta) return 0;
+    UINT32 nBytes = 0;
+    NormBlock* block = stream_buffer.Find(write_index.block);
+    if (NULL != block)
+    {
+        char* segment = block->GetSegment(write_index.segment);
+        if (NULL != segment)
+        {
+            UINT16 index = NormDataMsg::ReadStreamPayloadLength(segment);
+            nBytes += segment_size - index;
+        }
+        else
+        {
+            nBytes += segment_size;
+        }
+        nBytes += (ndata - write_index.segment - 1) * segment_size;
+    }
+    unsigned int blocksAllowed = maxDelta - blockDelta;
+    unsigned int poolCount = block_pool.GetCount();
+    if (poolCount >= blocksAllowed)
+        poolCount = blocksAllowed;
+    nBytes += poolCount * ndata * segment_size;
+    
+    NormBlockBuffer::Iterator iterator(block_buffer);
+    while ((NULL != (block = iterator.GetNextBlock())) &&
+           (blocksAllowed > 0) &&
+           ((0 == wanted) || (nBytes < wanted)))
+    {
+        double delay = session.GetFlowControlDelay() - block->GetNackAge();
+        if (block->IsPending() || (delay >= 1.0e-06)) break;
+        nBytes += (segment_size * ndata);
+        blocksAllowed--;
+    }
+    return nBytes;
+}  // end NormStreamObject::GetVacancy()
+
 UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
 {               
     UINT32 nBytes = 0;
@@ -3999,7 +4041,7 @@ UINT32 NormStreamObject::Write(const char* buffer, UINT32 len, bool eom)
         }
         // This old code detected buffer "fullness" by offset instead of segment index
         // but, the problem there was when apps wrote & flushed messages smaller than
-        // the segment_size, the buffer used up before this detected it.
+        // the segment_size, the buffer was used up before this detected it.
         //INT32 deltaOffset = write_offset - tx_offset;  // (TBD) deprecate tx_offset
         //ASSERT(deltaOffset >= 0);
         //if (deltaOffset >= (INT32)object_size.LSB())

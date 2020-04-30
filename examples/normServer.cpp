@@ -203,7 +203,7 @@ ClientInfo NormGetClientInfo(NormNodeHandle client)
     return ClientInfo(version, addr, port);
 }  // end NormGetClientInfo(NormNodeHandle)
 
-ClientInfo NormGetSocketInfo(NormSocketHandle socket)
+static ClientInfo NormGetSocketInfo(NormSocketHandle socket)
 {
     char addr[16]; // big enough for IPv6
     unsigned int addrLen = 16;
@@ -490,6 +490,11 @@ int main(int argc, char* argv[])
                     {
                         if (event.socket == serverSocket)
                         {
+                            
+                            // TBD - now that the NormSocket code manages its own client_table by remote addr/port
+                            // and should eliminate the 'duplicative' connect itself, we can just keep track
+                            // of client sockets by their NormSocketHandle
+                            
                             // Possibly a new "client" connecting to our "server"
                             // First confirm that this really is a new client.
                             if (NORM_SOCKET_INVALID != FindClientSocket(clientMap, clientInfo))

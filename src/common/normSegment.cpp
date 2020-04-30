@@ -789,7 +789,7 @@ NormBlockId NormBlockBuffer::RangeMin() const
     if (range_max > 1)
     {
         NormBlockId rangeMin = range_hi;
-        Decrement(rangeMin, range_max - 1);
+        Decrement(rangeMin, (UINT32)range_max - 1);
         return rangeMin;
     }
     else
@@ -841,7 +841,7 @@ bool NormBlockBuffer::Insert(NormBlock* theBlock)
     // else if (blockId < range_lo)
     else if (Compare(blockId, range_lo) < 0)
     {
-        UINT32 newRange = (UINT32)Difference(range_lo, blockId) + range;
+        UINT32 newRange = (UINT32)Difference(range_lo, blockId) + (UINT32)range;
         if (newRange > range_max) return false;
         range_lo = blockId;
         range = newRange;
@@ -849,7 +849,7 @@ bool NormBlockBuffer::Insert(NormBlock* theBlock)
     // else if (blockId > range_hi)
     else if (Compare(blockId, range_hi) > 0)
     {            
-        UINT32 newRange = (UINT32)Difference(blockId, range_hi) + range;
+        UINT32 newRange = (UINT32)Difference(blockId, range_hi) + (UINT32)range;
         if (newRange > range_max) return false;
         range_hi = blockId;
         range = newRange;

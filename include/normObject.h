@@ -484,6 +484,10 @@ class NormStreamObject : public NormObject
         bool HasVacancy() 
             {return (stream_closing ? false : write_vacancy);}
         
+        // Returns how many bytes can be written to stream without blocking
+        // (up to 'wanted' for non-zero 'wanted', otherwise max vacancy available)
+        unsigned int GetVacancy(unsigned int wanted = 0);
+        
         NormBlock* StreamBlockLo()
             {return stream_buffer.Find(stream_buffer.RangeLo());}
         void SetLastNackTime(NormBlockId blockId, const ProtoTime& theTime)
