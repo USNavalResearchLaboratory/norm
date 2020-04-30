@@ -114,7 +114,9 @@ typedef enum NormSocketEventType
     NORM_SOCKET_CLOSING,        // indicates remote endpoint is closing socket (only read data at this point)
     NORM_SOCKET_CLOSE           // indicates socket is now closed (invalid for further operations)
 } NormSocketEventType;
-
+    
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
 typedef struct
 {
     NormSocketEventType type;
@@ -134,6 +136,7 @@ typedef struct
         };
     };
 } NormSocketEvent;
+#pragma GCC diagnostic pop
     
 bool NormGetSocketEvent(NormInstanceHandle normInstance, NormSocketEvent* event, bool waitForEvent = true);
 

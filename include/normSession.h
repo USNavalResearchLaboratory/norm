@@ -59,7 +59,7 @@ class NormController
             SEND_ERROR,
             USER_TIMEOUT,
             // The ones below here are not exposed via the NORM API
-            SEND_OK,
+            SEND_OK
         };
                   
         virtual void Notify(NormController::Event event,
