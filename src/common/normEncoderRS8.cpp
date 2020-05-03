@@ -34,7 +34,7 @@
 
 
 #include "normEncoderRS8.h"
-#include "protoDebug.h"
+#include "protolib/protoDebug.h"
 
 #ifdef SIMULATE
 #include "normMessage.h" 

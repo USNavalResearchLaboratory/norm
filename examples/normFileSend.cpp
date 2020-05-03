@@ -25,8 +25,8 @@
 
 #include "normApi.h"     // for NORM API
 
-#include "protoDefs.h"   // for ProtoSystemTime()       
-#include "protoDebug.h"  // for SetDebugLevel(), etc   
+#include "protolib/protoDefs.h"   // for ProtoSystemTime()       
+#include "protolib/protoDebug.h"  // for SetDebugLevel(), etc   
 
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for srand()

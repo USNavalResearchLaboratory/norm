@@ -2,7 +2,7 @@
 #define _NORM_ENCODER_RS8
 
 #include "normEncoder.h"
-#include "protoDefs.h"  // for UINT16
+#include "protolib/protoDefs.h"  // for UINT16
 
 class NormEncoderRS8 : public NormEncoder
 {

@@ -42,7 +42,7 @@
 // all rights reserved.
         
 #include "normPostProcess.h"
-#include "protoDebug.h"
+#include "protolib/protoDebug.h"
 
 #include <errno.h>
 #include <string.h>  // for strerror()

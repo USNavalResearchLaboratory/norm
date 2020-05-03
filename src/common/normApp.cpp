@@ -6,7 +6,7 @@
 // the threaded NORM API code.  So this should _not_ be used as a NORM
 // programming example!!!!
 
-#include "protokit.h"
+#include "protolib/protokit.h"
 #include "normSession.h"
 #include "normPostProcess.h"
 

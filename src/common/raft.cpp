@@ -1,5 +1,5 @@
 
-#include "protokit.h"
+#include "protolib/protokit.h"
 #include <stdio.h>  // for sscanf()
 
 #ifdef UNIX

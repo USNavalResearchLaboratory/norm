@@ -4,7 +4,7 @@
 // normSimAgent.h - Generic (base class) NORM simulation agent
 
 #include "normSession.h"
-#include "protokit.h"
+#include "protolib/protokit.h"
 #include "protoSimAgent.h"
 
 // Base class for Norm simulation agents (e.g. ns-2, OPNET, etc)

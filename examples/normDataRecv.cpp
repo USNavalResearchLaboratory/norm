@@ -38,7 +38,7 @@
 // Usage: normDataRecv [addr <addr>/<port>]
 
 
-#include "protoBitmask.h"
+#include "protolib/protoBitmask.h"
 
 void Usage()
 {

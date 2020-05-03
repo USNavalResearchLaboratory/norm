@@ -6,8 +6,8 @@
 #include <stdio.h>
 #include <pcap.h>
 #include <sys/socket.h>  // for PF_ types (protocol family)
-#include "protoPktETH.h" // for Ethernet frame parsing
-#include "protoPktIP.h"  // for IP packet parsing
+#include "protolib/protoPktETH.h" // for Ethernet frame parsing
+#include "protolib/protoPktIp.h"  // for IP packet parsing
 #include "protoPktARP.h"
 
 #include "normSession.h"

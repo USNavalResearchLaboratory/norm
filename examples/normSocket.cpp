@@ -4,7 +4,7 @@
 #include <assert.h> // for assert()
 #include <string.h>  // for strlen()
 
-#include "protoTree.h"
+#include "protolib/protoTree.h"
 #include "protoAddress.h"
 
 #ifdef WIN32

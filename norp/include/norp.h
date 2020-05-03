@@ -3,7 +3,7 @@
 
 #include "protoSocket.h"
 #include "protoTimer.h"
-#include "protoTree.h"
+#include "protolib/protoTree.h"
 #include "protoDispatcher.h"
 #include "protoPktSOCKS.h"
 #include "normApi.h"
