@@ -81,37 +81,26 @@ install( EXPORT normTargets
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/norm)
 
 if(BUILD_EXAMPLES)
-	# Setup examples
-	list(APPEND examples 
-	base64Example
-	# detourExample This depends on netfilterqueue so doesn't work as a "simple example"
-	eventExample
-	fileTest
-	graphExample
-	#'graphRider', (this depends on manetGraphML.cpp so doesn't work as a "simple example"
-	lfsrExample
-	msg2MsgExample
-	#'msgExample',  (this depends on examples/testFuncs.cpp so doesn't work as a "simple example"
-	netExample
-	pipe2SockExample
-	pipeExample
-	protoCapExample
-	protoExample
-	protoFileExample
-	queueExample
-	serialExample
-	simpleTcpExample
-	sock2PipeExample
-	threadExample
-	timerTest
-	vifExample
-	vifLan
-	#'wxProtoExample', (this depends on wxWidgets (could use wx-config to test) so doesn't work as a "simple example"
-	udptest)
+    # Setup examples
+    list(APPEND examples 
+        #normDataExample
+        normDataRecv
+        normDataSend
+        normFileRecv
+        normFileSend
+        normStreamRecv
+        normStreamSend
+        normMsgr
+        normStreamer
+        normCast
+        normClient
+        normServer
+		#wintest
+		)
 
 	foreach(example ${examples})
-		add_executable(${example} examples/${example}.cpp)
-		target_link_libraries(${example} PRIVATE norm)
+		add_executable(${example} examples/${example}.cpp examples/normSocket.cpp)
+		target_link_libraries(${example} PRIVATE norm protolib::protolib)
 	endforeach()
 endif()
 

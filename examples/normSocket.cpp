@@ -5,7 +5,7 @@
 #include <string.h>  // for strlen()
 
 #include "protolib/protoTree.h"
-#include "protoAddress.h"
+#include "protolib/protoAddress.h"
 
 #ifdef WIN32
 #include <Winsock2.h>   // for inet_ntoa() (TBD - change to use Protolib routines?)

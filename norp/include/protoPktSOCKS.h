@@ -3,7 +3,7 @@
 #define _PROTO_SOCKS
 
 #include "protoPkt.h" 
-#include "protoAddress.h"
+#include "protolib/protoAddress.h"
 
 // These classes provide message parsing and building for 
 // the RFC 1928 SOCKS5 protocol specification.

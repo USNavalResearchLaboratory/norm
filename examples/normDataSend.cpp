@@ -27,7 +27,7 @@
 
 #include "protolib/protoDefs.h"   // for ProtoSystemTime()       
 #include "protolib/protoDebug.h"  // for SetDebugLevel(), etc   
-#include "protoAddress.h"  // for ProtoAddress for easy mcast test
+#include "protolib/protoAddress.h"  // for ProtoAddress for easy mcast test
 
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for srand()

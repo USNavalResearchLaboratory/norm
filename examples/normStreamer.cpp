@@ -1,6 +1,6 @@
 
 #include "normApi.h"
-#include "protoSocket.h"
+#include "protolib/protoSocket.h"
 
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for srand()

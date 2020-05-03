@@ -27,7 +27,7 @@
 
 #include "normMessage.h"
 
-#include "protoAddress.h"  // for ProtoAddress for easy mcast test
+#include "protolib/protoAddress.h"  // for ProtoAddress for easy mcast test
 
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for srand()

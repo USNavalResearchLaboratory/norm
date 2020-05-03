@@ -39,7 +39,7 @@ int main(int argc, char** argv)
 
 	Win32InputHandler inputHandler;
 
-	inputHandler.Start();
+	inputHandler.Open();
 
 	while (true)
 	{
@@ -51,7 +51,7 @@ int main(int argc, char** argv)
 		DWORD dwWritten;
 		BOOL fSuccess = WriteFile(hStdout, buffer, numBytes, &dwWritten, NULL);
 	}
-	inputHandler.Stop();
+	inputHandler.Close();
 
     return 0;
 }  //  end main()
