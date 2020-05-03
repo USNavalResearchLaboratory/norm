@@ -34,21 +34,8 @@
 This is a release of the NRL NORM source code. 
 
 A Google Groups forum is available at 
-<iframe id="forum_embed"
-  src="javascript:void(0)"
-  scrolling="no"
-  frameborder="0"
-  width="900"
-  height="700">
-</iframe>
-<script type="text/javascript">
-  document.getElementById('forum_embed').src =
-     'https://groups.google.com/forum/embed/?place=forum/norm-dev'
-     + '&showsearch=true&showpopout=true&showtabs=false'
-     + '&parenturl=' + encodeURIComponent(window.location.href);
-</script>
 
-
+https://groups.google.com/forum/#!forum/norm-dev
 
 
 SOURCE CODE
