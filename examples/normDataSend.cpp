@@ -25,9 +25,9 @@
 
 #include "normApi.h"     // for NORM API
 
-#include "protolib/protoDefs.h"   // for ProtoSystemTime()       
-#include "protolib/protoDebug.h"  // for SetDebugLevel(), etc   
-#include "protolib/protoAddress.h"  // for ProtoAddress for easy mcast test
+#include "protokit/protoDefs.h"   // for ProtoSystemTime()       
+#include "protokit/protoDebug.h"  // for SetDebugLevel(), etc   
+#include "protokit/protoAddress.h"  // for ProtoAddress for easy mcast test
 
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for srand()

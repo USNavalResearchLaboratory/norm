@@ -42,7 +42,7 @@
 #endif // SIMULATE
 
 #include <stdio.h>
-#include "protolib/protoDefs.h"  // for struct timeval
+#include "protokit/protoDefs.h"  // for struct timeval
 #define DIFF_T(a,b) (1+ 1000000*(a.tv_sec - b.tv_sec) + (a.tv_usec - b.tv_usec) )
 
 NormEncoder::~NormEncoder()

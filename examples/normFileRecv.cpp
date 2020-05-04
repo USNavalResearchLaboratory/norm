@@ -25,8 +25,8 @@ g++ -o normFileRecv normFileRecv.cpp -D_FILE_OFFSET_BITS=64 -I../common/ \
 
 #include "normApi.h"     // for NORM API
 
-#include "protolib/protoDefs.h"   // for ProtoSystemTime        
-#include "protolib/protoDebug.h"  // for SetDebugLevel(), etc   
+#include "protokit/protoDefs.h"   // for ProtoSystemTime        
+#include "protokit/protoDebug.h"  // for SetDebugLevel(), etc   
 
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for srand()
@@ -63,7 +63,7 @@ int main(int argc, char* argv[])
     
     // NOTE: These are debugging routines available 
     //       (not necessary for normal app use)
-    // (Need to include "protolib/common/protoDebug.h" for this
+    // (Need to include "protokit/common/protoDebug.h" for this
     //SetDebugLevel(2);
     // Uncomment to turn on debug NORM message tracing
     //NormSetMessageTrace(session, true);

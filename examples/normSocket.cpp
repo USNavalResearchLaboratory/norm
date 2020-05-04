@@ -4,8 +4,8 @@
 #include <assert.h> // for assert()
 #include <string.h>  // for strlen()
 
-#include "protolib/protoTree.h"
-#include "protolib/protoAddress.h"
+#include "protokit/protoTree.h"
+#include "protokit/protoAddress.h"
 
 #ifdef WIN32
 #include <Winsock2.h>   // for inet_ntoa() (TBD - change to use Protolib routines?)

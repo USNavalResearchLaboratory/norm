@@ -22,7 +22,7 @@
 #endif // if/else _WIN32_WCE
 
 // From PROTOLIB
-#include "protolib/protokit.h"    // for Protolib stuff
+#include "protokit/protokit.h"    // for Protolib stuff
 
 // (TBD) Rewrite this implementation to use 
 // native WIN32 APIs on that platform !!!

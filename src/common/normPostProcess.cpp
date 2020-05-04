@@ -1,5 +1,5 @@
 #include "normPostProcess.h"
-#include "protolib/protoDebug.h"
+#include "protokit/protoDebug.h"
 
 #include <ctype.h>
 #include <string.h>

@@ -27,7 +27,7 @@
 
 #include "normMessage.h"
 
-#include "protolib/protoAddress.h"  // for ProtoAddress for easy mcast test
+#include "protokit/protoAddress.h"  // for ProtoAddress for easy mcast test
 
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for srand()
@@ -38,7 +38,7 @@
 // Usage: normDataRecv [addr <addr>/<port>]
 
 
-#include "protolib/protoBitmask.h"
+#include "protokit/protoBitmask.h"
 
 void Usage()
 {

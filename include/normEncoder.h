@@ -33,7 +33,7 @@
 #ifndef _NORM_ENCODER
 #define _NORM_ENCODER
 
-#include "protolib/protokit.h"  // protolib stuff
+#include "protokit/protokit.h"  // protolib stuff
 
 class NormEncoder
 {

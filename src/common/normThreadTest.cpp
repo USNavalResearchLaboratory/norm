@@ -7,7 +7,7 @@
 // This tests the use of the NORM API in a multi-threaded app
 
 #include "normApi.h"
-#include "protolib/protokit.h"  // for protolib debug, stuff, etc
+#include "protokit/protokit.h"  // for protolib debug, stuff, etc
 
 #include <stdio.h>
 #include <stdlib.h>  // for srand()

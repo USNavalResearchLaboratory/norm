@@ -8,7 +8,17 @@ set(COMMON src/common)
 option(BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
 
 # Check for libraries
-find_package(protolib REQUIRED)
+find_package(protokit QUIET)
+
+if(NOT protokit_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(
+      protokit
+      GIT_REPOSITORY https://github.com/USNavalResearchLaboratory/protolib.git
+      GIT_TAG        origin/master
+    )
+    FetchContent_MakeAvailable(protokit)
+endif()
 
 # List header files
 list(APPEND PUBLIC_HEADER_FILES
@@ -48,18 +58,18 @@ list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_LIST_DIR}/include )
 
 # Setup platform dependent libraries, defines, source file and compiler flags
 if(MSVC)
-	list(APPEND PLATFORM_LIBS Shell32)
-	list(APPEND PLATFORM_DEFINITIONS _CONSOLE)
-	list(APPEND PLATFORM_SOURCE_FILES src/win32/win32PostProcess.cpp)
+    list(APPEND PLATFORM_LIBS Shell32)
+    list(APPEND PLATFORM_DEFINITIONS _CONSOLE)
+    list(APPEND PLATFORM_SOURCE_FILES src/win32/win32PostProcess.cpp)
 elseif(UNIX)
-	list(APPEND PLATFORM_SOURCE_FILES 	src/unix/unixPostProcess.cpp)
+    list(APPEND PLATFORM_SOURCE_FILES   src/unix/unixPostProcess.cpp)
 endif()
 
 include(GNUInstallDirs)
 
 # Setup target
 add_library(norm ${PLATFORM_SOURCE_FILES} ${COMMON_SOURCE_FILES} ${PUBLIC_HEADER_FILES})
-target_link_libraries(norm PRIVATE ${PLATFORM_LIBS} protolib::protolib)
+target_link_libraries(norm PRIVATE ${PLATFORM_LIBS} protokit::protokit)
 target_compile_definitions(norm PUBLIC ${PLATFORM_DEFINITIONS})
 target_compile_options(norm PUBLIC ${PLATFORM_FLAGS})
 target_include_directories(norm PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
@@ -67,15 +77,15 @@ target_include_directories(norm PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_
 
 # Install target
 install( TARGETS norm EXPORT normTargets
-		RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} )
 
 install( EXPORT normTargets
-	FILE normTargets.cmake
-	NAMESPACE norm::
-	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/norm
+    FILE normTargets.cmake
+    NAMESPACE norm::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/norm
 )
 
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/norm)
@@ -95,13 +105,12 @@ if(BUILD_EXAMPLES)
         normCast
         normClient
         normServer
-		#wintest
-		)
+        #wintest
+        )
 
-	foreach(example ${examples})
-		add_executable(${example} examples/${example}.cpp examples/normSocket.cpp)
-		target_link_libraries(${example} PRIVATE norm protolib::protolib)
-	endforeach()
+    foreach(example ${examples})
+        add_executable(${example} examples/${example}.cpp examples/normSocket.cpp)
+        target_link_libraries(${example} PRIVATE norm protolib::protolib)
+    endforeach()
 endif()
-
 

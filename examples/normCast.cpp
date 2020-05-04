@@ -44,9 +44,9 @@
 // I usually avoid using Protolib stuff for NORM API examples to keep things clearer,  
 // but the couple of classes here are useful helpers from the Protolib C++ toolkit.
 
-#include "protolib/protoFile.h"    // for ProtoFile::PathList and iterator for tx file/directory queue
-#include "protolib/protoString.h"  // for ProtoTokenator
-#include "protolib/protoAddress.h" // for ProtoAddress
+#include "protokit/protoFile.h"    // for ProtoFile::PathList and iterator for tx file/directory queue
+#include "protokit/protoString.h"  // for ProtoTokenator
+#include "protokit/protoAddress.h" // for ProtoAddress
 
 class NormCaster
 {

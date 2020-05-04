@@ -6,8 +6,8 @@
 
 #include <time.h>  // for gmtime() in NormTrace()
 
-#include "protolib/protoPktETH.h"
-#include "protolib/protoPktIp.h"
+#include "protokit/protoPktETH.h"
+#include "protokit/protoPktIp.h"
 
 const UINT8 NormSession::DEFAULT_TTL = 255; 
 const double NormSession::DEFAULT_TRANSMIT_RATE = 64000.0; // bits/sec

@@ -1,9 +1,9 @@
 #ifndef _NORP
 #define _NORP
 
-#include "protolib/protoSocket.h"
+#include "protokit/protoSocket.h"
 #include "protoTimer.h"
-#include "protolib/protoTree.h"
+#include "protokit/protoTree.h"
 #include "protoDispatcher.h"
 #include "protoPktSOCKS.h"
 #include "normApi.h"
