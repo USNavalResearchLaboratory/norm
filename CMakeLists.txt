@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.11)
 
 # set the project name
-project(norm)
+project(norm VERSION 1.5.8)
 
 set(COMMON src/common)
 
@@ -82,13 +82,46 @@ install( TARGETS norm EXPORT normTargets
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} )
 
+set(INSTALL_CONFIGDIR ${CMAKE_INSTALL_LIBDIR}/cmake/norm)
+
 install( EXPORT normTargets
     FILE normTargets.cmake
     NAMESPACE norm::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/norm
+    DESTINATION ${INSTALL_CONFIGDIR}
 )
 
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/norm)
+
+#Create a ConfigVersion.cmake file
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/normConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY AnyNewerVersion
+)
+
+configure_package_config_file(${CMAKE_CURRENT_LIST_DIR}/cmake/normConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/normConfig.cmake
+    INSTALL_DESTINATION ${INSTALL_CONFIGDIR}
+)
+
+#Install the config, configversion and custom find modules
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/normConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/normConfigVersion.cmake
+    DESTINATION ${INSTALL_CONFIGDIR}
+)
+
+# ##############################################
+# ## Exporting from the build tree
+# #Install the config, configversion and custom find modules
+
+export(EXPORT normTargets
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/normTargets.cmake
+    NAMESPACE norm::)
+
+# #Register package in user's package registry
+export(PACKAGE norm)
 
 if(BUILD_EXAMPLES)
     # Setup examples
