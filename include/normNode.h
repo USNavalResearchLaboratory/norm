@@ -4,7 +4,7 @@
 #include "normMessage.h"
 #include "normObject.h"
 #include "normEncoder.h"
-#include "protokit/protokit.h"
+#include "protokit.h"
 
 class NormNode
 {

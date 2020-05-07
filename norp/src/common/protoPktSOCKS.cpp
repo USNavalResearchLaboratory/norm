@@ -1,5 +1,5 @@
 #include "protoPktSOCKS.h"
-#include "protokit/protoDebug.h"
+#include "protoDebug.h"
 
 ProtoPktSOCKS::AuthRequest::AuthRequest(UINT32* bufferPtr, unsigned int numBytes, bool initFromBuffer, bool freeOnDestruct)
  : ProtoPkt(bufferPtr, numBytes, freeOnDestruct)

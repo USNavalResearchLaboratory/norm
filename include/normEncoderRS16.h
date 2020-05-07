@@ -2,7 +2,7 @@
 #define _NORM_ENCODER_RS16
 
 #include "normEncoder.h"
-#include "protokit/protoDefs.h"  // for UINT16
+#include "protoDefs.h"  // for UINT16
 
 class NormEncoderRS16 : public NormEncoder
 {

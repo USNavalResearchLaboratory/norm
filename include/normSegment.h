@@ -2,7 +2,7 @@
 #define _NORM_SEGMENT
 
 #include "normMessage.h"
-#include "protokit/protoBitmask.h"
+#include "protoBitmask.h"
 
 #define USE_PROTO_TREE 1  // for more better performing NormBlockBuffer?
 

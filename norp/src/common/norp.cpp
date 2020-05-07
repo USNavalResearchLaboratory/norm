@@ -1,7 +1,7 @@
 
 #include "norp.h"
 #include "protoNet.h"
-#include "protokit/protoDebug.h"
+#include "protoDebug.h"
 
 
 // Note this "PortPool" was a simple helper class

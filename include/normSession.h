@@ -6,9 +6,9 @@
 #include "normNode.h"
 #include "normEncoder.h"
 
-#include "protokit/protokit.h"
+#include "protokit.h"
 
-#include "protokit/protoCap.h"  // for ProtoCap for ECN_SUPPORT
+#include "protoCap.h"  // for ProtoCap for ECN_SUPPORT
 
 
 // When this is defined, our experimental tweak to 

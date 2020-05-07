@@ -10,7 +10,7 @@
 #define USE_PROTO_TREE 1  // for more better performing NormObjectTable?
 
 #ifdef USE_PROTO_TREE
-#include "protokit/protoTree.h"
+#include "protoTree.h"
 
 class NormObject : public ProtoSortedTree::Item
 #else

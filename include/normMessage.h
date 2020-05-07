@@ -2,7 +2,7 @@
 #define _NORM_MESSAGE
 
 // PROTOLIB includes
-#include "protokit/protokit.h"
+#include "protokit.h"
 
 // standard includes
 #include <string.h>  // for memcpy(), etc

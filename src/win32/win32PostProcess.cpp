@@ -1,7 +1,7 @@
 
 
 #include "normPostProcess.h"
-#include "protokit/protoDebug.h"
+#include "protoDebug.h"
 
 #ifndef _WIN32_WCE
 #include <ddeml.h>

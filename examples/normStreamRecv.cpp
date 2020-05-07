@@ -48,7 +48,7 @@ int main(int argc, char* argv[])
     
     // NOTE: These are debugging routines available 
     //       (not necessary for normal app use)
-    // (Need to include "protokit/common/protoDebug.h" for this
+    // (Need to include "common/protoDebug.h" for this
     NormSetDebugLevel(3);
     // Uncomment to turn on debug NORM message tracing
     NormSetMessageTrace(session, true);

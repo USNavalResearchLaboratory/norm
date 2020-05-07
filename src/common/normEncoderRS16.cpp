@@ -34,7 +34,7 @@
 
 
 #include "normEncoderRS16.h"
-#include "protokit/protoDebug.h"
+#include "protoDebug.h"
 #ifdef SIMULATE
 #include "normMessage.h"
 #endif // SIMULATE

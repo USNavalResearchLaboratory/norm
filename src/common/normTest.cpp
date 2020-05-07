@@ -5,7 +5,7 @@
 // when the NORM API is more complete.
 
 #include "normApi.h"
-#include "protokit/protokit.h"  // for protolib debug, stuff, etc
+#include "protokit.h"  // for protolib debug, stuff, etc
 
 #include <stdio.h>
 #include <stdlib.h>  // for srand()

@@ -2,7 +2,7 @@
 #ifndef _NORM_POST_PROCESS
 #define _NORM_POST_PROCESS
 
-#include "protokit/protoDefs.h"  // for NULL
+#include "protoDefs.h"  // for NULL
         
 class NormPostProcessor
 {
