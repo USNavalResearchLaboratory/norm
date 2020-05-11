@@ -5,7 +5,23 @@ project(norm VERSION 1.5.8)
 
 set(COMMON src/common)
 
-option(BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
+option(NORM_BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
+
+include(CheckCXXSymbolExists)
+check_cxx_symbol_exists(dirfd "dirent.h" HAVE_DIRFD)
+if(HAVE_DIRFD)
+	list(APPEND PLATFORM_DEFINITIONS HAVE_DIRFD)
+endif()
+
+check_cxx_symbol_exists(lockf "unistd.h" HAVE_LOCKF)
+if(HAVE_LOCKF)
+	list(APPEND PLATFORM_DEFINITIONS HAVE_LOCKF)
+endif()
+
+check_cxx_symbol_exists(flock "sys/file.h" HAVE_FLOCK)
+if(HAVE_FLOCK AND NOT HAVE_LOCKF)
+	list(APPEND PLATFORM_DEFINITIONS HAVE_FLOCK)
+endif()
 
 # Check for libraries
 find_package(protokit QUIET)
@@ -121,7 +137,7 @@ export(EXPORT normTargets
 # Register package in user's package registry
 export(PACKAGE norm)
 
-if(BUILD_EXAMPLES)
+if(NORM_BUILD_EXAMPLES)
     # Setup examples
     list(APPEND examples 
         #normDataExample
@@ -141,7 +157,7 @@ if(BUILD_EXAMPLES)
 
     foreach(example ${examples})
         add_executable(${example} examples/${example}.cpp examples/normSocket.cpp)
-        target_link_libraries(${example} PRIVATE norm protolib::protolib)
+        target_link_libraries(${example} PRIVATE norm protokit::protokit)
     endforeach()
 endif()
 
