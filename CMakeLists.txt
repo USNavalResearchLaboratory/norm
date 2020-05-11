@@ -92,7 +92,7 @@ install( EXPORT normTargets
 
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/norm)
 
-#Create a ConfigVersion.cmake file
+# Create a ConfigVersion.cmake file
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/normConfigVersion.cmake
@@ -105,22 +105,20 @@ configure_package_config_file(${CMAKE_CURRENT_LIST_DIR}/cmake/normConfig.cmake.i
     INSTALL_DESTINATION ${INSTALL_CONFIGDIR}
 )
 
-#Install the config, configversion and custom find modules
+# Install the config, configversion and custom find modules
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/normConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/normConfigVersion.cmake
     DESTINATION ${INSTALL_CONFIGDIR}
 )
 
-# ##############################################
-# ## Exporting from the build tree
-# #Install the config, configversion and custom find modules
-
+##############################################
+# Exporting from the build tree
 export(EXPORT normTargets
     FILE ${CMAKE_CURRENT_BINARY_DIR}/normTargets.cmake
     NAMESPACE norm::)
 
-# #Register package in user's package registry
+# Register package in user's package registry
 export(PACKAGE norm)
 
 if(BUILD_EXAMPLES)
