@@ -19,7 +19,7 @@ if(HAVE_LOCKF)
 endif()
 
 check_cxx_symbol_exists(flock "sys/file.h" HAVE_FLOCK)
-if(HAVE_FLOCK AND NOT HAVE_LOCKF)
+if(HAVE_FLOCK)
 	list(APPEND PLATFORM_DEFINITIONS HAVE_FLOCK)
 endif()
 
