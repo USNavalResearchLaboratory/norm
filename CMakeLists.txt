@@ -58,6 +58,7 @@ list(APPEND PUBLIC_HEADER_FILES
 # List platform-independent source files
 list(APPEND COMMON_SOURCE_FILES 
             ${COMMON}/galois.cpp
+            ${COMMON}/normApi.cpp
             ${COMMON}/normEncoder.cpp
             ${COMMON}/normEncoderMDP.cpp
             ${COMMON}/normEncoderRS16.cpp
