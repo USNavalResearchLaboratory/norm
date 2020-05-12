@@ -17,6 +17,12 @@ static inline int dirfd(DIR *dir) {return (dir->dd_fd);}
 #endif // HAVE_DIRFD    
 #endif // if/else WIN32
 
+#ifdef HAVE_FLOCK
+    #include <sys/file.h>
+#elif defined(HAVE_LOCKF)
+    #include <unistd.h>
+#endif
+
 #ifndef _WIN32_WCE
 #include <fcntl.h>
 #include <sys/types.h>
