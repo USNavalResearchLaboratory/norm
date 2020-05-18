@@ -52,7 +52,10 @@ class NormObject
         
         // This must be reset after each update
         void SetNotifyOnUpdate(bool state)
-            {notify_on_update = state;}
+        {
+                TRACE("enter SetNotifyOnUpdate(%d) ...\n", state);
+                notify_on_update = state;
+        }
         
         // Object information
         NormObject::Type GetType() const {return type;}

@@ -220,11 +220,8 @@ void NormInstance::Notify(NormController::Event   event,
     {
         case SEND_OK:
             // Purge any pending NORM_SEND_ERROR notifications for session
-            TRACE("purging SEND_ERROR ...\n");
             PurgeNotifications(session, NORM_SEND_ERROR);
             return;
-        case SEND_ERROR:
-            TRACE("got SEND_ERROR\n");
         default:
             break;
     }
@@ -557,7 +554,6 @@ bool NormInstance::GetNextEvent(NormEvent* theEvent)
             case NORM_SEND_ERROR:
             {
                 NormSession* session = (NormSession*)next->event.session;
-                TRACE("calling ClearSendError() ....\n");
                 session->ClearSendError();
                 break;
             }
@@ -1878,8 +1874,9 @@ NormObjectHandle NormStreamOpen(NormSessionHandle  sessionHandle,
         NormSession* session = (NormSession*)sessionHandle;
         if (session)
         {
+            NormStreamObject* streamObj = session->QueueTxStream(bufferSize, true, infoPtr, infoLen);
             NormObject* obj = 
-                static_cast<NormObject*>(session->QueueTxStream(bufferSize, true, infoPtr, infoLen));
+                static_cast<NormObject*>(streamObj);
             if (obj) objectHandle = (NormObjectHandle)obj;
         }
         instance->dispatcher.ResumeThread();

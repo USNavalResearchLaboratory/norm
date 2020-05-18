@@ -101,7 +101,10 @@ NormInstanceHandle NormGetSocketInstance(NormSocketHandle normSocket);
 NormSessionHandle NormGetSocketSession(NormSocketHandle normSocket);
 NormSessionHandle NormGetSocketMulticastSession(NormSocketHandle normSocket);
 void NormGetPeerName(NormSocketHandle normSocket, char* addr, unsigned int* addrLen, UINT16* port);
+NormObjectHandle NormGetSocketTxStream(NormSocketHandle normSocket);
+NormObjectHandle NormGetSocketRxStream(NormSocketHandle normSocket);
 
+void NormSetSocketFlowControl(NormSocketHandle normSocket, bool enable);
 void NormSetSocketTrace(NormSocketHandle normSocket, bool enable);
 
 typedef enum NormSocketEventType

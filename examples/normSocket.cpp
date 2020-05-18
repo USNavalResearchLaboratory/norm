@@ -207,11 +207,21 @@ class NormSocket
         NormSessionHandle GetMulticastSession() const
             {return mcast_session;}
         
+        NormObjectHandle GetTxStream() const
+            {return tx_stream;}
     
         void InitRxStream(NormObjectHandle rxStream)
             {rx_stream = rxStream;}
         NormObjectHandle GetRxStream() const
             {return rx_stream;}
+        
+        
+        void SetFlowControl(bool state)
+        {
+            tx_flow_control = state;
+            if (NORM_OBJECT_INVALID != tx_stream)
+                NormStreamSetPushEnable(tx_stream, state ? false : true);
+        }
         
         void InitTxStream(NormObjectHandle txStream, unsigned int bufferSize, UINT16 segmentSize, UINT16 blockSize)
         {
@@ -223,6 +233,7 @@ class NormSocket
             tx_stream_bytes_remain = 0;
             tx_watermark_pending = false;
             tx_ready = true;
+            NormStreamSetPushEnable(tx_stream, tx_flow_control ? false : true);
         }
         
         bool Open(NormInstanceHandle instance = NORM_INSTANCE_INVALID);
@@ -244,12 +255,8 @@ class NormSocket
         // hard, immediate closure
         void Close();
         
-        
-        
-        
         void SetSocketInfo(NormSocketInfo* socketInfo)        // for server-side, client sockets only
             {socket_info = socketInfo;}
-        
         
         NormSocketInfo* FindSocketInfo(NormNodeHandle client)
             {return client_table.FindSocketInfo(client);}
@@ -350,6 +357,7 @@ class NormSocket
         unsigned int        tx_stream_buffer_count;
         unsigned int        tx_stream_bytes_remain;
         bool                tx_watermark_pending;
+        bool                tx_flow_control;
         // Receive stream state
         NormObjectHandle    rx_stream;
         const void*         user_data;      // for use by user application
@@ -366,6 +374,7 @@ NormSocket::NormSocket(NormSessionHandle normSession)
    tx_stream(NORM_OBJECT_INVALID), tx_ready(false), tx_segment_size(0), 
    tx_stream_buffer_max(0), tx_stream_buffer_count(0),
    tx_stream_bytes_remain(0), tx_watermark_pending(false),
+   tx_flow_control(true),
    rx_stream(NORM_OBJECT_INVALID), user_data(NULL)
 {
     // For now we use the NormSession "user data" option to associate
@@ -732,7 +741,6 @@ bool NormSocket::Connect(const char*    serverAddr,
     else
     {
         // Set timeout for connect attempt (for "heavyweight" mcast connect, this would also be done)
-        TRACE("NormSetUserTimer(1) session: %p\n", norm_session);
         NormSetUserTimer(norm_session, NORM_DEFAULT_CONNECT_TIMEOUT);   
     }
     server_socket = NULL;  // this is a client-side socket
@@ -769,9 +777,14 @@ unsigned int NormSocket::Write(const char* buffer, unsigned int numBytes)
         InitTxStream(tx_stream, 2*1024*1024, 1400, 16);
     }
     
-    // This method uses NormStreamWrite(), but limits writes by explicit ACK-based flow control status
-    if (tx_stream_buffer_count < tx_stream_buffer_max)
+    if (!tx_flow_control)
     {
+        unsigned int bytesWritten = NormStreamWrite(tx_stream, buffer, numBytes);
+        return bytesWritten;
+    }
+    else if (tx_stream_buffer_count < tx_stream_buffer_max)
+    {
+        // This method uses NormStreamWrite(), but limits writes by explicit ACK-based flow control status
         // 1) How many buffer bytes are available?
         unsigned int bytesAvailable = tx_segment_size * (tx_stream_buffer_max - tx_stream_buffer_count);
         bytesAvailable -= tx_stream_bytes_remain;  // unflushed segment portiomn
@@ -878,7 +891,6 @@ void NormSocket::Shutdown()
         if ((IsServerSide() && IsMulticastClient()) || (NORM_OBJECT_INVALID == tx_stream))
         {
             // Use a zero-timeout to immediately post NORM_SOCKET_CLOSE notification
-            TRACE("NormSetUserTimer(2) session: %p\n", norm_session);
             NormSetUserTimer(norm_session, 0.0);
         }
         else if (NORM_OBJECT_INVALID != tx_stream)
@@ -892,7 +904,6 @@ void NormSocket::Shutdown()
     else
     {
         // Use a zero-timeout to immediately post NORM_SOCKET_CLOSE notification
-        TRACE("NormSetUserTimer(6) session: %p\n", norm_session);
         NormSetUserTimer(norm_session, 0.0);
     }
 }  // end NormSocket::Shutdown()
@@ -914,7 +925,6 @@ void NormSocket::Close()
                     NormNodeHandle node = NormGetAckingNodeHandle(mcast_session, nodeId);
                     assert(NORM_NODE_INVALID != node);
                     NormSocket* clientSocket = (NormSocket*)NormNodeGetUserData(node);
-                    TRACE("NormSetUserTimer(3) session: %p\n", clientSocket->norm_session);
                     NormSetUserTimer(clientSocket->norm_session, 0.0);
                 }
                 // for mcast server mcast_session == norm_session so it's destroyed below
@@ -1068,7 +1078,6 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                                     // We use the session timer to dispatch a NORM_SOCKET_CLOSE per failed client
                                     // (This will also remove the client from this server's acking list)
                                     clientSocket->socket_state = CLOSING;
-                                    TRACE("NormSetUserTimer(4) session: %p\n", clientSocket->norm_session);
                                     NormSetUserTimer(clientSocket->norm_session, 0.0);
                                 }
                             }
@@ -1134,7 +1143,6 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                 case CONNECTING:
                     // TBD - We should validate that it's the right remote sender
                     //       (i.e., by source address and/or nodeId)
-                    TRACE("NormCancelUserTimer(1) norm_session: %p\n", norm_session);
                     NormCancelUserTimer(norm_session);
                     socketEvent.type = NORM_SOCKET_CONNECT;
                     NormSetSynStatus(norm_session, false);
@@ -1628,6 +1636,19 @@ NormSessionHandle NormGetSocketSession(NormSocketHandle normSocket)
     return s->GetSession();
 }  // end NormGetSocketSession()
 
+NormObjectHandle NormGetSocketTxStream(NormSocketHandle normSocket)
+{
+    NormSocket* s = (NormSocket*)normSocket;
+    return s->GetTxStream();
+}  // end NormGetSocketTxStream()
+
+NormObjectHandle NormGetSocketRxStream(NormSocketHandle normSocket)
+{
+    NormSocket* s = (NormSocket*)normSocket;
+    return s->GetRxStream();
+}  // end NormGetSocketRxStream()
+
+
 NormSessionHandle NormGetSocketMulticastSession(NormSocketHandle normSocket)
 {
     NormSocket* s = (NormSocket*)normSocket;
@@ -1639,4 +1660,10 @@ void NormSetSocketTrace(NormSocketHandle normSocket, bool enable)
 {
     NormSocket* s = (NormSocket*)normSocket;
     s->SetTrace(enable);
-}
+}  // end NormSetSocketTrace()
+
+void NormSetSocketFlowControl(NormSocketHandle normSocket, bool enable)
+{
+    NormSocket* s = (NormSocket*)normSocket;
+    s->SetFlowControl(enable);
+}  // end NormSetSocketFlowControl()

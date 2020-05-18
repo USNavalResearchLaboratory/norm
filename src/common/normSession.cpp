@@ -254,8 +254,6 @@ bool NormSession::Open()
     if (!tx_socket->SetFragmentation(fragmentation))
         PLOG(PL_WARN, "NormSession::Open() warning: tx_socket.SetFragmentation() error\n");
     
-    
-    TRACE("NormSession::Open() address %s\n", address.GetHostString());
     if (address.IsMulticast())
     {
         if (!tx_socket->SetTTL(ttl))
@@ -2240,7 +2238,6 @@ void NormSession::TxSocketRecvHandler(ProtoSocket&       theSocket,
             }
             else
             {
-                TRACE("NormSession::TxSocketRecvHandler() RecvFrom error\n");
                 // Probably an ICMP "port unreachable" error
                 // Note we purposefull do _not_ set the "posted_send_error"
                 // status here because we do not want this notification
@@ -2362,14 +2359,13 @@ void NormSession::RxSocketRecvHandler(ProtoSocket&       theSocket,
             }
             else
             {   
-                TRACE("NormSession::RxSocketRecvHandler() RecvFrom error  address:%s (unicast:%d)\n", Address().GetHostString(), Address().IsUnicast());
+                //TRACE("NormSession::RxSocketRecvHandler() RecvFrom error  address:%s (unicast:%d)\n", Address().GetHostString(), Address().IsUnicast());
                 // Probably an ICMP "port unreachable" error
                 // Note we purposefull do _not_ set the "posted_send_error"
                 // status here because we do not want this notification
                 // cleared due to SEND_OK status since it's receiver driven
 				if (Address().IsUnicast())
                 {
-                    TRACE("posting send error ...\n");
                     Notify(NormController::SEND_ERROR, NULL, NULL);
                 }
                 break;

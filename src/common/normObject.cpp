@@ -3521,14 +3521,20 @@ bool NormStreamObject::Read(char* buffer, unsigned int* buflen, bool seekMsgStar
         bytesWanted = *buflen;
     }
     bool result = ReadPrivate(buffer, buflen, seekMsgStart);
-    if (!read_ready) notify_on_update = true;
+    if (!read_ready) 
+    {
+        notify_on_update = true;
+    }
     if (!seekMsgStart && result && (0 != *buflen) && (*buflen < bytesWanted))
     {
         char dummyBuffer[8];
         unsigned int dummyCount = 8;
         stream_broken = ReadPrivate(dummyBuffer, &dummyCount, false) ? false : true;
         ASSERT(0 == dummyCount);
-        if (!read_ready) notify_on_update = true;
+        if (!read_ready) 
+        {
+            notify_on_update = true;
+        }
     }
     return result;
 }  // end NormStreamObject::Read()
@@ -3553,7 +3559,7 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
         NormBlock* block = stream_buffer.Find(read_index.block);
         if (NULL == block)
         {
-            //DMSG(0, "NormStreamObject::ReadPrivate() stream buffer empty (1) (sbEmpty:%d)\n", stream_buffer.IsEmpty());
+            PLOG(PL_DETAIL, "NormStreamObject::ReadPrivate() stream buffer empty (1) (sbEmpty:%d)\n", stream_buffer.IsEmpty());
             read_ready = false;
             *buflen = bytesRead;
             if (bytesRead > 0)
@@ -3614,8 +3620,8 @@ bool NormStreamObject::ReadPrivate(char* buffer, unsigned int* buflen, bool seek
         
         if (NULL == segment)
         {
-            //DMSG(0, "NormStreamObject::ReadPrivate(%lu:%hu) stream buffer empty (read_offset>%lu) (2)\n",
-            //        (unsigned long)read_index.block.GetValue(), read_index.segment, (unsigned long)read_offset);
+            PLOG(PL_DETAIL, "NormStreamObject::ReadPrivate(%lu:%hu) stream buffer empty (read_offset>%lu) (2)\n",
+                    (unsigned long)read_index.block.GetValue(), read_index.segment, (unsigned long)read_offset);
             read_ready = false;
             *buflen = bytesRead;
             if (bytesRead > 0)
