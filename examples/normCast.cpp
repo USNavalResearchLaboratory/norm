@@ -2,6 +2,7 @@
 #include "normApi.h"
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for atoi(), etc
+#include <cassert>
 
 #ifdef WIN32
 #include <windows.h>

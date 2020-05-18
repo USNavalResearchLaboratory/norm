@@ -38,7 +38,7 @@
  */     
         
 // Some portions of this code 
-// Copyright © 1996 Netscape Communications Corporation, 
+// Copyright ï¿½ 1996 Netscape Communications Corporation, 
 // all rights reserved.
         
 #include "normPostProcess.h"
