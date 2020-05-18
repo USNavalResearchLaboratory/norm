@@ -33,6 +33,10 @@
 
 This is a release of the NRL NORM source code. 
 
+A Google Groups forum is available at 
+
+https://groups.google.com/forum/#!forum/norm-dev
+
 
 SOURCE CODE
 ===========
