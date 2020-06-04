@@ -11,6 +11,7 @@ makefiles/normClient
 makefiles/normServer
 makefiles/npc
 makefiles/raft
+makefiles/pcap2norm
 
 # build object files
 *.o

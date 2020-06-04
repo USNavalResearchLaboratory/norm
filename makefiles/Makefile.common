@@ -222,7 +222,7 @@ PCAP_SRC = $(COMMON)/pcap2norm.cpp
 PCAP_OBJ = $(PCAP_SRC:.cpp=.o)
 
 pcap2norm:    $(PCAP_OBJ) libnorm.a $(LIBPROTO) 
-	$(CC) $(CFLAGS) -o $@ $(PCAP_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO)  $(LIBS)
+	$(CC) $(CFLAGS) -o $@ $(PCAP_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO)  $(LIBS) -lpcap
 	mkdir -p ../bin
 	cp $@ ../bin/$@
 
