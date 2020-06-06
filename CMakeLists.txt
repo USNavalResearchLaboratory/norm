@@ -74,13 +74,14 @@ list(APPEND COMMON_SOURCE_FILES
 list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_LIST_DIR}/include )
 
 # Setup platform dependent libraries, defines, source file and compiler flags
-if(MSVC)
-    list(APPEND PLATFORM_LIBS Shell32)
-    list(APPEND PLATFORM_DEFINITIONS _CONSOLE)
-    list(APPEND PLATFORM_SOURCE_FILES src/win32/win32PostProcess.cpp)
-elseif(UNIX)
-    list(APPEND PLATFORM_SOURCE_FILES   src/unix/unixPostProcess.cpp)
-endif()
+# (The "post processing" helper source is only needed for normApp build)
+#if(MSVC)
+#    list(APPEND PLATFORM_LIBS Shell32)
+#    list(APPEND PLATFORM_DEFINITIONS _CONSOLE)
+#    list(APPEND PLATFORM_SOURCE_FILES src/win32/win32PostProcess.cpp)
+#elseif(UNIX)
+#    list(APPEND PLATFORM_SOURCE_FILES   src/unix/unixPostProcess.cpp)
+#endif()
 
 include(GNUInstallDirs)
 
