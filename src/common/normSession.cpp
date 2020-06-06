@@ -45,7 +45,11 @@ enum NormSocketCommand
 NormSession::NormSession(NormSessionMgr &sessionMgr, NormNodeId localNodeId)
     : session_mgr(sessionMgr), notify_pending(false), tx_port(0), tx_port_reuse(false),
       tx_socket_actual(ProtoSocket::UDP), tx_socket(&tx_socket_actual),
-      rx_socket(ProtoSocket::UDP), proto_cap(NULL), rx_port_reuse(false), local_node_id(localNodeId),
+      rx_socket(ProtoSocket::UDP),
+#ifdef ECN_SUPPORT 
+      proto_cap(NULL), 
+#endif // ECN_SUPPORT
+      rx_port_reuse(false), local_node_id(localNodeId),
       ttl(DEFAULT_TTL), tos(0), loopback(false), mcast_loopback(false), fragmentation(false), ecn_enabled(false),
       tx_rate(DEFAULT_TRANSMIT_RATE / 8.0), tx_rate_min(-1.0), tx_rate_max(-1.0), tx_residual(0),
       backoff_factor(DEFAULT_BACKOFF_FACTOR), is_sender(false),
@@ -5009,9 +5013,11 @@ NormSession::MessageStatus NormSession::SendMessage(NormMsg &msg)
     {
         unsigned int numBytes = msgSize;
         bool result;
+#ifdef ECN_SUPPORT
         if (sendRaw)
             result = RawSendTo(msg.GetBuffer(), numBytes, msg.GetDestination(), probe_tos);
         else
+#endif // ECN_SUPPORT
             result = tx_socket->SendTo(msg.GetBuffer(), numBytes, msg.GetDestination());
         if (result)
         {
