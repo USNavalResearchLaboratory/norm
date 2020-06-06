@@ -515,6 +515,10 @@ void NormSetGrttProbingInterval(NormSessionHandle sessionHandle,
                                 double            intervalMin,
                                 double            intervalMax);
 
+NORM_API_LINKAGE
+void NormSetGrttProbingTOS(NormSessionHandle sessionHandle,
+                           UINT8              probeTOS);
+
 NORM_API_LINKAGE 
 void NormSetBackoffFactor(NormSessionHandle sessionHandle,
                           double            backoffFactor);

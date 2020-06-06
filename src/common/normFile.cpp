@@ -193,7 +193,7 @@ void NormFile::Unlock()
 #ifdef HAVE_FLOCK
     if (0 != flock(fd, LOCK_UN))
     {
-        PLOG(PL_ERROR, "NormFile::Unlock() flock() error: %s\n", GetErrorString());
+        PLOG(PL_ERROR, "NormFile::Unlock() flock(%d) error: %s\n", fd, GetErrorString());
     }
 #else
 #ifdef HAVE_LOCKF

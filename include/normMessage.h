@@ -656,6 +656,7 @@ class NormMsg
         
         // To retrieve any attached header extensions
         bool HasExtensions() const {return (header_length > header_length_base);}
+        bool HasExtension(NormHeaderExtension::Type extType);
         bool GetNextExtension(NormHeaderExtension& ext) const
         {
             const UINT32* currentBuffer = ext.GetBuffer();
@@ -1989,7 +1990,7 @@ class NormNackMsg : public NormMsg
         };    
 };  // end class NormNackMsg
 
-class NormAckMsg : public NormMsg
+class NormAckMsg : public NormAck, public NormMsg
 {
     public:
         

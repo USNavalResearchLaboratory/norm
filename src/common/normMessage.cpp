@@ -98,6 +98,18 @@ void NormMsg::Display() const
         PLOG(PL_ALWAYS, "%02x", *ptr++);
 }  // end NormMsg::Display()
 
+bool NormMsg::HasExtension(NormHeaderExtension::Type extType)
+{
+    
+    NormHeaderExtension ext;
+    while (GetNextExtension(ext))
+    {
+        if (ext.GetType() == extType)
+            return true;
+    }
+    return false;
+}  // end NormMsg::HasExtension()
+
 bool NormCmdCCMsg::GetCCNode(NormNodeId     nodeId, 
                              UINT8&         flags, 
                              UINT8&         rtt, 

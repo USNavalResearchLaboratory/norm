@@ -1758,6 +1758,19 @@ void NormSetGrttProbingInterval(NormSessionHandle sessionHandle,
 }  // end NormSetGrttProbingInterval()
 
 NORM_API_LINKAGE
+void NormSetGrttProbingTOS(NormSessionHandle sessionHandle,
+                           UINT8              probeTOS)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        session->SetProbeTOS(probeTOS);
+        instance->dispatcher.ResumeThread();
+    }
+}  // end NormSetGrttProbingTOS()
+
+NORM_API_LINKAGE
 void NormSetBackoffFactor(NormSessionHandle sessionHandle,
                           double            backoffFactor)
 {

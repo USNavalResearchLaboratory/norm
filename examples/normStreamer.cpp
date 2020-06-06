@@ -279,6 +279,9 @@ class NormStreamer
         void SetOutputSocketBufferSize(unsigned int value)
             {output_socket_buffer_size = value;}
         
+        void SetProbeTOS(UINT8 value)
+            {probe_tos = value;}
+        
         // Check that sequence numbers increase by one each time.
     	// Assumes that sequence number is 8- or 4-byte network-order first 8 bytes of buffer.
     	void CheckSequenceNumber(const char* buffer, const char* source);
@@ -290,6 +293,7 @@ class NormStreamer
     private:
         NormSessionHandle   norm_session;
         bool                is_multicast;
+        bool                probe_tos;
         bool                loopback;
         bool                is_running;     
                                                      
@@ -359,7 +363,7 @@ class NormStreamer
 };  // end class NormStreamer
 
 NormStreamer::NormStreamer()
- : norm_session(NORM_SESSION_INVALID), is_multicast(false), loopback(false), is_running(false),
+ : norm_session(NORM_SESSION_INVALID), is_multicast(false), probe_tos(0), loopback(false), is_running(false),
    input_socket(ProtoSocket::UDP), input_file(stdin), input_fd(fileno(stdin)), input_ready(true), 
    input_needed(false), input_msg_length(0), input_index(0),
    tx_stream (NORM_OBJECT_INVALID), tx_ready(true),
@@ -569,6 +573,8 @@ bool NormStreamer::OpenNormSession(NormInstanceHandle instance, const char* addr
         NormSetDefaultUnicastNack(norm_session, true);
     
     NormSetTxRobustFactor(norm_session, 20);
+    
+    NormSetGrttProbingTOS(norm_session, probe_tos);
     
     return true;
 }  // end NormStreamer::OpenNormSession()
@@ -1338,6 +1344,7 @@ void PrintHelp()
 			"   interface <name>        -- Specifies the name of the network interface on which to conduct NORM protocol\n"
 			"                              (e.g., 'eth0')\n"
             "   loopback                -- Enables 'loopback' sessions on the same host machine.  Required for multicast loopback.\n"
+            "   ptos <value>            -- Set special IP traffic class (TOS) for GRTT probing and acknowledgments\n"
             "   info                    -- Limits FTI header extension to NORM_INFO message only (reduced overhead)\n"
             "   rate <bitsPerSecond>    -- sets fixed sender rate (and receiver token bucket rate if 'limit' option is used)\n"
             "   [cc|cce|ccl]            -- Enables optional NORM congestion control mode (overrides 'rate')\n"
@@ -1440,6 +1447,27 @@ int main(int argc, char* argv[])
         else if (0 == strncmp(cmd, "loopback", len))
         {
             loopback = true;
+        }
+        else if (0 == strncmp(cmd, "ptos", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normStreamer error: missing 'ptos' value!\n");
+                Usage();
+                return -1;
+            }
+            int tos = -1;
+            int result = sscanf(argv[i], "%i", &tos);
+            if (1 != result)
+                result = sscanf(argv[i], "%x", &tos);
+            if ((1 != result) || (tos < 0) || (tos > 255))
+            {
+                fprintf(stderr, "normStreamer error: invalid 'ptos' value!\n");
+                Usage();
+                return -1;
+            }
+            i++;
+            normStreamer.SetProbeTOS(tos);
         }
         else if (0 == strncmp(cmd, "info", len))
         {

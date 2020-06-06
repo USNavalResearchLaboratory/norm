@@ -2315,7 +2315,8 @@ bool NormFileObject::Open(const char* thePath,
         {
             if (file.Open(thePath, O_RDWR | O_CREAT | O_TRUNC))
             {
-                file.Lock();   
+                if (!file.Lock())
+                    PLOG(PL_WARN, "NormFileObject::Open() warning: NormFile::Lock() failure\n");
             }   
             else
             {
@@ -2392,10 +2393,13 @@ bool NormFileObject::Accept(const char* thePath)
 
 void NormFileObject::Close()
 {
+    if (file.IsOpen())
+    {
+        if (NULL != sender)  // we've been receiving this file
+            file.Unlock();
+        file.Close();
+    }
     NormObject::Close();
-    if (NULL != sender)  // we've been receiving this file
-        file.Unlock();
-    file.Close();
 }  // end NormFileObject::Close()
 
 bool NormFileObject::WriteSegment(NormBlockId   blockId, 

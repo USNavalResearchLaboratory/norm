@@ -144,6 +144,10 @@ class NormCaster
         }
         void SetSilentReceiver(bool state)
             {NormSetSilentReceiver(norm_session, true);}
+        
+        void SetProbeTOS(UINT8 value)
+            {probe_tos = value;}
+        
         void SetTxLoss(double txloss)
             {NormSetTxLoss(norm_session, txloss);}
             
@@ -156,6 +160,7 @@ class NormCaster
         unsigned int                        tx_pending_prefix_len;
         bool                                is_multicast;
         bool                                loopback;
+        UINT8                               probe_tos;
         unsigned int                        norm_tx_segment_size;
         unsigned int                        norm_tx_queue_max;   // max number of objects that can be enqueued at once 
         unsigned int                        norm_tx_queue_count; // count of unacknowledged enqueued objects (TBD - optionally track size too)
@@ -178,7 +183,7 @@ class NormCaster
 NormCaster::NormCaster()
  : norm_session(NORM_SESSION_INVALID), tx_file_iterator(tx_file_list), 
    tx_pending_prefix_len(0), 
-   is_multicast(false), loopback(false), norm_tx_segment_size(1400), 
+   is_multicast(false), loopback(false), probe_tos(0), norm_tx_segment_size(1400), 
    norm_tx_queue_max(8), norm_tx_queue_count(0), 
    norm_flow_control_pending(false), norm_tx_vacancy(true), norm_acking(false), 
    norm_flushing(true), norm_flush_object(NORM_OBJECT_INVALID), norm_last_object(NORM_OBJECT_INVALID),
@@ -242,6 +247,8 @@ bool NormCaster::OpenNormSession(NormInstanceHandle instance, const char* addr, 
     //NormSetMessageTrace(norm_session, true);
     
     //NormSetTxRobustFactor(norm_session, 20);
+    
+    NormSetGrttProbingTOS(norm_session, probe_tos);
     
     return true;
 }  // end NormCaster::OpenNormSession()
@@ -662,7 +669,7 @@ void Usage()
 {
     fprintf(stderr, "Usage: normCast id <nodeId> {send <file/dir list> &| recv <rxCacheDir>}\n"
                     "                [addr <addr>[/<port>]][interface <name>][ack <node1>[,<node2>,...]\n"
-                    "                [cc|cce|ccl|rate <bitsPerSecond>]\n"
+                    "                [cc|cce|ccl|rate <bitsPerSecond>][ptos <value>]\n"
                     "                [debug <level>][trace]\n");
 }  // end Usage()
 
@@ -745,6 +752,27 @@ int main(int argc, char* argv[])
         else if (0 == strncmp(cmd, "loopback", len))
         {
             loopback = true;
+        }
+        else if (0 == strncmp(cmd, "ptos", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normStreamer error: missing 'ptos' value!\n");
+                Usage();
+                return -1;
+            }
+            int tos = -1;
+            int result = sscanf(argv[i], "%i", &tos);
+            if (1 != result)
+                result = sscanf(argv[i], "%x", &tos);
+            if ((1 != result) || (tos < 0) || (tos > 255))
+            {
+                fprintf(stderr, "normStreamer error: invalid 'ptos' value!\n");
+                Usage();
+                return -1;
+            }
+            i++;
+            normCast.SetProbeTOS(tos);
         }
         else if (0 == strncmp(cmd, "addr", len))
         {

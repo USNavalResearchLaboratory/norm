@@ -8,6 +8,7 @@
 
 #include "protoPktETH.h"
 #include "protoPktIP.h"
+#include "protoNet.h"
 
 const UINT8 NormSession::DEFAULT_TTL = 255;
 const double NormSession::DEFAULT_TRANSMIT_RATE = 64000.0;  // bits/sec
@@ -44,7 +45,7 @@ enum NormSocketCommand
 NormSession::NormSession(NormSessionMgr &sessionMgr, NormNodeId localNodeId)
     : session_mgr(sessionMgr), notify_pending(false), tx_port(0), tx_port_reuse(false),
       tx_socket_actual(ProtoSocket::UDP), tx_socket(&tx_socket_actual),
-      rx_socket(ProtoSocket::UDP), rx_cap(NULL), rx_port_reuse(false), local_node_id(localNodeId),
+      rx_socket(ProtoSocket::UDP), proto_cap(NULL), rx_port_reuse(false), local_node_id(localNodeId),
       ttl(DEFAULT_TTL), tos(0), loopback(false), mcast_loopback(false), fragmentation(false), ecn_enabled(false),
       tx_rate(DEFAULT_TRANSMIT_RATE / 8.0), tx_rate_min(-1.0), tx_rate_max(-1.0), tx_residual(0),
       backoff_factor(DEFAULT_BACKOFF_FACTOR), is_sender(false),
@@ -60,8 +61,7 @@ NormSession::NormSession(NormSessionMgr &sessionMgr, NormNodeId localNodeId)
       tx_repair_pending(false), advertise_repairs(false),
       suppress_nonconfirmed(false), suppress_rate(-1.0), suppress_rtt(-1.0),
       probe_proactive(true), probe_pending(false), probe_reset(true), probe_data_check(false),
-      grtt_interval(0.5),
-      grtt_interval_min(DEFAULT_GRTT_INTERVAL_MIN),
+      probe_tos(0), grtt_interval(0.5), grtt_interval_min(DEFAULT_GRTT_INTERVAL_MIN),
       grtt_interval_max(DEFAULT_GRTT_INTERVAL_MAX),
       grtt_max(DEFAULT_GRTT_MAX),
       grtt_decrease_delay_count(DEFAULT_GRTT_DECREASE_DELAY),
@@ -189,6 +189,8 @@ bool NormSession::Open()
         {
             tx_socket = &rx_socket;
         }
+        tx_port = tx_socket->GetPort();
+            
     }
     if (!rx_socket.IsOpen() && (!tx_only || (&rx_socket == tx_socket)))
     {
@@ -298,61 +300,23 @@ bool NormSession::Open()
 #ifdef ECN_SUPPORT
     // TBD - do this via UDP socket recvmsg() instead of raw packet capture
     // If raw packet capture is enabled, create/open ProtoCap device to do it
-    if (ecn_enabled && !tx_only)
+    if ((ecn_enabled && !tx_only) || (0 != probe_tos))
     {
-        if (NULL == rx_cap)
+        if (!OpenProtoCap())
         {
-            if (NULL == (rx_cap = ProtoCap::Create()))
-            {
-                PLOG(PL_FATAL, "NormSession::Open() error: unable to create ProtoCap device!\n");
-                Close();
-                return false;
-            }
-            rx_cap->SetListener(this, &NormSession::OnPktCapture);
-            rx_cap->SetNotifier(session_mgr.GetChannelNotifier());
-            if (!rx_cap->Open(('\0' != interface_name[0]) ? interface_name : NULL))
-            {
-                PLOG(PL_FATAL, "NormSession::Open() error: unable to open ProtoCap device '%s'!\n", (('\0' != interface_name[0]) ? interface_name : "(null)"));
-                Close();
-                return false;
-            }
-            rx_cap->StartInputNotification();
-            // Populate "dst_addr_list" with potential valid dst addrs for this host
-            dst_addr_list.Destroy();
-            if (rx_bind_addr.IsValid())
-            {
-                if (!dst_addr_list.Insert(rx_bind_addr))
-                {
-                    PLOG(PL_FATAL, "NormSession::Open() error: unable to add rx_bind_addr to dst_addr_list!!\n");
-                    Close();
-                    return false;
-                }
-            }
-            else
-            {
-                // Put all local unicast addrs in list
-                if (!ProtoSocket::GetHostAddressList(ProtoAddress::IPv4, dst_addr_list))
-                    PLOG(PL_WARN, "NormSession::Open() warning: incomplete IPv4 host address list\n");
-                if (!ProtoSocket::GetHostAddressList(ProtoAddress::IPv6, dst_addr_list))
-                    PLOG(PL_WARN, "NormSession::Open() warning: incomplete IPv6 host address list\n");
-            }
-            if (address.IsMulticast() && !address.HostIsEqual(rx_bind_addr))
-            {
-                if (!dst_addr_list.Insert(address))
-                {
-                    PLOG(PL_FATAL, "NormSession::Open() error: unable to add session addr to dst_addr_list!!\n");
-                    Close();
-                    return false;
-                }
-            }
-            if (dst_addr_list.IsEmpty())
-            {
-                PLOG(PL_FATAL, "NormSession::Open() error: unable to add any addresses to dst_addr_list!!\n");
-                Close();
-                return false;
-            }
+            PLOG(PL_FATAL, "NormSession::Open() error: unable to create ProtoCap device!\n");
+            Close();
+            return false;
         }
-        rx_socket.StopInputNotification(); // Disable rx_socket (keep open so mcast JOIN holds)
+        if (ecn_enabled)
+        {
+            rx_socket.StopInputNotification(); // Disable rx_socket (keep open so mcast JOIN holds)
+            proto_cap->StartInputNotification();
+        }
+        else
+        {
+            proto_cap->StopInputNotification();
+        }
     }
 #endif // ECN_SUPPORT
     if (message_pool.IsEmpty())
@@ -402,14 +366,84 @@ void NormSession::Close()
         rx_socket.Close();
     }
 #ifdef ECN_SUPPORT
-    if (NULL != rx_cap)
-    {
-        rx_cap->Close();
-        delete rx_cap;
-        rx_cap = NULL;
-    }
+    CloseProtoCap();
 #endif // ECN_SUPPORT
 } // end NormSession::Close()
+
+#ifdef ECN_SUPPORT
+bool NormSession::OpenProtoCap()
+{
+    if (NULL == proto_cap)
+    {
+        if (NULL == (proto_cap = ProtoCap::Create()))
+        {
+            PLOG(PL_FATAL, "NormSession::OpenProtoCap() error: unable to create ProtoCap device!\n");
+            return false;
+        }
+        proto_cap->SetListener(this, &NormSession::OnPktCapture);
+        proto_cap->SetNotifier(session_mgr.GetChannelNotifier());
+        if (!proto_cap->Open(('\0' != interface_name[0]) ? interface_name : NULL))
+        {
+            PLOG(PL_FATAL, "NormSession::OpenProtoCap() error: unable to open ProtoCap device '%s'!\n", (('\0' != interface_name[0]) ? interface_name : "(null)"));
+            return false;
+        }
+        // Populate "dst_addr_list" with potential valid dst addrs for this host
+        dst_addr_list.Destroy();
+        if (rx_bind_addr.IsValid())
+        {
+            if (!dst_addr_list.Insert(rx_bind_addr))
+            {
+                PLOG(PL_FATAL, "NormSession::OpenProtoCap() error: unable to add rx_bind_addr to dst_addr_list!!\n");
+                return false;
+            }
+        }
+        else
+        {
+            // Put all local unicast addrs in list
+            if (!ProtoSocket::GetHostAddressList(ProtoAddress::IPv4, dst_addr_list))
+                PLOG(PL_WARN, "NormSession::OpenProtoCap() warning: incomplete IPv4 host address list\n");
+            if (!ProtoSocket::GetHostAddressList(ProtoAddress::IPv6, dst_addr_list))
+                PLOG(PL_WARN, "NormSession::OpenProtoCap() warning: incomplete IPv6 host address list\n");
+        }
+        if (address.IsMulticast() && !address.HostIsEqual(rx_bind_addr))
+        {
+            if (!dst_addr_list.Insert(address))
+            {
+                PLOG(PL_FATAL, "NormSession::OpenProtoCap() error: unable to add session addr to dst_addr_list!!\n");
+                return false;
+            }
+        }
+        
+        // Get the interface source address for pcap message transmission
+        if (!ProtoNet::GetInterfaceAddress(proto_cap->GetInterfaceIndex(),
+                                            address.GetType(),
+                                            src_addr))
+        {
+            PLOG(PL_WARN, "NormSession::OpenProtoCap() warning: unable to get interface source address\n");
+        }
+        
+        TRACE("got source address: %s\n", src_addr.GetHostString());
+        
+        if (dst_addr_list.IsEmpty())
+        {
+            PLOG(PL_FATAL, "NormSession::OpenProtoCap() error: unable to add any addresses to dst_addr_list!!\n");
+            return false;
+        }
+    }
+    return true;
+}  // end NormSession::OpenProtoCap()
+
+void NormSession::CloseProtoCap()
+{
+    if (NULL != proto_cap)
+    {
+        proto_cap->Close();
+        delete proto_cap;
+        proto_cap = NULL;
+    }
+}  // end NormSession::CloseProtoCap()
+
+#endif  // ECN_SUPPORT
 
 bool NormSession::SetMulticastInterface(const char *interfaceName)
 {
@@ -548,12 +582,8 @@ void NormSession::SetTxOnly(bool txOnly, bool connectToSessionAddress)
             if (rx_socket.IsOpen())
                 rx_socket.Close();
 #ifdef ECN_SUPPORT
-            if (NULL != rx_cap)
-            {
-                rx_cap->Close();
-                delete rx_cap;
-                rx_cap = NULL;
-            }
+            if (NULL != proto_cap)
+                proto_cap->StopInputNotification();
 #endif // ECN_SUPPORT
         }
         // We connect tx_only session sockets when tx port
@@ -2408,6 +2438,7 @@ void NormSession::RxSocketRecvHandler(ProtoSocket &theSocket,
     } // end if/else (theEvent == RECV/SEND)
 } // end NormSession::RxSocketRecvHandler()
 
+#ifdef ECN_SUPPORT
 #ifndef SIMULATE
 void NormSession::OnPktCapture(ProtoChannel &theChannel,
                                ProtoChannel::Notification notifyType)
@@ -2539,6 +2570,7 @@ void NormSession::OnPktCapture(ProtoChannel &theChannel,
     } // end while(1)
 } // end NormSession::OnPktCapture()
 #endif // !SIMULATE
+#endif // ECN_SUPPORT
 
 // TBD - move this to its own cpp file???
 void NormTrace(const struct timeval &currentTime,
@@ -4841,6 +4873,7 @@ NormSession::MessageStatus NormSession::SendMessage(NormMsg &msg)
     //TRACE("sending message length %hu\n", msg.GetLength());
     bool isReceiverMsg = false;
     bool isProbe = false;
+    bool sendRaw = false;
 
     // Fill in any last minute timestamps
     // (TBD) fill in InstanceId fields on all messages as needed
@@ -4849,80 +4882,98 @@ NormSession::MessageStatus NormSession::SendMessage(NormMsg &msg)
     UINT16 instId = instance_id; // assume it's a sender message (will be overridden otherwise)
     switch (msg.GetType())
     {
-    case NormMsg::INFO:
-    case NormMsg::DATA:
-    {
-        NormObjectMsg &objMsg = static_cast<NormObjectMsg &>(msg);
-        objMsg.SetInstanceId(instId);
-        msg.SetSequence(tx_sequence++); // (TBD) set for session dst msgs
-        if (syn_status)
-            objMsg.SetFlag(NormObjectMsg::FLAG_SYN);
-        break;
-    }
-    case NormMsg::CMD:
-    {
-        NormCmdMsg &cmd = static_cast<NormCmdMsg &>(msg);
-        ((NormCmdMsg &)msg).SetInstanceId(instId);
-        switch (cmd.GetFlavor())
+        case NormMsg::INFO:
+        case NormMsg::DATA:
         {
-        case NormCmdMsg::CC:
-        {
-            NormCmdCCMsg &ccMsg = static_cast<NormCmdCCMsg &>(cmd);
-            struct timeval currentTime;
-            ProtoSystemTime(currentTime);
-            ccMsg.SetSendTime(currentTime);
-            isProbe = true;
+            NormObjectMsg &objMsg = static_cast<NormObjectMsg &>(msg);
+            objMsg.SetInstanceId(instId);
+            msg.SetSequence(tx_sequence++); // (TBD) set for session dst msgs
             if (syn_status)
-                ccMsg.SetSyn();
+                objMsg.SetFlag(NormObjectMsg::FLAG_SYN);
             break;
         }
-        case NormCmdMsg::SQUELCH:
+        case NormMsg::CMD:
+        {
+            NormCmdMsg &cmd = static_cast<NormCmdMsg &>(msg);
+            ((NormCmdMsg &)msg).SetInstanceId(instId);
+            switch (cmd.GetFlavor())
+            {
+                case NormCmdMsg::CC:
+                {
+                    NormCmdCCMsg &ccMsg = static_cast<NormCmdCCMsg &>(cmd);
+                    struct timeval currentTime;
+                    ProtoSystemTime(currentTime);
+                    ccMsg.SetSendTime(currentTime);
+                    isProbe = true;
+                    if (0 != probe_tos)
+                        sendRaw = true;  // so probe will be marked accordingly
+                    if (syn_status)
+                        ccMsg.SetSyn();
+                    break;
+                }
+                case NormCmdMsg::SQUELCH:
+                    break;
+                default:
+                    break;
+            }
+            msg.SetSequence(tx_sequence++); // (TBD) set for session dst msgs
             break;
+        }
+        case NormMsg::NACK:
+        {
+            msg.SetSequence(0); // TBD - set per destination
+            isReceiverMsg = true;
+            NormNackMsg &nack = (NormNackMsg &)msg;
+            NormSenderNode *theSender =
+                (NormSenderNode *)sender_tree.FindNodeById(nack.GetSenderId());
+            ASSERT(NULL != theSender);
+            fecM = theSender->GetFecFieldSize();
+            instId = theSender->GetInstanceId();
+            struct timeval grttResponse;
+            // When probe_tos is non-zero, GRTT feedback is in ACKs only
+            if (0 == probe_tos)
+            {
+                struct timeval currentTime;
+                ProtoSystemTime(currentTime);
+                theSender->CalculateGrttResponse(currentTime, grttResponse);
+            }
+            else
+            {
+                grttResponse.tv_sec = grttResponse.tv_usec = 0;
+            }
+            nack.SetGrttResponse(grttResponse);
+            break;
+        }
+        case NormMsg::ACK:
+        {
+            msg.SetSequence(0); // TBD - set per destination
+            isReceiverMsg = true;
+            NormAckMsg &ack = (NormAckMsg &)msg;
+            NormSenderNode *theSender;
+            if (IsServerListener())
+                theSender = client_tree.FindNodeByAddress(ack.GetDestination());
+            else
+                theSender = (NormSenderNode *)sender_tree.FindNodeById(ack.GetSenderId());
+            ASSERT(NULL != theSender);
+            fecM = theSender->GetFecFieldSize();
+            instId = theSender->GetInstanceId();
+            struct timeval grttResponse;
+            if ((0 == probe_tos) || (NormAck::CC == ack.GetAckType()))
+            {
+                struct timeval currentTime;
+                ProtoSystemTime(currentTime);
+                theSender->CalculateGrttResponse(currentTime, grttResponse);
+                ack.SetGrttResponse(grttResponse);
+                if (0 != probe_tos) sendRaw = true;
+            }
+            else
+            {
+                grttResponse.tv_sec = grttResponse.tv_usec = 0;
+            }
+            break;
+        }
         default:
             break;
-        }
-        msg.SetSequence(tx_sequence++); // (TBD) set for session dst msgs
-        break;
-    }
-    case NormMsg::NACK:
-    {
-        msg.SetSequence(0); // TBD - set per destination
-        isReceiverMsg = true;
-        NormNackMsg &nack = (NormNackMsg &)msg;
-        NormSenderNode *theSender =
-            (NormSenderNode *)sender_tree.FindNodeById(nack.GetSenderId());
-        ASSERT(NULL != theSender);
-        fecM = theSender->GetFecFieldSize();
-        instId = theSender->GetInstanceId();
-        struct timeval currentTime;
-        ProtoSystemTime(currentTime);
-        struct timeval grttResponse;
-        theSender->CalculateGrttResponse(currentTime, grttResponse);
-        nack.SetGrttResponse(grttResponse);
-        break;
-    }
-    case NormMsg::ACK:
-    {
-        msg.SetSequence(0); // TBD - set per destination
-        isReceiverMsg = true;
-        NormAckMsg &ack = (NormAckMsg &)msg;
-        NormSenderNode *theSender;
-        if (IsServerListener())
-            theSender = client_tree.FindNodeByAddress(ack.GetDestination());
-        else
-            theSender = (NormSenderNode *)sender_tree.FindNodeById(ack.GetSenderId());
-        ASSERT(NULL != theSender);
-        fecM = theSender->GetFecFieldSize();
-        instId = theSender->GetInstanceId();
-        struct timeval grttResponse;
-        struct timeval currentTime;
-        ProtoSystemTime(currentTime);
-        theSender->CalculateGrttResponse(currentTime, grttResponse);
-        ack.SetGrttResponse(grttResponse);
-        break;
-    }
-    default:
-        break;
     }
     // Fill in common message fields
     msg.SetSourceId(local_node_id);
@@ -4957,8 +5008,11 @@ NormSession::MessageStatus NormSession::SendMessage(NormMsg &msg)
     else
     {
         unsigned int numBytes = msgSize;
-        bool result = tx_socket->SendTo(msg.GetBuffer(), numBytes, msg.GetDestination());
-
+        bool result;
+        if (sendRaw)
+            result = RawSendTo(msg.GetBuffer(), numBytes, msg.GetDestination(), probe_tos);
+        else
+            result = tx_socket->SendTo(msg.GetBuffer(), numBytes, msg.GetDestination());
         if (result)
         {
             if (numBytes == msgSize)
@@ -5030,6 +5084,73 @@ NormSession::MessageStatus NormSession::SendMessage(NormMsg &msg)
     }
     return MSG_SEND_OK;
 } // end NormSession::SendMessage()
+
+#ifdef ECN_SUPPORT
+bool NormSession::RawSendTo(const char* buffer, unsigned int& numBytes, const ProtoAddress& dstAddr, UINT8 trafficClass)
+{
+    // Send the message via proto_cap instead of UDP socket
+    // (Used for marking GRTT probing with different traffic class
+    //  to inform lower layer protocols to not delay the messages
+    //  via retransmission or other means).
+    UINT32 pcapBuffer[8192/4];  // TBD - Is this big enough???
+    UINT16* ethBuffer = (UINT16*)pcapBuffer + 2;  // offset for IP packet alignment
+    ProtoPktETH ethPkt(ethBuffer, 8192 - 2);
+    
+    // Ethernet source address will be set by ProtoCap::Forward() method
+    ProtoAddress etherDst;
+    if (dstAddr.IsMulticast())
+        etherDst.GetEthernetMulticastAddress(dstAddr);
+    else
+        etherDst = PROTO_ADDR_BROADCAST;
+    ethPkt.SetDstAddr(etherDst);
+    
+    if (ecn_enabled)
+    {
+        trafficClass |= ((UINT8)ProtoSocket::ECN_ECT0);  // set ECT0 bit
+        trafficClass &= ~((UINT8)ProtoSocket::ECN_ECT1); // clear ECT1 bit
+    }
+    
+    switch (dstAddr.GetType())
+    {
+        case ProtoAddress::IPv4:
+        {
+            ethPkt.SetType(ProtoPktETH::IP);
+            ProtoPktIPv4 ip4Pkt;
+            ip4Pkt.InitIntoBuffer(ethPkt.AccessPayload(), ethPkt.GetBufferLength() - ethPkt.GetHeaderLength());
+            ip4Pkt.SetTOS(trafficClass);
+            ip4Pkt.SetID((UINT16)rand());
+            ip4Pkt.SetTTL(ttl);
+            ip4Pkt.SetProtocol(ProtoPktIP::UDP);
+            ip4Pkt.SetSrcAddr(src_addr);
+            ip4Pkt.SetDstAddr(dstAddr);
+            ProtoPktUDP udpPkt(ip4Pkt.AccessPayload(), ip4Pkt.GetBufferLength() - ip4Pkt.GetHeaderLength());
+            udpPkt.SetSrcPort(GetTxPort());
+            udpPkt.SetDstPort(dstAddr.GetPort());
+            udpPkt.SetPayload(buffer, numBytes);
+            ip4Pkt.SetPayloadLength(udpPkt.GetLength());
+            udpPkt.FinalizeChecksum(ip4Pkt);
+            ethPkt.SetPayloadLength(ip4Pkt.GetLength());
+            break;
+        }
+        case ProtoAddress::IPv6:
+            ethPkt.SetType(ProtoPktETH::IPv6);
+            // IPv6 support TBD
+            return false;
+            break;
+        default:
+             PLOG(PL_ERROR, "NormSession::RawSendTo() error: invalid address type!\n");
+             return false;
+    } 
+    unsigned int ethBytes = ethPkt.GetLength();
+    bool result =  proto_cap->Forward((char*)ethPkt.AccessBuffer(), ethBytes);
+    if (!result)
+    {
+        PLOG(PL_WARN, "NormSession::RawSendTo() warning: proto_cap send failure!\n");
+        if (0 == ethBytes) numBytes = 0;
+    }
+    return result;
+}
+#endif  // NormSession::RawSendTo()
 
 void NormSession::SetGrttProbingInterval(double intervalMin, double intervalMax)
 {

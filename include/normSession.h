@@ -289,6 +289,12 @@ class NormSession
             if (state) probe_proactive = true;
         }
         
+        // This MUST be called before
+        void SetProbeTOS(UINT8 probeTOS)
+            {probe_tos = probeTOS;}
+        UINT8 GetProbeTOS() const
+            {return probe_tos;}
+        
         // This method enables/disables flow control operation.
         void SetFlowControl(double flowControlFactor)  
             {flow_control_factor = flowControlFactor;}
@@ -674,10 +680,15 @@ class NormSession
         void TxSocketRecvHandler(ProtoSocket& theSocket, ProtoSocket::Event theEvent);
         void RxSocketRecvHandler(ProtoSocket& theSocket, ProtoSocket::Event theEvent);        
         void HandleReceiveMessage(NormMsg& msg, bool wasUnicast, bool ecn = false);
-        
+
+#ifdef ECN_SUPPORT        
         // This is used when raw packet capture is enabled
+        bool OpenProtoCap();
+        void CloseProtoCap();
+        bool RawSendTo(const char* buffer, unsigned int& numBytes, const ProtoAddress& dstAddr, UINT8 trafficClass);
         void OnPktCapture(ProtoChannel&              theChannel,
 	                      ProtoChannel::Notification notifyType);
+#endif // ECN_SUPPORT
         
         // Sender message handling routines
         void SenderHandleNackMessage(const struct timeval& currentTime, 
@@ -723,7 +734,10 @@ class NormSession
         ProtoSocket                     tx_socket_actual;
         ProtoSocket*                    tx_socket;
         ProtoSocket                     rx_socket;
-        ProtoCap*                       rx_cap;        // raw packet capture alternative to "rx_socket"
+#ifdef ECN_SUPPORT
+        ProtoCap*                       proto_cap;        // raw packet capture alternative to "rx_socket"
+        ProtoAddress                    src_addr;         // used for raw packet sendto()
+#endif // ECN_SUPPORT
         bool                            rx_port_reuse; // enable rx_socket port (sessionPort) reuse when true
         ProtoAddress                    rx_bind_addr;
         ProtoAddress                    rx_connect_addr;
@@ -817,6 +831,7 @@ class NormSession
         bool                            probe_reset;   
         bool                            probe_data_check;  // refrain cc probe until data is send
         struct timeval                  probe_time_last;
+        UINT8                           probe_tos;         // optionally use different IP TOS for GRTT probe/response
         
         double                          grtt_interval;     // current GRTT update interval
         double                          grtt_interval_min; // minimum GRTT update interval
