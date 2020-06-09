@@ -108,7 +108,7 @@ install( EXPORT normTargets
     DESTINATION ${INSTALL_CONFIGDIR}
 )
 
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/norm)
+install(FILES include/normApi.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # Create a ConfigVersion.cmake file
 include(CMakePackageConfigHelpers)
