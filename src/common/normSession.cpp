@@ -5110,12 +5110,15 @@ bool NormSession::RawSendTo(const char* buffer, unsigned int& numBytes, const Pr
         etherDst = PROTO_ADDR_BROADCAST;
     ethPkt.SetDstAddr(etherDst);
     
+    
+    
     if (ecn_enabled)
     {
         trafficClass |= ((UINT8)ProtoSocket::ECN_ECT0);  // set ECT0 bit
         trafficClass &= ~((UINT8)ProtoSocket::ECN_ECT1); // clear ECT1 bit
     }
     
+    //TRACE("sending RAW with tos 0x%02x (probe_tos 0x%02x\n", trafficClass, probe_tos);
     switch (dstAddr.GetType())
     {
         case ProtoAddress::IPv4:

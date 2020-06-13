@@ -576,6 +576,8 @@ bool NormStreamer::OpenNormSession(NormInstanceHandle instance, const char* addr
     
     NormSetGrttProbingTOS(norm_session, probe_tos);
     
+    NormSetFragmentation(norm_session, true);  // so that IP ID gets set for SMF DPD
+    
     return true;
 }  // end NormStreamer::OpenNormSession()
 
@@ -1459,7 +1461,11 @@ int main(int argc, char* argv[])
             int tos = -1;
             int result = sscanf(argv[i], "%i", &tos);
             if (1 != result)
-                result = sscanf(argv[i], "%x", &tos);
+            {
+                unsigned int utos;
+                result = sscanf(argv[i], "%x", &utos);
+                tos = utos;
+            }
             if ((1 != result) || (tos < 0) || (tos > 255))
             {
                 fprintf(stderr, "normStreamer error: invalid 'ptos' value!\n");
