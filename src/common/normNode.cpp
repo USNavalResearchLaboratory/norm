@@ -762,7 +762,7 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
 
                     backoffTime = 0.25 * r * maxBackoff + 0.75 * backoffTime;
                     cc_timer.SetInterval(backoffTime);
-                    PLOG(PL_TRACE, "NormSenderNode::HandleCommand() node>%lu begin CC back-off: %lf sec)...\n",
+                    PLOG(PL_DEBUG, "NormSenderNode::HandleCommand() node>%lu begin CC back-off: %lf sec)...\n",
                                     (unsigned long)LocalNodeId(), backoffTime);
                     session.ActivateTimer(cc_timer);
                     break;
@@ -2393,13 +2393,16 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                                         (unsigned long)LocalNodeId(), 8.0e-03*NormUnquantizeRate(ext.GetCCRate()), 
                                         rtt_estimate, ccLoss, (UINT16)nominal_packet_size, slow_start);
                         ext.SetCCSequence(cc_sequence);
-                        // Cancel potential pending NORM_ACK(CC) since we are NACKing 
-                        if (cc_timer.IsActive())
+                        if (0 == session.GetProbeTOS())  // always send NormAck(CC) for special TOS case
                         {
-                            // Set holdoff timeout to refrain from sending too much cc feedback
-                            cc_timer.SetInterval(grtt_estimate*backoff_factor);
-                            cc_timer.Reschedule();
-                            cc_timer.DecrementRepeatCount();   
+                            // Cancel potential pending NORM_ACK(CC) since we are NACKing 
+                            if (cc_timer.IsActive())
+                            {
+                                // Set holdoff timeout to refrain from sending too much cc feedback
+                                cc_timer.SetInterval(grtt_estimate*backoff_factor);
+                                cc_timer.Reschedule();
+                                cc_timer.DecrementRepeatCount();   
+                            }
                         }
                     }  // end if (cc_enable)
                     
@@ -2991,11 +2994,14 @@ bool NormSenderNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
     // Build and send NORM_ACK(CC)
     if (ack_pending && !ack_ex_pending && (1 == cc_timer.GetRepeatCount()))
     {
-        // Send ACK flush right away (CC feedback is included)
-        if (ack_timer.IsActive()) ack_timer.Deactivate();
-        if (cc_timer.IsActive()) cc_timer.Deactivate();  // will be reactivated if needed
-        OnAckTimeout(ack_timer);
-        return false;
+        if (0 == session.GetProbeTOS())  // always send NormAck(CC) in special TOS case
+        {
+            // Send ACK flush right away (CC feedback is included)
+            if (ack_timer.IsActive()) ack_timer.Deactivate();
+            if (cc_timer.IsActive()) cc_timer.Deactivate();  // will be reactivated if needed
+            OnAckTimeout(ack_timer);
+            return false;
+        }
     }
     switch (cc_timer.GetRepeatCount())
     {
@@ -3005,7 +3011,7 @@ bool NormSenderNode::OnCCTimeout(ProtoTimer& /*theTimer*/)
             
         case 1:
         {
-            // We weren't suppressed, so build an ACK(RTT) and send
+            // We weren't suppressed, so build an ACK(CC) and send
             NormAckMsg* ack = (NormAckMsg*)session.GetMessageFromPool();
             if (!ack)
             {
@@ -3105,20 +3111,23 @@ bool NormSenderNode::OnAckTimeout(ProtoTimer& /*theTimer*/)
 	    if (session.SendMessage(*ack))
 	    {
             ack_pending = false;
-            cc_feedback_needed = false;
-            if (cc_enable && !is_clr && !is_plr && session.Address().IsMulticast())
+            if (0 == session.GetProbeTOS())  // Always send NormAck(CC) for special TOS case
             {
-                // Install cc feedback holdoff
-                cc_timer.SetInterval(grtt_estimate*backoff_factor);
-                if (cc_timer.IsActive())
-                    cc_timer.Reschedule();
-                else
-                    session.ActivateTimer(cc_timer);
-                cc_timer.DecrementRepeatCount();  // put timer into "holdoff" phase
-            } 
-            else if (cc_timer.IsActive())
-            {
-                cc_timer.Deactivate(); 
+                cc_feedback_needed = false;
+                if (cc_enable && !is_clr && !is_plr && session.Address().IsMulticast())
+                {
+                    // Install cc feedback holdoff
+                    cc_timer.SetInterval(grtt_estimate*backoff_factor);
+                    if (cc_timer.IsActive())
+                        cc_timer.Reschedule();
+                    else
+                        session.ActivateTimer(cc_timer);
+                    cc_timer.DecrementRepeatCount();  // put timer into "holdoff" phase
+                } 
+                else if (cc_timer.IsActive())
+                {
+                    cc_timer.Deactivate(); 
+                }
             }
 	    }
         else
@@ -3725,8 +3734,6 @@ bool NormLossEstimator2::Update(const struct timeval&   currentTime,
             seeking_loss_event = CONFIRMED;
             event_time = event_time_orig = currentTime;
             newLossEvent = true;
-            
-            //TRACE("time>%lf new loss event fraction = %lf\n", ProtoTime(currentTime).GetValue(), LossFraction());
             
         }
     }  

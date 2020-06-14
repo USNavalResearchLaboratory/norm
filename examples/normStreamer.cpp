@@ -122,6 +122,7 @@ class NormStreamer
         {
             assert(NORM_SESSION_INVALID != norm_session);
             NormAddAckingNode(norm_session, ackId);
+            acking_node_count++;
             norm_acking = true;  // invoke ack-based flow control
         }
         void SetAutoAck(bool enable)
@@ -293,7 +294,7 @@ class NormStreamer
     private:
         NormSessionHandle   norm_session;
         bool                is_multicast;
-        bool                probe_tos;
+        UINT8               probe_tos;
         bool                loopback;
         bool                is_running;     
                                                      
@@ -316,6 +317,7 @@ class NormStreamer
         bool                tx_watermark_pending;
         bool                norm_acking;
         bool                auto_ack;
+        unsigned int        acking_node_count;
         bool                tx_ack_pending;
         NormFlushMode       flush_mode;  // TBD - allow for "none", "passive", "active" options
         bool                fti_info;
@@ -367,8 +369,8 @@ NormStreamer::NormStreamer()
    input_socket(ProtoSocket::UDP), input_file(stdin), input_fd(fileno(stdin)), input_ready(true), 
    input_needed(false), input_msg_length(0), input_index(0),
    tx_stream (NORM_OBJECT_INVALID), tx_ready(true),
-   tx_stream_buffer_max(0), tx_stream_buffer_count(0), tx_stream_bytes_remain(0), 
-   tx_watermark_pending(false), norm_acking(false), auto_ack(false), tx_ack_pending(false), flush_mode(NORM_FLUSH_ACTIVE),
+   tx_stream_buffer_max(0), tx_stream_buffer_count(0), tx_stream_bytes_remain(0), tx_watermark_pending(false), 
+   norm_acking(false), auto_ack(false), acking_node_count(0), tx_ack_pending(false), flush_mode(NORM_FLUSH_ACTIVE),
    fti_info(false), ack_ex(false), rx_stream(NORM_OBJECT_INVALID), rx_ready(false), rx_needed(false), msg_sync(false),
    output_bucket_rate(0.0), output_bucket_interval(0.0), output_bucket_depth(0), output_bucket_count(0),
    output_socket(ProtoSocket::UDP), output_file(stdout), output_fd(fileno(stdout)), output_ready(true), 
@@ -645,6 +647,13 @@ bool NormStreamer::Start(bool sender, bool receiver)
             NormSetFlowControl(norm_session, 0.0);
             NormTrackingStatus trackingMode = auto_ack? NORM_TRACK_RECEIVERS : NORM_TRACK_NONE;
             NormSetAutoAckingNodes(norm_session, trackingMode);
+            if (auto_ack && (0 == acking_node_count))
+            {
+                // This allows for the receivrer(s) to start after the sender
+                // as the sender will persistently send ack requests until
+                // a receiver responds.
+                NormAddAckingNode(norm_session, NORM_NODE_NONE);
+            }
         }
         // Pick a random instance id for now
         struct timeval currentTime;
@@ -1160,12 +1169,23 @@ void NormStreamer::HandleNormEvent(const NormEvent& event)
             //fprintf(stderr, "new GRTT = %lf\n", NormGetGrttEstimate(norm_session));
             break;
             
+        case NORM_ACKING_NODE_NEW:
+            if (0 == acking_node_count)
+                NormRemoveAckingNode(event.session, NORM_NODE_NONE);
+            acking_node_count++;
+            break;
+            
         case NORM_TX_WATERMARK_COMPLETED:
             TRACE("NORM_TX_WATERMARK_COMPLETED ...\n");
             if (NORM_ACK_SUCCESS == NormGetAckingStatus(norm_session))
             {
                 //fprintf(stderr, "WATERMARK COMPLETED\n");
-                if (tx_watermark_pending)
+                if (0 == acking_node_count)
+                {
+                    // Keep probing until some receiver shows up
+                    NormResetWatermark(norm_session);
+                }                
+                else if (tx_watermark_pending)
                 {
                     // Flow control ack request was pending.
                     tx_watermark_pending = false;
@@ -1473,7 +1493,7 @@ int main(int argc, char* argv[])
                 return -1;
             }
             i++;
-            normStreamer.SetProbeTOS(tos);
+            normStreamer.SetProbeTOS((UINT8)tos);
         }
         else if (0 == strncmp(cmd, "info", len))
         {

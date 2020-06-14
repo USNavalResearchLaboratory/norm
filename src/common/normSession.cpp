@@ -426,8 +426,6 @@ bool NormSession::OpenProtoCap()
             PLOG(PL_WARN, "NormSession::OpenProtoCap() warning: unable to get interface source address\n");
         }
         
-        TRACE("got source address: %s\n", src_addr.GetHostString());
-        
         if (dst_addr_list.IsEmpty())
         {
             PLOG(PL_FATAL, "NormSession::OpenProtoCap() error: unable to add any addresses to dst_addr_list!!\n");
@@ -2059,7 +2057,7 @@ bool NormSession::QueueTxObject(NormObject *obj)
         NormObject *oldest = tx_table.Find(tx_table.RangeLo());
         if (oldest->IsRepairPending() || oldest->IsPending())
         {
-            PLOG(PL_ALWAYS, "NormSession::QueueTxObject() all held objects repair pending:%d (repair active:%d) pending:%d\n",
+            PLOG(PL_DEBUG, "NormSession::QueueTxObject() all held objects repair pending:%d (repair active:%d) pending:%d\n",
                  oldest->IsRepairPending(), repair_timer.IsActive(), oldest->IsPending());
             posted_tx_queue_empty = false;
             return false;
@@ -2075,7 +2073,7 @@ bool NormSession::QueueTxObject(NormObject *obj)
             }
             else
             {
-                PLOG(PL_ALWAYS, "NormSession::QueueTxObject() asserting flow control for object delay:%lf sec\n", delay);
+                PLOG(PL_DEBUG, "NormSession::QueueTxObject() asserting flow control for object delay:%lf sec\n", delay);
                 // TBD - flow control as should allow for TX_QUEUE_VACANCY posting for session
                 ActivateFlowControl(delay, oldest->GetId(), NormController::TX_QUEUE_EMPTY);
                 posted_tx_queue_empty = false;
@@ -2390,7 +2388,6 @@ void NormSession::RxSocketRecvHandler(ProtoSocket &theSocket,
                     bool ecnStatus = false;
 #ifdef SIMULATE
                     ecnStatus = theSocket.GetEcnStatus();
-                    //if (ecnStatus) TRACE("NORM RECEIVED PACKET W/ ECN BIT SET!!!!!\n");
 #endif // SIMULATE
                     bool wasUnicast;
                     if (destAddr.IsValid())
@@ -3042,7 +3039,6 @@ void NormSession::ReceiverHandleObjectMessage(const struct timeval &currentTime,
         Notify(NormController::REMOTE_SENDER_ADDRESS, theSender, NULL);
     }
     theSender->UpdateRecvRate(currentTime, msg.GetLength());
-    //if (ecnStatus) TRACE("UPDATING LOSS EST w/ ECN pkt\n");
     theSender->UpdateLossEstimate(currentTime, msg.GetSequence(), ecnStatus);
     theSender->IncrementRecvTotal(msg.GetLength()); // for statistics only (TBD) #ifdef NORM_DEBUG
     theSender->HandleObjectMessage(msg);
@@ -4830,14 +4826,12 @@ bool NormSession::OnTxTimeout(ProtoTimer & /*theTimer*/)
                 message_queue.Prepend(msg);
             if (tx_timer.IsActive())
                 tx_timer.Deactivate();
-            //TRACE("starting output notification ...\n");
             tx_socket->StartOutputNotification();
             return false; // since timer was deactivated
 
         case MSG_SEND_FAILED:
             // Message was not sent due to socket error (no route, etc), so so just timeout and try again
             // (TBD - is there something smarter we should do)
-            //TRACE("MSG_SEND_FAILED\n");
             if (!advertise_repairs)
                 message_queue.Prepend(msg);
             if (tx_rate > 0.0)
@@ -4874,7 +4868,6 @@ bool NormSession::OnTxTimeout(ProtoTimer & /*theTimer*/)
 
 NormSession::MessageStatus NormSession::SendMessage(NormMsg &msg)
 {
-    //TRACE("sending message length %hu\n", msg.GetLength());
     bool isReceiverMsg = false;
     bool isProbe = false;
     bool sendRaw = false;
@@ -4967,13 +4960,13 @@ NormSession::MessageStatus NormSession::SendMessage(NormMsg &msg)
                 struct timeval currentTime;
                 ProtoSystemTime(currentTime);
                 theSender->CalculateGrttResponse(currentTime, grttResponse);
-                ack.SetGrttResponse(grttResponse);
                 if (0 != probe_tos) sendRaw = true;
             }
             else
             {
                 grttResponse.tv_sec = grttResponse.tv_usec = 0;
             }
+            ack.SetGrttResponse(grttResponse);
             break;
         }
         default:
@@ -5118,7 +5111,6 @@ bool NormSession::RawSendTo(const char* buffer, unsigned int& numBytes, const Pr
         trafficClass &= ~((UINT8)ProtoSocket::ECN_ECT1); // clear ECT1 bit
     }
     
-    //TRACE("sending RAW with tos 0x%02x (probe_tos 0x%02x\n", trafficClass, probe_tos);
     switch (dstAddr.GetType())
     {
         case ProtoAddress::IPv4:
@@ -5570,7 +5562,6 @@ void NormSession::AdjustRate(bool onResponse)
     {
         // reduce rate if no active data transmission
         // (TBD) Perhaps we want to be less aggressive here someday
-        //TRACE("DATA INACTIVITY!\n");
         txRate *= 0.5;
     }
     else if (clr && clr->IsActive())
