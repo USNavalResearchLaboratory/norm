@@ -121,16 +121,16 @@ class NormCaster
         
         // Receiver methods
         void SetRxCacheDirectory(const char* path)
-		{
-			strncpy(rx_cache_path, path, PATH_MAX);
-			unsigned int len = strlen(rx_cache_path);
-			if (PROTO_PATH_DELIMITER != rx_cache_path[len - 1])
-			{
-				if (PATH_MAX == len) len--;
-				rx_cache_path[len] = PROTO_PATH_DELIMITER;
-				rx_cache_path[len + 1] = '\0';
-			}
-		}
+        {
+            strncpy(rx_cache_path, path, PATH_MAX);
+            unsigned int len = strlen(rx_cache_path);
+            if (PROTO_PATH_DELIMITER != rx_cache_path[len - 1])
+            {
+                if (PATH_MAX == len) len--;
+                rx_cache_path[len] = PROTO_PATH_DELIMITER;
+                rx_cache_path[len + 1] = '\0';
+            }
+        }
         const char* GetRxCacheDirectory() const
             {return rx_cache_path;}
         
@@ -143,7 +143,7 @@ class NormCaster
                 norm_acking = enable;
         }
         void SetSilentReceiver(bool state)
-            {NormSetSilentReceiver(norm_session, true);}
+            {NormSetSilentReceiver(norm_session, state);}
         
         void SetProbeTOS(UINT8 value)
             {probe_tos = value;}
@@ -348,7 +348,7 @@ bool NormCaster::TxReady() const
     // NORM_TX_QUEUE_VACANCY notifications (tracked by the "norm_tx_vacancy" variable,
     // _and_ (if ack-based flow control is enabled) the norm_tx_queue_count or 
     // norm_stream_buffer_count status.
-	if (norm_tx_vacancy)
+    if (norm_tx_vacancy)
     {
         if (norm_tx_queue_count >= norm_tx_queue_max)
             return false;  // still waiting for ACK
@@ -639,7 +639,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                 if ('/' == fileName[i]) 
                     fileName[i] = PROTO_PATH_DELIMITER;
             }
-			if (!NormFileRename(event.object, fileName))
+            if (!NormFileRename(event.object, fileName))
                 perror("normCast: rx file rename error");
             break;
         }   
@@ -667,15 +667,17 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
 
 void Usage()
 {
-    fprintf(stderr, "Usage: normCast id <nodeId> {send <file/dir list> &| recv <rxCacheDir>}\n"
-                    "                [addr <addr>[/<port>]][interface <name>][ack <node1>[,<node2>,...]\n"
-                    "                [cc|cce|ccl|rate <bitsPerSecond>][ptos <value>]\n"
-                    "                [debug <level>][trace]\n");
+    fprintf(stderr, "Usage: normCast id <nodeIdInteger> {send <file/dir list> &| recv <rxCacheDir>}\n"
+                    "                [addr <addr>[/<port>]] [interface <name>] [loopback]\n"
+                    "                [ack auto|<node1>[,<node2>,...]]\n"
+                    "                [cc|cce|ccl|rate <bitsPerSecond>] [ptos <value>]\n"
+                    "                [flush {none|passive|active}] [silent] [txloss <lossFraction>]\n"
+                    "                [debug <level>] [trace] [log <logfile>]\n");
 }  // end Usage()
 
 int main(int argc, char* argv[])
 {
-	// REQUIRED parameters initiailization
+    // REQUIRED parameters initiailization
     NormNodeId nodeId = NORM_NODE_NONE;
     bool send = false;
     bool recv = false;
@@ -967,20 +969,20 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-	// TBD - should provide more error checking of calls
+    // TBD - should provide more error checking of calls
     NormInstanceHandle normInstance = NormCreateInstance();
-	NormSetDebugLevel(debugLevel);
-	if (NULL != debugLog)
-		NormOpenDebugLog(normInstance, debugLog);
+    NormSetDebugLevel(debugLevel);
+    if (NULL != debugLog)
+        NormOpenDebugLog(normInstance, debugLog);
     
-	// TBD - enhance NORM to support per-session or perhaps per-sender rx cache directories?
+    // TBD - enhance NORM to support per-session or perhaps per-sender rx cache directories?
     if (recv)
         NormSetCacheDirectory(normInstance, normCast.GetRxCacheDirectory());
     
-	normCast.SetLoopback(loopback);
-	normCast.SetFlushing(flushing);
+    normCast.SetLoopback(loopback);
+    normCast.SetFlushing(flushing);
         
-	if (!normCast.OpenNormSession(normInstance, sessionAddr, sessionPort, (NormNodeId)nodeId))
+    if (!normCast.OpenNormSession(normInstance, sessionAddr, sessionPort, (NormNodeId)nodeId))
     {
         fprintf(stderr, "normCast error: unable to open NORM session\n");
         NormDestroyInstance(normInstance);
@@ -1023,10 +1025,10 @@ int main(int argc, char* argv[])
     
     if (trace) normCast.SetNormMessageTrace(true);
     
-	// TBD - set NORM session parameters
+    // TBD - set NORM session parameters
     normCast.Start(send, recv); 
 
-	 if (normCast.TxFilePending()) normCast.SendFiles();
+     if (normCast.TxFilePending()) normCast.SendFiles();
     
 #ifdef WIN32
     //Win32InputHandler inputHandler;
@@ -1050,7 +1052,7 @@ int main(int argc, char* argv[])
         bool normEventPending = false;
         bool inputEventPending = false;
 #ifdef WIN32
-		DWORD handleCount = inputNeeded ? 2 : 1;
+        DWORD handleCount = inputNeeded ? 2 : 1;
         DWORD waitStatus =  
             MsgWaitForMultipleObjectsEx(handleCount,   // number of handles in array
                                         handleArray,   // object-handle array

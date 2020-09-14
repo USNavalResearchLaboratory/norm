@@ -83,7 +83,7 @@ class NormStreamer
            {ack_ex = state;}
         
         bool EnableUdpRelay(const char* relayAddr, unsigned short relayPort);
-       	bool EnableUdpListener(unsigned short thePort, const char* groupAddr, const char * interfaceName);
+        bool EnableUdpListener(unsigned short thePort, const char* groupAddr, const char * interfaceName);
         bool UdpListenerEnabled() const
             {return input_socket.IsOpen();}
         bool UdpRelayEnabled() const
@@ -253,7 +253,7 @@ class NormStreamer
         
         // These can only be called post-OpenNormSession()
         void SetSilentReceiver(bool state)
-            {NormSetSilentReceiver(norm_session, true);}
+            {NormSetSilentReceiver(norm_session, state);}
         void SetTxLoss(double txloss)
             {NormSetTxLoss(norm_session, txloss);}
         // Set the scheduler for running the app and norm threads.
@@ -267,7 +267,7 @@ class NormStreamer
             {num_parity = numParity;}
         void SetAutoParity(unsigned short autoParity)
             {auto_parity = autoParity;}
-    	
+        
         void SetStreamBufferSize(unsigned int value)
             {stream_buffer_size = value;}
         void SetTxSocketBufferSize(unsigned int value)
@@ -284,12 +284,12 @@ class NormStreamer
             {probe_tos = value;}
         
         // Check that sequence numbers increase by one each time.
-    	// Assumes that sequence number is 8- or 4-byte network-order first 8 bytes of buffer.
-    	void CheckSequenceNumber(const char* buffer, const char* source);
-    	void CheckSequenceNumber64(const char* buffer, const char* source);
-    	void CheckSequenceNumber32(const char* buffer, const char* source);
-    	void SetCheckSequence(unsigned int value)  // 64 or 32
-    	    {check_sequence = value;}
+        // Assumes that sequence number is 8- or 4-byte network-order first 8 bytes of buffer.
+        void CheckSequenceNumber(const char* buffer, const char* source);
+        void CheckSequenceNumber64(const char* buffer, const char* source);
+        void CheckSequenceNumber32(const char* buffer, const char* source);
+        void SetCheckSequence(unsigned int value)  // 64 or 32
+            {check_sequence = value;}
         
     private:
         NormSessionHandle   norm_session;
@@ -391,22 +391,22 @@ NormStreamer::~NormStreamer()
 bool NormStreamer::BoostPriority()
 {
 #ifdef LINUX
-	pid_t this_process = getpid() ;
-	int policy = SCHED_FIFO ;
-	int max_priority = sched_get_priority_max(policy) ;
+    pid_t this_process = getpid() ;
+    int policy = SCHED_FIFO ;
+    int max_priority = sched_get_priority_max(policy) ;
     struct sched_param schedule_parameters ;
-	memset((void*)&schedule_parameters, 0, sizeof(schedule_parameters)) ;
+    memset((void*)&schedule_parameters, 0, sizeof(schedule_parameters)) ;
     schedule_parameters.sched_priority = max_priority ;
-	int status = sched_setscheduler(this_process, policy, &schedule_parameters) ;
-	if (0 != status)
-	{
-		fprintf(stderr, "%s:=>sched_setscheduler failed (%d), %s\n", __PRETTY_FUNCTION__, errno, strerror(errno) ) ;
-		return false ;
-	}
-	else
-	{
-		fprintf(stderr, "%s:=>sched_setscheduler set priority to %d for process %u \n", __PRETTY_FUNCTION__, max_priority, this_process ) ;
-	}
+    int status = sched_setscheduler(this_process, policy, &schedule_parameters) ;
+    if (0 != status)
+    {
+        fprintf(stderr, "%s:=>sched_setscheduler failed (%d), %s\n", __PRETTY_FUNCTION__, errno, strerror(errno) ) ;
+        return false ;
+    }
+    else
+    {
+        fprintf(stderr, "%s:=>sched_setscheduler set priority to %d for process %u \n", __PRETTY_FUNCTION__, max_priority, this_process ) ;
+    }
 #else
     // (TBD) Do something differently if "pthread sched param"?
     if (0 != setpriority(PRIO_PROCESS, getpid(), -20))
@@ -422,34 +422,34 @@ bool NormStreamer::BoostPriority()
 //Convert net-order to host-order.
 uint64_t ntohll(uint64_t value)
 {
-	static const int betest = 1 ;
-	union MyUnion
-	{
-		uint64_t i64;
-		uint32_t i32[2];
-	};
+    static const int betest = 1 ;
+    union MyUnion
+    {
+        uint64_t i64;
+        uint32_t i32[2];
+    };
 
-	uint64_t rval = value;
-	bool host_is_little_endian =  ( 1 == (int)(*(char*)&betest) ) ;
-	if ( host_is_little_endian )
-	{
+    uint64_t rval = value;
+    bool host_is_little_endian =  ( 1 == (int)(*(char*)&betest) ) ;
+    if ( host_is_little_endian )
+    {
 
-		MyUnion u;
-		u.i64 = value;
-		uint32_t temp = u.i32[0];
-		u.i32[0] = ntohl(u.i32[1]);
-		u.i32[1] = ntohl(temp);
-		rval = u.i64;
-	}
-	return rval ;
+        MyUnion u;
+        u.i64 = value;
+        uint32_t temp = u.i32[0];
+        u.i32[0] = ntohl(u.i32[1]);
+        u.i32[1] = ntohl(temp);
+        rval = u.i64;
+    }
+    return rval ;
 }
 #endif // !nothll
 
 void NormStreamer::CheckSequenceNumber64(const char* buffer, const char* source)
 {
     uint64_t temp;
-	memcpy((void*)&temp, (void*)buffer, sizeof(temp));
-	uint64_t sequence = ntohll(temp);
+    memcpy((void*)&temp, (void*)buffer, sizeof(temp));
+    uint64_t sequence = ntohll(temp);
     if (0 != sequence_prev)
     {
         int64_t delta = (int64_t)(sequence - sequence_prev);
@@ -460,14 +460,14 @@ void NormStreamer::CheckSequenceNumber64(const char* buffer, const char* source)
                             (unsigned long)sequence_prev);
         }
     }
-	sequence_prev = sequence;
+    sequence_prev = sequence;
 }  // end NormStreamer::CheckSequenceNumber64()
 
 void NormStreamer::CheckSequenceNumber32(const char* buffer, const char* source)
 {
     uint32_t temp;
-	memcpy((void*)&temp, (void*)buffer, sizeof(temp));
-	uint32_t sequence = ntohll(temp);
+    memcpy((void*)&temp, (void*)buffer, sizeof(temp));
+    uint32_t sequence = ntohll(temp);
     if (0 != sequence_prev)
     {
         int32_t delta = (int32_t)(sequence - sequence_prev);
@@ -478,7 +478,7 @@ void NormStreamer::CheckSequenceNumber32(const char* buffer, const char* source)
                             (unsigned long)sequence_prev);
         }
     }
-	sequence_prev = sequence;
+    sequence_prev = sequence;
 }  // end NormStreamer::CheckSequenceNumber32()
 
 void NormStreamer::CheckSequenceNumber(const char* buffer, const char* source)
@@ -505,7 +505,7 @@ bool NormStreamer::EnableUdpRelay(const char* relayAddr, unsigned short relayPor
     }
     if (!output_socket.SetTxBufferSize(output_socket_buffer_size))
     {
-    	fprintf(stderr, "normStreamer warning: unable to set desired 'relay' socket buffer size (retrieved value:%u)\n", 
+        fprintf(stderr, "normStreamer warning: unable to set desired 'relay' socket buffer size (retrieved value:%u)\n", 
                         output_socket.GetTxBufferSize());
     }
     if (!relay_addr.ResolveFromString(relayAddr))
@@ -523,12 +523,12 @@ bool NormStreamer::EnableUdpListener(unsigned short thePort, const char* groupAd
     if (!input_socket.Open(thePort))
     {
         fprintf(stderr, "normStreamer error: unable to open 'listen' socket on port %hu\n", thePort);
-		return false;
+        return false;
     }
     if (!input_socket.SetRxBufferSize(input_socket_buffer_size))
-	{
-		fprintf(stderr, "normStreamer error: unable to set desired 'listen' socket buffer size\n");
-		return false;
+    {
+        fprintf(stderr, "normStreamer error: unable to set desired 'listen' socket buffer size\n");
+        return false;
     }
     if (NULL != groupAddr)
     {
@@ -537,15 +537,15 @@ bool NormStreamer::EnableUdpListener(unsigned short thePort, const char* groupAd
         {
             fprintf(stderr, "normStreamer error: invalid 'listen' group address\n");
             input_socket.Close();
-			return false ;
+            return false ;
         }
-		if (!input_socket.JoinGroup(addr, interfaceName))
+        if (!input_socket.JoinGroup(addr, interfaceName))
         {
             fprintf(stderr, "normStreamer error: unable to join 'listen' group address\n");
             input_socket.Close();
             return false;
         }
-	}
+    }
     return true;
 }  // end NormStreamer::EnableUdpListener()
 
@@ -629,7 +629,7 @@ bool NormStreamer::Start(bool sender, bool receiver)
             return false;
         }
         if (0 != mlockall(MCL_CURRENT | MCL_FUTURE))
-		    fprintf(stderr, "normStreamer error: failed to lock memory for receiver.\n");
+            fprintf(stderr, "normStreamer error: failed to lock memory for receiver.\n");
         if (0 != rx_socket_buffer_size)
             NormSetRxSocketBuffer(norm_session, rx_socket_buffer_size);
         rx_needed = true;
@@ -679,11 +679,11 @@ bool NormStreamer::Start(bool sender, bool receiver)
             if (receiver) NormStopReceiver(norm_session);
             return false;
         }
-		else
-		{
-			if (0 != mlockall(MCL_CURRENT|MCL_FUTURE))
+        else
+        {
+            if (0 != mlockall(MCL_CURRENT|MCL_FUTURE))
                 fprintf(stderr, "normStreamer warning: failed to lock memory for sender.\n");
-		}
+        }
         tx_stream_buffer_max = NormGetStreamBufferSegmentCount(bufferSize, segment_size, block_size);
         tx_stream_buffer_max -= block_size;  // a little safety margin (perhaps not necessary)
         tx_stream_buffer_threshold = tx_stream_buffer_max / 8;
@@ -1340,31 +1340,35 @@ void NormStreamer::HandleNormEvent(const NormEvent& event)
 
 void Usage()
 {
-    fprintf(stderr, "Usage: normStreamer id <nodeId> {send|recv} [addr <addr>[/<port>]][interface <name>][loopback][info]\n"
-                    "                    [cc|cce|ccl|rate <bitsPerSecond>][ack <node1>[,<node2>,...][flush {none|passive|active}]\n"
-                    "                    [listen [<mcastAddr>/]<port>][linterface <name>]\n"
-                    "                    [relay <dstAddr>/<port>][limit [<rate>/]<depth>][output <device>]\n"
-                    "                    [boost][debug <level>][trace][log <logfile>]\n"
-                    "                    [segment <bytes>][block <count>][parity <count>][auto <count>]\n"
-                    "                    [insockbuffer <bytes>][outsockbuffer <bytes>]\n"
-                    "                    [txsockbuffer <bytes>][rxsockbuffer <bytes>]\n"
+    fprintf(stderr, "Usage: normStreamer id <nodeIdInteger> {send|recv} [addr <addr>[/<port>]]\n"
+                    "                    [interface <name>] [loopback] [info] [ptos <value>] [ex]\n"
+                    "                    [cc|cce|ccl|rate <bitsPerSecond>]\n"
+                    "                    [ack auto|<node1>[,<node2>,...]]\n"
+                    "                    [flush {none|passive|active}]\n"
+                    "                    [listen [<mcastAddr>/]<port>] [linterface <name>]\n"
+                    "                    [relay <dstAddr>/<port>] [limit [<rate>/]<depth>]\n"
+                    "                    [output <device>] [boost] [debug <level>] [trace]\n"
+                    "                    [log <logfile>] [segment <bytes>] [block <count>]\n"
+                    "                    [parity <count>] [auto <count>]\n"
+                    "                    [insockbuffer <bytes>] [outsockbuffer <bytes>]\n"
+                    "                    [txsockbuffer <bytes>] [rxsockbuffer <bytes>]\n"
                     "                    [streambuffer <bytes>]\n"
-	                "                    [check64 | check32]\n");
-                    //"                    [omit][silent][txloss <lossFraction>]\n");
+                    "                    [check64 | check32]\n"
+                    "                    [omit] [silent] [txloss <lossFraction>]\n");
 }  // end Usage()
 
 void PrintHelp()
 {
-	fprintf(stderr, "\nHelp for normStreamer:\n\n") ;
-	fprintf(stderr,
-			"The 'normStreamer' application sends messages from STDIN (or a listening UDP socket) to one or more\n"
+    fprintf(stderr, "\nHelp for normStreamer:\n\n") ;
+    fprintf(stderr,
+            "The 'normStreamer' application sends messages from STDIN (or a listening UDP socket) to one or more\n"
             "receiving nodes using the NORM protocol.  Received messages are output to STDOUT (or relayed to\n"
             "to a UDP destination address/port).  Key command line options are:\n\n"
-			"   id <nodeId>             -- Specifies the node id for the local NORM instance (required)\n"
-			"   send | recv             -- Specifies whether this node will be a sender and/or receiver (must choose  at least one)\n"
-			"   addr <addr>[/<port>]    -- specifies the network address over which to send/receive NORM protocol\n"
-			"   interface <name>        -- Specifies the name of the network interface on which to conduct NORM protocol\n"
-			"                              (e.g., 'eth0')\n"
+            "   id <nodeId>             -- Specifies the node id for the local NORM instance (required)\n"
+            "   send | recv             -- Specifies whether this node will be a sender and/or receiver (must choose  at least one)\n"
+            "   addr <addr>[/<port>]    -- specifies the network address over which to send/receive NORM protocol\n"
+            "   interface <name>        -- Specifies the name of the network interface on which to conduct NORM protocol\n"
+            "                              (e.g., 'eth0')\n"
             "   loopback                -- Enables 'loopback' sessions on the same host machine.  Required for multicast loopback.\n"
             "   ptos <value>            -- Set special IP traffic class (TOS) for GRTT probing and acknowledgments\n"
             "   info                    -- Limits FTI header extension to NORM_INFO message only (reduced overhead)\n"
@@ -1377,20 +1381,20 @@ void PrintHelp()
             "                              any messages as soon as possible.  If 'active', NORM stream will be flushed\n"
             "                              on a per-message basis as with 'passive' mode, but positive acknowledgment will\n"
             "                              _also_ be requested if a list of acking receiver node ids has beeen provided.\n"
-			"   listen [<addr>/]<port>  -- Specifies the port and optional multicast address which the sender uses to listen\n"
+            "   listen [<addr>/]<port>  -- Specifies the port and optional multicast address which the sender uses to listen\n"
             "                              for UDP packets to transmit to the receiver(s) via the NORM protocol\n"
             "   linterface <name>       -- Specifies the name of the network interface on which to listen for UDP packet\n"
-			"                              payloads to send to the receiver(s) via NORM protocol\n"
+            "                              payloads to send to the receiver(s) via NORM protocol\n"
             "   relay <dstAddr>/<port>  -- Specifies the address/port for which to relay (as UDP datagrams) received messages\n"
             "   limit [<rate>/]<depth>  -- Token bucket rate/depth for optional receiver output limiter (smooths bursty output\n" 
             "                              upon NORM loss recovery).  When UDP 'relay' is used, this option is useful to avoid\n"
             "                              overly bursty UDP output.  The <rate> is in units of bits/second and the <depth> is\n"
             "                              in units of bytes.  If not specified  here, the value set by 'rate' command is used\n"
             "                              as the token bucket rate.\n"
-			"   check64 | check32       -- Enables checking that packet sequence numbers in the first 4/8 bytes of received\n"
+            "   check64 | check32       -- Enables checking that packet sequence numbers in the first 4/8 bytes of received\n"
             "                              packets increment properly (optional)\n"
-	        "   insockbuffer <bytes>    -- Specifies the size of the 'listen' UDP socket buffer (optional).\n"
-	        "   outsockbuffer <bytes>   -- Specifies the size of the 'relay' UDP socket buffer (optional).\n"
+            "   insockbuffer <bytes>    -- Specifies the size of the 'listen' UDP socket buffer (optional).\n"
+            "   outsockbuffer <bytes>   -- Specifies the size of the 'relay' UDP socket buffer (optional).\n"
             "   txsockbuffer <bytes>    -- Specifies the size of the NORM/UDP transmit socket buffer (optional).\n"
             "   rxsockbuffer <bytes>    -- Specifies the size of the NORM/UDP receive socket buffer (optional).\n"
             "   streambuffer <bytes>    -- Specifies the size of the NORM stream buffer (optional).\n\n");
@@ -1710,59 +1714,59 @@ int main(int argc, char* argv[])
             }
             mcastIface = argv[i++];
         }
-		else if (0 == strncmp(cmd, "linterface", len))
-		{
-			if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'linterface' <name>!\n");
-				Usage();
-				return -1;
-			}
-			listenIface = argv[i++];
-		}
-		else if (0 == strncmp(cmd, "insockbuffer", len))
-		{
-			unsigned long value = 0 ;
-			if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'insockbuffer' size!\n");
-				Usage();
-				return -1;
-			}
+        else if (0 == strncmp(cmd, "linterface", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normStreamer error: missing 'linterface' <name>!\n");
+                Usage();
+                return -1;
+             }
+             listenIface = argv[i++];
+        }
+        else if (0 == strncmp(cmd, "insockbuffer", len))
+        {
+            unsigned long value = 0 ;
+            if (i >= argc)
+            {
+                fprintf(stderr, "normStreamer error: missing 'insockbuffer' size!\n");
+                Usage();
+                return -1;
+            }
             if (1 != sscanf(argv[i++], "%lu", &value))
             {
                 fprintf(stderr, "normStreamer error: invalid 'insockbuffer' size\n");
-				Usage();
-				return -1;
+                Usage();
+                return -1;
             }
             inputSocketBufferSize = value;
-		}
-		else if (0 == strncmp(cmd, "outsockbuffer", len))
-		{
-			unsigned long value = 0 ;
-			if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'outsockbuffer' size!\n");
-				Usage();
-				return -1;
-			}
+        }
+        else if (0 == strncmp(cmd, "outsockbuffer", len))
+        {
+            unsigned long value = 0 ;
+            if (i >= argc)
+            {
+                fprintf(stderr, "normStreamer error: missing 'outsockbuffer' size!\n");
+                Usage();
+                return -1;
+            }
             if (1 != sscanf(argv[i++], "%lu", &value))
             {
                 fprintf(stderr, "normStreamer error: invalid 'outsockbuffer' size!\n");
-				Usage();
-				return -1;
+                Usage();
+                return -1;
             }
             outputSocketBufferSize = value;
-		}
-		else if (0 == strncmp(cmd, "limit", len))
-		{
+            }
+        else if (0 == strncmp(cmd, "limit", len))
+        {
             // format: limit [<rate>/<size>]  with 'rate' in bps and 'size' in bytes
-			if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'limit' size!\n");
-				Usage();
-				return -1;
-			}
+            if (i >= argc)
+            {
+                fprintf(stderr, "normStreamer error: missing 'limit' size!\n");
+                Usage();
+                return -1;
+            }
             const char* ratePtr = argv[i++];
             const char* sizePtr = strchr(ratePtr, '/');
             unsigned int rateLen = 0;
@@ -1775,8 +1779,8 @@ int main(int argc, char* argv[])
                 if (rateLen > 63)
                 {
                     fprintf(stderr, "normStreamer error: out-of-bounds 'limit' rate\n");
-				    Usage();
-				    return -1;
+                    Usage();
+                    return -1;
                 }
                 char rateText[64];
                 strncpy(rateText, ratePtr, rateLen);
@@ -1785,8 +1789,8 @@ int main(int argc, char* argv[])
                 if (1 != sscanf(rateText, "%lf", &value))
                 {
                     fprintf(stderr, "normStreamer error: invalid 'limit' rate\n");
-				    Usage();
-				    return -1;
+                    Usage();
+                    return -1;
                 }
                 normStreamer.SetOutputBucketRate(value);
             }
@@ -1794,142 +1798,142 @@ int main(int argc, char* argv[])
             if (1 != sscanf(sizePtr, "%lu", &value))
             {
                 fprintf(stderr, "normStreamer error: invalid 'limit' size\n");
-				Usage();
-				return -1;
+                Usage();
+                return -1;
             }
             normStreamer.SetOutputBucketDepth(value);
-		}
-		else if (0 == strncmp(cmd, "txsockbuffer", len))
-		{
-			unsigned long value = 0 ;
-			if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'txsockbuffer' size!\n");
-				Usage();
-				return -1;
-			}
+        }
+        else if (0 == strncmp(cmd, "txsockbuffer", len))
+        {
+            unsigned long value = 0 ;
+            if (i >= argc)
+            {
+                fprintf(stderr, "normStreamer error: missing 'txsockbuffer' size!\n");
+                Usage();
+                return -1;
+            }
             if (1 != sscanf(argv[i++], "%lu", &value))
             {
                 fprintf(stderr, "normStreamer error: invalid 'txsockbuffer' size!\n");
-				Usage();
-				return -1;
+                Usage();
+                return -1;
             }
             txSocketBufferSize = value;
-		}
-		else if (0 == strncmp(cmd, "rxsockbuffer", len))
-		{
-			unsigned long value = 0 ;
-			if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'rxsockbuffer' size!\n");
-				Usage();
-				return -1;
-			}
+        }
+        else if (0 == strncmp(cmd, "rxsockbuffer", len))
+        {
+            unsigned long value = 0 ;
+            if (i >= argc)
+            {
+                fprintf(stderr, "normStreamer error: missing 'rxsockbuffer' size!\n");
+                Usage();
+                return -1;
+            }
             if (1 != sscanf(argv[i++], "%lu", &value))
             {
                 fprintf(stderr, "normStreamer error: invalid 'rxsockbuffer' size!\n");
-				Usage();
-				return -1;
+                Usage();
+                return -1;
             }
             rxSocketBufferSize = value;
-		}
+        }
         else if (0 == strncmp(cmd, "segment", len))
         {
             if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'segment' size!\n");
-				Usage();
-				return -1;
-			}
+            {
+                fprintf(stderr, "normStreamer error: missing 'segment' size!\n");
+                Usage();
+                return -1;
+            }
             unsigned short value;
             if (1 != sscanf(argv[i++], "%hu", &value))
             {
                 fprintf(stderr, "normStreamer error: invalid 'segment' size!\n");
-				Usage();
-				return -1;
+                Usage();
+                return -1;
             }
             normStreamer.SetSegmentSize(value);
         }
         else if (0 == strncmp(cmd, "block", len))
         {
             if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'block' size!\n");
-				Usage();
-				return -1;
-			}
+            {
+                fprintf(stderr, "normStreamer error: missing 'block' size!\n");
+                Usage();
+                return -1;
+            }
             unsigned short value;
             if (1 != sscanf(argv[i++], "%hu", &value))
             {
                 fprintf(stderr, "normStreamer error: invalid 'block' size!\n");
-				Usage();
-				return -1;
+                Usage();
+                return -1;
             }
             normStreamer.SetBlockSize(value);
         }
         else if (0 == strncmp(cmd, "parity", len))
         {
             if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'parity' count!\n");
-				Usage();
-				return -1;
-			}
+            {
+                fprintf(stderr, "normStreamer error: missing 'parity' count!\n");
+                Usage();
+                return -1;
+            }
             unsigned short value;
             if (1 != sscanf(argv[i++], "%hu", &value))
             {
                 fprintf(stderr, "normStreamer error: invalid 'parity' count!\n");
-				Usage();
-				return -1;
+                Usage();
+                return -1;
             }
             normStreamer.SetNumParity(value);
         }
         else if (0 == strncmp(cmd, "auto", len))
         {
             if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'auto' parity count!\n");
-				Usage();
-				return -1;
-			}
+            {
+                fprintf(stderr, "normStreamer error: missing 'auto' parity count!\n");
+                Usage();
+                return -1;
+            }
             unsigned short value;
             if (1 != sscanf(argv[i++], "%hu", &value))
             {
                 fprintf(stderr, "normStreamer error: invalid 'auto' parity count!\n");
-				Usage();
-				return -1;
+                Usage();
+                return -1;
             }
             normStreamer.SetAutoParity(value);
         }
-		else if (0 == strncmp(cmd, "streambuffer", len))
-		{
-			unsigned long value = 0 ;
-			if (i >= argc)
-			{
-				fprintf(stderr, "normStreamer error: missing 'streambuffer' size!\n");
-				Usage();
-				return -1;
-			}
+        else if (0 == strncmp(cmd, "streambuffer", len))
+        {
+            unsigned long value = 0 ;
+            if (i >= argc)
+            {
+                fprintf(stderr, "normStreamer error: missing 'streambuffer' size!\n");
+                Usage();
+                return -1;
+            }
             if (1 != sscanf(argv[i++], "%lu", &value))
             {
                 fprintf(stderr, "normStreamer error: invalid 'streambuffer' size!\n");
-				Usage();
-				return -1;
+                Usage();
+                return -1;
             }
             streamBufferSize = value;
-		}
+        }
         else if ( 0 == strncmp(cmd,"chkseq", len) )
-		{
-			checkSequence = 64;  // same as "check64" for "historical" reasons
-		}
-		else if ( 0 == strncmp(cmd,"check64", len) )
-		{
-			checkSequence = 64;
-		}
-		else if ( 0 == strncmp(cmd,"check32", len) )
-		{
-			checkSequence = 32;
-		}
+        {
+            checkSequence = 64;  // same as "check64" for "historical" reasons
+        }
+        else if ( 0 == strncmp(cmd,"check64", len) )
+        {
+            checkSequence = 64;
+        }
+        else if ( 0 == strncmp(cmd,"check32", len) )
+        {
+            checkSequence = 32;
+        }
         else if (0 == strncmp(cmd, "omit", len))
         {
             omitHeaderOnOutput = true;

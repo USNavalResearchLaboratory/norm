@@ -192,8 +192,14 @@ class NormMsgr
             {omit_header = state;}
         
         // These can only be called post-OpenNormSession
+        void SetAutoAck(bool enable)
+        {
+                NormTrackingStatus trackingMode = enable? NORM_TRACK_RECEIVERS : NORM_TRACK_NONE;
+                NormSetAutoAckingNodes(norm_session, trackingMode);
+                norm_acking = enable;
+        }
         void SetSilentReceiver(bool state)
-            {NormSetSilentReceiver(norm_session, true);}
+            {NormSetSilentReceiver(norm_session, state);}
         void SetTxLoss(double txloss)
             {NormSetTxLoss(norm_session, txloss);}
             
@@ -773,9 +779,11 @@ void NormMsgr::HandleNormEvent(const NormEvent& event)
 
 void Usage()
 {
-    fprintf(stderr, "Usage: normMsgr id <nodeId> {send &| recv} [addr <addr>[/<port>]][ack <node1>[,<node2>,...]\n"
-                    "                [cc|cce|ccl|rate <bitsPerSecond>][interface <name>][debug <level>][trace]\n"
-                    "                [flush {none|active}][omit][silent][txloss <lossFraction>]\n");
+    fprintf(stderr, "Usage: normMsgr id <nodeIdInteger> {send &| recv} [addr <addr>[/<port>]]\n"
+                    "                [ack auto|<node1>[,<node2>,...]] [output <outFile>]\n"
+                    "                [cc|cce|ccl|rate <bitsPerSecond>] [interface <name>] [loopback]\n"
+                    "                [debug <level>] [trace] [log <logfile>] [silent]\n"
+                    "                [flush {none|passive|active}] [omit] [txloss <lossFraction>]\n");
 }
 int main(int argc, char* argv[])
 {
@@ -788,6 +796,7 @@ int main(int argc, char* argv[])
     strcpy(sessionAddr, "224.1.2.3");
     unsigned int sessionPort = 6003;
     
+    bool autoAck = false;
     NormNodeId ackingNodeList[256]; 
     unsigned int ackingNodeCount = 0;
     bool flushing = false;
@@ -886,20 +895,28 @@ int main(int argc, char* argv[])
                 return -1;
             }
             const char* alist = argv[i++];
-            while ((NULL != alist) && (*alist != '\0'))
+            if (0 == strcmp("auto", alist))
             {
-                // TBD - Do we need to skip leading white space?
-                int id;
-                if (1 != sscanf(alist, "%d", &id))
+                autoAck = true;
+            }
+            else
+            {
+                autoAck = false;
+                while ((NULL != alist) && (*alist != '\0'))
                 {
-                    fprintf(stderr, "nodeMsgr error: invalid acking node list!\n");
-                    Usage();
-                    return -1;
+                    // TBD - Do we need to skip leading white space?
+                    int id;
+                    if (1 != sscanf(alist, "%d", &id))
+                    {
+                        fprintf(stderr, "nodeMsgr error: invalid acking node list!\n");
+                        Usage();
+                        return -1;
+                    }
+                    ackingNodeList[ackingNodeCount] = NormNodeId(id);
+                    ackingNodeCount++;
+                    alist = strchr(alist, ',');
+                    if (NULL != alist) alist++;  // point past comma
                 }
-                ackingNodeList[ackingNodeCount] = NormNodeId(id);
-                ackingNodeCount++;
-                alist = strchr(alist, ',');
-                if (NULL != alist) alist++;  // point past comma
             }
         }
         else if (0 == strncmp(cmd, "flush", len))
@@ -1057,8 +1074,15 @@ int main(int argc, char* argv[])
     if (silentReceiver) normMsgr.SetSilentReceiver(true);
     if (txloss > 0.0) normMsgr.SetTxLoss(txloss);
     
-    for (unsigned int i = 0; i < ackingNodeCount; i++)
-        normMsgr.AddAckingNode(ackingNodeList[i]);
+    if (autoAck)
+    {
+        normMsgr.SetAutoAck(true);
+    }
+    else
+    {
+        for (unsigned int i = 0; i < ackingNodeCount; i++)
+            normMsgr.AddAckingNode(ackingNodeList[i]);
+    }
     
     normMsgr.SetNormCongestionControl(ccMode);
     if (NormMsgr::NORM_FIXED == ccMode)
