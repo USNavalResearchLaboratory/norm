@@ -99,6 +99,8 @@ class NormCaster
         }
         void SetFlushing(bool state)
             {norm_flushing = state;}
+        void SetBufferSize(unsigned int value)
+            {buffer_size = value;}
         
         bool Start(bool sender, bool receiver);
         void Stop()
@@ -116,8 +118,19 @@ class NormCaster
         bool TxReady() const;
         void SendFiles();
         bool EnqueueFileObject();
-         unsigned long GetSentCount()
+        unsigned long GetSentCount()
             {return sent_count;}
+        void SetTxSocketBufferSize(unsigned int value)
+            {tx_socket_buffer_size = value;}
+
+        void SetSegmentSize(unsigned short segmentSize)
+            {segment_size = segmentSize;}
+        void SetBlockSize(unsigned short blockSize)
+            {block_size = blockSize;}
+        void SetNumParity(unsigned short numParity)
+            {num_parity = numParity;}
+        void SetAutoParity(unsigned short autoParity)
+            {auto_parity = autoParity;}
         
         // Receiver methods
         void SetRxCacheDirectory(const char* path)
@@ -133,6 +146,8 @@ class NormCaster
         }
         const char* GetRxCacheDirectory() const
             {return rx_cache_path;}
+        void SetRxSocketBufferSize(unsigned int value)
+            {rx_socket_buffer_size = value;}
         
         // These can only be called post-OpenNormSession()
         
@@ -161,7 +176,6 @@ class NormCaster
         bool                                is_multicast;
         bool                                loopback;
         UINT8                               probe_tos;
-        unsigned int                        norm_tx_segment_size;
         unsigned int                        norm_tx_queue_max;   // max number of objects that can be enqueued at once 
         unsigned int                        norm_tx_queue_count; // count of unacknowledged enqueued objects (TBD - optionally track size too)
         bool                                norm_flow_control_pending;
@@ -171,6 +185,14 @@ class NormCaster
         NormObjectHandle                    norm_flush_object;
         NormObjectHandle                    norm_last_object;
         unsigned long                       sent_count;
+        unsigned short                      segment_size;
+        unsigned short                      block_size;
+        unsigned short                      num_parity;
+        unsigned short                      auto_parity;
+        unsigned int                        tx_socket_buffer_size;
+        unsigned int                        rx_socket_buffer_size;
+        unsigned int                        buffer_size;
+
         
         // receiver state variables
         char                                rx_cache_path[PATH_MAX + 1];
@@ -182,12 +204,13 @@ class NormCaster
 
 NormCaster::NormCaster()
  : norm_session(NORM_SESSION_INVALID), tx_file_iterator(tx_file_list), 
-   tx_pending_prefix_len(0), 
-   is_multicast(false), loopback(false), probe_tos(0), norm_tx_segment_size(1400), 
+   tx_pending_prefix_len(0), is_multicast(false), loopback(false), probe_tos(0), 
    norm_tx_queue_max(8), norm_tx_queue_count(0), 
    norm_flow_control_pending(false), norm_tx_vacancy(true), norm_acking(false), 
    norm_flushing(true), norm_flush_object(NORM_OBJECT_INVALID), norm_last_object(NORM_OBJECT_INVALID),
-   sent_count(0)//, rx_silent(false), tx_loss(0.0)
+   sent_count(0), segment_size(1400), block_size(64), num_parity(0), auto_parity(0),
+   tx_socket_buffer_size(4*1024*1024), rx_socket_buffer_size(6*1024*1024), buffer_size(64*1024*1024)
+   //, rx_silent(false), tx_loss(0.0)
 {
     tx_pending_path[0] = '\0';
     tx_pending_path[PATH_MAX] = '\0';
@@ -286,26 +309,17 @@ void NormCaster::SetNormCongestionControl(CCMode ccMode)
 
 bool NormCaster::Start(bool sender, bool receiver)
 {
-    // TBD - make these command-line accessible
-    unsigned int bufferSize = 64*1024*1024;
-    unsigned int segmentSize = 1400;
-    unsigned int blockSize = 64;
-    unsigned int numParity = 0;
-    unsigned int txSockBufferSize = 4*1024*1024;
-    unsigned int rxSockBufferSize = 6*1024*1024;
-    
-    norm_tx_segment_size = segmentSize;
-    
     if (receiver)
     {
-        if (!NormStartReceiver(norm_session, bufferSize))
+        if (!NormStartReceiver(norm_session, buffer_size))
         {
             fprintf(stderr, "normCast error: unable to start NORM receiver\n");
             return false;
         }
         // Note: NormPreallocateRemoteSender() MUST be called AFTER NormStartReceiver()
-        //NormPreallocateRemoteSender(norm_session, bufferSize, segmentSize, blockSize, numParity, bufferSize);
-        NormSetRxSocketBuffer(norm_session, rxSockBufferSize);
+        //NormPreallocateRemoteSender(norm_session, buffer_size, segment_size, block_size, num_parity, buffer_size);
+        if (0 != rx_socket_buffer_size)
+            NormSetRxSocketBuffer(norm_session, rx_socket_buffer_size);
         fprintf(stderr, "normCast: receiver ready ...\n");
     }
     if (sender)
@@ -327,14 +341,16 @@ bool NormCaster::Start(bool sender, bool receiver)
         
         // Pick a random instance id for now
         NormSessionId instanceId = NormGetRandomSessionId();
-        if (!NormStartSender(norm_session, instanceId, bufferSize, segmentSize, blockSize, numParity))
+        if (!NormStartSender(norm_session, instanceId, buffer_size, segment_size, block_size, num_parity))
         {
             fprintf(stderr, "normCast error: unable to start NORM sender\n");
             if (receiver) NormStopReceiver(norm_session);
             return false;
         }
-        //NormSetAutoParity(norm_session, 2);
-        NormSetTxSocketBuffer(norm_session, txSockBufferSize);
+        if (auto_parity > 0)
+            NormSetAutoParity(norm_session, auto_parity < num_parity ? auto_parity : num_parity);
+        if (0 != tx_socket_buffer_size)
+            NormSetTxSocketBuffer(norm_session, tx_socket_buffer_size);
     }
     is_running = true;
     return true;
@@ -449,10 +465,10 @@ bool NormCaster::EnqueueFileObject()
     
     unsigned int nameLen = strlen(tx_pending_path) - tx_pending_prefix_len;
     const char* namePtr = tx_pending_path + tx_pending_prefix_len;
-    if (nameLen > norm_tx_segment_size)
+    if (nameLen > segment_size)
     {
         fprintf(stderr, "normCast error: transmit file path \"%s\"  exceeds NORM segment size limit!\n", namePtr);
-        nameLen = norm_tx_segment_size;
+        nameLen = segment_size;
         // TBD - refactor file name to preserve extension?
     }
     char nameInfo[PATH_MAX + 1];
@@ -669,9 +685,11 @@ void Usage()
 {
     fprintf(stderr, "Usage: normCast id <nodeIdInteger> {send <file/dir list> &| recv <rxCacheDir>}\n"
                     "                [addr <addr>[/<port>]] [interface <name>] [loopback]\n"
-                    "                [ack auto|<node1>[,<node2>,...]]\n"
+                    "                [ack auto|<node1>[,<node2>,...]] [segment <bytes>]\n"
+                    "                [block <count>] [parity <count>] [auto <count>]\n"
                     "                [cc|cce|ccl|rate <bitsPerSecond>] [ptos <value>]\n"
                     "                [flush {none|passive|active}] [silent] [txloss <lossFraction>]\n"
+                    "                [buffer <bytes>] [txsockbuffer <bytes>] [rxsockbuffer <bytes>]\n"
                     "                [debug <level>] [trace] [log <logfile>]\n");
 }  // end Usage()
 
@@ -759,7 +777,7 @@ int main(int argc, char* argv[])
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normStreamer error: missing 'ptos' value!\n");
+                fprintf(stderr, "normCast error: missing 'ptos' value!\n");
                 Usage();
                 return -1;
             }
@@ -769,7 +787,7 @@ int main(int argc, char* argv[])
                 result = sscanf(argv[i], "%x", &tos);
             if ((1 != result) || (tos < 0) || (tos > 255))
             {
-                fprintf(stderr, "normStreamer error: invalid 'ptos' value!\n");
+                fprintf(stderr, "normCast error: invalid 'ptos' value!\n");
                 Usage();
                 return -1;
             }
@@ -911,6 +929,125 @@ int main(int argc, char* argv[])
                 return -1;
             }
             mcastIface = argv[i++];
+        }
+        else if (0 == strncmp(cmd, "buffer", len))
+        {
+            unsigned long value = 0 ;
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'buffer' size!\n");
+                Usage();
+                return -1;
+            }
+            if (1 != sscanf(argv[i++], "%lu", &value))
+            {
+                fprintf(stderr, "normCast error: invalid 'buffer' size!\n");
+                Usage();
+                return -1;
+            }
+            normCast.SetBufferSize(value);
+        }
+        else if (0 == strncmp(cmd, "txsockbuffer", len))
+        {
+            unsigned long value = 0 ;
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'txsockbuffer' size!\n");
+                Usage();
+                return -1;
+            }
+            if (1 != sscanf(argv[i++], "%lu", &value))
+            {
+                fprintf(stderr, "normCast error: invalid 'txsockbuffer' size!\n");
+                Usage();
+                return -1;
+            }
+            normCast.SetTxSocketBufferSize(value);
+        }
+        else if (0 == strncmp(cmd, "rxsockbuffer", len))
+        {
+            unsigned long value = 0 ;
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'rxsockbuffer' size!\n");
+                Usage();
+                return -1;
+            }
+            if (1 != sscanf(argv[i++], "%lu", &value))
+            {
+                fprintf(stderr, "normCast error: invalid 'rxsockbuffer' size!\n");
+                Usage();
+                return -1;
+            }
+            normCast.SetRxSocketBufferSize(value);
+        }
+        else if (0 == strncmp(cmd, "segment", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'segment' size!\n");
+                Usage();
+                return -1;
+            }
+            unsigned short value;
+            if (1 != sscanf(argv[i++], "%hu", &value))
+            {
+                fprintf(stderr, "normCast error: invalid 'segment' size!\n");
+                Usage();
+                return -1;
+            }
+            normCast.SetSegmentSize(value);
+        }
+        else if (0 == strncmp(cmd, "block", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'block' size!\n");
+                Usage();
+                return -1;
+            }
+            unsigned short value;
+            if (1 != sscanf(argv[i++], "%hu", &value))
+            {
+                fprintf(stderr, "normCast error: invalid 'block' size!\n");
+                Usage();
+                return -1;
+            }
+            normCast.SetBlockSize(value);
+        }
+        else if (0 == strncmp(cmd, "parity", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'parity' count!\n");
+                Usage();
+                return -1;
+            }
+            unsigned short value;
+            if (1 != sscanf(argv[i++], "%hu", &value))
+            {
+                fprintf(stderr, "normCast error: invalid 'parity' count!\n");
+                Usage();
+                return -1;
+            }
+            normCast.SetNumParity(value);
+        }
+        else if (0 == strncmp(cmd, "auto", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'auto' parity count!\n");
+                Usage();
+                return -1;
+            }
+            unsigned short value;
+            if (1 != sscanf(argv[i++], "%hu", &value))
+            {
+                fprintf(stderr, "normCast error: invalid 'auto' parity count!\n");
+                Usage();
+                return -1;
+            }
+            normCast.SetAutoParity(value);
         }
         else if (0 == strncmp(cmd, "silent", len))
         {
