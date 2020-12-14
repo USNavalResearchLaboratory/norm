@@ -30,16 +30,21 @@
  *
  ********************************************************************/
 
+This is the NRL NORM source code repository. 
 
-This is a release of the NRL NORM source code. 
+The Github "Discussions" feature is available here for comment and question in addition 
+to the regular code issue reporting:
 
-A Google Groups forum is available at 
-
-https://groups.google.com/forum/#!forum/norm-dev
+https://github.com/USNavalResearchLaboratory/norm/discussions
 
 
 SOURCE CODE
 ===========
+
+The "norm" source Git repository includes "protolib" as a git submodule. You can
+add the "--recurse-submodules" to your git clone command to automate inclusion: 
+
+git clone --recurse-submodules https://github.com/USNavalResearchLaboratory/norm.git
 
 The following items can be built from this source code release:
 
@@ -116,8 +121,11 @@ The NORM code depends upon the current "Protolib" release:
   https://github.com/USNavalResearchLaboratory/protolib 
   
 It has been addded as a git submodule to the NORM git repository.  So, to 
-to build you will need to do the following step to download the protolib code
-after cloning the 'norm' repository:
+to build you will need to do the following steps to download the protolib code:
+
+git clone --recurse-submodules https://github.com/USNavalResearchLaboratory/norm.git
+
+Alternatively after a basic "git clone" you can do the folowing to pull in the protolib source:
 
 cd norm
 git submodule update --init
