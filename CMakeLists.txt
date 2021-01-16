@@ -6,7 +6,6 @@ project(norm VERSION 1.5.8)
 set(COMMON src/common)
 
 option(NORM_BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
-option(NORM_BUNDLE_PROTOKIT "Enables forced build of protokit." OFF)
 option(NORM_USE_LATEST_PROTOKIT "Enables the use of the latest protokit version and bundles it." OFF)
 
 include(CheckCXXSymbolExists)
@@ -31,23 +30,14 @@ else()
 	set(NORM_PROTOKIT_GIT_TAG ca49444cc0dfbf45122c4a134263dc9abb0359b9)
 endif()
 
-# Check for libraries
-if(NOT NORM_BUNDLE_PROTOKIT AND NOT NORM_USE_LATEST_PROTOKIT)
-	find_package(protokit)
-endif()
-
-if(NOT protokit_FOUND)
-	set(PROTOKIT_ENABLE_INSTALL 0)
-	message(STATUS "Building protokit from ${NORM_PROTOKIT_GIT_TAG}")
-    include(FetchContent)
-    FetchContent_Declare(
-      protokit
-      GIT_REPOSITORY https://github.com/USNavalResearchLaboratory/protolib.git
-      GIT_TAG        ${NORM_PROTOKIT_GIT_TAG}
-    )
-    FetchContent_MakeAvailable(protokit)
-	set(NORM_PROTOKIT_INCLUDED 1)
-endif()
+message(STATUS "Building protokit from ${NORM_PROTOKIT_GIT_TAG}")
+include(FetchContent)
+FetchContent_Declare(
+  protokit
+  GIT_REPOSITORY https://github.com/USNavalResearchLaboratory/protolib.git
+  GIT_TAG        ${NORM_PROTOKIT_GIT_TAG}
+)
+FetchContent_MakeAvailable(protokit)
 
 # List header files
 list(APPEND PUBLIC_HEADER_FILES
@@ -100,18 +90,15 @@ include(GNUInstallDirs)
 
 # Setup target
 add_library(norm ${PLATFORM_SOURCE_FILES} ${COMMON_SOURCE_FILES} ${PUBLIC_HEADER_FILES})
-target_link_libraries(norm PRIVATE ${PLATFORM_LIBS} protokit::protokit)
+target_link_libraries(norm PRIVATE protokit::protokit)
+target_link_libraries(norm PUBLIC ${PLATFORM_LIBS})
 target_compile_definitions(norm PUBLIC ${PLATFORM_DEFINITIONS})
 target_compile_options(norm PUBLIC ${PLATFORM_FLAGS})
 target_include_directories(norm PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(norm PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
 
 # Install target
-if(NORM_PROTOKIT_INCLUDED)
-	set(NORM_ADDITIONAL_INSTALL_TARGETS protokit)
-endif()
-
-install( TARGETS norm ${NORM_ADDITIONAL_INSTALL_TARGETS} EXPORT normTargets
+install( TARGETS norm protokit EXPORT normTargets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

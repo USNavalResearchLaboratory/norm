@@ -3,10 +3,5 @@ include(GNUInstallDirs)
 
 include(CMakeFindDependencyMacro)
 
-# Same syntax as find_package
-if(NOT @NORM_PROTOKIT_INCLUDED@)
-	find_dependency(protokit REQUIRED)
-endif()
-
 # Add the targets file
 include("${CMAKE_CURRENT_LIST_DIR}/normTargets.cmake")
