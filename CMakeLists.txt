@@ -45,7 +45,6 @@ if(NOT protokit_FOUND)
       GIT_TAG        ${NORM_PROTOKIT_GIT_TAG}
     )
     FetchContent_MakeAvailable(protokit)
-	set(NORM_PROTOKIT_INCLUDED 1)
 endif()
 
 # List header files
