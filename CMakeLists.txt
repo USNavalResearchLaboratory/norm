@@ -27,7 +27,7 @@ endif()
 if(NORM_USE_LATEST_PROTOKIT)
 	set(NORM_PROTOKIT_GIT_TAG origin/master)
 else()
-	set(NORM_PROTOKIT_GIT_TAG ca49444cc0dfbf45122c4a134263dc9abb0359b9)
+	set(NORM_PROTOKIT_GIT_TAG 49197511df68e26176313a49cef9e39b3eda3134)
 endif()
 
 message(STATUS "Building protokit from ${NORM_PROTOKIT_GIT_TAG}")
