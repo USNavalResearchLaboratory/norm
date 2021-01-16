@@ -6,8 +6,8 @@ project(norm VERSION 1.5.8)
 set(COMMON src/common)
 
 option(NORM_BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
-option(NORM_FORCE_BUILD_PROTOKIT "Enables forced build of protokit." OFF)
-option(NORM_USE_LATEST_PROTOKIT "Enables the use of the latest protokit version." OFF)
+option(NORM_BUNDLE_PROTOKIT "Enables forced build of protokit." OFF)
+option(NORM_USE_LATEST_PROTOKIT "Enables the use of the latest protokit version and bundles it." OFF)
 
 include(CheckCXXSymbolExists)
 check_cxx_symbol_exists(dirfd "dirent.h" HAVE_DIRFD)
@@ -28,11 +28,11 @@ endif()
 if(NORM_USE_LATEST_PROTOKIT)
 	set(NORM_PROTOKIT_GIT_TAG origin/master)
 else()
-	set(NORM_PROTOKIT_GIT_TAG fbe1c747933cfd8c85e03035eabb6d28c7c758b5)
+	set(NORM_PROTOKIT_GIT_TAG ca49444cc0dfbf45122c4a134263dc9abb0359b9)
 endif()
 
 # Check for libraries
-if(NOT NORM_FORCE_BUILD_PROTOKIT AND NOT NORM_USE_LATEST_PROTOKIT)
+if(NOT NORM_BUNDLE_PROTOKIT AND NOT NORM_USE_LATEST_PROTOKIT)
 	find_package(protokit)
 endif()
 
