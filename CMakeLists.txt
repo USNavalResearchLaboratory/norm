@@ -37,6 +37,7 @@ if(NOT NORM_FORCE_BUILD_PROTOKIT AND NOT NORM_USE_LATEST_PROTOKIT)
 endif()
 
 if(NOT protokit_FOUND)
+	set(PROTOKIT_ENABLE_INSTALL 0)
 	message(STATUS "Building protokit from ${NORM_PROTOKIT_GIT_TAG}")
     include(FetchContent)
     FetchContent_Declare(
@@ -45,6 +46,7 @@ if(NOT protokit_FOUND)
       GIT_TAG        ${NORM_PROTOKIT_GIT_TAG}
     )
     FetchContent_MakeAvailable(protokit)
+	set(NORM_PROTOKIT_INCLUDED 1)
 endif()
 
 # List header files
@@ -105,7 +107,11 @@ target_include_directories(norm PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(norm PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
 
 # Install target
-install( TARGETS norm EXPORT normTargets
+if(NORM_PROTOKIT_INCLUDED)
+	set(NORM_ADDITIONAL_INSTALL_TARGETS protokit)
+endif()
+
+install( TARGETS norm ${NORM_ADDITIONAL_INSTALL_TARGETS} EXPORT normTargets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
