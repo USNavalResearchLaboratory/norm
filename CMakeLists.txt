@@ -6,7 +6,7 @@ project(norm VERSION 1.5.8)
 set(COMMON src/common)
 
 option(NORM_BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
-option(NORM_USE_LATEST_PROTOKIT "Enables the use of the latest protokit version and bundles it." OFF)
+set(NORM_CUSTOM_PROTOLIB_VERSION OFF CACHE STRING "Set a custom protolib version to use")
 
 include(CheckCXXSymbolExists)
 check_cxx_symbol_exists(dirfd "dirent.h" HAVE_DIRFD)
@@ -24,8 +24,8 @@ if(HAVE_FLOCK)
 	list(APPEND PLATFORM_DEFINITIONS HAVE_FLOCK)
 endif()
 
-if(NORM_USE_LATEST_PROTOKIT)
-	set(NORM_PROTOKIT_GIT_TAG origin/master)
+if(NORM_CUSTOM_PROTOLIB_VERSION)
+	set(NORM_PROTOKIT_GIT_TAG ${NORM_CUSTOM_PROTOLIB_VERSION})
 else()
 	find_package(Git)
 	
