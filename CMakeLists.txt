@@ -27,7 +27,25 @@ endif()
 if(NORM_USE_LATEST_PROTOKIT)
 	set(NORM_PROTOKIT_GIT_TAG origin/master)
 else()
-	set(NORM_PROTOKIT_GIT_TAG 49197511df68e26176313a49cef9e39b3eda3134)
+	find_package(Git)
+	
+	if(Git_FOUND)
+		message("Git found: ${GIT_EXECUTABLE}")
+		execute_process(
+			COMMAND
+				${GIT_EXECUTABLE} ls-tree HEAD
+			RESULT_VARIABLE
+				GIT_SUBMODULE_STATUS
+			OUTPUT_VARIABLE
+	            GIT_SUBMODULE
+			WORKING_DIRECTORY 
+				${CMAKE_CURRENT_LIST_DIR}
+		)
+		string(REGEX MATCH "commit[ \t\r\n]*([a-z0-9]+)[ \t\r\n]*protolib" GIT_SUBMODULE_HASH_MATCH ${GIT_SUBMODULE})
+		if(GIT_SUBMODULE_HASH_MATCH)
+			set(NORM_PROTOKIT_GIT_TAG ${CMAKE_MATCH_1})
+		endif()
+	endif()
 endif()
 
 message(STATUS "Building protokit from ${NORM_PROTOKIT_GIT_TAG}")
