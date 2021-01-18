@@ -44,9 +44,7 @@ if(NOT NORM_CUSTOM_PROTOLIB_VERSION)
 			set(NORM_PROTOKIT_GIT_TAG ${CMAKE_MATCH_1})
 		endif()
 	endif()
-elseif(NORM_CUSTOM_PROTOLIB_VERSION STREQUAL "./protolib")
-	add_subdirectory(protolib)
-else(NORM_CUSTOM_PROTOLIB_VERSION)
+elseif(NOT NORM_CUSTOM_PROTOLIB_VERSION STREQUAL "./protolib")
 	set(NORM_PROTOKIT_GIT_TAG ${NORM_CUSTOM_PROTOLIB_VERSION})
 endif()
 
@@ -61,6 +59,7 @@ if(NORM_PROTOKIT_GIT_TAG)
 	FetchContent_MakeAvailable(protokit)
 else()
 	message(STATUS "Building protokit from ${NORM_CUSTOM_PROTOLIB_VERSION}")
+	add_subdirectory(protolib)
 endif()
 
 
