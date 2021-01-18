@@ -6,7 +6,7 @@ project(norm VERSION 1.5.8)
 set(COMMON src/common)
 
 option(NORM_BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
-set(NORM_CUSTOM_PROTOLIB_VERSION OFF CACHE STRING "Set a custom protolib version to use")
+set(NORM_CUSTOM_PROTOLIB_VERSION OFF CACHE STRING "Set a custom protolib version to use, ./protolib to use the local version")
 
 include(CheckCXXSymbolExists)
 check_cxx_symbol_exists(dirfd "dirent.h" HAVE_DIRFD)
@@ -24,9 +24,7 @@ if(HAVE_FLOCK)
 	list(APPEND PLATFORM_DEFINITIONS HAVE_FLOCK)
 endif()
 
-if(NORM_CUSTOM_PROTOLIB_VERSION)
-	set(NORM_PROTOKIT_GIT_TAG ${NORM_CUSTOM_PROTOLIB_VERSION})
-else()
+if(NOT NORM_CUSTOM_PROTOLIB_VERSION)
 	find_package(Git)
 	
 	if(Git_FOUND)
@@ -46,16 +44,25 @@ else()
 			set(NORM_PROTOKIT_GIT_TAG ${CMAKE_MATCH_1})
 		endif()
 	endif()
+elseif(NORM_CUSTOM_PROTOLIB_VERSION STREQUAL "./protolib")
+	add_subdirectory(protolib)
+else(NORM_CUSTOM_PROTOLIB_VERSION)
+	set(NORM_PROTOKIT_GIT_TAG ${NORM_CUSTOM_PROTOLIB_VERSION})
 endif()
 
-message(STATUS "Building protokit from ${NORM_PROTOKIT_GIT_TAG}")
-include(FetchContent)
-FetchContent_Declare(
-  protokit
-  GIT_REPOSITORY https://github.com/USNavalResearchLaboratory/protolib.git
-  GIT_TAG        ${NORM_PROTOKIT_GIT_TAG}
-)
-FetchContent_MakeAvailable(protokit)
+if(NORM_PROTOKIT_GIT_TAG)
+	message(STATUS "Building protokit from ${NORM_PROTOKIT_GIT_TAG}")
+	include(FetchContent)
+	FetchContent_Declare(
+	  protokit
+	  GIT_REPOSITORY https://github.com/USNavalResearchLaboratory/protolib.git
+	  GIT_TAG        ${NORM_PROTOKIT_GIT_TAG}
+	)
+	FetchContent_MakeAvailable(protokit)
+else()
+	message(STATUS "Building protokit from ${NORM_CUSTOM_PROTOLIB_VERSION}")
+endif()
+
 
 # List header files
 list(APPEND PUBLIC_HEADER_FILES
