@@ -1,7 +1,10 @@
 			           NORM Version History
 
 
-Version 1.5.9 (in progress)
+Version 1.5.10 (in progress)
+=============
+
+Version 1.5.9
 =============
     - Added "normCast" file send/receive example 
     - Protolib ProtoTimer fix for "long" timeout intervals
