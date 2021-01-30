@@ -122,7 +122,7 @@ target_include_directories(norm PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(norm PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
 
 if(BUILD_SHARED_LIBS AND WIN32)
-	target_compile_definitions(norm PRIVATE NORM_USE_DLL)
+	target_compile_definitions(norm PUBLIC NORM_USE_DLL)
 endif()
 
 # Install target
