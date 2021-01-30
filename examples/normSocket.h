@@ -118,6 +118,25 @@ typedef enum NormSocketEventType
     NORM_SOCKET_CLOSE           // indicates socket is now closed (invalid for further operations)
 } NormSocketEventType;
     
+    
+// Right now, these options MUST be set after NormOpen() 
+// but _before_ NormConnect() or NormListen()
+// (This will be expanded, perhaps to include parameters 
+//  that can be changed after connection setup)
+typedef struct 
+{
+    UINT16          num_data;
+    UINT16          num_parity;
+    UINT16          num_auto;
+    UINT16          segment_size;
+    unsigned int    buffer_size;      // used for both FEC and stream buffer sizing
+    bool            silent_receiver;  // not yet used  (maybe should be nack_mode instead)
+    int             max_delay;        // not yet used
+} NormSocketOptions;
+
+void NormGetSocketOptions(NormSocketHandle normSocket, NormSocketOptions* options);
+bool NormSetSocketOptions(NormSocketHandle normSocket, NormSocketOptions* options);
+    
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 typedef struct

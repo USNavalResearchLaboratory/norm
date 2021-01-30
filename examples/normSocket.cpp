@@ -41,6 +41,13 @@ enum NormSocketCommand
     NORM_SOCKET_CMD_REJECT,    // sent by server-listener to reject invalid connection messages
     NORM_SOCKET_CMD_ALIVE      // TBD - for NormSocket "keep-alive" option?
 };
+    
+// Default socket option values. Can be overrided with NormSetSocketOptions()        
+const UINT16 DEFAULT_NUM_DATA = 32;
+const UINT16 DEFAULT_NUM_PARITY = 4;
+const UINT16 DEFAULT_NUM_AUTO = 0;
+const UINT16 DEFAULT_SEGMENT_SIZE = 1400;
+const unsigned int DEFAULT_BUFFER_SIZE = 2*1024*1024;
 
 // a 'helper' function we use for debugging
 const char* NormNodeGetAddressString(NormNodeHandle node)
@@ -254,6 +261,18 @@ class NormSocket
         
         // hard, immediate closure
         void Close();
+    
+        void GetOptions(NormSocketOptions* options)
+        {
+            if (NULL != options) *options = socket_option;
+        }
+    
+        bool SetOptions(NormSocketOptions* options)
+        {
+            // TBD - do validity checking and perhaps reset to defaults if (NULL == options)
+            if (NULL != options) socket_option = *options;
+            return true;
+        }
         
         void SetSocketInfo(NormSocketInfo* socketInfo)        // for server-side, client sockets only
             {socket_info = socketInfo;}
@@ -337,6 +356,7 @@ class NormSocket
                 remote_version = 6;
         }      
         
+        NormSocketOptions   socket_option;
         State               socket_state; 
         NormSessionHandle   norm_session;
         NormSessionHandle   mcast_session;   // equals norm_session for a multicast server
@@ -365,7 +385,6 @@ class NormSocket
 };  // end class NormSocket
 
 
-
 NormSocket::NormSocket(NormSessionHandle normSession)
  : socket_state(CLOSED), norm_session(normSession), 
    mcast_session(NORM_SESSION_INVALID), server_socket(NULL),
@@ -377,6 +396,15 @@ NormSocket::NormSocket(NormSessionHandle normSession)
    tx_flow_control(true),
    rx_stream(NORM_OBJECT_INVALID), user_data(NULL)
 {
+    // Initialize socket_option with default values
+    socket_option.num_data = DEFAULT_NUM_DATA;
+    socket_option.num_parity = DEFAULT_NUM_PARITY;
+    socket_option.num_auto = DEFAULT_NUM_AUTO;
+    socket_option.segment_size = DEFAULT_SEGMENT_SIZE;
+    socket_option.buffer_size = DEFAULT_BUFFER_SIZE;
+    socket_option.silent_receiver = false;
+    socket_option.max_delay = -1;
+    
     // For now we use the NormSession "user data" option to associate
     // the session with a "socket".  In the future we may add a
     // dedicated NormSetSocket(NormSessionHandle session, NormSocketHandle normSocket) API
@@ -576,6 +604,7 @@ NormSocket* NormSocket::Accept(NormNodeHandle client, NormInstanceHandle instanc
     clientSocket->remote_node = client;
     clientSocket->UpdateRemoteAddress();
     NormNodeSetUserData(client, clientSocket);
+    clientSocket->socket_option = socket_option; // inherit server_socket options (TBD - allow alt options passed into NormAccept()?)
     
     NormNodeId clientId = NormNodeGetId(client);
     
@@ -585,7 +614,10 @@ NormSocket* NormSocket::Accept(NormNodeHandle client, NormInstanceHandle instanc
         // The clientSession is bi-directional so we need to NormStartSender(), etc
         NormAddAckingNode(clientSession, 2); //clientId);  
         NormSetFlowControl(clientSession, 0);  // disable timer-based flow control since we do explicit, ACK-based flow control
-        NormStartSender(clientSession, NormGetRandomSessionId(), 2*1024*1024, 1400, 16, 4);
+        NormStartSender(clientSession, NormGetRandomSessionId(), 
+                        socket_option.buffer_size, socket_option.segment_size, 
+                        socket_option.num_data, socket_option.num_parity);
+        NormSetAutoParity(clientSession, socket_option.num_auto);
     }
     else // if IsMulticastSocket()
     {
@@ -601,14 +633,16 @@ NormSocket* NormSocket::Accept(NormNodeHandle client, NormInstanceHandle instanc
         if (LISTENING == socket_state)
         {
 			NormSetFlowControl(norm_session, 0);  // disable timer-based flow control since we do explicit, ACK-based flow control
-			NormStartSender(norm_session, NormGetRandomSessionId(), 2*1024*1024, 1400, 16, 4);
+			NormStartSender(norm_session, NormGetRandomSessionId(), 
+                            socket_option.buffer_size, socket_option.segment_size, 
+                            socket_option.num_data, socket_option.num_parity);
+            NormSetAutoParity(norm_session, socket_option.num_auto);
             socket_state = CONNECTED;  
             if (NORM_OBJECT_INVALID == tx_stream)
             {
-                tx_stream = NormStreamOpen(norm_session, 2*1024*1024);
-                InitTxStream(tx_stream, 2*1024*1024, 1400, 16);
+                tx_stream = NormStreamOpen(norm_session,socket_option.buffer_size);
+                InitTxStream(tx_stream, socket_option.buffer_size, socket_option.segment_size, socket_option.num_data);
             }
-
         }
         /* The code below would be invoked for "heavyweight" mcast client admission
           (for the moment we go with a "lightweight" model - this might be invokable upon
@@ -694,7 +728,6 @@ bool NormSocket::Connect(const char*    serverAddr,
         fprintf(stderr, "NormSocket::Connect() error: unicast NormStartReceiver() failure\n");
         return false;
     }
-    
     NormSetSynStatus(norm_session, true);
    
     // Point our unicast socket at the unicast server addr/port
@@ -703,12 +736,12 @@ bool NormSocket::Connect(const char*    serverAddr,
     //NormAddAckingNode(norm_session, 1);  // servers always have NormNodeId '1' for unicast sessions
     NormSetAutoAckingNodes(norm_session, NORM_TRACK_RECEIVERS);  // this way we get informed upon first ACK
     NormSetFlowControl(norm_session, 0); // since we do explicit, ACK-based flow control
-    if (!NormStartSender(norm_session, sessionId, 2*1024*1024, 1400, 16, 4))
+    if (!NormStartSender(norm_session, sessionId, 2*1024*1024, 1400, socket_option.num_data, socket_option.num_parity))
     {
         fprintf(stderr, "NormSocket::Connect() error: NormStartSender() failure\n");
         return false;
     }
-    
+    NormSetAutoParity(norm_session, socket_option.num_auto);
     if (NULL != groupAddr)
     {
         // Create the "mcast_session" for multicast reception
@@ -746,8 +779,8 @@ bool NormSocket::Connect(const char*    serverAddr,
     server_socket = NULL;  // this is a client-side socket
     if (NORM_OBJECT_INVALID == tx_stream)
     {
-        tx_stream = NormStreamOpen(norm_session, 2*1024*1024);
-        InitTxStream(tx_stream, 2*1024*1024, 1400, 16);
+        tx_stream = NormStreamOpen(norm_session, socket_option.buffer_size);
+        InitTxStream(tx_stream, socket_option.buffer_size, socket_option.segment_size, socket_option.num_data);
     }
     socket_state = CONNECTING;
     
@@ -773,8 +806,8 @@ unsigned int NormSocket::Write(const char* buffer, unsigned int numBytes)
     // TBD - if tx_stream not yet open, open it!!!
     if (NORM_OBJECT_INVALID == tx_stream)
     {
-        tx_stream = NormStreamOpen(norm_session, 2*1024*1024);
-        InitTxStream(tx_stream, 2*1024*1024, 1400, 16);
+        tx_stream = NormStreamOpen(norm_session, socket_option.buffer_size);
+        InitTxStream(tx_stream, socket_option.buffer_size, socket_option.segment_size, socket_option.num_data);
     }
     
     if (!tx_flow_control)
@@ -1156,8 +1189,8 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
 					NormChangeDestination(norm_session, NULL, remote_port);
                     if (NORM_OBJECT_INVALID == tx_stream)
                     {
-                        tx_stream = NormStreamOpen(norm_session, 2*1024*1024);
-                        InitTxStream(tx_stream, 2*1024*1024, 1400, 16);
+                        tx_stream = NormStreamOpen(norm_session, socket_option.buffer_size);
+                        InitTxStream(tx_stream, socket_option.buffer_size, socket_option.segment_size, socket_option.num_data);
                     }
 					
                     break;
@@ -1578,6 +1611,19 @@ void NormClose(NormSocketHandle normSocket)
     delete s;
 }  // end NormClose()
 
+void NormGetSocketOptions(NormSocketHandle normSocket, NormSocketOptions* options)
+{
+    NormSocket* s = (NormSocket*)normSocket;
+    s->GetOptions(options);
+}  // end NormGetSocketOptions()
+
+bool NormSetSocketOptions(NormSocketHandle normSocket, NormSocketOptions* options)
+{
+    // TBD - do some validity checking, perhaps reset to defaults if (options == NULL)
+    NormSocket* s = (NormSocket*)normSocket;
+    return s->SetOptions(options);
+}  // end NormSetSocketOptions()
+
 void NormSetSocketUserData(NormSocketHandle normSocket, const void* userData)
 {
     if (NORM_SOCKET_INVALID != normSocket)
@@ -1648,13 +1694,11 @@ NormObjectHandle NormGetSocketRxStream(NormSocketHandle normSocket)
     return s->GetRxStream();
 }  // end NormGetSocketRxStream()
 
-
 NormSessionHandle NormGetSocketMulticastSession(NormSocketHandle normSocket)
 {
     NormSocket* s = (NormSocket*)normSocket;
     return s->GetMulticastSession();
 }  // end NormGetSocketMulticastSession()
-
 
 void NormSetSocketTrace(NormSocketHandle normSocket, bool enable)
 {
