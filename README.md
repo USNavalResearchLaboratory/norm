@@ -1,4 +1,6 @@
+# norm
 
+```
                     NORM SOURCE CODE RELEASE
 
 /*********************************************************************
@@ -29,6 +31,7 @@
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  *
  ********************************************************************/
+```
 
 This is the NRL NORM source code repository. 
 
@@ -138,6 +141,3 @@ git checkout master
 
 This will enable you to issue 'git pull', etc to treat the 'protolib' 
 sub-directory as its own (sub-) repository.
-
-
-
