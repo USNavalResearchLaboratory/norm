@@ -3,6 +3,10 @@ cmake_policy(SET CMP0077 NEW)
 # set the project name
 project(norm VERSION 1.5.8)
 
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 set(COMMON src/common)
 
 option(NORM_BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
