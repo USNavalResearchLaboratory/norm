@@ -132,8 +132,19 @@ if(BUILD_SHARED_LIBS)
 	endif()
 endif()
 
+if(BUILD_SHARED_LIBS AND BUILD_STATIC_LIBS)
+	add_library(norm-static STATIC ${PLATFORM_SOURCE_FILES} ${COMMON_SOURCE_FILES} ${PUBLIC_HEADER_FILES})
+	target_link_libraries(norm-static PRIVATE protokit::protokit)
+	target_compile_definitions(norm-static PUBLIC ${PLATFORM_DEFINITIONS})
+	target_compile_options(norm-static PUBLIC ${PLATFORM_FLAGS})
+	target_include_directories(norm-static PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+	target_include_directories(norm-static PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
+	set_target_properties(norm-static PROPERTIES OUTPUT_NAME "norm" PREFIX "lib")
+	set(NORM_STATIC "norm-static")
+endif()
+
 # Install target
-install( TARGETS norm protokit EXPORT normTargets
+install( TARGETS norm ${NORM_STATIC} protokit EXPORT normTargets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
