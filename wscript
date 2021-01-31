@@ -1,7 +1,7 @@
 #!/usr/bin/env  
 '''
 wscript - Waf build script for NORM
-See http://waf.googlecode.com/ for more information.
+See https://gitlab.com/ita1024/waf/ for more information.
 
 In order to use different build directories (for example, a release and a debug
 build), use the -o (--out) flag when configuring.  For example:
