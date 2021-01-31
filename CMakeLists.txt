@@ -145,6 +145,16 @@ install( EXPORT normTargets
 
 install(FILES include/normApi.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
+# Create pkg-config file norm.pc
+# TODO: once waf is removed, norm.pc.in can be edited to use the variables CMake sets directly, and
+# remove these re-definitions
+set(VERSION ${PROJECT_VERSION})
+set(PREFIX ${CMAKE_INSTALL_PREFIX})
+set(LIBDIR ${CMAKE_INSTALL_LIBDIR})
+set(STATIC_LIBS "libprotokit.a")
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/norm.pc.in ${CMAKE_CURRENT_BINARY_DIR}/norm.pc @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/norm.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+
 # Create a ConfigVersion.cmake file
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
