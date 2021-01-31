@@ -739,8 +739,7 @@ void NormInstance::Shutdown()
     notify_pool.Destroy();
 }  // end NormInstance::Shutdown()
 
-/*
-This function doesn't make sense?
+// This function doesn't make sense?
 UINT32 NormInstance::CountCompletedObjects(NormSession* session)
 {
 	UINT32 result = 0UL;
@@ -756,7 +755,6 @@ UINT32 NormInstance::CountCompletedObjects(NormSession* session)
 	}
 	return result;
 } // end NormInstance::CountCompletedObjects()
-*/
 
 //////////////////////////////////////////////////////////////////////////
 // NORM API FUNCTION IMPLEMENTATIONS
@@ -2313,7 +2311,6 @@ void NormCancelCommand(NormSessionHandle sessionHandle)
 
 
 // This one is not part of the public API (for NormSocket use currently)
-NORM_API_LINKAGE
 bool NormSendCommandTo(NormSessionHandle  sessionHandle,
                        const char*        cmdBuffer, 
                        unsigned int       cmdLength, 
@@ -3064,7 +3061,6 @@ void NormNodeRelease(NormNodeHandle nodeHandle)
 //         is done so that this current approach is not very costly)
 //
 
-/*
 // Not sure why this function exists.  It just counts the number
 // of RX_OBJECT_COMPLETED events currently in notification queue
 // which is a temporary and transitory thing???
@@ -3081,4 +3077,3 @@ UINT32 NormCountCompletedObjects(NormSessionHandle sessionHandle)
     }
 	return result;
 }  // end NormCountCompletedObjects()
-*/

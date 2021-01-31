@@ -338,9 +338,9 @@ bool NormPresetObjectInfo(NormSessionHandle  sessionHandle,             // FEC O
                           UINT16             segmentSize, 
                           UINT16             numData, 
                           UINT16             numParity);
-// non-public on purpose
-//NORM_API_LINKAGE
-//void NormSetId(NormSessionHandle sessionHandle, NormNodeId normId);
+
+NORM_API_LINKAGE
+void NormSetId(NormSessionHandle sessionHandle, NormNodeId normId);
 
 // This does not affect the rx_socket binding if already bound (sender or receiver already started)
 // (i.e., just affects where NORM packets are sent)
