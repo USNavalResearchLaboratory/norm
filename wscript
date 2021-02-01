@@ -223,10 +223,11 @@ def build(ctx):
     # Add additional static compilation dependencies based on the system.
     # libpcap is used by protolib on GNU/Hurd based systems.
     static_libs = ''
-    if ctx.options.enable_static_library:
-        static_libs += ' -lstdc++ -lprotokit'
-        if system == "gnu":
-            static_libs += ' -lpcap'
+    if hasattr(ctx.options, 'enable_static_library'):
+        if ctx.options.enable_static_library:
+            static_libs += ' -lstdc++ -lprotokit'
+            if system == "gnu":
+                static_libs += ' -lpcap'
     ctx(source='norm.pc.in', STATIC_LIBS = static_libs)
     
 def _make_simple_example(ctx, name, path='examples'):
