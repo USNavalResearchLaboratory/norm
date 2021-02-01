@@ -3,6 +3,10 @@ cmake_policy(SET CMP0077 NEW)
 # set the project name
 project(norm VERSION 1.5.8)
 
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 set(COMMON src/common)
 
 option(NORM_BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
@@ -121,12 +125,26 @@ target_compile_options(norm PUBLIC ${PLATFORM_FLAGS})
 target_include_directories(norm PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(norm PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
 
-if(BUILD_SHARED_LIBS AND WIN32)
-	target_compile_definitions(norm PUBLIC NORM_USE_DLL)
+if(BUILD_SHARED_LIBS)
+	set_target_properties(norm PROPERTIES SOVERSION 1)
+	if(WIN32)
+		target_compile_definitions(norm PUBLIC NORM_USE_DLL)
+	endif()
+endif()
+
+if(BUILD_SHARED_LIBS AND BUILD_STATIC_LIBS)
+	add_library(norm-static STATIC ${PLATFORM_SOURCE_FILES} ${COMMON_SOURCE_FILES} ${PUBLIC_HEADER_FILES})
+	target_link_libraries(norm-static PRIVATE protokit::protokit)
+	target_compile_definitions(norm-static PUBLIC ${PLATFORM_DEFINITIONS})
+	target_compile_options(norm-static PUBLIC ${PLATFORM_FLAGS})
+	target_include_directories(norm-static PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+	target_include_directories(norm-static PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
+	set_target_properties(norm-static PROPERTIES OUTPUT_NAME "norm" PREFIX "lib")
+	set(NORM_STATIC "norm-static")
 endif()
 
 # Install target
-install( TARGETS norm protokit EXPORT normTargets
+install( TARGETS norm ${NORM_STATIC} protokit EXPORT normTargets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -141,6 +159,16 @@ install( EXPORT normTargets
 )
 
 install(FILES include/normApi.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+# Create pkg-config file norm.pc
+# TODO: once waf is removed, norm.pc.in can be edited to use the variables CMake sets directly, and
+# remove these re-definitions
+set(VERSION ${PROJECT_VERSION})
+set(PREFIX ${CMAKE_INSTALL_PREFIX})
+set(LIBDIR ${CMAKE_INSTALL_LIBDIR})
+set(STATIC_LIBS "libprotokit.a")
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/norm.pc.in ${CMAKE_CURRENT_BINARY_DIR}/norm.pc @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/norm.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
 # Create a ConfigVersion.cmake file
 include(CMakePackageConfigHelpers)
