@@ -3,6 +3,7 @@
 
 Version 1.5.10 (in progress)
 =============
+    - NormSocket API improvements
 
 Version 1.5.9
 =============
