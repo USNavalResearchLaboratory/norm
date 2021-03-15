@@ -935,11 +935,11 @@ class NormFtiExtension5 : public NormHeaderExtension
     private:
         enum
         {
-            OBJ_SIZE_MSB_OFFSET = (CONTENT_OFFSET)/2,       // UINT16 offset
-            OBJ_SIZE_LSB_OFFSET = ((OBJ_SIZE_MSB_OFFSET*2)+2)/4,
-            SEG_SIZE_OFFSET = ((OBJ_SIZE_LSB_OFFSET*4)+4)/2,
-            FEC_NDATA_OFFSET    = ((SEG_SIZE_OFFSET+1)*2),
-            FEC_NPARITY_OFFSET  = (FEC_NDATA_OFFSET+1)
+            OBJ_SIZE_MSB_OFFSET = (CONTENT_OFFSET)/2,           // UINT16 offset
+            OBJ_SIZE_LSB_OFFSET = ((OBJ_SIZE_MSB_OFFSET*2)+2)/4,// UINT32 offset
+            SEG_SIZE_OFFSET = ((OBJ_SIZE_LSB_OFFSET*4)+4)/2,    // UINT16 offset
+            FEC_NDATA_OFFSET    = ((SEG_SIZE_OFFSET+1)*2),      // UINT8 offset
+            FEC_NPARITY_OFFSET  = (FEC_NDATA_OFFSET+1)          // UINT8 offset
         };  
 };  // end class NormFtiExtension5
 

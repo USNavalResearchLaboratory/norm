@@ -1180,6 +1180,7 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                     socketEvent.type = NORM_SOCKET_CONNECT;
                     NormSetSynStatus(norm_session, false);
                     socket_state = CONNECTED;
+                    
                     // Since UDP connect/bind doesn't really work properly on 
 					// Windows, the Windows NormSocket server farms out client connections
 					// to new ephemeral port numbers, so we need to update
@@ -1187,12 +1188,11 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                     remote_node = event.sender;
 					UpdateRemoteAddress();
 					NormChangeDestination(norm_session, NULL, remote_port);
-                    if (NORM_OBJECT_INVALID == tx_stream)
+                    if ((NORM_OBJECT_INVALID == tx_stream) && !(IsMulticastClient() && IsServerSide()))   
                     {
                         tx_stream = NormStreamOpen(norm_session, socket_option.buffer_size);
                         InitTxStream(tx_stream, socket_option.buffer_size, socket_option.segment_size, socket_option.num_data);
                     }
-					
                     break;
                 case CONNECTED:
                     if (IsMulticastSocket())
@@ -1200,7 +1200,31 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                         if (IsServerSocket())
                         {
                             // New client showing up at our multicast party
-                            socketEvent.type = NORM_SOCKET_ACCEPT;
+                            NormSocketInfo* socketInfo = client_table.FindSocketInfo(event.sender);
+                            if (NULL == socketInfo)
+                            {
+                                // Add info for client socket pending acceptance
+                                socketInfo = new NormSocketInfo(NormGetSocketInfo(event.sender));
+                                if (NULL != socketInfo)
+                                {
+                                    client_table.Insert(*socketInfo);
+                                    socketEvent.type = NORM_SOCKET_ACCEPT;
+                                }
+                                else
+                                {
+                                    perror("NormSocket::GetSocketEvent() error: unable to add  pending client info to server socket:\n");
+                                }
+                            }
+                            else //  duplicative accept event for existing socket, so ignore
+                            {
+                                ProtoAddress remoteAddr;
+                                socketInfo->GetRemoteAddress(remoteAddr);
+                                fprintf(stderr, "NormSocket::GetSocketEvent() warning:  duplicative %s from client %s/%hu...\n",
+                                                (NORM_REMOTE_SENDER_NEW == event.type) ? "new" : "reset",
+                                                remoteAddr.GetHostString(), remoteAddr.GetPort());
+                                // TBD - should we go ahead and delete this event.sender???
+                            }
+                            
                         }
                         else
                         {
@@ -1429,7 +1453,6 @@ void NormSocket::GetSocketEvent(const NormEvent& event, NormSocketEvent& socketE
                     else
                     {
                         // This still allows at least a chance of an ACK to be sent upon completion
-                        TRACE("NormSetUserTimer(5) session: %p\n", norm_session);
                         NormSetUserTimer(norm_session, 0.0);
                     }
                     socketEvent.type = NORM_SOCKET_CLOSING;
