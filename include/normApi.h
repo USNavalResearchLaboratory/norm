@@ -96,74 +96,65 @@ typedef __int64 NormSize;
 typedef off_t NormSize;
 #endif // WIN32
 
-NORM_API_LINKAGE
 typedef enum NormObjectType
 {
     NORM_OBJECT_NONE,
     NORM_OBJECT_DATA,
     NORM_OBJECT_FILE,
     NORM_OBJECT_STREAM   
-} NormObjectType;
+} NORM_API_LINKAGE NormObjectType;
   
-NORM_API_LINKAGE
 typedef enum NormFlushMode
 {
     NORM_FLUSH_NONE,
     NORM_FLUSH_PASSIVE,
     NORM_FLUSH_ACTIVE   
-} NormFlushMode;
+} NORM_API_LINKAGE NormFlushMode;
     
-NORM_API_LINKAGE
 typedef enum NormNackingMode
 {
     NORM_NACK_NONE,
     NORM_NACK_INFO_ONLY,
     NORM_NACK_NORMAL  
-} NormNackingMode;
+} NORM_API_LINKAGE NormNackingMode;
 
-NORM_API_LINKAGE
 typedef enum NormAckingStatus
 {
     NORM_ACK_INVALID,
     NORM_ACK_FAILURE,
     NORM_ACK_PENDING,
     NORM_ACK_SUCCESS  
-} NormAckingStatus;
+} NORM_API_LINKAGE NormAckingStatus;
  
-NORM_API_LINKAGE
 typedef enum NormTrackingStatus
 {
     NORM_TRACK_NONE,
     NORM_TRACK_RECEIVERS,
     NORM_TRACK_SENDERS,
     NORM_TRACK_ALL  
-} NormTrackingStatus;
+} NORM_API_LINKAGE NormTrackingStatus;
     
 
-NORM_API_LINKAGE
 typedef enum NormProbingMode
 {
     NORM_PROBE_NONE,
     NORM_PROBE_PASSIVE,
     NORM_PROBE_ACTIVE  
-} NormProbingMode;
+} NORM_API_LINKAGE NormProbingMode;
     
-NORM_API_LINKAGE
 typedef enum NormSyncPolicy
 {
     NORM_SYNC_CURRENT,  // attempt to receiver current/new objects only, join mid-stream
     NORM_SYNC_STREAM,   // sync to current stream, but to beginning of stream
     NORM_SYNC_ALL       // attempt to receive old and new objects
-} NormSyncPolicy;
+} NORM_API_LINKAGE NormSyncPolicy;
     
-NORM_API_LINKAGE
 typedef enum NormRepairBoundary
 {
     NORM_BOUNDARY_BLOCK,
     NORM_BOUNDARY_OBJECT
-} NormRepairBoundary;
+} NORM_API_LINKAGE NormRepairBoundary;
     
-NORM_API_LINKAGE
 typedef enum NormEventType
 {
     NORM_EVENT_INVALID = 0,
@@ -195,7 +186,7 @@ typedef enum NormEventType
     NORM_ACKING_NODE_NEW,        // whe NormSetAutoAcking 
     NORM_SEND_ERROR,             // ICMP error (e.g. destination unreachable)
     NORM_USER_TIMEOUT            // issues when timeout set by NormSetUserTimer() expires
-} NormEventType;
+} NORM_API_LINKAGE NormEventType;
 
 typedef struct
 {
