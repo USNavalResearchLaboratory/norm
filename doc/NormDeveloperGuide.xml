@@ -791,7 +791,7 @@
 {
     NormEventType     type;
     <link linkend="NormSessionHandle"><literal>NormSessionHandle</literal></link> session; 
-    <link linkend="NormNodeHandle"><literal>NormNodeHandle</literal></link>    node;
+    <link linkend="NormNodeHandle"><literal>NormNodeHandle</literal></link>    sender;
     <link linkend="NormObjectHandle"><literal>NormObjectHandle</literal></link>  object;
 } <link linkend="NormEvent"><literal>NormEvent</literal></link>;</programlisting></para>
 
@@ -801,7 +801,7 @@
         all <link
         linkend="NormEventType"><literal>NormEventType</literal></link> fields
         are relevant to all events. The <parameter>session</parameter>,
-        <parameter>node</parameter>, and <parameter>object</parameter> fields
+        <parameter>sender</parameter>, and <parameter>object</parameter> fields
         indicate the applicable <link
         linkend="NormSessionHandle"><literal>NormSessionHandle</literal></link>,
         <link
