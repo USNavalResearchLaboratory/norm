@@ -12,6 +12,7 @@ makefiles/normServer
 makefiles/npc
 makefiles/raft
 makefiles/pcap2norm
+norp/makefiles/norp
 
 # build object files
 *.o
