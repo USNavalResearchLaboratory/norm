@@ -48,6 +48,7 @@
 #include "protoFile.h"    // for ProtoFile::PathList and iterator for tx file/directory queue
 #include "protoString.h"  // for ProtoTokenator
 #include "protoAddress.h" // for ProtoAddress
+#include "protoTime.h"    // for ProtoTime
 
 class NormCaster
 {
@@ -110,8 +111,18 @@ class NormCaster
         
         void HandleNormEvent(const NormEvent& event);
         
+        void HandleTimeout();
+        
         // Sender methods
         bool AddTxItem(const char* path);
+        void SetRepeat(double interval, bool updatesOnly)
+        {
+            repeat_interval = interval;
+            tx_file_iterator.SetUpdatesOnly(updatesOnly);  // TBD - add option to send new files only
+        }
+        double GetTimerDelay() const
+            {return timer_delay;}
+        
         bool StageNextTxFile();
         bool TxFilePending()
             {return '\0' != tx_pending_path[0];}
@@ -173,6 +184,9 @@ class NormCaster
         ProtoFile::PathList::PathIterator   tx_file_iterator;
         char                                tx_pending_path[PATH_MAX + 1];
         unsigned int                        tx_pending_prefix_len;
+        double                              repeat_interval;
+        double                              timer_delay;  // currently tracks the repeat timeout only
+        ProtoTime                           timer_start;   // used to mark timer start time
         bool                                is_multicast;
         bool                                loopback;
         UINT8                               probe_tos;
@@ -204,7 +218,8 @@ class NormCaster
 
 NormCaster::NormCaster()
  : norm_session(NORM_SESSION_INVALID), tx_file_iterator(tx_file_list), 
-   tx_pending_prefix_len(0), is_multicast(false), loopback(false), probe_tos(0), 
+   tx_pending_prefix_len(0), repeat_interval(-1.0), timer_delay(-1.0),
+   is_multicast(false), loopback(false), probe_tos(0), 
    norm_tx_queue_max(8), norm_tx_queue_count(0), 
    norm_flow_control_pending(false), norm_tx_vacancy(true), norm_acking(false), 
    norm_flushing(true), norm_flush_object(NORM_OBJECT_INVALID), norm_last_object(NORM_OBJECT_INVALID),
@@ -351,6 +366,8 @@ bool NormCaster::Start(bool sender, bool receiver)
             NormSetAutoParity(norm_session, auto_parity < num_parity ? auto_parity : num_parity);
         if (0 != tx_socket_buffer_size)
             NormSetTxSocketBuffer(norm_session, tx_socket_buffer_size);
+        
+        
     }
     is_running = true;
     return true;
@@ -379,6 +396,7 @@ bool NormCaster::TxReady() const
 bool NormCaster::StageNextTxFile()
 {
     // Pull next file path from "tx_file_list" and stage as "tx_pending_path"
+    tx_pending_path[0] = '\0';
     if (tx_file_iterator.GetNextFile(tx_pending_path))
     {
         // This code omits the source directory prefix from the name transmitted
@@ -408,12 +426,40 @@ bool NormCaster::StageNextTxFile()
     }
     else
     {
-        // Either done need to reset tx_file_iterator
+        // Either done or need to reset tx_file_iterator
         tx_pending_path[0] = '\0';
         tx_pending_prefix_len = 0;
         return false;
     }
 }  // end NormCaster::StageNextTxFile()
+
+void NormCaster::HandleTimeout()
+{
+    if (timer_delay < 0.0) return; // no timeout pending
+    ProtoTime currentTime;
+    currentTime.GetCurrentTime();
+    double elapsedTime = currentTime - timer_start;
+    if (elapsedTime >= timer_delay)
+    {
+        // Timer has expired.(currently repeat_interval is only timeout)
+        timer_delay = -1.0;
+        if (StageNextTxFile())
+        {
+            SendFiles();
+        }
+        else 
+        {
+            // No new files ready yet, reset repeat timeout
+            timer_delay = repeat_interval;
+            timer_start.GetCurrentTime();
+            tx_file_iterator.Reset();
+        }
+    }
+    else
+    {
+        timer_delay -= elapsedTime;
+    }
+}  // end NormCaster::HandleTimeout()
 
 void NormCaster::SendFiles()
 {
@@ -429,8 +475,16 @@ void NormCaster::SendFiles()
             // Get next file name from our "tx_file_list"
             if (!StageNextTxFile())
             {
-                // We have reach end of tx_file_list, so either
+                // We have reached end of tx_file_list, so either
                 // we're done or we reset tx_file_iterator (when 'repeat' option (TBD) is enabled)
+                if (repeat_interval >= 0.0)
+                {
+                    timer_start.GetCurrentTime();
+                    timer_delay = repeat_interval;
+                    tx_file_iterator.Reset();
+                    return;
+                }
+                
                 // If we're done and requesting ACK, finish up nicely with final waterrmark
                 if (norm_acking)
                 {
@@ -700,6 +754,9 @@ int main(int argc, char* argv[])
     bool send = false;
     bool recv = false;
     
+    double repeatInterval = -1.0;
+    bool updatesOnly = false;
+    
     char sessionAddr[64];
     strcpy(sessionAddr, "224.1.2.3");
     unsigned int sessionPort = 6003;
@@ -750,6 +807,25 @@ int main(int argc, char* argv[])
                 }
             }
             send = true;
+        }
+        else if (0 == strncmp(cmd, "repeat", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'repeat' <interval> value!\n");
+                Usage();
+                return -1;
+            }
+            if (1 != sscanf(argv[i++], "%lf", &repeatInterval))
+            {
+                fprintf(stderr, "normCast error: invalid repeat interval!\n");
+                Usage();
+                return -1;
+            }        
+        }
+        else if (0 == strncmp(cmd, "updatesOnly", len))
+        {
+            updatesOnly = true;
         }
         else if (0 == strncmp(cmd, "recv", len))
         {
@@ -1162,10 +1238,12 @@ int main(int argc, char* argv[])
     
     if (trace) normCast.SetNormMessageTrace(true);
     
+    normCast.SetRepeat(repeatInterval, updatesOnly);
+    
     // TBD - set NORM session parameters
     normCast.Start(send, recv); 
 
-     if (normCast.TxFilePending()) normCast.SendFiles();
+    if (normCast.TxFilePending() || updatesOnly) normCast.SendFiles();
     
 #ifdef WIN32
     //Win32InputHandler inputHandler;
@@ -1188,12 +1266,16 @@ int main(int argc, char* argv[])
         //       (on Windows, would use the win32InputHandler code in norm/examples)
         bool normEventPending = false;
         bool inputEventPending = false;
+        double timerDelay = normCast.GetTimerDelay();
 #ifdef WIN32
         DWORD handleCount = inputNeeded ? 2 : 1;
+        DWORD msec = INFINITE;
+        if (timerDelay >= 0.0)
+            msec = (DWORD)(timerDelay*1000);
         DWORD waitStatus =  
             MsgWaitForMultipleObjectsEx(handleCount,   // number of handles in array
                                         handleArray,   // object-handle array
-                                        INFINITE,      // time-out interval
+                                        msec,      // time-out interval
                                         QS_ALLINPUT,   // input-event type
                                         0);
         if ((WAIT_OBJECT_0 <= waitStatus) && (waitStatus < (WAIT_OBJECT_0 + handleCount)))
@@ -1219,12 +1301,17 @@ int main(int argc, char* argv[])
         FD_SET(normfd, &fdsetInput);
         //FD_SET(inputfd, &fdsetInput);
         //if (inputfd > maxfd) maxfd = inputfd;
-        if (maxfd >= 0)
+        if ((maxfd >= 0) || (timerDelay >= 0.0))
         {
+            struct timeval* timeoutPtr = NULL;
             struct timeval timeout;
-            timeout.tv_sec = 1;
-            timeout.tv_usec = 0;
-            int result = select(maxfd+1, &fdsetInput, NULL, NULL, NULL); //&timeout);
+            if (timerDelay >= 0.0)
+            {
+                timeout.tv_sec = (time_t)timerDelay;
+                timeout.tv_usec = (timerDelay - timeout.tv_sec)*1.0e+06;
+                timeoutPtr = &timeout;
+            }
+            int result = select(maxfd+1, &fdsetInput, NULL, NULL, timeoutPtr);
             switch (result)
             {
                 case -1:
@@ -1268,7 +1355,7 @@ int main(int argc, char* argv[])
                 normCast.HandleNormEvent(event);
             }
         }
-        // Invoke any 'timeout' actions here
+        normCast.HandleTimeout();  // checks for and acts on any pending timeout
         
     }  // end while(normCast.IsRunning()
     
