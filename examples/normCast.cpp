@@ -737,8 +737,8 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
 
 void Usage()
 {
-    fprintf(stderr, "Usage: normCast id <nodeIdInteger> {send <file/dir list> &| recv <rxCacheDir>}\n"
-                    "                [repeat <interval>][updatesOnly]\n"
+    fprintf(stderr, "Usage: normCast {send <file/dir list> &| recv <rxCacheDir>}\n"
+                    "                [repeat <interval>][updatesOnly[id <nodeIdInteger>]]\n"
                     "                [addr <addr>[/<port>]] [interface <name>] [loopback]\n"
                     "                [ack auto|<node1>[,<node2>,...]] [segment <bytes>]\n"
                     "                [block <count>] [parity <count>] [auto <count>]\n"
