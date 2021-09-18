@@ -1,7 +1,6 @@
 
 # build executables
 build/
-lib/
 bin/
 makefiles/norm
 makefiles/normMsgr

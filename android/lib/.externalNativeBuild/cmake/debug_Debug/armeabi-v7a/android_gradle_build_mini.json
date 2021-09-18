@@ -1,0 +1,29 @@
+{
+  "buildFiles": [
+    "/Users/adamson/code/NORM/norm/android/lib/CMakeLists.txt",
+    "/Users/adamson/code/NORM/norm/protolib/android/lib/CMakeLists.txt"
+  ],
+  "cleanCommands": [
+    "/Users/adamson/Library/Android/sdk/cmake/3.6.4111459/bin/cmake --build /Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/armeabi-v7a --target clean"
+  ],
+  "libraries": {
+    "norm-Debug-armeabi-v7a": {
+      "artifactName": "norm",
+      "buildCommand": "/Users/adamson/Library/Android/sdk/cmake/3.6.4111459/bin/cmake --build /Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/armeabi-v7a --target norm",
+      "abi": "armeabi-v7a",
+      "output": "/Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/armeabi-v7a/libnorm.a"
+    },
+    "protokit-Debug-armeabi-v7a": {
+      "artifactName": "protokit",
+      "buildCommand": "/Users/adamson/Library/Android/sdk/cmake/3.6.4111459/bin/cmake --build /Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/armeabi-v7a --target protokit",
+      "abi": "armeabi-v7a",
+      "output": "/Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/armeabi-v7a/protolib/libprotokit.a"
+    },
+    "mil_navy_nrl_norm-Debug-armeabi-v7a": {
+      "artifactName": "mil_navy_nrl_norm",
+      "buildCommand": "/Users/adamson/Library/Android/sdk/cmake/3.6.4111459/bin/cmake --build /Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/armeabi-v7a --target mil_navy_nrl_norm",
+      "abi": "armeabi-v7a",
+      "output": "/Users/adamson/code/NORM/norm/android/lib/build/intermediates/cmake/debug_/debug/obj/armeabi-v7a/libmil_navy_nrl_norm.so"
+    }
+  }
+}

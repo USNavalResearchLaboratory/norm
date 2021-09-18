@@ -1,0 +1,7 @@
+/Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/x86/CMakeFiles/edit_cache.dir
+/Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/x86/CMakeFiles/rebuild_cache.dir
+/Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/x86/CMakeFiles/mil_navy_nrl_norm.dir
+/Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/x86/CMakeFiles/norm.dir
+/Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/x86/protolib/CMakeFiles/edit_cache.dir
+/Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/x86/protolib/CMakeFiles/rebuild_cache.dir
+/Users/adamson/code/NORM/norm/android/lib/.externalNativeBuild/cmake/debug_Debug/x86/protolib/CMakeFiles/protokit.dir
