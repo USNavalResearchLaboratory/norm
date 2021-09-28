@@ -246,9 +246,7 @@ void NormCaster::Destroy()
 bool NormCaster::AddTxItem(const char* path)
 {
     bool result = tx_file_list.AppendPath(path);
-    if (!result)
-        perror("NormCaster::AddTxItem() error");
-    if (!TxFilePending()) StageNextTxFile();
+    if (!result) perror("NormCaster::AddTxItem() error");
     return result;
 }  // end NormCaster::AddTxItem()
 
@@ -429,6 +427,15 @@ bool NormCaster::StageNextTxFile()
         // Either done or need to reset tx_file_iterator
         tx_pending_path[0] = '\0';
         tx_pending_prefix_len = 0;
+        
+        // We have reached end of tx_file_list, so either
+        // we're done or we reset tx_file_iterator (when 'repeat' option (TBD) is enabled)
+        if (repeat_interval >= 0.0)
+        {
+            timer_start.GetCurrentTime();
+            timer_delay = repeat_interval;
+            tx_file_iterator.Reset();
+        }
         return false;
     }
 }  // end NormCaster::StageNextTxFile()
@@ -444,16 +451,8 @@ void NormCaster::HandleTimeout()
         // Timer has expired.(currently repeat_interval is only timeout)
         timer_delay = -1.0;
         if (StageNextTxFile())
-        {
             SendFiles();
-        }
-        else 
-        {
-            // No new files ready yet, reset repeat timeout
-            timer_delay = repeat_interval;
-            timer_start.GetCurrentTime();
-            tx_file_iterator.Reset();
-        }
+        // else repeat timer was reset
     }
     else
     {
@@ -475,16 +474,6 @@ void NormCaster::SendFiles()
             // Get next file name from our "tx_file_list"
             if (!StageNextTxFile())
             {
-                // We have reached end of tx_file_list, so either
-                // we're done or we reset tx_file_iterator (when 'repeat' option (TBD) is enabled)
-                if (repeat_interval >= 0.0)
-                {
-                    timer_start.GetCurrentTime();
-                    timer_delay = repeat_interval;
-                    tx_file_iterator.Reset();
-                    return;
-                }
-                
                 // If we're done and requesting ACK, finish up nicely with final waterrmark
                 if (norm_acking)
                 {
@@ -1244,7 +1233,16 @@ int main(int argc, char* argv[])
     // TBD - set NORM session parameters
     normCast.Start(send, recv); 
 
-    if (normCast.TxFilePending() || updatesOnly) normCast.SendFiles();
+    if (send)
+    {
+        // This initiates repeat timer when there is no current files pending
+        //if ((repeatInterval >= 0.0) && !normCast.TxFilePending())
+        normCast.StageNextTxFile();
+
+        if (normCast.TxFilePending())
+            normCast.SendFiles();
+    }
+    
     
 #ifdef WIN32
     //Win32InputHandler inputHandler;
