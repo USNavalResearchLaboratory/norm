@@ -34,7 +34,8 @@ Copy the .aar file into your ${project.rootDir}/app/libs/ folder
 
 Within your app level build.gradle include the following two tasks before your dependencies section:
 
-```task extractSo(type: Copy) {
+```
+task extractSo(type: Copy) {
     println 'Extracting *.so file(s)....'
 
     from zipTree("${project.rootDir}/app/libs/lib-release_-release.aar")
@@ -56,4 +57,5 @@ task extractJar(type: Copy, dependsOn: extractSo) {
     from zipTree("${project.rootDir}/app/libs/lib-release_-release.aar")
     into "${project.rootDir}/app/libs/"
     include "norm-*.jar"
-}```
+}
+```
