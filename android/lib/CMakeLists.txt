@@ -11,6 +11,13 @@ include_directories( AFTER
     "../../protolib/include"
 )
 
+find_program(ANTPATH ant)
+
+execute_process(
+    COMMAND ${ANTPATH}
+    WORKING_DIRECTORY "$ENV{HOME}/norm/makefiles/java/"
+)
+
 enable_language(ASM)
 
 IF(BUILD_CONFIGURATION MATCHES "DEBUG")

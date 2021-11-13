@@ -21,7 +21,7 @@ android {
     defaultConfig {
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_TOOLCHAIN=clang", "-DANDROID_PLATFORM=android-15", "-DANDROID_STL=c++_static", "-DANDROID_CPP_FEATURES=exceptions rtti", "-DANDROID_ARM_MODE=arm", "-DANDROID_ARM_NEON=TRUE"
+                arguments "-DANDROID_TOOLCHAIN=clang", "-DANDROID_PLATFORM=android-15", "-DCMAKE_MAKE_PROGRAM=/usr/local/bin/ninja", "-DANDROID_STL=c++_static", "-DANDROID_CPP_FEATURES=exceptions rtti", "-DANDROID_ARM_MODE=arm", "-DANDROID_ARM_NEON=TRUE"
                 cFlags "-fsigned-char"
                 cppFlags "-fsigned-char", "-std=c++14"
             }
@@ -90,4 +90,54 @@ dependencies {
 
 
 }
+
+task copyReleaseJar(type: Copy) {
+    println 'Unzipping release .aar and including .jar....'
+
+    if (file("${project.rootDir}/lib/build/outputs/aar/lib-release_-release.aar").exists()) {
+        from zipTree("${project.rootDir}/lib/build/outputs/aar/lib-release_-release.aar")
+        into "${project.rootDir}/lib/build/outputs/aar/lib-release_-release"
+
+        from "${System.env.HOME}/norm/lib/norm-1.0.0.jar"
+        into "${project.rootDir}/lib/build/outputs/aar/lib-release_-release/"
+    }
+}
+
+task copyDebugJar(type: Copy, dependsOn: copyReleaseJar) {
+    println 'Unzipping debug .aar and including .jar....'
+
+    if (file("${project.rootDir}/lib/build/outputs/aar/lib-debug_-debug.aar").exists()){
+        from zipTree("${project.rootDir}/lib/build/outputs/aar/lib-debug_-debug.aar")
+        into "${project.rootDir}/lib/build/outputs/aar/lib-debug_-debug"
+
+        from "${System.env.HOME}/norm/lib/norm-1.0.0.jar"
+        into "${project.rootDir}/lib/build/outputs/aar/lib-debug_-debug/"
+    }
+}
+
+task zipReleaseAAR(type: Exec, dependsOn: copyDebugJar) {
+    println 'Creating new release .aar..'
+    ignoreExitValue true
+    workingDir "${project.rootDir}/lib/build/outputs/aar/"
+    executable 'jar'
+    def releaseArgsList = ['cvf', 'lib-release_-release.aar', '-C', 'lib-release_-release/', '.']
+    args releaseArgsList
+}
+
+task zipDebugAAR(type: Exec, dependsOn: zipReleaseAAR) {
+    println 'Creating new debug .aar..'
+    ignoreExitValue true
+    workingDir "${project.rootDir}/lib/build/outputs/aar/"
+    executable 'jar'
+    def debugArgsList = ['cvf', 'lib-debug_-debug.aar', '-C', 'lib-debug_-debug/', '.']
+    args debugArgsList
+}
+
+task deleteAARAssets(type: Delete, dependsOn: zipDebugAAR) {
+    delete "${project.rootDir}/lib/build/outputs/aar/lib-release_-release"
+    delete "${project.rootDir}/lib/build/outputs/aar/lib-debug_-debug"
+}
+
+
+this.build.finalizedBy(deleteAARAssets)
 
