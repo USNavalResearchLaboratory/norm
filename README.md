@@ -99,6 +99,37 @@ More info is available in the norp/doc directory, as well as the
 NORP website:  https://www.nrl.navy.mil/itd/ncs/products/norp
 
 
+
+Docker
+======
+A `Dockerfile` is provided to facilitate containerized NORM environment testing. Notable
+build arguments passed to `docker build` will influence how the image is created.
+
+- `platformName` represents the base image name (defaults to `ubuntu`)
+- `platformVersion` represents the tagged version for the base image (defaults to `latest`)
+- `version` is a 1:1 mapping to this repo's tag (defaulst to `v1.5.9`)
+- `configure` is piped to `./waf configure` (defaults to "")
+- `build` is piped to `./waf` (defaults to `--targets=*`)
+
+Example usage:
+
+CentOS7 build
+```
+docker build --build-arg platformName=centos \
+  --build-arg platformVersion=7 \
+  --build-arg="--build-java" \
+  -t norm:centos-1.5.9 .
+```
+
+Running the data send and recv examples:
+```
+# Sender in one terminal
+docker run -it --rm --name norm-send <norm:image> normDataSend
+# Receiver in another terminal
+docker run -it --rm --name norm-recv <norm:image> normDataRecv
+```
+
+
 OTHER FILES:
 ============
 
@@ -114,6 +145,8 @@ NormUserGuide.pdf       - Guide to "norm" demo app usage
 VERSION.TXT             - NORM version history notes
 
 README.md               - this file
+
+docker                  - directory containing docker container support
 
 
 NOTES:
