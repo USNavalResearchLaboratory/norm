@@ -107,7 +107,7 @@ build arguments passed to `docker build` will influence how the image is created
 
 - `platformName` represents the base image name (defaults to `ubuntu`)
 - `platformVersion` represents the tagged version for the base image (defaults to `latest`)
-- `version` is a 1:1 mapping to this repo's tag (defaulst to `v1.5.9`)
+- `version` is a 1:1 mapping to this repo's tag (defaults to `v1.5.9`)
 - `configure` is piped to `./waf configure` (defaults to "")
 - `build` is piped to `./waf` (defaults to `--targets=*`)
 
