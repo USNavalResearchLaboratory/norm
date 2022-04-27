@@ -1,5 +1,6 @@
 
 #include "normApi.h"
+#include "normPostProcess.h"
 #include <stdio.h>       // for printf(), etc
 #include <stdlib.h>      // for atoi(), etc
 #include <cassert>
@@ -60,6 +61,7 @@ class NormCaster
         enum CCMode {NORM_FIXED, NORM_CC, NORM_CCE, NORM_CCL};
         
         void Destroy();
+        bool Init();
             
         bool OpenNormSession(NormInstanceHandle instance, 
                              const char*        addr,
@@ -159,6 +161,10 @@ class NormCaster
             {return rx_cache_path;}
         void SetRxSocketBufferSize(unsigned int value)
             {rx_socket_buffer_size = value;}
+        bool SetProcessorCommand(const char* cmd)
+            {return post_processor->SetCommand(cmd);}
+        void SaveAborts(bool save_aborts)
+            {save_aborted_files = save_aborts;}
         
         // These can only be called post-OpenNormSession()
         
@@ -180,6 +186,8 @@ class NormCaster
     private:
         bool                                is_running;  
         NormSessionHandle                   norm_session;
+        NormPostProcessor*                  post_processor;
+        bool                                save_aborted_files;
         ProtoFile::PathList                 tx_file_list;
         ProtoFile::PathList::PathIterator   tx_file_iterator;
         char                                tx_pending_path[PATH_MAX + 1];
@@ -217,7 +225,8 @@ class NormCaster
 };  // end class NormCaster
 
 NormCaster::NormCaster()
- : norm_session(NORM_SESSION_INVALID), tx_file_iterator(tx_file_list), 
+ : norm_session(NORM_SESSION_INVALID), post_processor(NULL), save_aborted_files(false),
+   tx_file_iterator(tx_file_list), 
    tx_pending_prefix_len(0), repeat_interval(-1.0), timer_delay(-1.0),
    is_multicast(false), loopback(false), probe_tos(0), 
    norm_tx_queue_max(8), norm_tx_queue_count(0), 
@@ -241,6 +250,21 @@ NormCaster::~NormCaster()
 void NormCaster::Destroy()
 {
     tx_file_list.Destroy();
+    if (post_processor)
+    {
+        delete post_processor;
+        post_processor = NULL;
+    }
+}
+
+bool NormCaster::Init()
+{
+    if (!(post_processor = NormPostProcessor::Create()))
+    {
+        fprintf(stderr, "normCast error: unable to create post processor\n");
+        return false;
+    }
+    return true;
 }
 
 bool NormCaster::AddTxItem(const char* path)
@@ -585,8 +609,10 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             break;
             
         case NORM_TX_WATERMARK_COMPLETED:
+        {
             if (NORM_ACK_SUCCESS == NormGetAckingStatus(norm_session))
             {
+                //fprintf(stderr, "normCast: NORM_TX_WATERMARK_COMPLETED, NORM_ACK_SUCCESS\n");
                 // All receivers acknowledged.
                 norm_last_object = NORM_OBJECT_INVALID;
                 bool txFilePending = TxFilePending();  // need to check this _before_ possible call to SendFiles()
@@ -612,7 +638,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             }
             else
             {
-                
+                //fprintf(stderr, "normCast: NORM_TX_WATERMARK_COMPLETED, NO NORM_ACK_SUCCESS\n");
                 // In multicast, there is a chance some nodes ACK ...
                 // so let's see who did, if any.
                 // This iterates through the acking nodes looking for responses
@@ -646,15 +672,39 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                 }
             }
             break; 
-            
+        }
+
         case NORM_TX_OBJECT_PURGED:
         {
             if(event.object == norm_flush_object)
                 norm_flush_object = NORM_OBJECT_INVALID;
+            if (NORM_OBJECT_FILE != NormObjectGetType(event.object))
+            {
+                fprintf(stderr, "normCast: purged invalid object type?!\n");
+                break;
+            }
+            char fileName[PATH_MAX + 1];
+            fileName[PATH_MAX] = '\0';
+            NormFileGetName(event.object, fileName, PATH_MAX);
+            fprintf(stderr, "normCast: send file purged: \"%s\"\n", fileName);
             // This is where we could delete the associated tx file if desired
             // (e.g., for an "outbox" use case)
             break;
         }   
+        
+        case NORM_TX_OBJECT_SENT:
+        {
+            if (NORM_OBJECT_FILE != NormObjectGetType(event.object))
+            {
+                fprintf(stderr, "normCast: sent invalid object type?!\n");
+                break;
+            }
+            char fileName[PATH_MAX + 1];
+            fileName[PATH_MAX] = '\0';
+            NormFileGetName(event.object, fileName, PATH_MAX);
+            fprintf(stderr, "normCast: initial send complete for \"%s\"\n", fileName);
+            break;
+        }
         
         case NORM_ACKING_NODE_NEW:
         {
@@ -671,9 +721,33 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             break;
         
         case NORM_RX_OBJECT_ABORTED:
+        {
             //fprintf(stderr, "NORM_RX_OBJECT_ABORTED\n");// %hu\n", NormObjectGetTransportId(event.object));
+            if (NORM_OBJECT_FILE != NormObjectGetType(event.object))
+            {
+                fprintf(stderr, "normCast: received invalid object type?!\n");
+                break;
+            }
+            char fileName[PATH_MAX + 1];
+            fileName[PATH_MAX] = '\0';
+            NormFileGetName(event.object, fileName, PATH_MAX);
+            fprintf(stderr, "normCast: aborted reception of \"%s\"\n", fileName);
+            if (save_aborted_files)
+            {
+                if (post_processor->IsEnabled())
+                {
+                    if (!post_processor->ProcessFile(fileName))
+                        fprintf(stderr, "normCast: post processing error\n");
+                }
+            }
+            else
+            {
+                if (remove(fileName) != 0)
+                    fprintf(stderr, "normCast: error deleting aborted file \"%s\"\n", fileName);
+            }
             break;
-            
+        }
+	
         case NORM_RX_OBJECT_INFO:
         {
             // We use the NORM_INFO to contain the transferred file name
@@ -713,7 +787,11 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             fileName[PATH_MAX] = '\0';
             NormFileGetName(event.object, fileName, PATH_MAX);
             fprintf(stderr, "normCast: completed reception of \"%s\"\n", fileName);
-            // TBD - implement receive post processing option ...
+            if (post_processor->IsEnabled())
+            {
+                if (!post_processor->ProcessFile(fileName))
+                    fprintf(stderr, "normCast: post processing error\n");
+            }
            break;
         }
             
@@ -734,7 +812,8 @@ void Usage()
                     "                [cc|cce|ccl|rate <bitsPerSecond>] [ptos <value>]\n"
                     "                [flush {none|passive|active}] [silent] [txloss <lossFraction>]\n"
                     "                [buffer <bytes>] [txsockbuffer <bytes>] [rxsockbuffer <bytes>]\n"
-                    "                [debug <level>] [trace] [log <logfile>]\n");
+                    "                [debug <level>] [trace] [log <logfile>]\n"
+                    "                [processor <processorCmdLine>] [saveaborts]\n");
 }  // end Usage()
 
 int main(int argc, char* argv[])
@@ -768,6 +847,8 @@ int main(int argc, char* argv[])
     bool loopback = false;
 
     NormCaster normCast;
+    if (!normCast.Init())
+        return -1;
     
     // Parse command-line
     int i = 1;
@@ -1156,6 +1237,25 @@ int main(int argc, char* argv[])
         {
             Usage();
             return 0;
+        }
+        else if (0 == strncmp(cmd, "processor", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'processor' commandline!\n");
+                Usage();
+                return -1;
+            }
+            if (!normCast.SetProcessorCommand(argv[i++]))
+            {
+                fprintf(stderr, "normCast error: unable to set 'processor'!\n");
+                Usage();
+                return -1;
+            }
+        }
+        else if (0 == strncmp(cmd, "saveaborts", len))
+        {
+            normCast.SaveAborts(true);
         }
         else
         {

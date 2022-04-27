@@ -188,7 +188,8 @@ normStreamer:    $(STREAMER_OBJ) libnorm.a $(LIBPROTO)
 	cp $@ ../bin/$@
     
 # (normCast) file sender/receiver
-CAST_SRC = $(EXAMPLE)/normCast.cpp
+CAST_SRC = $(EXAMPLE)/normCast.cpp $(COMMON)/normPostProcess.cpp \
+           $(UNIX)/unixPostProcess.cpp
 CAST_OBJ = $(CAST_SRC:.cpp=.o)
 
 normCast:    $(CAST_OBJ) libnorm.a $(LIBPROTO) 

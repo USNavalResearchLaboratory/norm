@@ -190,6 +190,22 @@ def build(ctx):
         normapp.defines.append('_CONSOLE')
         normapp.stlib = (["Shell32"]);
 
+    normCast = ctx.program(
+        target = 'normCast',
+        includes = ['include', 'protolib/include'],
+        use = use, 
+        defines = [],
+        source = source + ['examples/normCast.cpp', 'src/common/normPostProcess.cpp'],
+        # Disabled by default
+        posted = True,
+        # Don't install examples
+        install_path = False,
+    )
+
+    if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
+        normCast.source.append('src/unix/unixPostProcess.cpp')
+       
+
     for example in (
             #'normDataExample',
             'normDataRecv',
@@ -200,7 +216,6 @@ def build(ctx):
             'normStreamSend',
             'normMsgr',
             'normStreamer',
-            'normCast',
             'normClient',
             'normServer',
             #'wintest'  # Windows only (can uncomment on Windows)
