@@ -81,42 +81,79 @@ bool NetscapeIsRunning(Window *result);
 bool NetscapeCheckWindow(Window window);
 #endif // NETSCAPE_SUPPORT
 
+#define MAX_SUBPROCESSES 32
+
+static void OnSIGCHLD(int signum);
+
 class UnixPostProcessor : public NormPostProcessor
 {
     public:
         ~UnixPostProcessor();
-        bool IsActive() {return (0 != process_id);}
+        bool IsActive();
         bool ProcessFile(const char* path);
         void Kill();
         
-        void OnSIGCHLD();
+        void ClearPid(int pid);
         
     private:
         friend class NormPostProcessor;
         UnixPostProcessor();
+        bool IsActive(unsigned int array_element);
+        unsigned int GetOpenProcessIdSlot();
+        void Kill(unsigned int array_element);
         
-        int     process_id;
+        int     process_id[MAX_SUBPROCESSES];
 #ifdef NETSCAPE_SUPPORT
         Window  window_id;
 #endif // NETSCAPE_SUPPORT
 };  // end class UnixPostProcessor 
 
+UnixPostProcessor* theprocessor;
+
 UnixPostProcessor::UnixPostProcessor()
- : process_id(0)
+ : process_id()
 #ifdef NETSCAPE_SUPPORT
    ,window_id(0)
 #endif // NETSCAPE_SUPPORT
 {
+    signal(SIGCHLD, OnSIGCHLD);
 }
 
 NormPostProcessor* NormPostProcessor::Create()
 {
-    return static_cast<NormPostProcessor*>(new UnixPostProcessor);   
+    //return static_cast<NormPostProcessor*>(new UnixPostProcessor);   
+    theprocessor = new UnixPostProcessor;
+    return static_cast<NormPostProcessor*>(theprocessor);
 }  // end NormPostProcessor::Create()
 
 UnixPostProcessor::~UnixPostProcessor()
 {
     if (IsActive()) Kill();   
+}
+
+bool UnixPostProcessor::IsActive()
+{
+    for (unsigned int i=0;i<MAX_SUBPROCESSES;i++)
+    {
+        if (0 != process_id[i]) return true;
+    }
+    return false;
+}
+
+bool UnixPostProcessor::IsActive(unsigned int array_element)
+{
+    return (0 != process_id[array_element]);
+}
+
+unsigned int UnixPostProcessor::GetOpenProcessIdSlot()
+{
+    for (unsigned int i=0;i<MAX_SUBPROCESSES;i++)
+    {
+        if (0 == process_id[i]) return i;
+    }
+    //No available slot, kill something
+    Kill(0);
+    return 0;
 }
 
 bool UnixPostProcessor::ProcessFile(const char* path)
@@ -192,7 +229,7 @@ bool UnixPostProcessor::ProcessFile(const char* path)
         }
         else
         {
-            if (IsActive()) Kill();
+            //if (IsActive()) Kill();
             window_id = USE_ACTIVE_WINDOW;
             myArgs[i++] = path;
         }  // end if/else (NetscapeIsRunning())
@@ -203,7 +240,8 @@ bool UnixPostProcessor::ProcessFile(const char* path)
     else
 #endif // NETSCAPE_SUPPORT
     {
-        if (IsActive()) Kill();
+        //if (IsActive()) Kill();
+        // GetOpenProcessIdSlot() below will do this for us now...
         argv[argc] = path;
     }
     
@@ -212,11 +250,12 @@ bool UnixPostProcessor::ProcessFile(const char* path)
     sighandler_t sigintHandler = signal(SIGINT, SIG_DFL);
     sighandler_t sigchldHandler = signal(SIGCHLD, SIG_DFL);
       
-    switch((process_id = fork()))
+    unsigned int idnum = GetOpenProcessIdSlot();
+    switch((process_id[idnum] = fork()))
     {
         case -1:    // error
             DMSG(0, "UnixPostProcessor::ProcessFile fork() error: %s\n", strerror(errno));
-            process_id = 0;
+            process_id[idnum] = 0;
             process_argv[process_argc] = NULL;
             return false;
 
@@ -235,8 +274,8 @@ bool UnixPostProcessor::ProcessFile(const char* path)
             signal(SIGINT, sigintHandler);
             // The use of "waitpid()" here is a work-around
             // for an IRIX SIGCHLD issue
-            int status;
-            while (waitpid(-1, &status, WNOHANG) > 0);
+            //int status;
+            //while (waitpid(-1, &status, WNOHANG) > 0);
             signal(SIGCHLD, sigchldHandler);
             break;
     }
@@ -245,9 +284,17 @@ bool UnixPostProcessor::ProcessFile(const char* path)
 
 void UnixPostProcessor::Kill()
 {
-    if (!IsActive()) return;
+    for (unsigned int i=0;i<MAX_SUBPROCESSES;i++)
+    {
+        if (IsActive(i)) Kill(i);
+    }
+}
+
+void UnixPostProcessor::Kill(unsigned int array_element)
+{
+    if (!IsActive(array_element)) return;
     int count = 0;
-    while((kill(process_id, SIGTERM) != 0) && count < 10)
+    while((kill(process_id[array_element], SIGTERM) != 0) && count < 10)
 	{ 
 	    if (errno == ESRCH) break;
 	    count++;
@@ -255,22 +302,43 @@ void UnixPostProcessor::Kill()
 	}
 	count = 0;
     int status;
-	while((waitpid(process_id, &status, 0) != process_id) && count < 10)
+	while((waitpid(process_id[array_element], &status, 0) != process_id[array_element]) && count < 10)
 	{
 	    if (errno == ECHILD) break;
 	    count++;
 	    DMSG(0, "UnixPostProcessor::Kill waitpid() error: %s\n", strerror(errno));
 	}
-	process_id = 0;
+	process_id[array_element] = 0;
 }  // end UnixPostProcessor::Kill()
 
-void UnixPostProcessor::OnSIGCHLD()
+void UnixPostProcessor::ClearPid(int pid)
+{
+    for (unsigned int i=0;i<MAX_SUBPROCESSES;i++)
+    {
+        if (pid == process_id[i]) process_id[i] = 0;
+    }
+}
+
+static void OnSIGCHLD(int signum)
 {
     // See if post processor exited itself
     int status;
-    if (wait(&status) == process_id) process_id = 0;
-}  // end UnixPostProcessor::HandleSIGCHLD()
-
+    pid_t p;
+    //int wait_rtn = wait(&status);
+    while (true)
+    {
+        p = waitpid(-1, &status, WNOHANG);
+        if (p == -1)
+        {
+           if (errno == EINTR) continue;
+           break;
+	}
+	// check for no more children
+        else if (p == 0) break;
+	// else handle returned PID
+	theprocessor->ClearPid(p);
+    }
+}
 
 #ifdef NETSCAPE_SUPPORT
 bool CheckForNetscape(const char* cmd)
