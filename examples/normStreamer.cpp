@@ -256,6 +256,8 @@ class NormStreamer
             {NormSetSilentReceiver(norm_session, state);}
         void SetTxLoss(double txloss)
             {NormSetTxLoss(norm_session, txloss);}
+        void SetRxLoss(double rxloss)
+            {NormSetRxLoss(norm_session, rxloss);}
         // Set the scheduler for running the app and norm threads.
         static bool BoostPriority();
         
@@ -1353,8 +1355,8 @@ void Usage()
                     "                    [insockbuffer <bytes>] [outsockbuffer <bytes>]\n"
                     "                    [txsockbuffer <bytes>] [rxsockbuffer <bytes>]\n"
                     "                    [streambuffer <bytes>]\n"
-                    "                    [check64 | check32]\n"
-                    "                    [omit] [silent] [txloss <lossFraction>]\n");
+                    "                    [check64 | check32] [omit] [silent]\n"
+                    "                    [txloss <lossFraction>] [rxloss <lossFraction>]\n");
 }  // end Usage()
 
 void PrintHelp()
@@ -1437,6 +1439,7 @@ int main(int argc, char* argv[])
     bool omitHeaderOnOutput = false;
     bool silentReceiver = false;
     double txloss = 0.0;
+    double rxloss = 0.0;
     bool boostPriority = false;
     unsigned int checkSequence = 0;  // can set to 64 or 32
     // TBD - set these defaults to reasonable values or just use NormStreamer constructor defaults
@@ -1955,6 +1958,15 @@ int main(int argc, char* argv[])
                 return -1;
             }
         }
+        else if (0 == strncmp(cmd, "rxloss", len))
+        {
+            if (1 != sscanf(argv[i++], "%lf", &rxloss))
+            {
+                fprintf(stderr, "normStreamer error: invalid 'rxloss' value!\n");
+                Usage();
+                return -1;
+            }
+        }
         else if (0 == strncmp(cmd, "debug", len))
         {
             if (i >= argc)
@@ -2069,6 +2081,7 @@ int main(int argc, char* argv[])
     
     if (silentReceiver) normStreamer.SetSilentReceiver(true);
     if (txloss > 0.0) normStreamer.SetTxLoss(txloss);
+    if (rxloss > 0.0) normStreamer.SetRxLoss(rxloss);
     
     for (unsigned int i = 0; i < ackingNodeCount; i++)
         normStreamer.AddAckingNode(ackingNodeList[i]);

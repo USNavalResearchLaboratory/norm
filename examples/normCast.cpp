@@ -183,6 +183,9 @@ class NormCaster
         void SetTxLoss(double txloss)
             {NormSetTxLoss(norm_session, txloss);}
             
+        void SetRxLoss(double rxloss)
+            {NormSetRxLoss(norm_session, rxloss);}
+            
     private:
         bool                                is_running;  
         NormSessionHandle                   norm_session;
@@ -805,15 +808,15 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
 void Usage()
 {
     fprintf(stderr, "Usage: normCast {send <file/dir list> &| recv <rxCacheDir>}\n"
-                    "                [repeat <interval> [updatesOnly]][id <nodeIdInteger>]\n"
+                    "                [repeat <interval> [updatesOnly]] [id <nodeIdInteger>]\n"
                     "                [addr <addr>[/<port>]] [interface <name>] [loopback]\n"
                     "                [ack auto|<node1>[,<node2>,...]] [segment <bytes>]\n"
-                    "                [block <count>] [parity <count>] [auto <count>]\n"
-                    "                [cc|cce|ccl|rate <bitsPerSecond>] [ptos <value>]\n"
+                    "                [block <count>] [parity <count>] [auto <count>] [ptos <value>]\n"
+                    "                [cc|cce|ccl|rate <bitsPerSecond>] [rxloss <lossFraction>]\n"
                     "                [flush {none|passive|active}] [silent] [txloss <lossFraction>]\n"
+                    "                [processor <processorCmdLine>] [saveaborts]\n"
                     "                [buffer <bytes>] [txsockbuffer <bytes>] [rxsockbuffer <bytes>]\n"
-                    "                [debug <level>] [trace] [log <logfile>]\n"
-                    "                [processor <processorCmdLine>] [saveaborts]\n");
+                    "                [debug <level>] [trace] [log <logfile>]\n");
 }  // end Usage()
 
 int main(int argc, char* argv[])
@@ -844,6 +847,7 @@ int main(int argc, char* argv[])
     bool trace = false;
     bool silentReceiver = false;
     double txloss = 0.0;
+    double rxloss = 0.0;
     bool loopback = false;
 
     NormCaster normCast;
@@ -1209,6 +1213,15 @@ int main(int argc, char* argv[])
                 return -1;
             }
         }
+        else if (0 == strncmp(cmd, "rxloss", len))
+        {
+            if (1 != sscanf(argv[i++], "%lf", &rxloss))
+            {
+                fprintf(stderr, "normCast error: invalid 'rxloss' value!\n");
+                Usage();
+                return -1;
+            }
+        }
         else if (0 == strncmp(cmd, "debug", len))
         {
             if (i >= argc)
@@ -1308,6 +1321,7 @@ int main(int argc, char* argv[])
     
     if (silentReceiver) normCast.SetSilentReceiver(true);
     if (txloss > 0.0) normCast.SetTxLoss(txloss);
+    if (rxloss > 0.0) normCast.SetRxLoss(rxloss);
     
     
     if (autoAck)

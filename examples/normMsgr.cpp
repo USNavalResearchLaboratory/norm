@@ -202,6 +202,8 @@ class NormMsgr
             {NormSetSilentReceiver(norm_session, state);}
         void SetTxLoss(double txloss)
             {NormSetTxLoss(norm_session, txloss);}
+        void SetRxLoss(double rxloss)
+            {NormSetRxLoss(norm_session, rxloss);}
             
     private:
         bool                is_running;                                                  
@@ -783,7 +785,8 @@ void Usage()
                     "                [ack auto|<node1>[,<node2>,...]] [output <outFile>]\n"
                     "                [cc|cce|ccl|rate <bitsPerSecond>] [interface <name>] [loopback]\n"
                     "                [debug <level>] [trace] [log <logfile>] [silent]\n"
-                    "                [flush {none|passive|active}] [omit] [txloss <lossFraction>]\n");
+                    "                [flush {none|passive|active}] [omit] [txloss <lossFraction>]\n"
+                    "                [rxloss <lossFraction>]\n");
 }
 int main(int argc, char* argv[])
 {
@@ -811,6 +814,7 @@ int main(int argc, char* argv[])
     bool omitHeaderOnOutput = false;
     bool silentReceiver = false;
     double txloss = 0.0;
+    double rxloss = 0.0;
     bool loopback = false;
     
     NormMsgr normMsgr;
@@ -1003,6 +1007,15 @@ int main(int argc, char* argv[])
                 return -1;
             }
         }
+        else if (0 == strncmp(cmd, "rxloss", len))
+        {
+            if (1 != sscanf(argv[i++], "%lf", &rxloss))
+            {
+                fprintf(stderr, "nodeMsgr error: invalid 'rxloss' value!\n");
+                Usage();
+                return -1;
+            }
+        }
         else if (0 == strncmp(cmd, "debug", len))
         {
             if (i >= argc)
@@ -1073,6 +1086,7 @@ int main(int argc, char* argv[])
     
     if (silentReceiver) normMsgr.SetSilentReceiver(true);
     if (txloss > 0.0) normMsgr.SetTxLoss(txloss);
+    if (rxloss > 0.0) normMsgr.SetRxLoss(rxloss);
     
     if (autoAck)
     {
