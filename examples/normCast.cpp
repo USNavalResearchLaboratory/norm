@@ -105,7 +105,7 @@ class NormCaster
         void SetBufferSize(unsigned int value)
             {buffer_size = value;}
         
-        bool Start(bool sender, bool receiver);
+        bool Start(bool sender, bool receiver, double grtt_estimate);
         void Stop()
             {is_running = false;}
         bool IsRunning() const
@@ -347,7 +347,7 @@ void NormCaster::SetNormCongestionControl(CCMode ccMode)
         NormSetCongestionControl(norm_session, false);
 }  // end NormCaster::SetNormCongestionControl()
 
-bool NormCaster::Start(bool sender, bool receiver)
+bool NormCaster::Start(bool sender, bool receiver, double grtt_estimate)
 {
     if (receiver)
     {
@@ -372,10 +372,10 @@ bool NormCaster::Start(bool sender, bool receiver)
         }
         else
         {
-            // Uncommant and adjust this for more/less robust timer-based flow control as desired
+            // Uncomment and adjust this for more/less robust timer-based flow control as desired (API default: 2.0)
             //NormSetFlowControl(norm_session, 10.0);
         }
-        NormSetGrttEstimate(norm_session, 0.001);
+        NormSetGrttEstimate(norm_session, grtt_estimate);
         //NormSetGrttMax(norm_session, 0.100);
         NormSetBackoffFactor(norm_session, 0);
         
@@ -603,6 +603,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
     {
         case NORM_TX_QUEUE_EMPTY:
         case NORM_TX_QUEUE_VACANCY:
+            //fprintf(stderr, "normCast: NORM_TX_QUEUE EMPTY/VACANCY\n");
             norm_tx_vacancy = true;
             if (TxFilePending()) SendFiles();
             break;
@@ -675,6 +676,18 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                 }
             }
             break; 
+        }
+
+        case NORM_TX_FLUSH_COMPLETED:
+        {
+            //fprintf(stderr, "normCast: NORM_TX_FLUSH_COMPLETED\n");
+            if (!TxFilePending() and !norm_acking and repeat_interval<0)
+            {
+                // No more files to send, and not ack or repeat mode
+                fprintf(stderr, "normCast: flush after final file send, exiting ...\n");
+                is_running = false;
+            }
+            break;
         }
 
         case NORM_TX_OBJECT_PURGED:
@@ -814,7 +827,7 @@ void Usage()
                     "                [block <count>] [parity <count>] [auto <count>] [ptos <value>]\n"
                     "                [cc|cce|ccl|rate <bitsPerSecond>] [rxloss <lossFraction>]\n"
                     "                [flush {none|passive|active}] [silent] [txloss <lossFraction>]\n"
-                    "                [processor <processorCmdLine>] [saveaborts]\n"
+                    "                [processor <processorCmdLine>] [saveaborts] [grtt <secs>]\n"
                     "                [buffer <bytes>] [txsockbuffer <bytes>] [rxsockbuffer <bytes>]\n"
                     "                [debug <level>] [trace] [log <logfile>]\n");
 }  // end Usage()
@@ -848,6 +861,7 @@ int main(int argc, char* argv[])
     bool silentReceiver = false;
     double txloss = 0.0;
     double rxloss = 0.0;
+    double grtt_estimate = 0.001;
     bool loopback = false;
 
     NormCaster normCast;
@@ -1222,6 +1236,15 @@ int main(int argc, char* argv[])
                 return -1;
             }
         }
+        else if (0 == strncmp(cmd, "grtt", len))
+        {
+            if (1 != sscanf(argv[i++], "%lf", &grtt_estimate))
+            {
+                fprintf(stderr, "normCast error: invalid 'grtt' value!\n");
+                Usage();
+                return -1;
+            }
+        }
         else if (0 == strncmp(cmd, "debug", len))
         {
             if (i >= argc)
@@ -1345,7 +1368,7 @@ int main(int argc, char* argv[])
     normCast.SetRepeat(repeatInterval, updatesOnly);
     
     // TBD - set NORM session parameters
-    normCast.Start(send, recv); 
+    normCast.Start(send, recv, grtt_estimate); 
 
     if (send)
     {
