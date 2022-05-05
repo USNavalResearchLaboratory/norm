@@ -180,6 +180,9 @@ class NormCaster
         void SetProbeTOS(UINT8 value)
             {probe_tos = value;}
         
+        void SetProbeMode(NormProbingMode mode)
+            {probe_mode = mode;}
+        
         void SetTxLoss(double txloss)
             {NormSetTxLoss(norm_session, txloss);}
             
@@ -201,6 +204,7 @@ class NormCaster
         bool                                is_multicast;
         bool                                loopback;
         UINT8                               probe_tos;
+        NormProbingMode                     probe_mode;
         unsigned int                        norm_tx_queue_max;   // max number of objects that can be enqueued at once 
         unsigned int                        norm_tx_queue_count; // count of unacknowledged enqueued objects (TBD - optionally track size too)
         bool                                norm_flow_control_pending;
@@ -231,7 +235,7 @@ NormCaster::NormCaster()
  : norm_session(NORM_SESSION_INVALID), post_processor(NULL), save_aborted_files(false),
    tx_file_iterator(tx_file_list), 
    tx_pending_prefix_len(0), repeat_interval(-1.0), timer_delay(-1.0),
-   is_multicast(false), loopback(false), probe_tos(0), 
+   is_multicast(false), loopback(false), probe_tos(0), probe_mode(NORM_PROBE_ACTIVE),
    norm_tx_queue_max(8), norm_tx_queue_count(0), 
    norm_flow_control_pending(false), norm_tx_vacancy(true), norm_acking(false), 
    norm_flushing(true), norm_flush_object(NORM_OBJECT_INVALID), norm_last_object(NORM_OBJECT_INVALID),
@@ -312,6 +316,7 @@ bool NormCaster::OpenNormSession(NormInstanceHandle instance, const char* addr, 
     //NormSetTxRobustFactor(norm_session, 20);
     
     NormSetGrttProbingTOS(norm_session, probe_tos);
+    NormSetGrttProbingMode(norm_session, probe_mode);
     
     return true;
 }  // end NormCaster::OpenNormSession()
@@ -763,7 +768,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             }
             break;
         }
-	
+
         case NORM_RX_OBJECT_INFO:
         {
             // We use the NORM_INFO to contain the transferred file name
@@ -824,10 +829,11 @@ void Usage()
                     "                [repeat <interval> [updatesOnly]] [id <nodeIdInteger>]\n"
                     "                [addr <addr>[/<port>]] [interface <name>] [loopback]\n"
                     "                [ack auto|<node1>[,<node2>,...]] [segment <bytes>]\n"
-                    "                [block <count>] [parity <count>] [auto <count>] [ptos <value>]\n"
+                    "                [block <count>] [parity <count>] [auto <count>]\n"
                     "                [cc|cce|ccl|rate <bitsPerSecond>] [rxloss <lossFraction>]\n"
                     "                [flush {none|passive|active}] [silent] [txloss <lossFraction>]\n"
-                    "                [processor <processorCmdLine>] [saveaborts] [grtt <secs>]\n"
+                    "                [grttprobing {none|passive|active}] [grtt <secs>]\n"
+                    "                [ptos <value>] [processor <processorCmdLine>] [saveaborts]\n"
                     "                [buffer <bytes>] [txsockbuffer <bytes>] [rxsockbuffer <bytes>]\n"
                     "                [debug <level>] [trace] [log <logfile>]\n");
 }  // end Usage()
@@ -862,6 +868,7 @@ int main(int argc, char* argv[])
     double txloss = 0.0;
     double rxloss = 0.0;
     double grtt_estimate = 0.001;
+    NormProbingMode grtt_probing_mode = NORM_PROBE_ACTIVE;
     bool loopback = false;
 
     NormCaster normCast;
@@ -1244,6 +1251,35 @@ int main(int argc, char* argv[])
                 Usage();
                 return -1;
             }
+        }
+        else if (0 == strncmp(cmd, "grttprobing", len))
+        {
+            // "none", "passive", or "active"
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'grttprobing' <mode>!\n");
+                Usage();
+                return -1;
+            }
+            const char* pmode = argv[i++];
+            if (0 == strcmp(pmode, "none"))
+            {
+                grtt_probing_mode = NORM_PROBE_NONE;
+            }
+            else if (0 == strcmp(pmode, "passive"))
+            {
+                grtt_probing_mode = NORM_PROBE_PASSIVE;
+            }
+            else if (0 == strcmp(pmode, "active"))
+            {
+                grtt_probing_mode = NORM_PROBE_ACTIVE;
+            }
+            else
+            {
+                fprintf(stderr, "normCast error: invalid 'grttprobing' mode \"%s\"\n", pmode);
+                return -1;
+            }
+            normCast.SetProbeMode(grtt_probing_mode);
         }
         else if (0 == strncmp(cmd, "debug", len))
         {
