@@ -70,3 +70,8 @@ will delete all compiled files and configuration settings.
     ./waf distclean
 
 will do the same as clean, and additionally delete the waf cache files.
+
+
+ANDROID Build
+-------------
+See the "android" directory README for instructions.
