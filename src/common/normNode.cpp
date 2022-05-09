@@ -813,7 +813,7 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
             }
             if (!synchronized)
             {
-                if (doAck)
+                if ((doAck) || (SYNC_ALL == sync_policy))
                 {
                     // Force sync since we're expected to ACK 
                     // and request repair for object indicated
@@ -2012,7 +2012,7 @@ void NormSenderNode::Sync(NormObjectId objectId)
                 max_pending_object = objectId;
                 break;
         }
-        SetPending(objectId);  // inclusively sets pending mask for next_id..objectId
+        SetPending(objectId);  // inclusively sets pending mask for next_id..objectId 
     }
 }  // end NormSenderNode::Sync()
 

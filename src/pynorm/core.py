@@ -503,7 +503,7 @@ def get_libnorm():
     # Experimental functions
     libnorm.NormCountCompletedObjects.restype = ctypes.c_uint32
     libnorm.NormCountCompletedObjects.argtypes = [ctypes.c_void_p]
-
+            
     return libnorm
 
 # Global libnorm reference that everyone should use

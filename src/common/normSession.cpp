@@ -2397,10 +2397,10 @@ void NormSession::RxSocketRecvHandler(ProtoSocket &theSocket,
                     HandleReceiveMessage(msg, wasUnicast, ecnStatus);
                     msgLength = NormMsg::MAX_SIZE;
                 }
-                else
+                else  
                 {
                     PLOG(PL_ERROR, "NormSession::RxSocketRecvHandler() warning: received bad message\n");
-                }
+                }  // end if/else msg.InitFromBuffer()
                 // If our system gets very busy reading sockets, we should occasionally
                 // execute any timeouts to keep protocol operation smooth (i.e., sending feedback)
                 // TBD - perhaps this should be time based
