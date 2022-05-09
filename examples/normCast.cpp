@@ -532,7 +532,9 @@ bool NormCaster::EnqueueFileObject()
     {
         assert(norm_tx_queue_count < norm_tx_queue_max);
         if (norm_tx_queue_count >= norm_tx_queue_max)
+        {
             return false;
+        }
     }
         
     // This is our cheesy approach of using the NORM_INFO to convey the file name
@@ -559,7 +561,7 @@ bool NormCaster::EnqueueFileObject()
     NormObjectHandle object = NormFileEnqueue(norm_session, tx_pending_path, nameInfo, nameLen);
     if (NORM_OBJECT_INVALID == object)
     {
-        // This might happen if a non-acking receiver is present and
+        // This might happen if a non-acking receiver is present and 
         // has nacked for the oldest object in the queue even if all                
         // of our acking receivers have acknowledged it.  
         //fprintf(stderr, "NO VACANCY count:%u max:%u\n", norm_tx_queue_count, norm_tx_queue_max);
@@ -569,7 +571,7 @@ bool NormCaster::EnqueueFileObject()
     fprintf(stderr, "normCast: enqueued \"%s\" for transmission ...\n", namePtr);
     if (norm_acking)
     {
-        // ack-based flow control has been enabled
+        // ack-based flow control has been enabled 
         norm_tx_queue_count++;
         if (!norm_flow_control_pending && (norm_tx_queue_count >= (norm_tx_queue_max / 2)))
         {
@@ -621,7 +623,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
         {
             if (NORM_ACK_SUCCESS == NormGetAckingStatus(norm_session))
             {
-                //fprintf(stderr, "normCast: NORM_TX_WATERMARK_COMPLETED, NORM_ACK_SUCCESS\n");
+                fprintf(stderr, "normCast: NORM_TX_WATERMARK_COMPLETED, NORM_ACK_SUCCESS\n");
                 // All receivers acknowledged.
                 norm_last_object = NORM_OBJECT_INVALID;
                 bool txFilePending = TxFilePending();  // need to check this _before_ possible call to SendFiles()
@@ -647,7 +649,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             }
             else
             {
-                //fprintf(stderr, "normCast: NORM_TX_WATERMARK_COMPLETED, NO NORM_ACK_SUCCESS\n");
+                fprintf(stderr, "normCast: NORM_TX_WATERMARK_COMPLETED, _NOT_ NORM_ACK_SUCCESS\n");
                 // In multicast, there is a chance some nodes ACK ...
                 // so let's see who did, if any.
                 // This iterates through the acking nodes looking for responses
@@ -660,7 +662,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                     ProtoAddress addr;
                     addr.SetRawHostAddress(ProtoAddress::IPv4, (char*)&tmp, 4);
                     if (NORM_ACK_SUCCESS != ackingStatus)
-                        fprintf(stderr, "normCast: node %lu (IP address: %s) failed to acnowledge.\n",
+                        fprintf(stderr, "normCast: node %lu (IP address: %s) failed to acnkowledge.\n",
                                         (unsigned long)nodeId, addr.GetHostString());
                     else
                         fprintf(stderr, "normCast: node %lu (IP address: %s) acknowledged.\n",
@@ -673,7 +675,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                 {
                     NormResetWatermark(norm_session);
                 }
-                else  // might as request ack for most recent enqueued object
+                else  // might as well request ack for most recent enqueued object (not sure why I did this?)
                 {
                     NormSetWatermark(norm_session, norm_flush_object, true);
                     norm_last_object = norm_flush_object;
@@ -685,8 +687,8 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
 
         case NORM_TX_FLUSH_COMPLETED:
         {
-            //fprintf(stderr, "normCast: NORM_TX_FLUSH_COMPLETED\n");
-            if (!TxFilePending() and !norm_acking and repeat_interval<0)
+            fprintf(stderr, "normCast: NORM_TX_FLUSH_COMPLETED\n");
+            if (!TxFilePending() && (repeat_interval < 0.0)&& !norm_acking)
             {
                 // No more files to send, and not ack or repeat mode
                 fprintf(stderr, "normCast: flush after final file send, exiting ...\n");
@@ -734,6 +736,8 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             ProtoAddress addr;
             addr.SetRawHostAddress(ProtoAddress::IPv4, (char*)&tmp, 4);
             fprintf(stderr, "normCast: new acking node: %lu (IP address: %s)\n", (unsigned long)id, addr.GetHostString());
+            // This next line of code updates the current watermark request (if there is one) so the new acking node is included 
+            NormResetWatermark(norm_session);
         }
         
         case NORM_REMOTE_SENDER_INACTIVE:
@@ -1512,10 +1516,10 @@ int main(int argc, char* argv[])
         }  // end if (maxfd >= 0)  
 #endif // if/else WIN32/UNIX 
     
-        // if (inputEventPending)
-        // {
-        //      TBD - could parse input for runtime commands (e.g., send <file>), etc
-        // }
+        if (inputEventPending)
+        {
+            //  TBD - could parse input for runtime commands (e.g., send <file>), etc
+        }
         if (normEventPending)
         {
             // Handle all pending NORM notification events

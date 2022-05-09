@@ -265,7 +265,7 @@ void NormSetAllocationFunctions(NormInstanceHandle      instance,
                                 NormAllocFunctionHandle allocFunc, 
                                 NormFreeFunctionHandle  freeFunc);
 
-/** NORM Session Creation and Control Functions */
+// NORM Session Creation and Control Functions
 
 NORM_API_LINKAGE 
 NormSessionHandle NormCreateSession(NormInstanceHandle instanceHandle,
