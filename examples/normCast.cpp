@@ -73,6 +73,12 @@ class NormCaster
         
         void SetNormCongestionControl(CCMode ccMode);
         
+        void SetGrttEstimate(double grtt_estimate)
+        {
+            assert(NORM_SESSION_INVALID != norm_session);
+            assert(grtt_estimate > 0);
+            NormSetGrttEstimate(norm_session, grtt_estimate);
+        }
         void SetNormTxRate(double bitsPerSecond)
         {
             assert(NORM_SESSION_INVALID != norm_session);
@@ -105,7 +111,7 @@ class NormCaster
         void SetBufferSize(unsigned int value)
             {buffer_size = value;}
         
-        bool Start(bool sender, bool receiver, double grtt_estimate);
+        bool Start(bool sender, bool receiver);
         void Stop()
             {is_running = false;}
         bool IsRunning() const
@@ -143,7 +149,11 @@ class NormCaster
         void SetNumParity(unsigned short numParity)
             {num_parity = numParity;}
         void SetAutoParity(unsigned short autoParity)
-            {auto_parity = autoParity;}
+        {
+            auto_parity = autoParity;
+            if (norm_session != NORM_SESSION_INVALID)
+                NormSetAutoParity(norm_session, auto_parity < num_parity ? auto_parity : num_parity);
+	}
         
         // Receiver methods
         void SetRxCacheDirectory(const char* path)
@@ -175,7 +185,10 @@ class NormCaster
                 norm_acking = enable;
         }
         void SetSilentReceiver(bool state)
-            {NormSetSilentReceiver(norm_session, state);}
+        {
+            assert(NORM_SESSION_INVALID != norm_session);
+            NormSetSilentReceiver(norm_session, state);
+        }
         
         void SetProbeTOS(UINT8 value)
             {probe_tos = value;}
@@ -184,10 +197,18 @@ class NormCaster
             {probe_mode = mode;}
         
         void SetTxLoss(double txloss)
-            {NormSetTxLoss(norm_session, txloss);}
+        {
+            assert(NORM_SESSION_INVALID != norm_session);
+            assert(0 <= txloss);
+            NormSetTxLoss(norm_session, txloss);
+        }
             
         void SetRxLoss(double rxloss)
-            {NormSetRxLoss(norm_session, rxloss);}
+        {
+            assert(NORM_SESSION_INVALID != norm_session);
+            assert(0 <= rxloss);
+            NormSetRxLoss(norm_session, rxloss);
+        }
             
     private:
         bool                                is_running;  
@@ -352,7 +373,7 @@ void NormCaster::SetNormCongestionControl(CCMode ccMode)
         NormSetCongestionControl(norm_session, false);
 }  // end NormCaster::SetNormCongestionControl()
 
-bool NormCaster::Start(bool sender, bool receiver, double grtt_estimate)
+bool NormCaster::Start(bool sender, bool receiver)
 {
     if (receiver)
     {
@@ -380,7 +401,6 @@ bool NormCaster::Start(bool sender, bool receiver, double grtt_estimate)
             // Uncomment and adjust this for more/less robust timer-based flow control as desired (API default: 2.0)
             //NormSetFlowControl(norm_session, 10.0);
         }
-        NormSetGrttEstimate(norm_session, grtt_estimate);
         //NormSetGrttMax(norm_session, 0.100);
         NormSetBackoffFactor(norm_session, 0);
         
@@ -1408,7 +1428,8 @@ int main(int argc, char* argv[])
     normCast.SetRepeat(repeatInterval, updatesOnly);
     
     // TBD - set NORM session parameters
-    normCast.Start(send, recv, grtt_estimate); 
+    normCast.Start(send, recv);
+    normCast.SetGrttEstimate(grtt_estimate); 
 
     if (send)
     {
