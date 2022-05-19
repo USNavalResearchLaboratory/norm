@@ -204,6 +204,21 @@ def build(ctx):
 
     if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
         normCast.source.append('src/unix/unixPostProcess.cpp')
+
+    normCastApp = ctx.program(
+        target = 'normCastApp',
+        includes = ['include', 'protolib/include'],
+        use = use, 
+        defines = [],
+        source = source + ['examples/normCastApp.cpp', 'src/common/normPostProcess.cpp'],
+        # Disabled by default
+        posted = True,
+        # Don't install examples
+        install_path = False,
+    )
+
+    if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
+        normCastApp.source.append('src/unix/unixPostProcess.cpp')
        
 
     for example in (

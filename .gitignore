@@ -6,6 +6,7 @@ makefiles/norm
 makefiles/normMsgr
 makefiles/normStreamer
 makefiles/normCast
+makefiles/normCastApp
 makefiles/normClient
 makefiles/normServer
 makefiles/npc

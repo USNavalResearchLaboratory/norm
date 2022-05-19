@@ -197,6 +197,16 @@ normCast:    $(CAST_OBJ) libnorm.a $(LIBPROTO)
 	mkdir -p ../bin
 	cp $@ ../bin/$@
         
+# (normCastApp) file sender/receiver
+CASTAPP_SRC = $(EXAMPLE)/normCastApp.cpp $(COMMON)/normPostProcess.cpp \
+              $(UNIX)/unixPostProcess.cpp
+CASTAPP_OBJ = $(CASTAPP_SRC:.cpp=.o)
+
+normCastApp:    $(CASTAPP_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(CASTAPP_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+
 # These are the new "NormSocket" API extension examples
 SERVER_SRC = $(EXAMPLE)/normServer.cpp  $(EXAMPLE)/normSocket.cpp
 SERVER_OBJ = $(SERVER_SRC:.cpp=.o)
