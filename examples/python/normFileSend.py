@@ -48,11 +48,11 @@ def main(argv):
 
     try:
         for event in instance:
-            if event == 'NORM_TX_FLUSH_COMPLETED':
+            print(event)
+            if str(event) == 'NORM_TX_FLUSH_COMPLETED':
                 print('Flush completed, exiting.')
                 return 0
-            else:
-                print(event)
+                
     except KeyboardInterrupt:
         pass
 
