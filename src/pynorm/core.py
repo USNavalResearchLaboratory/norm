@@ -143,8 +143,8 @@ def get_libnorm():
     libnorm.NormChangeDestination.errcheck = errcheck_bool
 
     libnorm.NormSetRxPortReuse.restype = None
-    libnorm.NormSetRxPortReuse.argtypes = [ctypes.c_void_p, ctypes.c_bool,
-            ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint16]
+    libnorm.NormSetRxPortReuse.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_char_p, 
+                                           ctypes.c_char_p, ctypes.c_uint16]
 
     libnorm.NormGetRxPort.restype = ctypes.c_uint16
     libnorm.NormGetRxPort.argtypes = [ctypes.c_void_p]

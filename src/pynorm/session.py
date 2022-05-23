@@ -45,8 +45,8 @@ class Session(object):
     def setTxPort(self, port):
         libnorm.NormSetTxPort(self, port)
 
-    def setRxPortReuse(self, enable, bindToSessionAddr=True):
-        libnorm.NormSetRxPortReuse(self, enable, bindToSessionAddr)
+    def setRxPortReuse(self, enable, rxBindAddr=None, senderAddr=None, senderPort=0)
+        libnorm.NormSetRxPortReuse(self, enable, rxBindAddr.encode('utf-8'), senderAddr.encode('utf-8'), senderPort)
 
     def setMulticastInterface(self, iface):
         libnorm.NormSetMulticastInterface(self, iface.encode('utf-8'))
