@@ -33,11 +33,11 @@ class Object(object):
         if length == 0:
             raise NormError("No object info received yet.")
 
-        buffer = ctypes.create_string_buffer(length)
-        recv = libnorm.NormObjectGetInfo(self, buffer, length)
+        buf = ctypes.create_string_buffer(length)
+        recv = libnorm.NormObjectGetInfo(self, buf, length)
         if recv == 0:
             raise NormError("No object info received yet.")
-        return buffer.value
+        return buf.value
 
     def getSize(self):
         return libnorm.NormObjectGetSize(self)
@@ -49,12 +49,12 @@ class Object(object):
         libnorm.NormObjectCancel(self)
 
     def getFileName(self):
-        buffer = ctypes.create_string_buffer(100)
-        libnorm.NormFileGetName(self, buffer, ctypes.sizeof(buffer))
-        return buffer.value
+        buf = ctypes.create_string_buffer(100)
+        libnorm.NormFileGetName(self, buf, ctypes.sizeof(buf))
+        return buf.value
 
     def renameFile(self, name):
-        libnorm.NormFileRename(self, name)
+        libnorm.NormFileRename(self, name.encode('utf-8'))
 
     # Because 'ctypes.string_at()' makes a _copy_ of the data, we don't
     # support the usual NORM accessData / detachData options.  We use
@@ -80,7 +80,7 @@ class Object(object):
         libnorm.NormStreamClose(self, graceful)
 
     def streamWrite(self, msg):
-        return libnorm.NormStreamWrite(self, msg, len(msg))
+        return libnorm.NormStreamWrite(self, msg.encode('utf-8'), len(msg))
 
     def streamFlush(self, eom=False, flushmode=c.NORM_FLUSH_PASSIVE):
         libnorm.NormStreamFlush(self, eom, flushmode)
@@ -99,10 +99,10 @@ class Object(object):
 
     ## Stream receiving functions
     def streamRead(self, size):
-        buffer = ctypes.create_string_buffer(size)
-        numBytes = ctypes.c_uint(ctypes.sizeof(buffer))
-        libnorm.NormStreamRead(self, buffer, ctypes.byref(numBytes))
-        return (numBytes, buffer.value)
+        buf = ctypes.create_string_buffer(size)
+        numBytes = ctypes.c_uint(ctypes.sizeof(buf))
+        libnorm.NormStreamRead(self, buf, ctypes.byref(numBytes))
+        return (numBytes, buf.value)
 
     def streamSeekMsgStart(self):
         return libnorm.NormStreamSeekMsgStart(self)

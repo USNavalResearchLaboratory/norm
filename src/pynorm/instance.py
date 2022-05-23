@@ -48,19 +48,19 @@ class Instance(object):
         libnorm.NormRestartInstance(self)
 
     def setCacheDirectory(self, path):
-        libnorm.NormSetCacheDirectory(self, path)
+        libnorm.NormSetCacheDirectory(self, path.encode('utf-8'))
         
     def setDebugLevel(self, level):
         libnorm.NormSetDebugLevel(level)
 
     def openDebugLog(self, path):
-        libnorm.NormOpenDebugLog(self, path)
+        libnorm.NormOpenDebugLog(self, path.encode('utf-8'))
 
     def closeDebugLog(self):
         libnorm.NormCloseDebugLog(self)
 
     def openDebugPipe(self, pipeName):
-        libnorm.NormOpenDebugPipe(self, pipeName)
+        libnorm.NormOpenDebugPipe(self, pipeName.encode('utf-8'))
 
     def getNextEvent(self, timeout=None):
         # Use python's select because letting the C NormGetNextEvent block

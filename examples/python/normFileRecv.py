@@ -28,7 +28,7 @@ def main(argv):
     (opts, args) = get_option_parser().parse_args(argv)
 
     if len(args) != 2:
-        print get_option_parser().get_usage()
+        print(get_option_parser().get_usage())
         return 1
 
     path = os.path.abspath(args[1])
@@ -45,26 +45,26 @@ def main(argv):
         for event in instance:
             if event == 'NORM_RX_OBJECT_INFO':
                 event.object.filename = os.path.join(path, event.object.info)
-                print 'Downloading file %s' % event.object.filename
+                print('Downloading file %s' % event.object.filename)
 
             elif event == 'NORM_RX_OBJECT_UPDATED':
-                print 'File %s - %i bytes left to download' % (
-                        event.object.filename, event.object.bytesPending)
+                print('File %s - %i bytes left to download' % (
+                        event.object.filename, event.object.bytesPending))
 
             elif event == 'NORM_RX_OBJECT_COMPLETED':
-                print 'File %s completed' % event.object.filename
+                print('File %s completed' % event.object.filename)
                 return 0
 
             elif event == 'NORM_RX_OBJECT_ABORTED':
-                print 'File %s aborted' % event.object.filename
+                print('File %s aborted' % event.object.filename)
                 return 1
 
             else:
-                print event
+                print(event)
     except KeyboardInterrupt:
         pass
 
-    print 'Exiting.'
+    print('Exiting.')
     return 0
 
 if __name__ == '__main__':
