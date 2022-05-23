@@ -73,21 +73,23 @@ class Instance(object):
         if not result:
             sys.stderr.write("NormInstance.getNextEvent() warning: no more NORM events\n")
             return False
+            
         # Note a NORM_EVENT_INVALID can be OK (with NORM_SESSION_INVALID)    
         if self._estruct.type == c.NORM_EVENT_INVALID:
             return Event(c.NORM_EVENT_INVALID, None, None, None)
-        
+            
         if self._estruct.session == c.NORM_SESSION_INVALID:
             raise NormError("No new event")
+            
         try:
             sender = self._senders[self._estruct.sender]
         except KeyError:
             sender = self._senders[self._estruct.sender] = Node(self._estruct.sender)
         try:
-            object = self._objects[self._estruct.object]
+            obj = self._objects[self._estruct.object]
         except KeyError:
-            object = self._objects[self._estruct.object] = Object(self._estruct.object)
-        return Event(self._estruct.type, self._sessions[self._estruct.session], sender, object)
+            obj = self._objects[self._estruct.object] = Object(self._estruct.object)
+        return Event(self._estruct.type, self._sessions[self._estruct.session], sender, obj)
 
     def getDescriptor(self):
         return libnorm.NormGetDescriptor(self)
@@ -99,7 +101,7 @@ class Instance(object):
         if localId == None:
             localId = c.NORM_NODE_ANY
         session = Session(self, address, port, localId)
-        self._sessions[session] = session
+        self._sessions[session._session] = session
         return session
 
     ## Properties
@@ -130,12 +132,15 @@ class Instance(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         """So you can iterate over the events."""
         try:
           return self.getNextEvent()
         except NormError:
           raise StopIteration
+          
+    def next(self):
+        return __next__()
 
     def __cmp__(self, other):
         return cmp(self._as_parameter_, other._as_parameter)

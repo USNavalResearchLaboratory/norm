@@ -214,8 +214,8 @@ def get_libnorm():
 
     # Sender functions
     libnorm.NormStartSender.restype = ctypes.c_bool
-    libnorm.NormStartSender.argtypes = [ctypes.c_void_p, ctypes.c_uint16,
-            ctypes.c_uint32, ctypes.c_uint16, ctypes.c_ubyte, ctypes.c_ubyte]
+    libnorm.NormStartSender.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_uint32, ctypes.c_uint16, 
+                                        ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint8]
     libnorm.NormStartSender.errcheck = errcheck_bool
 
     libnorm.NormStopSender.restype = None

@@ -119,7 +119,7 @@ typedef enum NormSocketEventType
 } NormSocketEventType;
     
     
-// Right now, these options MUST be set after NormOpen() 
+// Right now, these options MUST be set _after_ NormOpen() 
 // but _before_ NormConnect() or NormListen()
 // (This will be expanded, perhaps to include parameters 
 //  that can be changed after connection setup)

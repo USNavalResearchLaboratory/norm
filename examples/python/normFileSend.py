@@ -10,7 +10,7 @@ from random import randint
 import pynorm
 
 USAGE = 'usage: %s [options] <file>' % sys.argv[0]
-DEFAULT_ADDR = '224.1.2.3'
+DEFAULT_ADDR = u'224.1.2.3'
 DEFAULT_PORT = 6003
 
 def get_option_parser():
@@ -29,7 +29,7 @@ def main(argv):
     (opts, args) = get_option_parser().parse_args(argv)
 
     if len(args) != 2:
-        print get_option_parser().get_usage()
+        print(get_option_parser().get_usage())
         return 1
 
     filepath = os.path.abspath(args[1])
@@ -40,23 +40,23 @@ def main(argv):
     session = instance.createSession(opts.address, opts.port)
     if opts.iface:
         session.setMulticastInterface(opts.iface)
-    session.setTxRate(256e10)
+    session.setTxRate(1.0e+06)
     session.startSender(randint(0, 1000), 1024**2, 1400, 64, 16)
 
-    print 'Sending file %s' % filename
+    print(('Sending file %s' % filename))
     session.fileEnqueue(filepath, filename)
 
     try:
         for event in instance:
             if event == 'NORM_TX_FLUSH_COMPLETED':
-                print 'Flush completed, exiting.'
+                print('Flush completed, exiting.')
                 return 0
             else:
-                print event
+                print(event)
     except KeyboardInterrupt:
         pass
 
-    print 'Exiting.'
+    print('Exiting.')
     return 0
 # end main
 

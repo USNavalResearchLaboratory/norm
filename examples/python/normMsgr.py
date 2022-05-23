@@ -14,7 +14,8 @@ class InputThread(Thread):
     
     def __init__(self, parent, *args, **kwargs):
         super(InputThread, self).__init__(*args, **kwargs)
-        self.setDaemon(True)  ;# this is "child" daemon thread
+        #self.setDaemon(True)  ;# this is "child" daemon thread  (setDaemon is deprecated)
+        self.daemon = True
         self.msgr = parent
         
     def run(self):
@@ -233,7 +234,8 @@ class NormEventHandler(Thread):
     
     def __init__(self, parentMsgr, *args, **kwargs):
         super(NormEventHandler, self).__init__(*args, **kwargs)
-        self.setDaemon(True)  ;# this is "child" daemon thread
+        #self.setDaemon(True)  ;# this is "child" daemon thread (setDaemon is deprecated)
+        self.daemon = True
         self.lock = Lock()
         self.msgr = parentMsgr
         

@@ -140,6 +140,7 @@ bool NormObject::Open(const NormObjectSize& objectSize,
     fec_block_mask = NormPayloadId::GetFecBlockMask(fecId, fecM);
     
     UINT32 blockIdMax = fec_block_mask;
+    
     if (IsStream()) blockIdMax = (blockIdMax / 2) - 1;
     if ((numBlocks.MSB() > 0) || (numBlocks.LSB() > blockIdMax))
     {

@@ -759,7 +759,7 @@ bool NormSession::StartSender(UINT16 instanceId,
                               UINT16 segmentSize,
                               UINT16 numData,
                               UINT16 numParity,
-                              UINT8 fecId)
+                              UINT8  fecId)
 {
     UINT16 blockSize = numData + numParity;
     if (blockSize <= 255)

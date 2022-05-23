@@ -23,7 +23,7 @@ class Session(object):
         localId - NormNodeId
         """
         self._instance = instance
-        self._session = libnorm.NormCreateSession(instance, address, port, localId)
+        self._session = libnorm.NormCreateSession(instance, address.encode('utf-8'), port, localId)
         self.sendGracefulStop = False
         self.gracePeriod = 0
 
@@ -33,10 +33,11 @@ class Session(object):
 
     def setUserData(self, data):
         """data should be a string"""
-        libnorm.NormSetUserData(self, data)
+        libnorm.NormSetUserData(self, data.encode('utf-8'))
 
     def getUserData(self):
-        return libnorm.NormGetUserData(self)
+        data = libnorm.NormGetUserData(self)
+        return data.decode('utf-8') if data else None
 
     def getNodeId(self):
         return libnorm.NormGetLocalNodeId(self)
@@ -48,10 +49,10 @@ class Session(object):
         libnorm.NormSetRxPortReuse(self, enable, bindToSessionAddr)
 
     def setMulticastInterface(self, iface):
-        libnorm.NormSetMulticastInterface(self, iface)
+        libnorm.NormSetMulticastInterface(self, iface.encode('utf-8'))
     
     def setSSM(self, srcAddr):
-        libnorm.NormSetSSM(self, srcAddr)
+        libnorm.NormSetSSM(self, srcAddr.encode('utf-8'))
         
     def setTTL(self, ttl):
         libnorm.NormSetTTL(self, ttl)
@@ -69,9 +70,8 @@ class Session(object):
         libnorm.NormSetReportInterval(self, interval)
 
     ## Sender functions
-    def startSender(self, sessionId, bufferSpace, segmentSize, blockSize, numParity):
-        libnorm.NormStartSender(self, sessionId, bufferSpace, segmentSize,
-                blockSize, numParity)
+    def startSender(self, sessionId, bufferSpace, segmentSize, blockSize, numParity, fecId=0):
+        libnorm.NormStartSender(self, sessionId, bufferSpace, segmentSize, blockSize, numParity, fecId)
 
     def stopSender(self):
         libnorm.NormStopSender(self)
@@ -122,19 +122,19 @@ class Session(object):
         libnorm.NormSetGroupSize(self, size)
 
     def fileEnqueue(self, filename, info=""):
-        return Object(libnorm.NormFileEnqueue(self, filename, info, len(info)))
+        return Object(libnorm.NormFileEnqueue(self, filename.encode('utf-8'), info.encode('utf-8'), len(info)))
 
     def dataEnqueue(self, data, info=""):
-        return Object(libnorm.NormDataEnqueue(self, data, len(data), info, len(info)))
+        return Object(libnorm.NormDataEnqueue(self, data.encode('utf-8'), len(data), info.encode('utf-8'), len(info)))
 
     def requeueObject(self, normObject):
         libnorm.NormRequeueObject(self, normObject)
 
     def streamOpen(self, bufferSize, info=""):
-        return Object(libnorm.NormStreamOpen(self, bufferSize, info, len(info)))
+        return Object(libnorm.NormStreamOpen(self, bufferSize, info.encode('utf-8'), len(info)))
 
     def sendCommand(self, cmdBuffer, robust=False):
-        return libnorm.NormSendCommand(self, cmdBuffer, len(cmdBuffer), robust)
+        return libnorm.NormSendCommand(self, cmdBuffer.encode('utf-8'), len(cmdBuffer), robust)
 	
     def cancelCommand(self):
         libnorm.NormCancelCommand(self)
@@ -161,9 +161,9 @@ class Session(object):
     def startReceiver(self, bufferSpace):
         libnorm.NormStartReceiver(self, bufferSpace)
 
-    def stopReceiver(self, gracePeriod=0):
+    def stopReceiver(self):
         """This will be called automatically if the receiver is active"""
-        libnorm.NormStopReceiver(self, gracePeriod)
+        libnorm.NormStopReceiver(self)
 
     def setRxCacheLimit(self, count):
         libnorm.NormSetRxCacheLimit(self, count)
@@ -199,8 +199,8 @@ class Session(object):
 
     ## Private functions
     def __del__(self):
-        self.stopReceiver(self.gracePeriod)
-        self.stopSender(self.sendGracefulStop)
+        self.stopReceiver()
+        self.stopSender()
         libnorm.NormDestroySession(self)
 
     @property

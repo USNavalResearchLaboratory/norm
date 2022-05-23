@@ -1975,7 +1975,7 @@ void NormSenderNode::Sync(NormObjectId objectId)
             }
             else if (objectId > firstPending)
             {
-               bool incrementResyncCount = false;  // may just be a squelch trim
+               bool incrementResyncCount = false;  // may just be a squelch trim 
                NormObject* obj;
                while ((obj = rx_table.Find(rx_table.RangeLo())) &&
                       (obj->GetId() < objectId)) 
