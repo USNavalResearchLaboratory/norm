@@ -293,7 +293,7 @@ bool NormCaster::Init()
 {
     if (!(post_processor = NormPostProcessor::Create()))
     {
-        fprintf(stderr, "normCast error: unable to create post processor\n");
+        fprintf(stderr, "normCastApp error: unable to create post processor\n");
         return false;
     }
     return true;
@@ -316,7 +316,7 @@ bool NormCaster::OpenNormSession(NormInstanceHandle instance, const char* addr, 
     norm_session = NormCreateSession(instance, addr, port, nodeId);
     if (NORM_SESSION_INVALID == norm_session)
     {
-        fprintf(stderr, "normCast error: unable to create NORM session\n");
+        fprintf(stderr, "normCastApp error: unable to create NORM session\n");
         return false;
     }
     
@@ -383,14 +383,14 @@ bool NormCaster::Start(bool sender, bool receiver)
     {
         if (!NormStartReceiver(norm_session, buffer_size))
         {
-            fprintf(stderr, "normCast error: unable to start NORM receiver\n");
+            fprintf(stderr, "normCastApp error: unable to start NORM receiver\n");
             return false;
         }
         // Note: NormPreallocateRemoteSender() MUST be called AFTER NormStartReceiver()
         //NormPreallocateRemoteSender(norm_session, buffer_size, segment_size, block_size, num_parity, buffer_size);
         if (0 != rx_socket_buffer_size)
             NormSetRxSocketBuffer(norm_session, rx_socket_buffer_size);
-        fprintf(stderr, "normCast: receiver ready ...\n");
+        fprintf(stderr, "normCastApp: receiver ready ...\n");
     }
     if (sender)
     {
@@ -412,7 +412,7 @@ bool NormCaster::Start(bool sender, bool receiver)
         NormSessionId instanceId = NormGetRandomSessionId();
         if (!NormStartSender(norm_session, instanceId, buffer_size, segment_size, block_size, num_parity))
         {
-            fprintf(stderr, "normCast error: unable to start NORM sender\n");
+            fprintf(stderr, "normCastApp error: unable to start NORM sender\n");
             if (receiver) NormStopReceiver(norm_session);
             return false;
         }
@@ -568,7 +568,7 @@ bool NormCaster::EnqueueFileObject()
     const char* namePtr = tx_pending_path + tx_pending_prefix_len;
     if (nameLen > segment_size)
     {
-        fprintf(stderr, "normCast error: transmit file path \"%s\"  exceeds NORM segment size limit!\n", namePtr);
+        fprintf(stderr, "normCastApp error: transmit file path \"%s\"  exceeds NORM segment size limit!\n", namePtr);
         nameLen = segment_size;
         // TBD - refactor file name to preserve extension?
     }
@@ -592,7 +592,7 @@ bool NormCaster::EnqueueFileObject()
         norm_tx_vacancy = false;     
         return false;
     }
-    fprintf(stderr, "normCast: enqueued \"%s\" for transmission ...\n", namePtr);
+    fprintf(stderr, "normCastApp: enqueued \"%s\" for transmission ...\n", namePtr);
     if (norm_acking)
     {
         // ack-based flow control has been enabled 
@@ -634,7 +634,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
     {
         case NORM_TX_QUEUE_EMPTY:
         case NORM_TX_QUEUE_VACANCY:
-            //fprintf(stderr, "normCast: NORM_TX_QUEUE EMPTY/VACANCY\n");
+            //fprintf(stderr, "normCastApp: NORM_TX_QUEUE EMPTY/VACANCY\n");
             norm_tx_vacancy = true;
             if (TxFilePending()) SendFiles();
             break;
@@ -647,7 +647,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
         {
             if (NORM_ACK_SUCCESS == NormGetAckingStatus(norm_session))
             {
-                fprintf(stderr, "normCast: NORM_TX_WATERMARK_COMPLETED, NORM_ACK_SUCCESS\n");
+                fprintf(stderr, "normCastApp: NORM_TX_WATERMARK_COMPLETED, NORM_ACK_SUCCESS\n");
                 // All receivers acknowledged.
                 norm_last_object = NORM_OBJECT_INVALID;
                 bool txFilePending = TxFilePending();  // need to check this _before_ possible call to SendFiles()
@@ -667,13 +667,13 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                 if (!txFilePending)
                 {
                     // No more files to send and all have been acknowledged
-                    fprintf(stderr, "normCast: final file acknowledged, exiting ...\n");
+                    fprintf(stderr, "normCastApp: final file acknowledged, exiting ...\n");
                     is_running = false;
                 }
             }
             else
             {
-                fprintf(stderr, "normCast: NORM_TX_WATERMARK_COMPLETED, _NOT_ NORM_ACK_SUCCESS\n");
+                fprintf(stderr, "normCastApp: NORM_TX_WATERMARK_COMPLETED, _NOT_ NORM_ACK_SUCCESS\n");
                 // In multicast, there is a chance some nodes ACK ...
                 // so let's see who did, if any.
                 // This iterates through the acking nodes looking for responses
@@ -686,10 +686,10 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                     ProtoAddress addr;
                     addr.SetRawHostAddress(ProtoAddress::IPv4, (char*)&tmp, 4);
                     if (NORM_ACK_SUCCESS != ackingStatus)
-                        fprintf(stderr, "normCast: node %lu (IP address: %s) failed to acnkowledge.\n",
+                        fprintf(stderr, "normCastApp: node %lu (IP address: %s) failed to acnkowledge.\n",
                                         (unsigned long)nodeId, addr.GetHostString());
                     else
-                        fprintf(stderr, "normCast: node %lu (IP address: %s) acknowledged.\n",
+                        fprintf(stderr, "normCastApp: node %lu (IP address: %s) acknowledged.\n",
                                         (unsigned long)nodeId, addr.GetHostString());
                 }
                 // TBD - we could eventually time out and remove nodes that fail to ack
@@ -711,11 +711,11 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
 
         case NORM_TX_FLUSH_COMPLETED:
         {
-            fprintf(stderr, "normCast: NORM_TX_FLUSH_COMPLETED\n");
+            fprintf(stderr, "normCastApp: NORM_TX_FLUSH_COMPLETED\n");
             if (!TxFilePending() && (repeat_interval < 0.0)&& !norm_acking)
             {
                 // No more files to send, and not ack or repeat mode
-                fprintf(stderr, "normCast: flush after final file send, exiting ...\n");
+                fprintf(stderr, "normCastApp: flush after final file send, exiting ...\n");
                 is_running = false;
             }
             break;
@@ -727,13 +727,13 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                 norm_flush_object = NORM_OBJECT_INVALID;
             if (NORM_OBJECT_FILE != NormObjectGetType(event.object))
             {
-                fprintf(stderr, "normCast: purged invalid object type?!\n");
+                fprintf(stderr, "normCastApp: purged invalid object type?!\n");
                 break;
             }
             char fileName[PATH_MAX + 1];
             fileName[PATH_MAX] = '\0';
             NormFileGetName(event.object, fileName, PATH_MAX);
-            fprintf(stderr, "normCast: send file purged: \"%s\"\n", fileName);
+            fprintf(stderr, "normCastApp: send file purged: \"%s\"\n", fileName);
             // This is where we could delete the associated tx file if desired
             // (e.g., for an "outbox" use case)
             break;
@@ -743,13 +743,13 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
         {
             if (NORM_OBJECT_FILE != NormObjectGetType(event.object))
             {
-                fprintf(stderr, "normCast: sent invalid object type?!\n");
+                fprintf(stderr, "normCastApp: sent invalid object type?!\n");
                 break;
             }
             char fileName[PATH_MAX + 1];
             fileName[PATH_MAX] = '\0';
             NormFileGetName(event.object, fileName, PATH_MAX);
-            fprintf(stderr, "normCast: initial send complete for \"%s\"\n", fileName);
+            fprintf(stderr, "normCastApp: initial send complete for \"%s\"\n", fileName);
             break;
         }
         
@@ -759,7 +759,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             UINT32 tmp = htonl(id);
             ProtoAddress addr;
             addr.SetRawHostAddress(ProtoAddress::IPv4, (char*)&tmp, 4);
-            fprintf(stderr, "normCast: new acking node: %lu (IP address: %s)\n", (unsigned long)id, addr.GetHostString());
+            fprintf(stderr, "normCastApp: new acking node: %lu (IP address: %s)\n", (unsigned long)id, addr.GetHostString());
             // This next line of code updates the current watermark request (if there is one) so the new acking node is included 
             NormResetWatermark(norm_session);
         }
@@ -774,25 +774,25 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             //fprintf(stderr, "NORM_RX_OBJECT_ABORTED\n");// %hu\n", NormObjectGetTransportId(event.object));
             if (NORM_OBJECT_FILE != NormObjectGetType(event.object))
             {
-                fprintf(stderr, "normCast: received invalid object type?!\n");
+                fprintf(stderr, "normCastApp: received invalid object type?!\n");
                 break;
             }
             char fileName[PATH_MAX + 1];
             fileName[PATH_MAX] = '\0';
             NormFileGetName(event.object, fileName, PATH_MAX);
-            fprintf(stderr, "normCast: aborted reception of \"%s\"\n", fileName);
+            fprintf(stderr, "normCastApp: aborted reception of \"%s\"\n", fileName);
             if (save_aborted_files)
             {
                 if (post_processor->IsEnabled())
                 {
                     if (!post_processor->ProcessFile(fileName))
-                        fprintf(stderr, "normCast: post processing error\n");
+                        fprintf(stderr, "normCastApp: post processing error\n");
                 }
             }
             else
             {
                 if (remove(fileName) != 0)
-                    fprintf(stderr, "normCast: error deleting aborted file \"%s\"\n", fileName);
+                    fprintf(stderr, "normCastApp: error deleting aborted file \"%s\"\n", fileName);
             }
             break;
         }
@@ -802,7 +802,7 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             // We use the NORM_INFO to contain the transferred file name
             if (NORM_OBJECT_FILE != NormObjectGetType(event.object))
             {
-                fprintf(stderr, "normCast: received invalid object type?!\n");
+                fprintf(stderr, "normCastApp: received invalid object type?!\n");
                 break;
             }
             // Rename rx file using newly received info
@@ -822,24 +822,24 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
                     fileName[i] = PROTO_PATH_DELIMITER;
             }
             if (!NormFileRename(event.object, fileName))
-                perror("normCast: rx file rename error");
+                perror("normCastApp: rx file rename error");
             break;
         }   
         case NORM_RX_OBJECT_COMPLETED:
         {  
             if (NORM_OBJECT_FILE != NormObjectGetType(event.object))
             {
-                fprintf(stderr, "normCast: received invalid object type?!\n");
+                fprintf(stderr, "normCastApp: received invalid object type?!\n");
                 break;
             }
             char fileName[PATH_MAX + 1];
             fileName[PATH_MAX] = '\0';
             NormFileGetName(event.object, fileName, PATH_MAX);
-            fprintf(stderr, "normCast: completed reception of \"%s\"\n", fileName);
+            fprintf(stderr, "normCastApp: completed reception of \"%s\"\n", fileName);
             if (post_processor->IsEnabled())
             {
                 if (!post_processor->ProcessFile(fileName))
-                    fprintf(stderr, "normCast: post processing error\n");
+                    fprintf(stderr, "normCastApp: post processing error\n");
             }
            break;
         }
@@ -939,17 +939,18 @@ NormCastApp::~NormCastApp()
 
 void NormCastApp::Usage()
 {
-    fprintf(stderr, "Usage: normCast {send <file/dir list> &| recv <rxCacheDir>}\n"
-                    "                [repeat <interval> [updatesOnly]] [id <nodeIdInteger>]\n"
-                    "                [addr <addr>[/<port>]] [interface <name>] [loopback]\n"
-                    "                [ack auto|<node1>[,<node2>,...]] [segment <bytes>]\n"
-                    "                [block <count>] [parity <count>] [auto <count>]\n"
-                    "                [cc|cce|ccl|rate <bitsPerSecond>] [rxloss <lossFraction>]\n"
-                    "                [flush {none|passive|active}] [silent] [txloss <lossFraction>]\n"
-                    "                [grttprobing {none|passive|active}] [grtt <secs>]\n"
-                    "                [ptos <value>] [processor <processorCmdLine>] [saveaborts]\n"
-                    "                [buffer <bytes>] [txsockbuffer <bytes>] [rxsockbuffer <bytes>]\n"
-                    "                [debug <level>] [trace] [log <logfile>] [instance <name>]\n");
+    fprintf(stderr, "Usage: normCastApp {send <file/dir list> &| recv <rxCacheDir>} [silent {on|off}]\n"
+                    "                   [repeat <interval> [updatesOnly]] [id <nodeIdInteger>]\n"
+                    "                   [addr <addr>[/<port>]] [interface <name>] [loopback]\n"
+                    "                   [ack auto|<node1>[,<node2>,...]] [segment <bytes>]\n"
+                    "                   [block <count>] [parity <count>] [auto <count>]\n"
+                    "                   [cc|cce|ccl|rate <bitsPerSecond>] [rxloss <lossFraction>]\n"
+                    "                   [txloss <lossFraction>] [flush {none|passive|active}]\n"
+                    "                   [grttprobing {none|passive|active}] [grtt <secs>]\n"
+                    "                   [ptos <value>] [processor <processorCmdLine>] [saveaborts]\n"
+                    "                   [buffer <bytes>] [txsockbuffer <bytes>]\n"
+                    "                   [rxsockbuffer <bytes>] [instance <name>]\n"
+                    "                   [debug <level>] [trace] [log <logfile>]\n");
 }  // end NormCastApp::Usage()
 
 void NormCastApp::OnShutdown()
@@ -981,7 +982,7 @@ bool NormCastApp::OnStartup(int argc, const char*const* argv)
 
     if (!send && !recv)
     {
-        fprintf(stderr, "normCast error: not configured to send or recv!\n");
+        fprintf(stderr, "normCastApp error: not configured to send or recv!\n");
         OnShutdown();
         Usage();
         return false;
@@ -999,16 +1000,16 @@ bool NormCastApp::OnStartup(int argc, const char*const* argv)
             char idText[128];
             sprintf(idText, "-%u", nodeId);
             strncat(control_pipe_name, idText, 127-8);
-	}
+        }
     }
     if (!control_pipe.Listen(control_pipe_name))
     {
-        fprintf(stderr, "normCast error: unable to open control pipe '%s'\n", control_pipe_name);
+        fprintf(stderr, "normCastApp error: unable to open control pipe '%s'\n", control_pipe_name);
         OnShutdown();
         Usage();
         return false;
     }
-    else fprintf(stderr, "normCast: control pipe '%s' open\n", control_pipe_name);
+    else fprintf(stderr, "normCastApp: control pipe '%s' open\n", control_pipe_name);
 
     // TBD - should provide more error checking of calls
     normInstance = NormCreateInstance();
@@ -1023,7 +1024,7 @@ bool NormCastApp::OnStartup(int argc, const char*const* argv)
         
     if (!normCast.OpenNormSession(normInstance, sessionAddr, sessionPort, (NormNodeId)nodeId))
     {
-        fprintf(stderr, "normCast error: unable to open NORM session\n");
+        fprintf(stderr, "normCastApp error: unable to open NORM session\n");
         NormDestroyInstance(normInstance);
         normInstance = NORM_INSTANCE_INVALID;
         return false;
@@ -1037,7 +1038,7 @@ bool NormCastApp::OnStartup(int argc, const char*const* argv)
         UINT32 tmp = htonl(nodeId);
         ProtoAddress addr;
         addr.SetRawHostAddress(ProtoAddress::IPv4, (char*)&tmp, 4);
-        fprintf(stderr, "normCast: auto assigned NormNodeId: %lu (IP address: %s)\n",
+        fprintf(stderr, "normCastApp: auto assigned NormNodeId: %lu (IP address: %s)\n",
                 (unsigned long)nodeId, addr.GetHostString());
     }
     
@@ -1095,7 +1096,7 @@ void NormCastApp::OnNormNotification(ProtoChannel & theChannel, ProtoChannel::No
     normCast.HandleTimeout();  // checks for and acts on any pending timeout
     if (!normCast.IsRunning())
     {
-        fprintf(stderr, "normCast: done.\n");
+        fprintf(stderr, "normCastApp: done.\n");
         OnShutdown();
     }
 }
@@ -1111,7 +1112,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'send' file/dir argument ...\n");
+                fprintf(stderr, "normCastApp error: missing 'send' file/dir argument ...\n");
                 Usage();
                 return false;
             }
@@ -1123,7 +1124,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
                 // TBD - validate using ProtoFile::Exists() ???
                 if (!normCast.AddTxItem(path))
                 {
-                    perror("normCast: 'send' error");
+                    perror("normCastApp: 'send' error");
                     Usage();
                     return false;
                 }
@@ -1134,13 +1135,13 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'repeat' <interval> value!\n");
+                fprintf(stderr, "normCastApp error: missing 'repeat' <interval> value!\n");
                 Usage();
                 return false;
             }
             if (1 != sscanf(argv[i++], "%lf", &repeatInterval))
             {
-                fprintf(stderr, "normCast error: invalid repeat interval!\n");
+                fprintf(stderr, "normCastApp error: invalid repeat interval!\n");
                 Usage();
                 return false;
             }        
@@ -1153,14 +1154,14 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'recv' <rxDir) argument ...\n");
+                fprintf(stderr, "normCastApp error: missing 'recv' <rxDir) argument ...\n");
                 Usage();
                 return false;
             }
             const char* ptr = argv[i++];
             if (!ProtoFile::IsWritable(ptr))
             {
-                fprintf(stderr, "normCast 'recv' error: invalid <rxDirc>!\n");
+                fprintf(stderr, "normCastApp 'recv' error: invalid <rxDirc>!\n");
                 Usage();
                 return false;
             }    
@@ -1175,7 +1176,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'ptos' value!\n");
+                fprintf(stderr, "normCastApp error: missing 'ptos' value!\n");
                 Usage();
                 return false;
             }
@@ -1185,7 +1186,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
                 result = sscanf(argv[i], "%x", &tos);
             if ((1 != result) || (tos < 0) || (tos > 255))
             {
-                fprintf(stderr, "normCast error: invalid 'ptos' value!\n");
+                fprintf(stderr, "normCastApp error: invalid 'ptos' value!\n");
                 Usage();
                 return false;
             }
@@ -1196,7 +1197,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'addr[/port]' value!\n");
+                fprintf(stderr, "normCastApp error: missing 'addr[/port]' value!\n");
                 Usage();
                 return false;
             }
@@ -1221,7 +1222,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'id' value!\n");
+                fprintf(stderr, "normCastApp error: missing 'id' value!\n");
                 Usage();
                 return false;
             }
@@ -1232,7 +1233,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
             // comma-delimited acking node id list
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'id' <nodeId> value!\n");
+                fprintf(stderr, "normCastApp error: missing 'id' <nodeId> value!\n");
                 Usage();
                 return false;
             }
@@ -1250,7 +1251,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
                     int id;
                     if (1 != sscanf(alist, "%d", &id))
                     {
-                        fprintf(stderr, "normCast error: invalid acking node list!\n");
+                        fprintf(stderr, "normCastApp error: invalid acking node list!\n");
                         Usage();
                         return false;
                     }
@@ -1266,7 +1267,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
             // "none", "passive", or "active"
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'flush' <mode>!\n");
+                fprintf(stderr, "normCastApp error: missing 'flush' <mode>!\n");
                 Usage();
                 return false;
             }
@@ -1285,7 +1286,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
             }
             else
             {
-                fprintf(stderr, "normCast error: invalid 'flush' mode \"%s\"\n", mode);
+                fprintf(stderr, "normCastApp error: invalid 'flush' mode \"%s\"\n", mode);
                 return false;
             }   
         }
@@ -1293,13 +1294,13 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'rate' <bitsPerSecond> value!\n");
+                fprintf(stderr, "normCastApp error: missing 'rate' <bitsPerSecond> value!\n");
                 Usage();
                 return false;
             }
             if (1 != sscanf(argv[i++], "%lf", &txRate))
             {
-                fprintf(stderr, "normCast error: invalid transmit rate!\n");
+                fprintf(stderr, "normCastApp error: invalid transmit rate!\n");
                 Usage();
                 return false;
             }       
@@ -1322,7 +1323,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'interface' <name>!\n");
+                fprintf(stderr, "normCastApp error: missing 'interface' <name>!\n");
                 Usage();
                 return false;
             }
@@ -1333,13 +1334,13 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
             unsigned long value = 0 ;
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'buffer' size!\n");
+                fprintf(stderr, "normCastApp error: missing 'buffer' size!\n");
                 Usage();
                 return false;
             }
             if (1 != sscanf(argv[i++], "%lu", &value))
             {
-                fprintf(stderr, "normCast error: invalid 'buffer' size!\n");
+                fprintf(stderr, "normCastApp error: invalid 'buffer' size!\n");
                 Usage();
                 return false;
             }
@@ -1350,13 +1351,13 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
             unsigned long value = 0 ;
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'txsockbuffer' size!\n");
+                fprintf(stderr, "normCastApp error: missing 'txsockbuffer' size!\n");
                 Usage();
                 return false;
             }
             if (1 != sscanf(argv[i++], "%lu", &value))
             {
-                fprintf(stderr, "normCast error: invalid 'txsockbuffer' size!\n");
+                fprintf(stderr, "normCastApp error: invalid 'txsockbuffer' size!\n");
                 Usage();
                 return false;
             }
@@ -1367,13 +1368,13 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
             unsigned long value = 0 ;
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'rxsockbuffer' size!\n");
+                fprintf(stderr, "normCastApp error: missing 'rxsockbuffer' size!\n");
                 Usage();
                 return false;
             }
             if (1 != sscanf(argv[i++], "%lu", &value))
             {
-                fprintf(stderr, "normCast error: invalid 'rxsockbuffer' size!\n");
+                fprintf(stderr, "normCastApp error: invalid 'rxsockbuffer' size!\n");
                 Usage();
                 return false;
             }
@@ -1383,14 +1384,14 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'segment' size!\n");
+                fprintf(stderr, "normCastApp error: missing 'segment' size!\n");
                 Usage();
                 return false;
             }
             unsigned short value;
             if (1 != sscanf(argv[i++], "%hu", &value))
             {
-                fprintf(stderr, "normCast error: invalid 'segment' size!\n");
+                fprintf(stderr, "normCastApp error: invalid 'segment' size!\n");
                 Usage();
                 return false;
             }
@@ -1400,14 +1401,14 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'block' size!\n");
+                fprintf(stderr, "normCastApp error: missing 'block' size!\n");
                 Usage();
                 return false;
             }
             unsigned short value;
             if (1 != sscanf(argv[i++], "%hu", &value))
             {
-                fprintf(stderr, "normCast error: invalid 'block' size!\n");
+                fprintf(stderr, "normCastApp error: invalid 'block' size!\n");
                 Usage();
                 return false;
             }
@@ -1417,14 +1418,14 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'parity' count!\n");
+                fprintf(stderr, "normCastApp error: missing 'parity' count!\n");
                 Usage();
                 return false;
             }
             unsigned short value;
             if (1 != sscanf(argv[i++], "%hu", &value))
             {
-                fprintf(stderr, "normCast error: invalid 'parity' count!\n");
+                fprintf(stderr, "normCastApp error: invalid 'parity' count!\n");
                 Usage();
                 return false;
             }
@@ -1434,14 +1435,14 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'auto' parity count!\n");
+                fprintf(stderr, "normCastApp error: missing 'auto' parity count!\n");
                 Usage();
                 return false;
             }
             unsigned short value;
             if (1 != sscanf(argv[i++], "%hu", &value))
             {
-                fprintf(stderr, "normCast error: invalid 'auto' parity count!\n");
+                fprintf(stderr, "normCastApp error: invalid 'auto' parity count!\n");
                 Usage();
                 return false;
             }
@@ -1449,13 +1450,34 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         }
         else if (0 == strncmp(cmd, "silent", len))
         {
-            silentReceiver = true;
+            // "on", or "off"
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCastApp error: missing 'silent' <mode>!\n");
+                Usage();
+                return false;
+            }
+            const char* mode = argv[i++];
+            if (0 == strcmp(mode, "on"))
+            {
+                silentReceiver = true;
+            }
+            else if (0 == strcmp(mode, "off"))
+            {
+                silentReceiver = false;
+            }
+            else
+            {
+                fprintf(stderr, "normCastApp error: invalid 'silent' mode \"%s\"\n", mode);
+                Usage();
+                return false;
+            }
         }
         else if (0 == strncmp(cmd, "txloss", len))
         {
             if (1 != sscanf(argv[i++], "%lf", &txloss))
             {
-                fprintf(stderr, "normCast error: invalid 'txloss' value!\n");
+                fprintf(stderr, "normCastApp error: invalid 'txloss' value!\n");
                 Usage();
                 return false;
             }
@@ -1464,7 +1486,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (1 != sscanf(argv[i++], "%lf", &rxloss))
             {
-                fprintf(stderr, "normCast error: invalid 'rxloss' value!\n");
+                fprintf(stderr, "normCastApp error: invalid 'rxloss' value!\n");
                 Usage();
                 return false;
             }
@@ -1473,7 +1495,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (1 != sscanf(argv[i++], "%lf", &grtt_estimate))
             {
-                fprintf(stderr, "normCast error: invalid 'grtt' value!\n");
+                fprintf(stderr, "normCastApp error: invalid 'grtt' value!\n");
                 Usage();
                 return false;
             }
@@ -1483,7 +1505,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
             // "none", "passive", or "active"
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'grttprobing' <mode>!\n");
+                fprintf(stderr, "normCastApp error: missing 'grttprobing' <mode>!\n");
                 Usage();
                 return false;
             }
@@ -1502,7 +1524,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
             }
             else
             {
-                fprintf(stderr, "normCast error: invalid 'grttprobing' mode \"%s\"\n", pmode);
+                fprintf(stderr, "normCastApp error: invalid 'grttprobing' mode \"%s\"\n", pmode);
                 return false;
             }
             normCast.SetProbeMode(grtt_probing_mode);
@@ -1511,7 +1533,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'debug' <level>!\n");
+                fprintf(stderr, "normCastApp error: missing 'debug' <level>!\n");
                 Usage();
                 return false;
             }
@@ -1521,7 +1543,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'log' <fileName>!\n");
+                fprintf(stderr, "normCastApp error: missing 'log' <fileName>!\n");
                 Usage();
                 return false;
             }
@@ -1540,13 +1562,13 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'processor' commandline!\n");
+                fprintf(stderr, "normCastApp error: missing 'processor' commandline!\n");
                 Usage();
                 return false;
             }
             if (!normCast.SetProcessorCommand(argv[i++]))
             {
-                fprintf(stderr, "normCast error: unable to set 'processor'!\n");
+                fprintf(stderr, "normCastApp error: unable to set 'processor'!\n");
                 Usage();
                 return false;
             }
@@ -1559,7 +1581,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         {
             if (i >= argc)
             {
-                fprintf(stderr, "normCast error: missing 'instance' name!\n");
+                fprintf(stderr, "normCastApp error: missing 'instance' name!\n");
                 Usage();
                 return false;
             }
@@ -1568,7 +1590,7 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
         }
         else
         {
-            fprintf(stderr, "normCast error: invalid command \"%s\"!\n", cmd);
+            fprintf(stderr, "normCastApp error: invalid command \"%s\"!\n", cmd);
             Usage();
             return false;
         }
@@ -1585,7 +1607,7 @@ void NormCastApp::OnControlMsg(ProtoSocket& thePipe, ProtoSocket::Event theEvent
         if (thePipe.Recv(buffer, len))
         {
             buffer[len] = '\0';
-            //if (len) fprintf(stderr, "normCast: handling protopipe message: %s\n", buffer);
+            //if (len) fprintf(stderr, "normCastApp: handling protopipe message: %s\n", buffer);
             char* cmd = buffer;
             char* arg = NULL;
             for (unsigned int i = 0; i < len; i++)
@@ -1602,7 +1624,7 @@ void NormCastApp::OnControlMsg(ProtoSocket& thePipe, ProtoSocket::Event theEvent
                 }
             }
             unsigned int cmdLen = strlen(cmd);
-            //unsigned int argLen = len - (arg - cmd);
+            unsigned int argLen = len - (arg - cmd);
             if (0 == strncmp(cmd, "send", cmdLen))
             {
                 if (arg)
@@ -1613,13 +1635,13 @@ void NormCastApp::OnControlMsg(ProtoSocket& thePipe, ProtoSocket::Event theEvent
                     while (NULL != (path = tk.GetNextItem()))
                     {
                         // TBD - validate using ProtoFile::Exists() ???
-                        if (!normCast.AddTxItem(path)) perror("normCast: 'send' error");
+                        if (!normCast.AddTxItem(path)) perror("normCastApp: 'send' error");
                     }
-                   send = true;
-                   normCast.StageNextTxFile();
-                   if (normCast.TxFilePending()) normCast.SendFiles();
+                    send = true;
+                    normCast.StageNextTxFile();
+                    if (normCast.TxFilePending()) normCast.SendFiles();
                 }
-                else fprintf(stderr, "normCast: command %s missing argument\n", cmd);
+                else fprintf(stderr, "normCastApp: command %s missing argument\n", cmd);
             }
             else if (0 == strncmp(cmd, "rate", cmdLen))
             {
@@ -1629,24 +1651,24 @@ void NormCastApp::OnControlMsg(ProtoSocket& thePipe, ProtoSocket::Event theEvent
                     if (1 == sscanf(arg, "%lf", &value))
                     {
                         txRate = value;
-                        fprintf(stderr, "normCast: setting rate to: %f\n", value);
+                        fprintf(stderr, "normCastApp: setting rate to: %f\n", value);
                         normCast.SetNormTxRate(txRate);
                         if (ccMode != NormCaster::NORM_FIXED)
                         {
-                            fprintf(stderr, "normCast: setting fixed rate mode\n");
+                            fprintf(stderr, "normCastApp: setting fixed rate mode\n");
                             ccMode = NormCaster::NORM_FIXED;
                             normCast.SetNormCongestionControl(ccMode);
                         }
                     }
-                    else fprintf(stderr, "normCast: invalid %s argument: %s\n", cmd, arg);
+                    else fprintf(stderr, "normCastApp: invalid %s argument: %s\n", cmd, arg);
                 }
-                else fprintf(stderr, "normCast: command %s missing argument\n", cmd);
+                else fprintf(stderr, "normCastApp: command %s missing argument\n", cmd);
             }
             else if (0 == strncmp(cmd, "cc", cmdLen))
             {
                 if (ccMode != NormCaster::NORM_CC)
                 {
-                    fprintf(stderr, "normCast: setting CC mode\n");
+                    fprintf(stderr, "normCastApp: setting CC mode\n");
                     ccMode = NormCaster::NORM_CC;
                     normCast.SetNormCongestionControl(ccMode);
                 }
@@ -1655,7 +1677,7 @@ void NormCastApp::OnControlMsg(ProtoSocket& thePipe, ProtoSocket::Event theEvent
             {
                 if (ccMode != NormCaster::NORM_CCE)
                 {
-                    fprintf(stderr, "normCast: setting CCE mode\n");
+                    fprintf(stderr, "normCastApp: setting CCE mode\n");
                     ccMode = NormCaster::NORM_CCE;
                     normCast.SetNormCongestionControl(ccMode);
                 }
@@ -1664,7 +1686,7 @@ void NormCastApp::OnControlMsg(ProtoSocket& thePipe, ProtoSocket::Event theEvent
             {
                 if (ccMode != NormCaster::NORM_CCL)
                 {
-                    fprintf(stderr, "normCast: setting CCL mode\n");
+                    fprintf(stderr, "normCastApp: setting CCL mode\n");
                     ccMode = NormCaster::NORM_CCL;
                     normCast.SetNormCongestionControl(ccMode);
                 }
@@ -1675,13 +1697,13 @@ void NormCastApp::OnControlMsg(ProtoSocket& thePipe, ProtoSocket::Event theEvent
                 {
                     unsigned short value;
                     if (1 == sscanf(arg, "%hu", &value))
-		    {
-                        fprintf(stderr, "normCast: setting autoparity to: %u\n", value);
-		        normCast.SetAutoParity(value);
+                    {
+                        fprintf(stderr, "normCastApp: setting autoparity to: %u\n", value);
+                        normCast.SetAutoParity(value);
                     }
-                    else fprintf(stderr, "normCast: invalid %s argument: %s\n", cmd, arg);
+                    else fprintf(stderr, "normCastApp: invalid %s argument: %s\n", cmd, arg);
                 }
-                else fprintf(stderr, "normCast: command %s missing argument\n", cmd);
+                else fprintf(stderr, "normCastApp: command %s missing argument\n", cmd);
             }
             else if (0 == strncmp(cmd, "txloss", cmdLen))
             {
@@ -1691,12 +1713,12 @@ void NormCastApp::OnControlMsg(ProtoSocket& thePipe, ProtoSocket::Event theEvent
                     if (1 == sscanf(arg, "%lf", &value))
                     {
                         txloss = value;
-                        fprintf(stderr, "normCast: setting txloss to: %f\n", value);
+                        fprintf(stderr, "normCastApp: setting txloss to: %f\n", value);
                         normCast.SetTxLoss(txloss);
                     }
-                    else fprintf(stderr, "normCast: invalid %s argument: %s\n", cmd, arg);
+                    else fprintf(stderr, "normCastApp: invalid %s argument: %s\n", cmd, arg);
                 }
-                else fprintf(stderr, "normCast: command %s missing argument\n", cmd);
+                else fprintf(stderr, "normCastApp: command %s missing argument\n", cmd);
             }
             else if (0 == strncmp(cmd, "rxloss", cmdLen))
             {
@@ -1706,12 +1728,12 @@ void NormCastApp::OnControlMsg(ProtoSocket& thePipe, ProtoSocket::Event theEvent
                     if (1 == sscanf(arg, "%lf", &value))
                     {
                         rxloss = value;
-                        fprintf(stderr, "normCast: setting rxloss to: %f\n", value);
+                        fprintf(stderr, "normCastApp: setting rxloss to: %f\n", value);
                         normCast.SetRxLoss(rxloss);
                     }
-                    else fprintf(stderr, "normCast: invalid %s argument: %s\n", cmd, arg);
+                    else fprintf(stderr, "normCastApp: invalid %s argument: %s\n", cmd, arg);
                 }
-                else fprintf(stderr, "normCast: command %s missing argument\n", cmd);
+                else fprintf(stderr, "normCastApp: command %s missing argument\n", cmd);
             }
             else if (0 == strncmp(cmd, "grtt", cmdLen))
             {
@@ -1721,16 +1743,42 @@ void NormCastApp::OnControlMsg(ProtoSocket& thePipe, ProtoSocket::Event theEvent
                     if (1 == sscanf(arg, "%lf", &value))
                     {
                         grtt_estimate = value;
-                        fprintf(stderr, "normCast: setting grtt estimate to: %f\n", value);
+                        fprintf(stderr, "normCastApp: setting grtt estimate to: %f\n", value);
                         normCast.SetGrttEstimate(grtt_estimate);
                     }
-                    else fprintf(stderr, "normCast: invalid %s argument: %s\n", cmd, arg);
+                    else fprintf(stderr, "normCastApp: invalid %s argument: %s\n", cmd, arg);
                 }
-                else fprintf(stderr, "normCast: command %s missing argument\n", cmd);
+                else fprintf(stderr, "normCastApp: command %s missing argument\n", cmd);
+            }
+            else if (0 == strncmp(cmd, "silent", cmdLen))
+            {
+                if (arg)
+                {
+                    if (0 == strncmp(arg, "on", argLen))
+                    {
+                        if (!silentReceiver)
+                        {
+                            silentReceiver = true;
+                            fprintf(stderr, "normCastApp: enabling silent receiver mode\n");
+                            normCast.SetSilentReceiver(silentReceiver);
+                        }
+                    }
+                    else if (0 == strncmp(arg, "off", argLen))
+                    {
+                        if (silentReceiver)
+                        {
+                            silentReceiver = false;
+                            fprintf(stderr, "normCastApp: disabling silent receiver mode\n");
+                            normCast.SetSilentReceiver(silentReceiver);
+                        }
+                    }
+                    else fprintf(stderr, "normCastApp: invalid %s argument: %s\n", cmd, arg);
+                }
+                else fprintf(stderr, "normCastApp: command %s missing argument\n", cmd);
             }
             else
             {
-                fprintf(stderr, "normCast: invalid message: %s\n", cmd);
+                fprintf(stderr, "normCastApp: invalid message: %s\n", cmd);
             }
         }
     }

@@ -153,7 +153,7 @@ class NormCaster
             auto_parity = autoParity;
             if (norm_session != NORM_SESSION_INVALID)
                 NormSetAutoParity(norm_session, auto_parity < num_parity ? auto_parity : num_parity);
-	}
+        }
         
         // Receiver methods
         void SetRxCacheDirectory(const char* path)
@@ -849,13 +849,13 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
 
 void Usage()
 {
-    fprintf(stderr, "Usage: normCast {send <file/dir list> &| recv <rxCacheDir>}\n"
+    fprintf(stderr, "Usage: normCast {send <file/dir list> &| recv <rxCacheDir>} [silent {on|off}]\n"
                     "                [repeat <interval> [updatesOnly]] [id <nodeIdInteger>]\n"
                     "                [addr <addr>[/<port>]] [interface <name>] [loopback]\n"
                     "                [ack auto|<node1>[,<node2>,...]] [segment <bytes>]\n"
                     "                [block <count>] [parity <count>] [auto <count>]\n"
                     "                [cc|cce|ccl|rate <bitsPerSecond>] [rxloss <lossFraction>]\n"
-                    "                [flush {none|passive|active}] [silent] [txloss <lossFraction>]\n"
+                    "                [txloss <lossFraction>] [flush {none|passive|active}]\n"
                     "                [grttprobing {none|passive|active}] [grtt <secs>]\n"
                     "                [ptos <value>] [processor <processorCmdLine>] [saveaborts]\n"
                     "                [buffer <bytes>] [txsockbuffer <bytes>] [rxsockbuffer <bytes>]\n"
@@ -1084,6 +1084,7 @@ int main(int argc, char* argv[])
             else
             {
                 fprintf(stderr, "normCast error: invalid 'flush' mode \"%s\"\n", mode);
+                Usage();
                 return -1;
             }   
         }
@@ -1247,7 +1248,28 @@ int main(int argc, char* argv[])
         }
         else if (0 == strncmp(cmd, "silent", len))
         {
-            silentReceiver = true;
+            // "on", or "off"
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'silent' <mode>!\n");
+                Usage();
+                return -1;
+            }
+            const char* mode = argv[i++];
+            if (0 == strcmp(mode, "on"))
+            {
+                silentReceiver = true;
+            }
+            else if (0 == strcmp(mode, "off"))
+            {
+                silentReceiver = false;
+            }
+            else
+            {
+                fprintf(stderr, "normCast error: invalid 'silent' mode \"%s\"\n", mode);
+                Usage();
+                return -1;
+            }
         }
         else if (0 == strncmp(cmd, "txloss", len))
         {
