@@ -175,8 +175,12 @@ class NormCaster
             {return rx_cache_path;}
         void SetRxSocketBufferSize(unsigned int value)
             {rx_socket_buffer_size = value;}
-        bool SetProcessorCommand(const char* cmd)
+        bool SetPostProcessorCommand(const char* cmd)
             {return post_processor->SetCommand(cmd);}
+        bool SetSentProcessorCommand(const char* cmd)
+            {return sent_processor->SetCommand(cmd);}
+        bool SetPurgedProcessorCommand(const char* cmd)
+            {return purged_processor->SetCommand(cmd);}
         void SaveAborts(bool save_aborts)
             {save_aborted_files = save_aborts;}
         
@@ -218,6 +222,8 @@ class NormCaster
         bool                                is_running;  
         NormSessionHandle                   norm_session;
         NormPostProcessor*                  post_processor;
+        NormPostProcessor*                  sent_processor;
+        NormPostProcessor*                  purged_processor;
         bool                                save_aborted_files;
         ProtoFile::PathList                 tx_file_list;
         ProtoFile::PathList::PathIterator   tx_file_iterator;
@@ -257,8 +263,8 @@ class NormCaster
 };  // end class NormCaster
 
 NormCaster::NormCaster()
- : norm_session(NORM_SESSION_INVALID), post_processor(NULL), save_aborted_files(false),
-   tx_file_iterator(tx_file_list), 
+ : norm_session(NORM_SESSION_INVALID), post_processor(NULL), sent_processor(NULL),
+   purged_processor(NULL), save_aborted_files(false), tx_file_iterator(tx_file_list), 
    tx_pending_prefix_len(0), repeat_interval(-1.0), timer_delay(-1.0),
    is_multicast(false), loopback(false), probe_tos(0), probe_mode(NORM_PROBE_ACTIVE),
    norm_tx_queue_max(8), norm_tx_queue_count(0), 
@@ -287,6 +293,16 @@ void NormCaster::Destroy()
         delete post_processor;
         post_processor = NULL;
     }
+    if (sent_processor)
+    {
+        delete sent_processor;
+        sent_processor = NULL;
+    }
+    if (purged_processor)
+    {
+        delete purged_processor;
+        purged_processor = NULL;
+    }
 }
 
 bool NormCaster::Init()
@@ -294,6 +310,16 @@ bool NormCaster::Init()
     if (!(post_processor = NormPostProcessor::Create()))
     {
         fprintf(stderr, "normCastApp error: unable to create post processor\n");
+        return false;
+    }
+    if (!(sent_processor = NormPostProcessor::Create()))
+    {
+        fprintf(stderr, "normCastApp error: unable to create sent processor\n");
+        return false;
+    }
+    if (!(purged_processor = NormPostProcessor::Create()))
+    {
+        fprintf(stderr, "normCastApp error: unable to create purged processor\n");
         return false;
     }
     return true;
@@ -736,6 +762,11 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             fprintf(stderr, "normCastApp: send file purged: \"%s\"\n", fileName);
             // This is where we could delete the associated tx file if desired
             // (e.g., for an "outbox" use case)
+            if (purged_processor->IsEnabled())
+            {
+                if (!purged_processor->ProcessFile(fileName))
+                    fprintf(stderr, "normCastApp: purged processing error\n");
+            }
             break;
         }   
         
@@ -750,6 +781,11 @@ void NormCaster::HandleNormEvent(const NormEvent& event)
             fileName[PATH_MAX] = '\0';
             NormFileGetName(event.object, fileName, PATH_MAX);
             fprintf(stderr, "normCastApp: initial send complete for \"%s\"\n", fileName);
+            if (sent_processor->IsEnabled())
+            {
+                if (!sent_processor->ProcessFile(fileName))
+                    fprintf(stderr, "normCastApp: sent processing error\n");
+            }
             break;
         }
         
@@ -948,9 +984,10 @@ void NormCastApp::Usage()
                     "                   [txloss <lossFraction>] [flush {none|passive|active}]\n"
                     "                   [grttprobing {none|passive|active}] [grtt <secs>]\n"
                     "                   [ptos <value>] [processor <processorCmdLine>] [saveaborts]\n"
-                    "                   [buffer <bytes>] [txsockbuffer <bytes>]\n"
-                    "                   [rxsockbuffer <bytes>] [instance <name>]\n"
-                    "                   [debug <level>] [trace] [log <logfile>]\n");
+                    "                   [sentprocessor <processorCmdLine>]\n"
+                    "                   [purgeprocessor <processorCmdLine>] [buffer <bytes>]\n"
+                    "                   [txsockbuffer <bytes>] [rxsockbuffer <bytes>]\n"
+                    "                   [instance <name>] [debug <level>] [trace] [log <logfile>]\n");
 }  // end NormCastApp::Usage()
 
 void NormCastApp::OnShutdown()
@@ -1566,9 +1603,39 @@ bool NormCastApp::ProcessCommands(int argc, const char*const* argv)
                 Usage();
                 return false;
             }
-            if (!normCast.SetProcessorCommand(argv[i++]))
+            if (!normCast.SetPostProcessorCommand(argv[i++]))
             {
                 fprintf(stderr, "normCastApp error: unable to set 'processor'!\n");
+                Usage();
+                return false;
+            }
+        }
+        else if (0 == strncmp(cmd, "sentprocessor", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCastApp error: missing 'sentprocessor' commandline!\n");
+                Usage();
+                return false;
+            }
+            if (!normCast.SetSentProcessorCommand(argv[i++]))
+            {
+                fprintf(stderr, "normCastApp error: unable to set 'sentprocessor'!\n");
+                Usage();
+                return false;
+            }
+        }
+        else if (0 == strncmp(cmd, "purgeprocessor", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCastApp error: missing 'purgeprocessor' commandline!\n");
+                Usage();
+                return false;
+            }
+            if (!normCast.SetPurgedProcessorCommand(argv[i++]))
+            {
+                fprintf(stderr, "normCastApp error: unable to set 'purgeprocessor'!\n");
                 Usage();
                 return false;
             }
