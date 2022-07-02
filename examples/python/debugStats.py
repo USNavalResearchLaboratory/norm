@@ -29,7 +29,7 @@ def main(argv):
     (opts, args) = get_option_parser().parse_args(argv)
 
     if len(args) != 1:
-        print USAGE
+        print(USAGE)
         return 1
 
     pipep = PipeParser(opts.pipe)
@@ -53,7 +53,7 @@ def main(argv):
         except IndexError:
             continue
         pipep.reports.task_done()
-    print "Exiting..."
+    print("Exiting...")
 #    g.reset()
 #    g.close()
 #    del g

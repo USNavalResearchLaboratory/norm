@@ -42,8 +42,8 @@ class Session(object):
     def getNodeId(self):
         return libnorm.NormGetLocalNodeId(self)
 
-    def setTxPort(self, port):
-        libnorm.NormSetTxPort(self, port)
+    def setTxPort(self, txPort, enableReuse=False, txBindAddr=None):
+        libnorm.NormSetTxPort(self, txPort, enableReuse, txBindAddr)
 
     def setRxPortReuse(self, enable, rxBindAddr=None, senderAddr=None, senderPort=0):
         libnorm.NormSetRxPortReuse(self, enable, rxBindAddr.encode('utf-8'), senderAddr.encode('utf-8'), senderPort)

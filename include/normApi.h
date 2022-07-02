@@ -52,10 +52,10 @@ typedef uint32_t UINT32;
 //  is removed, the API shouldn't be considered final.
 
 #ifndef __cplusplus
-#  include <stdbool.h>
-#  define DEFAULT(arg)
+#include <stdbool.h>
+#define DEFAULT(arg)
 #else
-#  define DEFAULT(arg) = arg
+#define DEFAULT(arg) = arg
 #endif
 
 #ifdef __cplusplus

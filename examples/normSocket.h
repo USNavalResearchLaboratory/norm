@@ -63,20 +63,20 @@ extern const double NORM_DEFAULT_CONNECT_TIMEOUT;
 
 NormSocketHandle NormOpen(NormInstanceHandle instance);
 
-bool NormListen(NormSocketHandle    normSocket, 
-                UINT16              serverPort, 
+bool NormListen(NormSocketHandle    normSocket,
+                UINT16              serverPort,
                 const char*         groupAddr = NULL,
-                const char*         serverAddr = NULL);  
+                const char*         serverAddr = NULL);
 
-bool NormConnect(NormSocketHandle   normSocket, 
-                 const char*        serverAddr, 
-                 UINT16             serverPort, 
+bool NormConnect(NormSocketHandle   normSocket,
+                 const char*        serverAddr,
+                 UINT16             serverPort,
                  UINT16             localPort = 0,
                  const char*        groupAddr = NULL, 
                  NormNodeId         clientId = NORM_NODE_ANY);
 
-NormSocketHandle NormAccept(NormSocketHandle    serverSocket, 
-                            NormNodeHandle      clientNode, 
+NormSocketHandle NormAccept(NormSocketHandle    serverSocket,
+                            NormNodeHandle      clientNode,
                             NormInstanceHandle  instance = NORM_INSTANCE_INVALID);
 
 void NormReject(NormSocketHandle    serverSocket,
