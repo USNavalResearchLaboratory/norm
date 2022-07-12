@@ -210,7 +210,7 @@ def get_libnorm():
     libnorm.NormSetReportInterval.argtypes = [ctypes.c_void_p, ctypes.c_double]
 
     libnorm.NormGetReportInterval.restype = ctypes.c_double
-    libnorm.NormGetReportInterval.argtypes = []
+    libnorm.NormGetReportInterval.argtypes = [ctypes.c_void_p]
 
     # Sender functions
     libnorm.NormStartSender.restype = ctypes.c_bool
