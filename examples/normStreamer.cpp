@@ -2051,7 +2051,12 @@ int main(int argc, char* argv[])
     }
     
     // TBD - should provide more error checking of NORM API calls
+    TRACE("creating instance ...\n");
     NormInstanceHandle normInstance = NormCreateInstance(boostPriority);
+    TRACE("restarting instance ...\n");
+    //NormRestartInstance(normInstance);  // xxx
+    TRACE("instance restarted.\n");
+    
     NormSetDebugLevel(debugLevel);
     if ((NULL != logFile) && !NormOpenDebugLog(normInstance, logFile))
     {

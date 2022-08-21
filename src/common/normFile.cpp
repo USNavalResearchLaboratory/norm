@@ -243,7 +243,9 @@ bool NormFile::Rename(const char* oldName, const char* newName)
         }
 #endif // if/else _WIN32_WCE
     }
-    // In Win32, the old file can't be open
+#endif  // WIN32
+    // In Win32, the old file can't be open and on Unix (Linux at least), it's better
+    // performance to close/reopen a file being renamed
 	int oldFlags = 0;
 	if (IsOpen())
 	{
@@ -251,7 +253,7 @@ bool NormFile::Rename(const char* oldName, const char* newName)
 		oldFlags &= ~(O_CREAT | O_TRUNC);  // unset these
 		Close();
 	}  
-#endif  // WIN32
+
     // Create sub-directories as needed.
     char tempPath[PATH_MAX];
     strncpy(tempPath, newName, PATH_MAX);
@@ -318,30 +320,21 @@ bool NormFile::Rename(const char* oldName, const char* newName)
     if (rename(oldName, newName))
     {
         PLOG(PL_ERROR, "NormFile::Rename() rename() error: %s\n", GetErrorString());	
-#endif // if/else _WIN32_WCE
-#ifdef WIN32
+#endif // if/else _WIN32_WCE / WIN32|UNIX
         if (oldFlags) 
         {
-            if (Open(oldName, oldFlags))
-                offset = 0;
-            else
+            if (!Open(oldName, oldFlags))
                 PLOG(PL_ERROR, "NormFile::Rename() error re-opening file w/ old name\n");
-        }
-#endif // WIN32        
+        }  
         return false;
     }
     else
     {
-#ifdef WIN32
-        // (TBD) Is the file offset OK doing this???
         if (oldFlags) 
         {
-            if (Open(newName, oldFlags))
-                offset = 0;
-            else
+            if (!Open(newName, oldFlags))
                 PLOG(PL_ERROR, "NormFile::Rename() error opening file w/ new name\n");
         }
-#endif // WIN32
         return true;
     }
 }  // end NormFile::Rename()
