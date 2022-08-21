@@ -15,7 +15,6 @@ NormNode::~NormNode()
 {
 }
 
-
 void NormNode::Retain()
 {
     reference_count++;
@@ -2206,6 +2205,8 @@ void NormSenderNode::RepairCheck(NormObject::CheckLevel checkLevel,
     
     if (NormObject::BLIND_CHECK == checkLevel)
     {
+        // A "blind" check is used upon sender activity timeout or reactivation
+        // to NACK for repairs based on prior state.
         ASSERT(objectId == max_pending_object);
         NormObject* objMax = rx_table.Find(objectId);
         if (NULL != objMax)
@@ -2886,7 +2887,8 @@ bool NormSenderNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
             // activity timeout (here) or upon reactivation of a sender when seeing a NORM_CMD message
             // instead of a NORM_DATA message.  Since NORM_CMD doesn't provide objectId, etc information,
             // thus a "blind" check is needed.
-            RepairCheck(NormObject::BLIND_CHECK, max_pending_object, 0, 0);
+            if (rx_pending_mask.IsSet())
+                RepairCheck(NormObject::BLIND_CHECK, max_pending_object, 0, 0);
         }
         // We manually manage the "repeat_count" here to avoid the
         // case where "bursty" receiver scheduling may lead to false
