@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.11)
+cmake_minimum_required(VERSION 3.14)
 cmake_policy(SET CMP0077 NEW)
 # set the project name
 project(norm VERSION 1.5.8)

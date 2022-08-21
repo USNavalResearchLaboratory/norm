@@ -64,7 +64,7 @@ class Session(object):
         libnorm.NormSetLoopback(self, loop)
 
     def getReportInterval(self):
-        libnorm.NormGetReportInterval(self)
+        return libnorm.NormGetReportInterval(self)
 
     def setReportInterval(self, interval):
         libnorm.NormSetReportInterval(self, interval)
