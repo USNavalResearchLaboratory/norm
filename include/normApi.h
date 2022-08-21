@@ -201,7 +201,6 @@ typedef struct
 typedef char* (*NormAllocFunctionHandle)(size_t);
 typedef void (*NormFreeFunctionHandle)(char*);
 
-
 /** NORM API General Initialization and Operation Functions */
 
 NORM_API_LINKAGE
