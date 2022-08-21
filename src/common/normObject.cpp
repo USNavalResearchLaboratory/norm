@@ -852,6 +852,9 @@ bool NormObject::ReceiverRepairCheck(CheckLevel    level,
     bool startRepairTimer = false;
     switch (level)
     {
+        case BLIND_CHECK:
+            ASSERT(0);  // should never occur
+            return false;
         case TO_OBJECT:
             return false;
         case THRU_INFO:

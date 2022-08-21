@@ -2203,8 +2203,62 @@ void NormSenderNode::RepairCheck(NormObject::CheckLevel checkLevel,
                                  NormSegmentId          segmentId)
 {    
     ASSERT(synchronized);
+    
+    if (NormObject::BLIND_CHECK == checkLevel)
+    {
+        ASSERT(objectId == max_pending_object);
+        NormObject* objMax = rx_table.Find(objectId);
+        if (NULL != objMax)
+        {
+            NormSegmentId segMax = objMax->GetMaxPendingSegmentId();
+            if (0 != segMax)
+                return RepairCheck(NormObject::THRU_SEGMENT, 
+                                   objectId,
+                                   objMax->GetMaxPendingBlockId(), 
+                                   objMax->GetMaxPendingSegmentId() - 1);
+            else
+                return RepairCheck(NormObject::TO_BLOCK, 
+                                   objectId,
+                                   objMax->GetMaxPendingBlockId(), 
+                                   0);
+
+            // The above has been reinstated because the alternative "THRU_OBJECT" here
+            // causes gratuitous NACKing when the sender goes IDLE ..
+
+            // Or we could do this instead (possibly some unnecessary NACKing for NORM_OBJECT_STREAM will occur here)
+            //RepairCheck(NormObject::THRU_OBJECT,   // (TBD) thru object???
+            //            max_pending_object, 0, 0);
+
+            // (TBD) What should we really do here?  Our current NormNode::RepairCheck() and
+            //       NormObject::ReceiverRepairCheck() methods update the "max_pending" indices
+            //       so we _could_ make ourselves NACK for more repair than we should
+            //       when the inactivity timeout kicks in ???  But if we don't NACK "thru object"
+            //       we may miss something at end-of-transmission by not not NACKing?  I guess
+            //       the reliability really is in the flush process and our activity timeout NACK
+            //       is "iffy, at best" ... Perhaps we need to have some sort of "wildcard" NACK,
+            //       but then _everyone_ would NACK at EOT all the time, often for nothing ... so
+            //       I guess the activity timeout NACK isn't perfect ... but could help some
+            //       so we leave it as it is for the moment ("THRU_OBJECT") ... perhaps we could
+            //       add a parameter so NormObject::ReceiverRepairCheck() doesn't update its
+            //       "max_pending" indices - or would this break NACK building?
+
+            // Maybe we should do THRU_OBJECT when the remote sender is fully inactive as
+            // opposed to this inactivity timeout that only pays attention to NORM_DATA.  I.e., 
+            // do the above refined RepairCheck() when we still have NORM_CMD activity but
+            // no NORM_DATA activity???  We'd still have potentially a lot of EOT NACKing
+        }
+        else
+        {
+            return RepairCheck(NormObject::THRU_OBJECT, objectId, 0, 0);
+            //RepairCheck(NormObject::TO_BLOCK,   // (TBD) thru object???
+            //            max_pending_object, 0, 0);
+        }
+    }  // end if (NormObject::BLIND_CHECK == checkLevel)
+    
     if (objectId > max_pending_object) 
         max_pending_object = objectId;
+        
+          
     if (!repair_timer.IsActive())
     {
         // repair timer inactive
@@ -2792,7 +2846,7 @@ void NormSenderNode::Activate(bool isObjectMsg)
         // activity (iff rx_pending_mask.IsSet())
         // (If it is an object message, RepairCheck() will be called accordingly
         if (!isObjectMsg && rx_pending_mask.IsSet())
-            RepairCheck(NormObject::THRU_OBJECT, max_pending_object, 0, 0); // (TBD) thru object???
+            RepairCheck(NormObject::BLIND_CHECK, max_pending_object, 0, 0);
         session.Notify(NormController::REMOTE_SENDER_ACTIVE, this, NULL);
     }
     else if (isObjectMsg)
@@ -2824,53 +2878,15 @@ bool NormSenderNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
         UpdateRecvRate(currentTime, 0);
         if (synchronized)
         {
-            NormObject* objMax = rx_table.Find(max_pending_object);
-            if (NULL != objMax)
-            {
-                NormSegmentId segMax = objMax->GetMaxPendingSegmentId();
-                if (0 != segMax)
-                    RepairCheck(NormObject::THRU_SEGMENT, 
-                                max_pending_object,
-                                objMax->GetMaxPendingBlockId(), 
-                                objMax->GetMaxPendingSegmentId() - 1);
-                else
-                    RepairCheck(NormObject::TO_BLOCK, 
-                                max_pending_object,
-                                objMax->GetMaxPendingBlockId(), 
-                                0);
-                
-                // The above has been reinstated because the alternative "THRU_OBJECT" here
-                // causes gratuitous NACKing when the sender goes IDLE ..
-                
-                // Or we could do this instead (possibly some unnecessary NACKing for NORM_OBJECT_STREAM will occur here)
-                //RepairCheck(NormObject::THRU_OBJECT,   // (TBD) thru object???
-                //            max_pending_object, 0, 0);
-                
-                // (TBD) What should we really do here?  Our current NormNode::RepairCheck() and
-                //       NormObject::ReceiverRepairCheck() methods update the "max_pending" indices
-                //       so we _could_ make ourselves NACK for more repair than we should
-                //       when the inactivity timeout kicks in ???  But if we don't NACK "thru object"
-                //       we may miss something at end-of-transmission by not not NACKing?  I guess
-                //       the reliability really is in the flush process and our activity timeout NACK
-                //       is "iffy, at best" ... Perhaps we need to have some sort of "wildcard" NACK,
-                //       but then _everyone_ would NACK at EOT all the time, often for nothing ... so
-                //       I guess the activity timeout NACK isn't perfect ... but could help some
-                //       so we leave it as it is for the moment ("THRU_OBJECT") ... perhaps we could
-                //       add a parameter so NormObject::ReceiverRepairCheck() doesn't update its
-                //       "max_pending" indices - or would this break NACK building?
-                
-                // Maybe we should do THRU_OBJECT when the remote sender is fully inactive as
-                // opposed to this inactivity timeout that only pays attend to NORM_DATA.  I.e., 
-                // do the above refined RepairCheck() when we still have NORM_CMD activity but
-                // no NORM_DATA activity???  We'd still have potentially a lot of EOT NACKing
-            }
-            else
-            {
-                RepairCheck(NormObject::THRU_OBJECT,   
-                            max_pending_object, 0, 0);
-                //RepairCheck(NormObject::TO_BLOCK,   // (TBD) thru object???
-                //            max_pending_object, 0, 0);
-            }
+            // A "blind check" is used to request repair for any known missing data while
+            // for which we have state, or alternatively request repair through the whole of
+            // the "max_pending_object".  The sender will either provide the requested repair
+            // information or respond with a NORM_CMD(SQUELCH) to bring the receiver back into
+            // sync if is out of sync (i.e., an outage occurred).  THis blind check is done upon
+            // activity timeout (here) or upon reactivation of a sender when seeing a NORM_CMD message
+            // instead of a NORM_DATA message.  Since NORM_CMD doesn't provide objectId, etc information,
+            // thus a "blind" check is needed.
+            RepairCheck(NormObject::BLIND_CHECK, max_pending_object, 0, 0);
         }
         // We manually manage the "repeat_count" here to avoid the
         // case where "bursty" receiver scheduling may lead to false

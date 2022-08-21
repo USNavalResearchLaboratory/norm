@@ -2914,46 +2914,46 @@ void NormSession::HandleReceiveMessage(NormMsg &msg, bool wasUnicast, bool ecnSt
 
     switch (msg.GetType())
     {
-    case NormMsg::INFO:
-        //DMSG(0, "NormSession::HandleReceiveMessage(NormMsg::INFO)\n");
-        if (IsReceiver())
-            ReceiverHandleObjectMessage(currentTime, (NormObjectMsg &)msg, ecnStatus);
-        break;
-    case NormMsg::DATA:
-        //DMSG(0, "NormSession::HandleReceiveMessage(NormMsg::DATA) ...\n");
-        if (IsReceiver())
-            ReceiverHandleObjectMessage(currentTime, (NormObjectMsg &)msg, ecnStatus);
-        break;
-    case NormMsg::CMD:
-        //DMSG(0, "NormSession::HandleReceiveMessage(NormMsg::CMD) ...\n");
-        if (IsReceiver())
-            ReceiverHandleCommand(currentTime, (NormCmdMsg &)msg, ecnStatus);
-        break;
-    case NormMsg::NACK:
-        if (IsSender() && (((NormNackMsg &)msg).GetSenderId() == LocalNodeId()))
-        {
-            SenderHandleNackMessage(currentTime, (NormNackMsg &)msg);
-            if (wasUnicast && (backoff_factor > 0.5) && Address().IsMulticast())
+        case NormMsg::INFO:
+            //DMSG(0, "NormSession::HandleReceiveMessage(NormMsg::INFO)\n");
+            if (IsReceiver())
+                ReceiverHandleObjectMessage(currentTime, (NormObjectMsg &)msg, ecnStatus);
+            break;
+        case NormMsg::DATA:
+            //DMSG(0, "NormSession::HandleReceiveMessage(NormMsg::DATA) ...\n");
+            if (IsReceiver())
+                ReceiverHandleObjectMessage(currentTime, (NormObjectMsg &)msg, ecnStatus);
+            break;
+        case NormMsg::CMD:
+            //DMSG(0, "NormSession::HandleReceiveMessage(NormMsg::CMD) ...\n");
+            if (IsReceiver())
+                ReceiverHandleCommand(currentTime, (NormCmdMsg &)msg, ecnStatus);
+            break;
+        case NormMsg::NACK:
+            if (IsSender() && (((NormNackMsg &)msg).GetSenderId() == LocalNodeId()))
             {
-                // for suppression of unicast nack feedback
-                advertise_repairs = true;
-                QueueMessage(NULL); // to prompt transmit timeout
+                SenderHandleNackMessage(currentTime, (NormNackMsg &)msg);
+                if (wasUnicast && (backoff_factor > 0.5) && Address().IsMulticast())
+                {
+                    // for suppression of unicast nack feedback
+                    advertise_repairs = true;
+                    QueueMessage(NULL); // to prompt transmit timeout
+                }
             }
-        }
-        if (IsReceiver())
-            ReceiverHandleNackMessage((NormNackMsg &)msg);
-        break;
-    case NormMsg::ACK:
-        if (IsSender() && (((NormAckMsg &)msg).GetSenderId() == LocalNodeId()))
-            SenderHandleAckMessage(currentTime, (NormAckMsg &)msg, wasUnicast);
-        if (IsReceiver())
-            ReceiverHandleAckMessage((NormAckMsg &)msg);
-        break;
+            if (IsReceiver())
+                ReceiverHandleNackMessage((NormNackMsg &)msg);
+            break;
+        case NormMsg::ACK:
+            if (IsSender() && (((NormAckMsg &)msg).GetSenderId() == LocalNodeId()))
+                SenderHandleAckMessage(currentTime, (NormAckMsg &)msg, wasUnicast);
+            if (IsReceiver())
+                ReceiverHandleAckMessage((NormAckMsg &)msg);
+            break;
 
-    case NormMsg::REPORT:
-    case NormMsg::INVALID:
-        PLOG(PL_ERROR, "NormSession::HandleReceiveMessage(NormMsg::INVALID)\n");
-        break;
+        case NormMsg::REPORT:
+        case NormMsg::INVALID:
+            PLOG(PL_ERROR, "NormSession::HandleReceiveMessage(NormMsg::INVALID)\n");
+            break;
     }
 } // end NormSession::HandleReceiveMessage()
 

@@ -30,6 +30,7 @@ class NormObject
             
         enum CheckLevel
         {
+            BLIND_CHECK,
             TO_OBJECT,
             THRU_INFO,
             TO_BLOCK,
