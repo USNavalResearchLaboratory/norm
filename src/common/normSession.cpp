@@ -2132,6 +2132,8 @@ void NormSession::DeleteTxObject(NormObject *obj, bool notify)
     ASSERT(NULL != obj);
     if (tx_table.Remove(obj))
     {
+        if (NormObject::FILE == obj->GetType())
+            static_cast<NormFileObject*>(obj)->CloseFile();
         Notify(NormController::TX_OBJECT_PURGED, (NormSenderNode *)NULL, obj);
         NormObjectId objectId = obj->GetId();
         tx_pending_mask.Unset(objectId);

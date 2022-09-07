@@ -2395,7 +2395,7 @@ bool NormFileObject::Accept(const char* thePath)
     }
 }  // end NormFileObject::Accept()
 
-void NormFileObject::Close()
+void NormFileObject::CloseFile()
 {
     if (file.IsOpen())
     {
@@ -2403,6 +2403,11 @@ void NormFileObject::Close()
             file.Unlock();
         file.Close();
     }
+}  // end NormFileObject::CloseFile()
+
+void NormFileObject::Close()
+{
+    CloseFile();
     NormObject::Close();
 }  // end NormFileObject::Close()
 

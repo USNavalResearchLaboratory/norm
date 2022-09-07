@@ -361,6 +361,7 @@ class NormFileObject : public NormObject
                   const char* infoPtr = NULL,
                   UINT16      infoLen = 0);
         bool Accept(const char* thePath);
+        void CloseFile();
         void Close();
         
         const char* GetPath() {return path;}
