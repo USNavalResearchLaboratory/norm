@@ -249,6 +249,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\examples\normCast.cpp" />
+    <ClCompile Include="..\..\src\common\normPostProcess.cpp" />
+    <ClCompile Include="..\..\src\win32\win32PostProcess.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\protolib\makefiles\win32\Protokit.vcxproj">
