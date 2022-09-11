@@ -44,8 +44,10 @@ SYSTEM_SRC = ../protolib/src/unix/bpfCap.cpp
 # The "SYSTEM" keyword can be used for dependent makes
 SYSTEM = macosx
 
+# TBD - provide means to build universal Mac OSX library (x86/arm64)
+
 CC = g++
-SYSTEM_CFLAGS = -Wall -Wcast-align -fPIC -arch x86_64
+SYSTEM_CFLAGS = -Wall -Wcast-align -fPIC
 SYSTEM_SOFLAGS = -dynamiclib 
 SYSTEM_SOEXT = dylib
 RANLIB = ranlib

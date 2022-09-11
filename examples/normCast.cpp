@@ -89,9 +89,9 @@ class NormCaster
             assert(NORM_SESSION_INVALID != norm_session);
             NormSetMulticastInterface(norm_session, ifaceName);
         } 
-        bool SetNormTxPort(UINT16  txPort,
-            bool              enableReuse,
-            const char* txAddress)
+        bool SetNormTxPort(UINT16       txPort,
+                           bool         enableReuse,
+                           const char*  txAddress)
         {
             assert(NORM_SESSION_INVALID != norm_session);
             return NormSetTxPort(norm_session, txPort, enableReuse, txAddress);
@@ -370,7 +370,7 @@ bool NormCaster::OpenNormSession(NormInstanceHandle instance, const char* addr, 
     
     //NormSetTxRobustFactor(norm_session, 20);
     
-    NormSetGrttProbingTOS(norm_session, probe_tos);
+    NormSetGrttProbingTOS(norm_session, probe_tos);  // this was for some experimental protocol work
     NormSetGrttProbingMode(norm_session, probe_mode);
     
     return true;
@@ -895,8 +895,8 @@ void Usage()
 {
     fprintf(stderr, "Usage: normCast {send <file/dir list> &| recv <rxCacheDir>} [silent {on|off}]\n"
                     "                [repeat <interval> [updatesOnly]] [id <nodeIdInteger>]\n"
-                    "                [addr <addr>[/<port>]] [txAddr <addr>[/<port>]]\n"
-					"                [interface <name>] [loopback]\n"
+                    "                [addr <addr>[/<port>]][txaddr <addr>[/<port>]][txport <port>]\n"
+                    "                [interface <name>][reuse][loopback]\n"
                     "                [ack auto|<node1>[,<node2>,...]] [segment <bytes>]\n"
                     "                [block <count>] [parity <count>] [auto <count>]\n"
                     "                [cc|cce|ccl|rate <bitsPerSecond>] [rxloss <lossFraction>]\n"
@@ -924,9 +924,8 @@ int main(int argc, char* argv[])
     unsigned int sessionPort = 6003;
 
     char sessionTxAddr[64];
-    strcpy(sessionTxAddr, "");
+    sessionTxAddr[0] = '\0';
     unsigned int sessionTxPort = 0;
-
     
     
     bool autoAck = false;
@@ -947,6 +946,7 @@ int main(int argc, char* argv[])
     double grtt_estimate = 0.001;
     NormProbingMode grtt_probing_mode = NORM_PROBE_ACTIVE;
     bool loopback = false;
+    bool reuse = false;
 
     NormCaster normCast;
     if (!normCast.Init())
@@ -1068,7 +1068,7 @@ int main(int argc, char* argv[])
                 sessionPort = atoi(portPtr);
             }
         }
-        else if (0 == strncmp(cmd, "txAddr", len))
+        else if (0 == strncmp(cmd, "txaddr", len))
         {
             const char* addrPtr = argv[i++];
             const char* portPtr = strchr(addrPtr, '/');
@@ -1080,14 +1080,46 @@ int main(int argc, char* argv[])
             else
             {
                 size_t addrLen = portPtr - addrPtr;
-                if (addrLen > 63) addrLen = 63;  // should issue error message
+                if (addrLen > 63) 
+                {
+                    fprintf(stderr, "normCast error: 'txaddr' value too long!\n");
+                    Usage();
+                    return -1;
+                }
                 strncpy(sessionTxAddr, addrPtr, addrLen);
                 sessionTxAddr[addrLen] = '\0';
                 portPtr++;
-                sessionTxPort = atoi(portPtr);
+                int txPort = atoi(argv[i++]);
+                if ((txPort <=0) || (txPort > 0x0000ffff))
+                {
+                    fprintf(stderr, "normCast error: invalid 'txport' value!\n");
+                    Usage();
+                    return -1;
+                }
+                sessionTxPort = txPort;
             }
         }
-
+        else if (0 == strncmp(cmd, "txport", len))
+        {
+            if (i >= argc)
+            {
+                fprintf(stderr, "normCast error: missing 'txport' value!\n");
+                Usage();
+                return -1;
+            }
+            int txPort = atoi(argv[i++]);
+            if ((txPort <=0) || (txPort > 0x0000ffff))
+            {
+                fprintf(stderr, "normCast error: invalid 'txport' value!\n");
+                Usage();
+                return -1;
+            }
+            sessionTxPort = txPort;
+        }
+        else if (0 == strncmp(cmd, "reuse", len))
+        {
+            reuse = true;
+        }
         else if (0 == strncmp(cmd, "id", len))
         {
             if (i >= argc)
@@ -1547,9 +1579,8 @@ int main(int argc, char* argv[])
         normCast.SetNormTxRate(txRate);
     if (NULL != mcastIface)
         normCast.SetNormMulticastInterface(mcastIface);
-    if (NULL != sessionTxAddr) {
-        normCast.SetNormSetTxPort(sessionTxPort, true, sessionTxAddr);
-    }
+    if ('\0' != sessionTxAddr[0])
+        normCast.SetNormTxPort(sessionTxPort, reuse, sessionTxAddr);
     
     if (trace) normCast.SetNormMessageTrace(true);
     
