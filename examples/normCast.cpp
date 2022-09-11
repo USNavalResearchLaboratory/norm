@@ -89,6 +89,14 @@ class NormCaster
             assert(NORM_SESSION_INVALID != norm_session);
             NormSetMulticastInterface(norm_session, ifaceName);
         } 
+        bool SetNormTxPort(UINT16  txPort,
+            bool              enableReuse,
+            const char* txAddress)
+        {
+            assert(NORM_SESSION_INVALID != norm_session);
+            return NormSetTxPort(norm_session, txPort, enableReuse, txAddress);
+
+        }
         void SetLoopback(bool state)
         {
             loopback = state;
@@ -887,7 +895,8 @@ void Usage()
 {
     fprintf(stderr, "Usage: normCast {send <file/dir list> &| recv <rxCacheDir>} [silent {on|off}]\n"
                     "                [repeat <interval> [updatesOnly]] [id <nodeIdInteger>]\n"
-                    "                [addr <addr>[/<port>]] [interface <name>] [loopback]\n"
+                    "                [addr <addr>[/<port>]] [txAddr <addr>[/<port>]]\n"
+					"                [interface <name>] [loopback]\n"
                     "                [ack auto|<node1>[,<node2>,...]] [segment <bytes>]\n"
                     "                [block <count>] [parity <count>] [auto <count>]\n"
                     "                [cc|cce|ccl|rate <bitsPerSecond>] [rxloss <lossFraction>]\n"
@@ -913,6 +922,12 @@ int main(int argc, char* argv[])
     char sessionAddr[64];
     strcpy(sessionAddr, "224.1.2.3");
     unsigned int sessionPort = 6003;
+
+    char sessionTxAddr[64];
+    strcpy(sessionTxAddr, "");
+    unsigned int sessionTxPort = 0;
+
+    
     
     bool autoAck = false;
     NormNodeId ackingNodeList[256]; 
@@ -1053,6 +1068,26 @@ int main(int argc, char* argv[])
                 sessionPort = atoi(portPtr);
             }
         }
+        else if (0 == strncmp(cmd, "txAddr", len))
+        {
+            const char* addrPtr = argv[i++];
+            const char* portPtr = strchr(addrPtr, '/');
+            if (NULL == portPtr)
+            {
+                strncpy(sessionTxAddr, addrPtr, 63);
+                sessionTxAddr[63] = '\0';
+            }
+            else
+            {
+                size_t addrLen = portPtr - addrPtr;
+                if (addrLen > 63) addrLen = 63;  // should issue error message
+                strncpy(sessionTxAddr, addrPtr, addrLen);
+                sessionTxAddr[addrLen] = '\0';
+                portPtr++;
+                sessionTxPort = atoi(portPtr);
+            }
+        }
+
         else if (0 == strncmp(cmd, "id", len))
         {
             if (i >= argc)
@@ -1512,6 +1547,9 @@ int main(int argc, char* argv[])
         normCast.SetNormTxRate(txRate);
     if (NULL != mcastIface)
         normCast.SetNormMulticastInterface(mcastIface);
+    if (NULL != sessionTxAddr) {
+        normCast.SetNormSetTxPort(sessionTxPort, true, sessionTxAddr);
+    }
     
     if (trace) normCast.SetNormMessageTrace(true);
     
