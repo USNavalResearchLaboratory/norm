@@ -3157,7 +3157,7 @@ bool NormSession::InsertRemoteSender(NormSenderNode &sender)
     cmd.SetDestination(sender.GetAddress());
     cmd.SetInstanceId(sender.GetInstanceId());
     cmd.SetGrtt(sender.GetGrttQuantized());
-    cmd.SetBackoffFactor(sender.GetBackoffFactor());
+    cmd.SetBackoffFactor((UINT8)sender.GetBackoffFactor());  // TBD - should we clean up this backoff factor casting
     cmd.SetGroupSize(sender.GetGroupSizeQuantized());
     cmd.SetCCSequence(sender.GetCCSequence());
     // Adjust send time for any current hold time

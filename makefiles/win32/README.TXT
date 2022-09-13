@@ -1,14 +1,5 @@
-Visual Studio 2012 and 2013 require different versions of the Platform Toolset:
-
-Visual Studio 2012 v110 (or v110_xp for applications that need to run
-under Windows XP)
-
-Visual Studio 2013 v120 (or v120_xp for applications that need to run
-under Windows XP)
-
-For each project included by the solution file modify the Platform
-Toolset under project Configuration Properties, General as appropriate
-for your Visual Studio version.
+Visual Studio 2019 is the current reference version and the "norm.sln" file has support
+for both 64- and 32-bit builds in Debug and Release configuration.
 
 A Visual Studio solutions file and associated .vcproj files are
 included as a convenience for those using earlier versions of visual
