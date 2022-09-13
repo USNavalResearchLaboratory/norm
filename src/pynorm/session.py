@@ -6,7 +6,8 @@ By: Tom Wambold <wambold@itd.nrl.navy.mil>
 from __future__ import absolute_import
 
 import ctypes
-
+from typing import Optional,Union,Hashable 
+import locale
 import pynorm.constants as c
 from pynorm.core import libnorm, NormError
 from pynorm.object import Object
@@ -15,7 +16,7 @@ class Session(object):
     """This represents a session tied to a particular NORM instance"""
 
     ## Public functions
-    def __init__(self, instance, address, port, localId=c.NORM_NODE_ANY):
+    def __init__(self, instance, address:str, port:int, localId=c.NORM_NODE_ANY, index:Hashable=None): 
         """
         instance - An instance of NormInstance
         address - String of multicast address to join
@@ -23,179 +24,264 @@ class Session(object):
         localId - NormNodeId
         """
         self._instance = instance
-        self._session = libnorm.NormCreateSession(instance, address.encode('utf-8'), port, localId)
+        self._session:int = libnorm.NormCreateSession(instance, address.encode('utf-8'), port, localId)
         self.sendGracefulStop = False
         self.gracePeriod = 0
+        self._index:Hashable = index # user defined index for this session
 
     def destroy(self):
         libnorm.NormDestroySession(self)
         del self._instance._sessions[self]
 
-    def setUserData(self, data):
+    def setUserData(self, data:str):
         """data should be a string"""
         libnorm.NormSetUserData(self, data.encode('utf-8'))
 
-    def getUserData(self):
+    def getUserData(self)->str:
         data = libnorm.NormGetUserData(self)
         return data.decode('utf-8') if data else None
 
     def getNodeId(self):
         return libnorm.NormGetLocalNodeId(self)
 
-    def setTxPort(self, txPort, enableReuse=False, txBindAddr=None):
-        libnorm.NormSetTxPort(self, txPort, enableReuse, txBindAddr)
+    def setTxPort(self, txPort:int, enableReuse:bool=False, txBindAddr:Optional[str]=None):
+        '''
+        bool NormSetTxPort(NormSessionHandle sessionHandle,
+                   UINT16            txPortNumber,
+                   bool              enableReuse DEFAULT(false),
+                   const char*       txBindAddress DEFAULT((const char*)0));  // if non-NULL, bind() to <txBindAddress>/<txPortNumber>
+        '''
 
-    def setRxPortReuse(self, enable, rxBindAddr=None, senderAddr=None, senderPort=0):
-        libnorm.NormSetRxPortReuse(self, enable, rxBindAddr.encode('utf-8'), senderAddr.encode('utf-8'), senderPort)
+        libnorm.NormSetTxPort(self, txPort, enableReuse, 
+                              txBindAddr.encode('utf-8') if txBindAddr else None )
 
-    def setMulticastInterface(self, iface):
+    def setTxOnly(self, txOnly:bool=False, connectToSessionAddress:bool=False):
+        '''
+            void NormSetTxOnly(NormSessionHandle sessionHandle,
+                       bool              txOnly,
+                       bool              connectToSessionAddress)
+        '''
+        libnorm.NormSetTxOnly(self, txOnly, connectToSessionAddress)
+
+
+    def setRxPortReuse(self, enable:bool, rxBindAddr:Optional[str]=None, senderAddr:Optional[str]=None, senderPort:int=0):
+        '''
+        This function allows the user to control the port reuse and binding behavior for the receive socket used for the given NORM sessionHandle. 
+        When the enablReuse parameter is set to true, reuse of the NormSession port number by multiple NORM instances or sessions is enabled.
+                        bool              enableReuse,
+                        const char*       rxBindAddress = (const char*)0,
+                        const char*       senderAddress = (const char*)0,
+                        UINT16            senderPort = 0);
+        '''
+        libnorm.NormSetRxPortReuse(self, enable, 
+                                   rxBindAddr.encode('utf-8') if rxBindAddr else None,
+                                   senderAddr.encode('utf-8') if senderAddr else None,
+                                   senderPort)
+
+    def setMulticastInterface(self, iface:str):
         libnorm.NormSetMulticastInterface(self, iface.encode('utf-8'))
-    
-    def setSSM(self, srcAddr):
+
+    def setSSM(self, srcAddr:str):
         libnorm.NormSetSSM(self, srcAddr.encode('utf-8'))
+
+    def setTTL(self, ttl) -> bool:
+        return libnorm.NormSetTTL(self, ttl)
+
+    def setTOS(self, tos) -> bool:
+        return libnorm.NormSetTOS(self, tos)
+
+    def setLoopback(self, loopbackEnable:bool=False):
+        libnorm.NormSetLoopback(self, loopbackEnable)
         
-    def setTTL(self, ttl):
-        libnorm.NormSetTTL(self, ttl)
+    def setTxLoss(self, percent:float):
+        libnorm.NormSetTxLoss(percent)
+        
+    def setRxLoss(self, percent:float):
+        libnorm.NormSetRxLoss(percent)
 
-    def setTOS(self, tos):
-        libnorm.NormSetTOS(self, tos)
-
-    def setLoopback(self, loop):
-        libnorm.NormSetLoopback(self, loop)
-
-    def getReportInterval(self):
+    def getReportInterval(self) -> int:
         return libnorm.NormGetReportInterval(self)
 
-    def setReportInterval(self, interval):
+    def setReportInterval(self, interval:int):
         libnorm.NormSetReportInterval(self, interval)
 
     ## Sender functions
-    def startSender(self, sessionId, bufferSpace, segmentSize, blockSize, numParity, fecId=0):
-        libnorm.NormStartSender(self, sessionId, bufferSpace, segmentSize, blockSize, numParity, fecId)
+    def startSender(self, sessionId:int, bufferSpace:int, segmentSize:int, blockSize:int, numParity:int, fecId=0) -> bool:
+        return libnorm.NormStartSender(self, sessionId, bufferSpace, segmentSize, blockSize, numParity, fecId)
 
     def stopSender(self):
         libnorm.NormStopSender(self)
 
-    def setTxRate(self, rate):
-        libnorm.NormSetTxRate(self, rate)
+    def setTxRate(self, txRate:float):
+        libnorm.NormSetTxRate(self, txRate)
 
-    def setTxSocketBuffer(self, size):
+    def getTxRate(self) -> float:
+        return libnorm.NormGetTxRate(self)
+
+    def setTxSocketBuffer(self, size:int):
         libnorm.NormSetTxSocketBuffer(self, size)
 
-    def setCongestionControl(self, ccEnable, adjustRate=True):
+    def setCongestionControl(self, ccEnable:bool, adjustRate:bool=True):
+        '''
+            must called before startSender
+        '''
         libnorm.NormSetCongestionControl(self, ccEnable, adjustRate)
-        
+
     def setEcnSupport(self, ecnEnable, ignoreLoss=False, tolerateLoss=False):
         libnorm.NormSetEcnSupport(self, ecnEnable, ignoreLoss, tolerateLoss)
-        
+
     def setFlowControl(self, flowControlFactor):
         libnorm.NormSetFlowControl(self, flowControlFactor)
 
-    def setTxRateBounds(self, rateMin, rateMax):
+    def setTxRateBounds(self, rateMin, rateMax) -> bool:
+        '''
+           If both rateMin and rateMax are greater than or equal to zero, 
+           but (rateMax < rateMin), the rate bounds will remain unset or unchanged and the function will return false.
+        '''
+        if rateMin > rateMax:
+            return False
         libnorm.NormSetTxRateBounds(self, rateMin, rateMax)
+        return True
 
-    def setTxCacheBounds(self, sizeMax, countMin, countMax):
+    def setTxCacheBounds(self, sizeMax:int, countMin:int, countMax:int):
         libnorm.NormSetTxCacheBounds(self, sizeMax, countMin, countMax)
 
-    def setAutoParity(self, parity):
+    def setAutoParity(self, parity:int):
         libnorm.NormSetAutoParity(self, parity)
 
-    def getGrttEstimate(self):
+    def getGrttEstimate(self) -> float:
         return libnorm.NormGetGrttEstimate(self)
 
-    def setGrttEstimate(self, grttMax):
-        libnorm.NormSetGrttEstimate(self, grtt)
+    def setGrttEstimate(self, grtt:float):
+        return libnorm.NormSetGrttEstimate(self, grtt)
 
-    def setGrttMax(self, max):
-        libnorm.NormSetGrttMax(self, grttMax)
+    def setGrttMax(self, grttMax:float):
+        return libnorm.NormSetGrttMax(self, grttMax)
 
-    def setGrttProbingMode(self, mode):
-        libnorm.NormSetGrttProbingMode(self, mode)
+    def setGrttProbingMode(self, probingMode:c.ProbingMode):
+        libnorm.NormSetGrttProbingMode(self, probingMode.value)
 
-    def setGrttProbingInterval(self, intervalMin, intervalMax):
+    def setGrttProbingInterval(self, intervalMin:int, intervalMax:int):
         libnorm.NormSetGrttProbingInterval(self, intervalMin, intervalMax)
 
-    def setBackoffFactor(self, factor):
+    def setBackoffFactor(self, factor:int):
         libnorm.NormSetBackoffFactor(self, factor)
 
-    def setGroupSize(self, size):
+    def setGroupSize(self, size:int):
         libnorm.NormSetGroupSize(self, size)
 
-    def fileEnqueue(self, filename, info=""):
-        return Object(libnorm.NormFileEnqueue(self, filename.encode('utf-8'), info.encode('utf-8'), len(info)))
+    def setTxRobustFactor(self, robustFactor:int):
+        libnorm.NormSetTxRobustFactor(self, robustFactor)
 
-    def dataEnqueue(self, data, info=""):
-        return Object(libnorm.NormDataEnqueue(self, data.encode('utf-8'), len(data), info.encode('utf-8'), len(info)))
+    def fileEnqueue(self, filename:str, info:bytes=b""):
+        '''
+           to support none-ASCII chars in filename in Windows env,like cp936.
+        '''
+        encode:str = locale.getpreferredencoding()
+        return Object(libnorm.NormFileEnqueue(self, filename.encode(encode), info, len(info)))
+
+    def dataEnqueue(self, data:bytes, info:bytes=b""):
+        '''
+            argument data can be any bytes-like things, not limited to string, so as to arg info. 
+        '''
+        return Object(libnorm.NormDataEnqueue(self, data, len(data), info, len(info)))
 
     def requeueObject(self, normObject):
         libnorm.NormRequeueObject(self, normObject)
 
-    def streamOpen(self, bufferSize, info=""):
-        return Object(libnorm.NormStreamOpen(self, bufferSize, info.encode('utf-8'), len(info)))
+    def streamOpen(self, bufferSize:int, info=b""):
+        return Object(libnorm.NormStreamOpen(self, bufferSize, info, len(info)))
 
-    def sendCommand(self, cmdBuffer, robust=False):
-        return libnorm.NormSendCommand(self, cmdBuffer.encode('utf-8'), len(cmdBuffer), robust)
-	
+    def sendCommand(self, cmdBuffer:bytes, robust:bool=False) -> bool:
+        return libnorm.NormSendCommand(self, cmdBuffer, len(cmdBuffer), robust)
+
     def cancelCommand(self):
         libnorm.NormCancelCommand(self)
 
-    def setWatermark(self, normObject, overrideFlush=False):
-        libnorm.NormSetWatermark(self, normObject, overrideFlush)
-        
-    def resetWatermark(self):
-        libnorm.NormResetWatermark(self)
-        
-    def cancelWatermark(self):
+    def setWatermark(self, normObject:Union[int,Object], overrideFlush=False) -> bool:
+        return libnorm.NormSetWatermark(self, normObject, overrideFlush)
+
+    def resetWatermark(self) -> bool:
+        return libnorm.NormResetWatermark(self)
+
+    def cancelWatermark(self) -> None:
         libnorm.NormCancelWatermark(self)
 
-    def addAckingNode(self, nodeId):
-        libnorm.NormAddAckingNode(self, nodeId)
+    def addAckingNode(self, nodeId:int) -> bool:
+        return libnorm.NormAddAckingNode(self, nodeId)
 
-    def removeAckingNode(self, nodeId):
+    def removeAckingNode(self, nodeId:int) -> None:
         libnorm.NormRemoveAckingNode(self, nodeId)
+        
+    def setAutoAckingNodes(self, trackingStatus:c.TrackingStatus) -> None:
+        '''
+        void NormSetAutoAckingNodes(NormSessionHandle   sessionHandle,
+                            NormTrackingStatus  trackingStatus);
+        '''
+        libnorm.NormSetAutoAckingNodes(self, trackingStatus.value)
+        
+    def getNextAckingNode(self, nodeID:int=c.NORM_NODE_NONE) -> (bool, int,int):
+        '''
+            bool NormGetNextAckingNode(NormSessionHandle    sessionHandle,
+                           NormNodeId*          nodeId,   
+                           NormAckingStatus*    ackingStatus DEFAULT(0));
+        '''
+        ackingStatus = 0
+        nodeIdBytes = ctypes.c_uint(ctypes.sizeof(nodeId))
+        ackingStatusBytes = ctypes.c_uint(ctypes.sizeof(ackingStatus))
+              
+        isSuccess = libnorm.NormGetNextAckingNode(self, ctypes.byref(nodeIdBytes),ctypes.byref(ackingStatusBytes)  )
+        return (isSuccess, nodeIdBytes.value, c.AckingStatus(ackingStatusBytes.value) if isSuccess else c.AckingStatus.INVALID)
 
-    def getAckingStatus(self, nodeId=c.NORM_NODE_ANY):
-        return libnorm.NormGetAckingStatus(self, nodeId)
+    def getAckingStatus(self, nodeId:int=c.NORM_NODE_ANY) -> c.AckingStatus:
+        return c.AckingStatus( libnorm.NormGetAckingStatus(self, nodeId) )
 
     ## Receiver functions
-    def startReceiver(self, bufferSpace):
-        libnorm.NormStartReceiver(self, bufferSpace)
+    def startReceiver(self, bufferSpace:int) -> bool:
+        '''
+        The bufferSpace parameter is used to set a limit on the amount of bufferSpace allocated by the receiver per active NormSender within the session.
+        The appropriate bufferSpace to use is a function of expected network delay*bandwidth product and packet loss characteristics. 
+        '''
+        return libnorm.NormStartReceiver(self, bufferSpace)
 
-    def stopReceiver(self):
+    def stopReceiver(self) -> None:
         """This will be called automatically if the receiver is active"""
         libnorm.NormStopReceiver(self)
 
-    def setRxCacheLimit(self, count):
+    def setRxCacheLimit(self, count:int):
         libnorm.NormSetRxCacheLimit(self, count)
-        
-    def setRxSocketBuffer(self, size):
+
+    def setRxSocketBuffer(self, size:int):
         libnorm.NormSetRxSocketBuffer(self, size)
 
-    def setSilentReceiver(self, silent, maxDelay=None):
+    def setSilentReceiver(self, silent:bool, maxDelay:Optional[int]=None):
         if maxDelay == None:
             maxDelay = -1
         libnorm.NormSetSilentReceiver(self, silent, maxDelay)
 
-    def setDefaultUnicastNack(self, mode):
-        libnorm.NormSetDefaultUnicastNack(self, mode)
-        
-    def setDefaultSyncPolicy(self, policy):
-        libnorm.NormSetDefaultSyncPolicy(self, policy)
+    def setDefaultUnicastNack(self, enable:bool):
+        libnorm.NormSetDefaultUnicastNack(self, enable)
 
-    def setDefaultNackingMode(self, mode):
-        libnorm.NormSetDefaultNackingMode(self, mode)
+    def setDefaultSyncPolicy(self, policy:c.SyncPolicy):
+        libnorm.NormSetDefaultSyncPolicy(self, policy.value)
 
-    def setDefaultRepairBoundary(self, boundary):
+    def setDefaultNackingMode(self, mode:c.NackingMode):
+        libnorm.NormSetDefaultNackingMode(self, mode.value)
+
+    def setDefaultRepairBoundary(self, boundary:int):
         libnorm.NormSetDefaultRepairBoundary(self, boundary)
-        
+
+    def setDefaultRxRobustFactor(self, rxRobustFactor:int):
+        libnorm.NormSetDefaultRxRobustFactor(rxRobustFactor)
+
     def setMessageTrace(self, state):
         libnorm.NormSetMessageTrace(self, state)
 
     ## Properties
-    nodeId = property(getNodeId)
-    grtt = property(getGrttEstimate, setGrttEstimate)
-    userData = property(getUserData, setUserData)
-    reportInterval = property(getReportInterval, setReportInterval)
+    nodeId:int = property(getNodeId)
+    grtt:float = property(getGrttEstimate, setGrttEstimate)
+    userData:str = property(getUserData, setUserData)
+    reportInterval:int = property(getReportInterval, setReportInterval)
 
     ## Private functions
     def __del__(self):
@@ -209,6 +295,8 @@ class Session(object):
         return self._session
 
     def __cmp__(self, other):
+        def cmp(a, b):
+            return (a > b) - (a < b)        
         try:
             return cmp(self._as_parameter_, other._as_parameter)
         except AttributeError:

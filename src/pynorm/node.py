@@ -72,6 +72,8 @@ class Node(object):
         return "Node - Id=%i" % self.id
 
     def __cmp__(self, other):
+        def cmp(a, b):
+            return (a > b) - (a < b)         
         return cmp(self._as_parameter_, other._as_parameter_)
 
     def __hash__(self):

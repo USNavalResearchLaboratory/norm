@@ -20,6 +20,9 @@ def get_option_parser():
             help='The IP address to bind to (default %s)' % DEFAULT_ADDR)
     parser.add_option('-p', '--port', type=int,
             help='The port number to listen on (default %i)' % DEFAULT_PORT)
+    
+    parser.add_option('-b', '--bind_address',
+            help='bind ')    
     parser.add_option('-i', '--iface',
             help='The inteface to transmit multicast on.')
     return parser

@@ -321,6 +321,7 @@ def get_libnorm():
     libnorm.NormStreamMarkEom.restype = None
     libnorm.NormStreamMarkEom.argtypes = [ctypes.c_void_p]
 
+    libnorm.NormSetWatermark.restype = ctypes.c_bool
     libnorm.NormSetWatermark.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool]
     libnorm.NormSetWatermark.errcheck = errcheck_bool
 
@@ -336,9 +337,23 @@ def get_libnorm():
 
     libnorm.NormRemoveAckingNode.restype = None
     libnorm.NormRemoveAckingNode.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    
+    #void NormSetAutoAckingNodes(NormSessionHandle   sessionHandle,
+                                #NormTrackingStatus  trackingStatus);
+    libnorm.NormSetAutoAckingNodes.restype = None
+    libnorm.NormSetAutoAckingNodes.argtypes = [ctypes.c_void_p, ctypes.c_int]    
+    
 
     libnorm.NormGetAckingStatus.restype = ctypes.c_int
     libnorm.NormGetAckingStatus.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    
+    '''
+    bool NormGetNextAckingNode(NormSessionHandle    sessionHandle,
+                           NormNodeId*          nodeId,   
+                           NormAckingStatus*    ackingStatus DEFAULT(0));
+    '''
+    libnorm.NormGetNextAckingNode.restype = ctypes.c_bool
+    libnorm.NormGetNextAckingNode.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]    
 
     libnorm.NormSendCommand.restype = ctypes.c_bool
     libnorm.NormSendCommand.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
