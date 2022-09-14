@@ -556,7 +556,7 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         
         UINT8 GetGrttQuantized() const
             {return grtt_quantized;}
-        UINT8 GetBackoffFactor() const
+        double GetBackoffFactor() const
             {return backoff_factor;}
         UINT8 GetGroupSizeQuantized() const
             {return gsize_quantized;}
