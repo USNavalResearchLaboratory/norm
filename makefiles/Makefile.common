@@ -45,7 +45,7 @@ NORM_OBJ = $(NORM_SRC:.cpp=.o)
 LIB_SRC = $(NORM_SRC)
 LIB_OBJ = $(LIB_SRC:.cpp=.o)
 
-all: norm raft libnorm.a
+all: norm raft libnorm.a libnorm.$(SYSTEM_SOEXT)
 
 $(PROTOLIB)/lib/libprotokit.a: 
 	$(MAKE) -C $(PROTOLIB)/makefiles -f Makefile.$(SYSTEM) libprotokit.a
