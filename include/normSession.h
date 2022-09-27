@@ -1,6 +1,7 @@
 #ifndef _NORM_SESSION
 #define _NORM_SESSION
 
+#include "normApi.h"
 #include "normMessage.h"
 #include "normObject.h"
 #include "normNode.h"
@@ -58,6 +59,8 @@ class NormController
             ACKING_NODE_NEW,
             SEND_ERROR,
             USER_TIMEOUT,
+            SENDER_REPORT,
+            RECEIVER_REPORT,
             // The ones below here are not exposed via the NORM API
             SEND_OK
         };
@@ -367,6 +370,12 @@ class NormSession
             {user_data = userData;}
         const void* GetUserData() const
             {return user_data;}
+        void GetSenderReport(SenderReport& report) {
+            memcpy(&report, &sender_report, sizeof(SenderReport));
+        }
+        void GetReceiverReport(ReceiverReport& report) {
+            memcpy(&report, &receiver_report, sizeof(ReceiverReport));
+        }
         
         void SetUserTimer(double seconds);  // set to value less than zero to cancel
         
@@ -673,6 +682,10 @@ class NormSession
         bool OnFlushTimeout(ProtoTimer& theTimer);
         bool OnProbeTimeout(ProtoTimer& theTimer);
         bool OnReportTimeout(ProtoTimer& theTimer);
+        
+        bool _GetSenderReport(SenderReport& report);
+        bool _GetReceiverReport(ReceiverReport& report);
+
         bool OnCmdTimeout(ProtoTimer& theTimer);
         bool OnFlowControlTimeout(ProtoTimer& theTimer);
         bool OnUserTimeout(ProtoTimer& theTimer);
@@ -912,6 +925,8 @@ class NormSession
 
         ProtoTimer                      user_timer;
         const void*                     user_data;
+        SenderReport sender_report;
+        ReceiverReport receiver_report;
         
         // Linkers
         NormSession*                    next;

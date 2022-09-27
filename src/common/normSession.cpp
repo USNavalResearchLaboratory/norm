@@ -1,3 +1,4 @@
+#include "normApi.h"
 #include "normSession.h"
 
 #include "normEncoderMDP.h"  // "legacy" MDP Reed-Solomon encoder
@@ -5650,6 +5651,21 @@ void NormSession::AdjustRate(bool onResponse)
 bool NormSession::OnReportTimeout(ProtoTimer & /*theTimer*/)
 {
     // Receiver reporting (just print out for now)
+
+    if ( IsSender() ) //sender_report_callback!=NULL &&
+    {
+        memset(&sender_report, 0, sizeof(SenderReport));
+        _GetSenderReport(sender_report);
+        //sender_report_callback(&sender_report, sender_report_user_context);
+        Notify(NormController::SENDER_REPORT, (NormSenderNode*)NULL, (NormObject*)NULL);
+    }
+    if ( IsReceiver()) //receiver_report_callback!=NULL &&
+    {
+        memset(&receiver_report, 0, sizeof(ReceiverReport));
+        _GetReceiverReport(receiver_report);
+        //receiver_report_callback(&receiver_report, receiver_report_user_context);
+        Notify(NormController::RECEIVER_REPORT, (NormSenderNode*)NULL, (NormObject*)NULL);
+    }
     struct timeval currentTime;
     ProtoSystemTime(currentTime);
 #ifdef _WIN32_WCE
@@ -5733,6 +5749,66 @@ bool NormSession::OnReportTimeout(ProtoTimer & /*theTimer*/)
     PLOG(reportDebugLevel, "***************************************************************************\n");
     return true;
 } // end NormSession::OnReportTimeout()
+
+bool NormSession::_GetReceiverReport(ReceiverReport& report)
+{
+    NormNodeTreeIterator iterator(sender_tree);
+    NormSenderNode* next = (NormSenderNode*)iterator.GetNextNode();   
+    if (next)
+    {
+		report.nodeID = next->GetId();
+        //next->GetAddress()
+        report.rxRate =  8.0e-03 * next->GetRecvRate(report_timer.GetInterval());       // kbps
+        report.rxGoodput = 8.0e-03 * next->GetRecvGoodput(report_timer.GetInterval()); // kbps
+
+        next->ResetRecvStats();
+
+        report.completionCount = next->CompletionCount();
+        report.pendingCount = next->PendingCount();
+        report.failureCount = next->FailureCount();
+
+        report.currentBufferUsage = next->CurrentBufferUsage();
+        report.peakBufferUsage = next->PeakBufferUsage();
+        report.bufferOverunCount = next->BufferOverunCount();
+
+        report.currentStreamBufferUsage = next->CurrentStreamBufferUsage();
+        report.peakStreamBufferUsage = next->PeakStreamBufferUsage();
+        report.streamBufferOverunCount = next->StreamBufferOverunCount();
+
+        report.resyncCount = next->ResyncCount() ? next->ResyncCount() - 1 : 0; // "ResyncCount()" is really "SyncCount()"
+        report.nackCount = next->NackCount();
+        report.suppressCount = next->SuppressCount();
+
+        return true;
+    }
+    return false;
+}
+
+bool NormSession::_GetSenderReport(SenderReport& report) 
+{
+    report.localNodeID = (unsigned long)LocalNodeId();
+    report.sentRate = 8.0e-03 * sent_accumulator.GetScaledValue(1.0 / report_timer.GetInterval()); // kbps
+    report.txRate = 8.0e-03 * tx_rate;
+    report.grttAdvertised = grtt_advertised;
+    if (cc_enable)
+    {
+        const NormCCNode* clr = (const NormCCNode*)cc_node_list.Head();
+        if (clr)
+        {
+            report.ccNodeID = (unsigned long)clr->GetId();
+            report.nodeRate = 8.0e-03 * clr->GetRate();
+            report.nodeRtt = clr->GetRtt();
+            report.nodeLoss = clr->GetLoss();
+            report.slowStart = cc_slow_start;    
+        }
+    }
+    return true;
+}
+
+
+
+
+
 
 bool NormSession::OnUserTimeout(ProtoTimer & /*theTimer*/)
 {

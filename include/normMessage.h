@@ -15,6 +15,8 @@
 #include <sys/types.h>  // for off_t
 #endif // if/else _WIN32_WCE
 
+#include "normApi.h"
+
 #ifdef SIMULATE
 // IMPORTANT! This _assumes_ that the message header of interest _will_ be
 //            aligned with a NormSegment (i.e. flush mode of active or passive

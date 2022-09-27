@@ -984,6 +984,39 @@ const void* NormGetUserData(NormSessionHandle sessionHandle)
     return userData;
 }  // end NormGetUserData()
 
+NORM_API_LINKAGE
+void NormGetSenderReport(NormSessionHandle sessionHandle, SenderReport& report)
+{
+    const void* userData = NULL;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {
+            NormSession* session = (NormSession*)sessionHandle;
+            if (session)
+                session->GetSenderReport(report);
+            instance->dispatcher.ResumeThread();
+        }
+    }
+}  // end NormGetSenderReport()
+
+NORM_API_LINKAGE
+void NormGetReceiverReport(NormSessionHandle sessionHandle, ReceiverReport& report)
+{
+    const void* userData = NULL;
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance)
+    {
+        if (instance->dispatcher.SuspendThread())
+        {
+            NormSession* session = (NormSession*)sessionHandle;
+            if (session)
+                session->GetReceiverReport(report);
+            instance->dispatcher.ResumeThread();
+        }
+    }
+}  // end NormGetReceiverReport()
 
 NORM_API_LINKAGE 
 void NormSetUserTimer(NormSessionHandle sessionHandle, double seconds)

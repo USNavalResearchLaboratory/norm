@@ -185,7 +185,9 @@ typedef enum NormEventType
     NORM_CC_INACTIVE,
     NORM_ACKING_NODE_NEW,        // whe NormSetAutoAcking
     NORM_SEND_ERROR,             // ICMP error (e.g. destination unreachable)
-    NORM_USER_TIMEOUT            // issues when timeout set by NormSetUserTimer() expires
+    NORM_USER_TIMEOUT,            // issues when timeout set by NormSetUserTimer() expires
+    NORM_SENDER_REPORT,
+    NORM_RECEIVER_REPORT
 } NORM_API_LINKAGE NormEventType;
 
 typedef struct
@@ -196,6 +198,43 @@ typedef struct
     NormObjectHandle    object;
 } NormEvent;
 
+typedef struct
+{
+    unsigned long localNodeID;
+    double      sentRate; //Kbps
+    double      txRate; //Kbps
+    double  grttAdvertised;
+    //NormCCNode
+    unsigned long ccNodeID;
+    double      nodeRate;
+    double      nodeRtt;
+    double      nodeLoss;
+    bool        slowStart;
+} SenderReport;
+
+typedef struct
+{
+    unsigned long nodeID;
+    double rxRate;
+    double rxGoodput;
+    unsigned long completionCount;// next->CompletionCount();
+    unsigned long pendingCount; //next->PendingCount();
+    unsigned long failureCount;// next->FailureCount()
+
+    //FEC segment_pool 
+    unsigned long currentBufferUsage;//
+    unsigned long peakBufferUsage;//
+    unsigned long   bufferOverunCount;//
+
+    //Stream rx_table
+    unsigned long currentStreamBufferUsage;
+    unsigned long peakStreamBufferUsage;
+    unsigned long streamBufferOverunCount;
+
+    unsigned long resyncCount;
+    unsigned long nackCount;
+    unsigned long suppressCount;
+} ReceiverReport;
 
 // For setting custom NORM_OBJECT_DATA alloc/free functions
 typedef char* (*NormAllocFunctionHandle)(size_t);
@@ -284,6 +323,11 @@ void NormSetUserData(NormSessionHandle sessionHandle, const void* userData);
 NORM_API_LINKAGE
 const void* NormGetUserData(NormSessionHandle sessionHandle);
 
+NORM_API_LINKAGE
+void NormGetSenderReport(NormSessionHandle sessionHandle, SenderReport& report);
+
+NORM_API_LINKAGE
+void NormGetReceiverReport(NormSessionHandle sessionHandle, ReceiverReport& report);
 NORM_API_LINKAGE
 void NormSetUserTimer(NormSessionHandle sessionHandle, double seconds);
 

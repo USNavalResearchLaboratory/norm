@@ -1,3 +1,4 @@
+#include "normApi.h"
 #include "normObject.h"
 #include "normSession.h"
 
