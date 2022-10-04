@@ -1008,7 +1008,7 @@ void NormSession::StopSender()
         obj->Release();
     }
     // Then destroy table
-    tx_table.Destroy();
+    tx_table.Destroy();  // I think this is redundant with above tx_table iteration
     block_pool.Destroy();
     segment_pool.Destroy();
     tx_repair_mask.Destroy();
@@ -1892,7 +1892,7 @@ NormFileObject *NormSession::QueueTxFile(const char *path,
         PLOG(PL_FATAL, "NormSession::QueueTxFile() Error: sender is closed\n");
         return NULL;
     }
-    NormFileObject *file = new NormFileObject(*this, (NormSenderNode *)NULL, next_tx_object_id);
+    NormFileObject* file = new NormFileObject(*this, (NormSenderNode*)NULL, next_tx_object_id);
     if (NULL == file)
     {
         PLOG(PL_FATAL, "NormSession::QueueTxFile() new file object error: %s\n",
@@ -1917,10 +1917,10 @@ NormFileObject *NormSession::QueueTxFile(const char *path,
     }
 } // end NormSession::QueueTxFile()
 
-NormDataObject *NormSession::QueueTxData(const char *dataPtr,
-                                         UINT32 dataLen,
-                                         const char *infoPtr,
-                                         UINT16 infoLen)
+NormDataObject *NormSession::QueueTxData(const char* dataPtr,
+                                         UINT32      dataLen,
+                                         const char* infoPtr,
+                                         UINT16      infoLen)
 {
     if (!IsSender())
     {
@@ -1952,10 +1952,10 @@ NormDataObject *NormSession::QueueTxData(const char *dataPtr,
     }
 } // end NormSession::QueueTxData()
 
-NormStreamObject *NormSession::QueueTxStream(UINT32 bufferSize,
-                                             bool doubleBuffer,
-                                             const char *infoPtr,
-                                             UINT16 infoLen)
+NormStreamObject *NormSession::QueueTxStream(UINT32      bufferSize,
+                                             bool        doubleBuffer,
+                                             const char* infoPtr,
+                                             UINT16      infoLen)
 {
     if (!IsSender())
     {
@@ -2132,9 +2132,12 @@ void NormSession::DeleteTxObject(NormObject *obj, bool notify)
     ASSERT(NULL != obj);
     if (tx_table.Remove(obj))
     {
-        if (NormObject::FILE == obj->GetType())
-            static_cast<NormFileObject*>(obj)->CloseFile();
-        Notify(NormController::TX_OBJECT_PURGED, (NormSenderNode *)NULL, obj);
+        if (notify)
+        {
+            if (NormObject::FILE == obj->GetType())
+                static_cast<NormFileObject*>(obj)->CloseFile();
+            Notify(NormController::TX_OBJECT_PURGED, (NormSenderNode*)NULL, obj);
+        }
         NormObjectId objectId = obj->GetId();
         tx_pending_mask.Unset(objectId);
         tx_repair_mask.Unset(objectId);
@@ -3021,6 +3024,7 @@ void NormSession::ReceiverHandleObjectMessage(const struct timeval &currentTime,
                 PLOG(PL_FATAL, "NormSession::ReceiverHandleObjectMessage() node>%lu error opening NormSenderNode\n",
                      (unsigned long)LocalNodeId());
                 // (TBD) notify application of error
+                theSender->Release();  // will delete theSender if no other reference
                 return;
             }
             Notify(NormController::REMOTE_SENDER_NEW, theSender, NULL);
@@ -3112,6 +3116,7 @@ void NormSession::ReceiverHandleCommand(const struct timeval &currentTime,
             {
                 PLOG(PL_ERROR, "NormSession::ReceiverHandleCommand() node>%lu error opening NormSenderNode\n");
                 // (TBD) notify application of error
+                theSender->Release();  //  will delete the sender if no other reference
                 return;
             }
             Notify(NormController::REMOTE_SENDER_NEW, theSender, NULL);
@@ -3154,14 +3159,18 @@ bool NormSession::InsertRemoteSender(NormSenderNode &sender)
     cmd.Init();
     cmd.SetSequence(sender.GetCurrentSequence());
     cmd.SetSourceId(sender.GetId());
-    cmd.SetDestination(sender.GetAddress());
+    cmd.SetSource(sender.GetAddress());
     cmd.SetInstanceId(sender.GetInstanceId());
     cmd.SetGrtt(sender.GetGrttQuantized());
     cmd.SetBackoffFactor((UINT8)sender.GetBackoffFactor());  // TBD - should we clean up this backoff factor casting
     cmd.SetGroupSize(sender.GetGroupSizeQuantized());
     cmd.SetCCSequence(sender.GetCCSequence());
-    // Adjust send time for any current hold time
-    // since it will be "rehandled"
+    // Adjust send time for any current hold time since it 
+    // will be "rehandled" with a new apparent recv time.
+    // This makes sure a proper grtt response time is calculated
+    // in this target session accounting from any hold time accrued
+    // from when the original sender NORM_CMD(CC) was received by 
+    // the other session the sender "state" is being transferred from.
     struct timeval adjustedSendTime;
     struct timeval currentTime;
     ::ProtoSystemTime(currentTime);
@@ -5165,6 +5174,8 @@ void NormSession::SetGrttProbingInterval(double intervalMin, double intervalMax)
         intervalMin = intervalMax;
         intervalMax = temp;
     }
+    // TBD - If NORM_TICK_MIN is too big, does this limit rate of 
+    //       of slow start ramp up?
     if (intervalMin < NORM_TICK_MIN)
         intervalMin = NORM_TICK_MIN;
     if (intervalMax < NORM_TICK_MIN)

@@ -64,7 +64,7 @@ extern "C" {
 
 #define NORM_VERSION_MAJOR 1
 #define NORM_VERSION_MINOR 5
-#define NORM_VERSION_PATCH 7
+#define NORM_VERSION_PATCH 10
 
 /** NORM API Types */
 typedef const void* NormInstanceHandle;

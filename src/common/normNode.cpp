@@ -1190,6 +1190,8 @@ void NormSenderNode::HandleRepairContent(const UINT32* buffer, UINT16 bufferLen)
 void NormSenderNode::CalculateGrttResponse(const struct timeval&    currentTime,
                                            struct timeval&          grttResponse) const
 {
+    // The returned "grttResponse" is the remote sender's cached "grtt_send_time" with
+    // any processing delay (currentTime - grtt_recv_time) removed.
     grttResponse.tv_sec = grttResponse.tv_usec = 0;
     if (grtt_send_time.tv_sec || grtt_send_time.tv_usec)
     {
@@ -3357,7 +3359,7 @@ void NormNodeTree::Destroy()
     while ((n = root)) 
     {
         DetachNode(n);
-        n->Release();
+        n->Release();  // note will delete the node if no other reference
     }
 }  // end NormNodeTree::Destroy()
 

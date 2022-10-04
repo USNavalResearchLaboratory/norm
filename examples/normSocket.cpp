@@ -519,11 +519,13 @@ bool NormSocket::Listen(UINT16 serverPort, const char* groupAddr, const char* se
     NormSetSilentReceiver(norm_session, true);
     
     // So that the listener can construct (unsent) ACKs without failure
+    // (I.e., these ACKs are never sent by the listener but this call is
+    //  needed as a "work around" existing NORM "connectionless" behavior)
     NormSetDefaultUnicastNack(norm_session, true);
     
-    // Note we use a small buffer size here since a "listening" socket isn't 
+    // Note we use a _small_ buffer size here since a "listening" socket isn't 
     // going to be receiving data (TBD - implement a mechanism to handoff remote
-    // sender (i.e. "client") from parent 
+    // sender (i.e. "client") from parent directly?)
     if (!NormStartReceiver(norm_session, 2048))
     {
         fprintf(stderr, "NormSocket::Listen() error: NormStartReceiver() failure (perhaps port already in use)\n");  
@@ -580,7 +582,7 @@ NormSocket* NormSocket::Accept(NormNodeHandle client, NormInstanceHandle instanc
     // However, note that even though we've "connected" this sender, 
     // there is a chance that additional packets in the "serverSession" 
     // rx socket buffer may look like a new sender if deleted now, so
-    // we wait for NORM_REMOTE_SENDER_INACTIVE to delete
+    // we wait for NORM_REMOTE_SENDER_INACTIVE to delete the remote sender from the listener sesssion
     
 #ifndef WIN32
     // Enable rx port reuse since it's the server port, and connect

@@ -21,7 +21,6 @@ extern NORM_API_LINKAGE
 const NormNodeId NORM_NODE_ANY = ((NormNodeId)0xffffffff);
 extern NORM_API_LINKAGE
 const NormObjectHandle NORM_OBJECT_INVALID = ((NormObjectHandle)0);
-
 extern NORM_API_LINKAGE
 const NormDescriptor NORM_DESCRIPTOR_INVALID = ProtoDispatcher::INVALID_DESCRIPTOR;
 
@@ -763,6 +762,7 @@ UINT32 NormInstance::CountCompletedObjects(NormSession* session)
 NORM_API_LINKAGE 
 int NormGetVersion(int* major, int* minor, int* patch)
 {
+    // TBD - use normVersion.h info instead
     if (NULL != major) *major = NORM_VERSION_MAJOR; 
     if (NULL != minor) *minor = NORM_VERSION_MINOR;
     if (NULL != patch) *patch = NORM_VERSION_PATCH; 
@@ -1257,6 +1257,10 @@ void NormSetServerListener(NormSessionHandle sessionHandle, bool state)
 NORM_API_LINKAGE
 bool NormTransferSender(NormSessionHandle sessionHandle, NormNodeHandle senderHandle)
 {
+    // The NormSession::InsertRemoteSender() used below synthesizes a NORM_CMD(CC) that
+    // is injected into the "sessionHandle" NormSession which results in a new remote
+    // sender being established.  I.e., it basically "clones" the sender from another
+    // NormSession into the target NormSession
 	bool result = false;
     NormInstance* dstInstance = NormInstance::GetInstanceFromSession(sessionHandle);
     if (NULL != dstInstance)

@@ -62,7 +62,7 @@ class Node(object):
 
     ## Private Functions
     def __del__(self):
-        libnorm.NormNodeRelease(self)
+        libnorm.NormNodeRelease(self._node)
 
     @property
     def _as_parameter_(self):

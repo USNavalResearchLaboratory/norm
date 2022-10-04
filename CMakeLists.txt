@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 cmake_policy(SET CMP0077 NEW)
 # set the project name
-project(norm VERSION 1.5.8)
+project(norm VERSION 1.5.10)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
@@ -126,7 +126,7 @@ target_include_directories(norm PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(norm PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
 
 if(BUILD_SHARED_LIBS)
-	set_target_properties(norm PROPERTIES SOVERSION 1)
+	set_target_properties(norm PROPERTIES SOVERSION 1.5.10)
 	if(WIN32)
 		target_compile_definitions(norm PUBLIC NORM_USE_DLL)
 	endif()

@@ -122,16 +122,40 @@ class Session(object):
         libnorm.NormSetGroupSize(self, size)
 
     def fileEnqueue(self, filename, info=""):
-        return Object(libnorm.NormFileEnqueue(self, filename.encode('utf-8'), info.encode('utf-8'), len(info)))
+        # TBD - allow for case of info being None?
+        result = libnorm.NormFileEnqueue(self, filename.encode('utf-8'), info.encode('utf-8'), len(info))
+        if ctypes.c_void_p.in_dll(libnorm, "NORM_OBJECT_INVALID") == result:
+            return None; # enqueue not successful due to flow control or sender cache limit
+        else
+            # Put a reference of the object in our instance "_objects" cache to avoid creation 
+            # of duplicative Python NORM Object during event notification
+            obj = self._instance._objects[self._estruct.object] = Object(result)
+            return obj
 
     def dataEnqueue(self, data, info=""):
-        return Object(libnorm.NormDataEnqueue(self, data.encode('utf-8'), len(data), info.encode('utf-8'), len(info)))
-
-    def requeueObject(self, normObject):
-        libnorm.NormRequeueObject(self, normObject)
+        # TBD - allow for case of info being None?
+        result = libnorm.NormDataEnqueue(self, data.encode('utf-8'), len(data), info.encode('utf-8'), len(info))
+        if ctypes.c_void_p.in_dll(libnorm, "NORM_OBJECT_INVALID") == result:
+            return None; # enqueue not successful due to flow control or sender cache limit
+        else
+            # Put a reference of the object in our instance "_objects" cache to avoid creation 
+            # of duplicative Python NORM Object during event notification
+            obj = self._instance._objects[self._estruct.object] = Object(result)
+            return obj
 
     def streamOpen(self, bufferSize, info=""):
-        return Object(libnorm.NormStreamOpen(self, bufferSize, info.encode('utf-8'), len(info)))
+        # TBD - allow for case of info being None?
+        result = libnorm.NormStreamOpen(self, bufferSize, info.encode('utf-8'), len(info))
+        if ctypes.c_void_p.in_dll(libnorm, "NORM_OBJECT_INVALID") == result:
+            return None; # stream open/enqueue not successful due to flow control or sender cache limit
+        else
+            # Put a reference of the object in our instance "_objects" cache to avoid creation 
+            # of duplicative Python NORM Object during event notification
+            obj = self._instance._objects[self._estruct.object] = Object(result)
+            return obj
+    
+    def requeueObject(self, normObject):
+        libnorm.NormRequeueObject(self, normObject)
 
     def sendCommand(self, cmdBuffer, robust=False):
         return libnorm.NormSendCommand(self, cmdBuffer.encode('utf-8'), len(cmdBuffer), robust)

@@ -195,13 +195,11 @@ class NormObjectId
             UINT16 diff = value - id.value;
             return ((diff > 0x8000) || ((0x8000 == diff) && (value > id.value)));
         }
-        
         bool operator>(const NormObjectId& id) const
         {
             UINT16 diff = id.value - value;
             return ((diff > 0x8000) || ((0x8000 == diff) && (id.value > value)));
         }
-        
         bool operator<=(const NormObjectId& id) const
             {return ((value == id.value) || (*this < id));}
         bool operator>=(const NormObjectId& id) const

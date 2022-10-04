@@ -59,7 +59,7 @@ void NormObject::Release()
     {
         PLOG(PL_ERROR, "NormObject::Release() releasing non-retained object?!\n");
     }
-    if (0 == reference_count) delete this;      
+    if (0 == reference_count) delete this;
 }  // end NormObject::Release()
 
 // This is mainly used for debug messages
@@ -4393,7 +4393,8 @@ void NormObjectTable::Destroy()
     count = range = range_max = 0;
 }  // end NormObjectTable::Destroy()
 
-#else
+#else  // !USE_PROTO_TREE
+
 NormObject* NormObjectTable::Find(const NormObjectId& objectId) const
 {
     if (0 != range)

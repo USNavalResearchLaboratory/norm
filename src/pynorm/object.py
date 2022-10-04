@@ -28,11 +28,9 @@ class Object(object):
     def getInfo(self):
         if not self.hasObjectInfo():
             raise NormError("No object info received yet.")
-
         length = libnorm.NormObjectGetInfoLength(self)
         if length == 0:
             raise NormError("No object info received yet.")
-
         buf = ctypes.create_string_buffer(length)
         recv = libnorm.NormObjectGetInfo(self, buf, length)
         if recv == 0:
@@ -49,7 +47,8 @@ class Object(object):
         libnorm.NormObjectCancel(self)
 
     def getFileName(self):
-        buf = ctypes.create_string_buffer(100)
+        # TBD - should we do something to get file name size first?
+        buf = ctypes.create_string_buffer(256)
         libnorm.NormFileGetName(self, buf, ctypes.sizeof(buf))
         return buf.value
 
@@ -120,7 +119,7 @@ class Object(object):
 
     ## Private functions
     def __del__(self):
-        libnorm.NormObjectRelease(self)
+        libnorm.NormObjectRelease(self._object)
 
     @property
     def _as_parameter_(self):
