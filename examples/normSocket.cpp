@@ -519,8 +519,6 @@ bool NormSocket::Listen(UINT16 serverPort, const char* groupAddr, const char* se
     NormSetSilentReceiver(norm_session, true);
     
     // So that the listener can construct (unsent) ACKs without failure
-    // (I.e., these ACKs are never sent by the listener but this call is
-    //  needed as a "work around" existing NORM "connectionless" behavior)
     NormSetDefaultUnicastNack(norm_session, true);
     
     // Note we use a _small_ buffer size here since a "listening" socket isn't 

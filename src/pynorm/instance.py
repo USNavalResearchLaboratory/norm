@@ -47,60 +47,63 @@ class Instance(object):
     def restart(self):
         libnorm.NormRestartInstance(self)
 
-    def setCacheDirectory(self, path):
-        libnorm.NormSetCacheDirectory(self, path.encode('utf-8'))
-        
-    def setDebugLevel(self, level):
-        libnorm.NormSetDebugLevel(level)
+    def setCacheDirectory(self, path:str):
+        libnorm.NormSetCacheDirectory(self, path.encode())
 
-    def openDebugLog(self, path):
-        libnorm.NormOpenDebugLog(self, path.encode('utf-8'))
+    def setDebugLevel(self, level:c.DebugLevel):
+        libnorm.NormSetDebugLevel(int(level))
+
+    def openDebugLog(self, path:str):
+        libnorm.NormOpenDebugLog(self, path.encode())
 
     def closeDebugLog(self):
         libnorm.NormCloseDebugLog(self)
 
-    def openDebugPipe(self, pipeName):
-        libnorm.NormOpenDebugPipe(self, pipeName.encode('utf-8'))
+    def openDebugPipe(self, pipeName:str):
+        libnorm.NormOpenDebugPipe(self, pipeName.encode())
 
     def getNextEvent(self, timeout=None):
         # Use python's select because letting the C NormGetNextEvent block
         # seems to stop signals (CTRL+C) from killing the process
         if not self._select(timeout):
             return None
-
         result = libnorm.NormGetNextEvent(self, ctypes.byref(self._estruct), True)
-
         if not result:
             sys.stderr.write("NormInstance.getNextEvent() warning: no more NORM events\n")
             return False
             
         # Note a NORM_EVENT_INVALID can be OK (with NORM_SESSION_INVALID)    
-        if self._estruct.type == c.NORM_EVENT_INVALID:
-            return Event(c.NORM_EVENT_INVALID, None, None, None)
-            
+        if self._estruct.type == c.EventType.EVENT_INVALID: 
+            return Event(c.EventType.EVENT_INVALID, None, None, None)
+        
         if self._estruct.session == c.NORM_SESSION_INVALID:
             raise NormError("No new event")
-            
-        try:
-            sender = self._senders[self._estruct.sender]
-        except KeyError:
-            sender = self._senders[self._estruct.sender] = Node(self._estruct.sender)
-        try:
-            obj = self._objects[self._estruct.object]
-        except KeyError:
-            obj = self._objects[self._estruct.object] = Object(self._estruct.object)
+        if self._estruct.sender:
+            try:
+                sender = self._senders[self._estruct.sender]
+            except KeyError:
+                sender = self._senders[self._estruct.sender] = Node(self._estruct.sender)
+        else:
+            sender = None
+        if self._estruct.object:
+            try:
+                obj = self._objects[self._estruct.object]
+            except KeyError:
+                obj = self._objects[self._estruct.object] = Object(self._estruct.object)
+        else:
+            obj = None
         return Event(self._estruct.type, self._sessions[self._estruct.session], sender, obj)
 
-    def getDescriptor(self):
+    def getDescriptor(self) -> int:
         return libnorm.NormGetDescriptor(self)
 
-    def fileno(self):
+    def fileno(self) -> int:
         return libnorm.NormGetDescriptor(self)
 
-    def createSession(self, address, port, localId=None):
+    def createSession(self, address:str, port:int, localId:int=None):
         if localId == None:
             localId = c.NORM_NODE_ANY
-        session = Session(self, address, port, localId)
+        session:Session = Session(self, address, port, localId)
         self._sessions[session._session] = session
         return session
 
@@ -118,7 +121,7 @@ class Instance(object):
         else:
             # Windows wants milliseconds...
             timeout *= 1000
-        rv = win32event.WaitForSingleObject(self.getDescriptor(), timeout)
+        rv = win32event.WaitForSingleObject(self.getDescriptor(), int(timeout) )
         return True if rv == win32event.WAIT_OBJECT_0 else False
 
     def _select_everythingelse(self, timeout):
@@ -143,6 +146,8 @@ class Instance(object):
         return __next__()
 
     def __cmp__(self, other):
+        def cmp(a, b):
+            return (a > b) - (a < b)         
         return cmp(self._as_parameter_, other._as_parameter)
 
     def __hash__(self):

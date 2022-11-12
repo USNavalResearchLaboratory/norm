@@ -14,20 +14,19 @@ class InputThread(Thread):
     
     def __init__(self, parent, *args, **kwargs):
         super(InputThread, self).__init__(*args, **kwargs)
-        #self.setDaemon(True)  ;# this is "child" daemon thread  (setDaemon is deprecated)
         self.daemon = True
         self.msgr = parent
         
     def run(self):
         while True:
             try:
-                msgHdr = bytearray(sys.stdin.read(MSG_HDR_SIZE))
+                msgHdr = sys.stdin.buffer.read(MSG_HDR_SIZE)
             except:
                 sys.stderr.write("normMsgr: input thread end-of-file 1 ...\n")
                 return
             try:
                 msgSize = 256*int(msgHdr[0]) + int(msgHdr[1])
-                msgBuffer = sys.stdin.read(msgSize - 2)
+                msgBuffer = sys.stdin.buffer.read(msgSize - 2)
             except:
                 sys.stderr.write("normMsgr: input thread end-of-file 2 ...\n")
                 return
@@ -38,7 +37,7 @@ class OutputThread(Thread):
     
     def __init__(self, parent, *args, **kwargs):
         super(OutputThread, self).__init__(*args, **kwargs)
-        self.setDaemon(True)  ;# this is "child" daemon thread
+        self.daemon = True
         self.msgr = parent
         
     def run(self):
@@ -48,11 +47,15 @@ class OutputThread(Thread):
             msgHeader = bytearray(MSG_HDR_SIZE)
             msgHeader[0] = (msgLen >> 8) & 0x00ff
             msgHeader[1] = msgLen & 0x00ff
-            sys.stdout.write(msgHeader)
-            sys.stdout.write(msg)
+            try:
+                sys.stdout.buffer.write(msgHeader)
+                sys.stdout.buffer.write(msg)
+                sys.stdout.flush()
+            except:
+                sys.stderr.write("normMsgr: output thread exiting ...\n")
+                return
             del msg
             
-
 class NormMsgr:
     """This class keeps state for NORM tx/rx operations"""
     
@@ -79,10 +82,12 @@ class NormMsgr:
         # Create a NormSession and set some default parameters
         self.normSession = self.normInstance.createSession(addr, port, nodeId)
         self.normSession.setRxCacheLimit(2*self.norm_tx_queue_max) ;# we let the receiver track some extra objects
-        self.normSession.setDefaultSyncPolicy(pynorm.NORM_SYNC_ALL);
+        self.normSession.setDefaultSyncPolicy(pynorm.SyncPolicy.ALL);
         self.normSession.setDefaultUnicastNack(True);
         self.normSession.setTxCacheBounds(10*1024*1024, self.norm_tx_queue_max, self.norm_tx_queue_max);
         self.normSession.setCongestionControl(True, True);
+        self.normSession.setRxPortReuse(True)
+        self.normSession.setMulticastLoopback(True)
         return self.normSession
         
     def addAckingNode(self, nodeId):
@@ -204,7 +209,7 @@ class NormMsgr:
    
     def onNormRxObjectCompleted(self, obj):
         with self.normRxLock:
-            if pynorm.NORM_OBJECT_DATA == obj.getType():
+            if pynorm.ObjectType.DATA == obj.getType():
                 if 0 != len(self.output_msg_queue):
                     wasEmpty = False
                 else:
@@ -250,12 +255,12 @@ class NormEventHandler(Thread):
                 return
             if event is None:
                 break
-            if pynorm.NORM_EVENT_INVALID == event.type:
+            if pynorm.EventType.EVENT_INVALID == event.type:
                 continue
-            elif pynorm.NORM_TX_QUEUE_EMPTY == event.type or pynorm.NORM_TX_QUEUE_VACANCY == event.type:
+            elif pynorm.EventType.TX_QUEUE_EMPTY == event.type or pynorm.EventType.TX_QUEUE_VACANCY == event.type:
                 msgr.onNormTxQueueVacancy()
-            elif pynorm.NORM_TX_WATERMARK_COMPLETED == event.type:
-                if pynorm.NORM_ACK_SUCCESS == event.session.getAckingStatus():
+            elif pynorm.EventType.TX_WATERMARK_COMPLETED == event.type:
+                if pynorm.EventType.ACK_SUCCESS == event.session.getAckingStatus():
                     # All receivers acknowledged
                     msgr.onNormTxWatermarkCompleted()
                 else:
@@ -263,12 +268,12 @@ class NormEventHandler(Thread):
                     #       from our acking list.  For now, we are infinitely
                     #       persistent by resetting watermark ack request
                     event.session.resetWatermark()
-            elif pynorm.NORM_TX_OBJECT_PURGED == event.type:
+            elif pynorm.EventType.TX_OBJECT_PURGED == event.type:
                 msgr.onNormTxObjectPurged(event.object)
-            elif pynorm.NORM_RX_OBJECT_COMPLETED == event.type:
+            elif pynorm.EventType.RX_OBJECT_COMPLETED == event.type:
                 msgr.onNormRxObjectCompleted(event.object)
             #else:
-            #    sys.stderr.write("normMsgr: NormEventHandler warning: unhandled event: %s\n" % str(event))
+                #sys.stderr.write("normMsgr: NormEventHandler warning: unhandled event: %s\n" % pynorm.EventType(event.type))
         sys.stderr.write("normMsgr: NormEventHandler thread exiting ...\n");
         self.lock.release()
   
@@ -395,4 +400,9 @@ except KeyboardInterrupt:
     #sys.stderr.write("exception while waiting on input thread ..\n");
     pass
     
+# TBD - shut the NormEventHandler thread down in a graceful way
+if send:
+    inputThread.join()
+if recv:
+    outputThread.join()
 sys.stderr.write("normMsgr: Done.\n")

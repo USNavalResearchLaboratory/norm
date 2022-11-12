@@ -70,7 +70,10 @@ class NormStreamer
         {
             loopback = state;
             if (NORM_SESSION_INVALID != norm_session)
+            {
                 NormSetMulticastLoopback(norm_session, state);
+                NormSetLoopback(norm_session, state);  // XXX test code
+            }
         }  
         void SetFtiInfo(bool state)
         {
@@ -567,8 +570,11 @@ bool NormStreamer::OpenNormSession(NormInstanceHandle instance, const char* addr
     {
         NormSetRxPortReuse(norm_session, true);
         if (loopback)
+        {
             NormSetMulticastLoopback(norm_session, true);
+        }
     }
+    NormSetLoopback(norm_session, loopback);
     
     // Set some default parameters (maybe we should put parameter setting in Start())
     NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_STREAM);
@@ -889,11 +895,11 @@ unsigned int NormStreamer::WriteToStream(const char* buffer, unsigned int numByt
                 if (ack_ex)
                 {
                     const char* req = "Hello, acker";
-                    NormSetWatermarkEx(norm_session, tx_stream, req, strlen(req) + 1);
+                    NormSetWatermarkEx(norm_session, tx_stream, req, strlen(req) + 1);//, true);
                 }
                 else
                 {
-                    NormSetWatermark(norm_session, tx_stream);
+                    NormSetWatermark(norm_session, tx_stream);//, true);
                 }
                 
                 tx_watermark_pending = true;
@@ -1178,7 +1184,6 @@ void NormStreamer::HandleNormEvent(const NormEvent& event)
             break;
             
         case NORM_TX_WATERMARK_COMPLETED:
-            TRACE("NORM_TX_WATERMARK_COMPLETED ...\n");
             if (NORM_ACK_SUCCESS == NormGetAckingStatus(norm_session))
             {
                 //fprintf(stderr, "WATERMARK COMPLETED\n");
@@ -2051,11 +2056,7 @@ int main(int argc, char* argv[])
     }
     
     // TBD - should provide more error checking of NORM API calls
-    TRACE("creating instance ...\n");
     NormInstanceHandle normInstance = NormCreateInstance(boostPriority);
-    TRACE("restarting instance ...\n");
-    //NormRestartInstance(normInstance);  // xxx
-    TRACE("instance restarted.\n");
     
     NormSetDebugLevel(debugLevel);
     if ((NULL != logFile) && !NormOpenDebugLog(normInstance, logFile))

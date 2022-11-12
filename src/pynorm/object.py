@@ -4,23 +4,24 @@ By: Tom Wambold <wambold@itd.nrl.navy.mil>
 """
 
 from __future__ import absolute_import
-
 import ctypes
-
+import locale
 import pynorm.constants as c
 from pynorm.core import libnorm, NormError
 from pynorm.node import Node
 
 class Object(object):
     """Represents a NORM object instance"""
+    locale_encoding:str = locale.getpreferredencoding()
 
     ## Public functions
-    def __init__(self, object):
-        libnorm.NormObjectRetain(object)
-        self._object = object
+    def __init__(self, object_id:int):
+        libnorm.NormObjectRetain(object_id)
+        self._object:int = object_id # type NormObjectHandle
         
-    def getType(self):
-        return libnorm.NormObjectGetType(self)
+    def getType(self) -> c.ObjectType:
+        value = libnorm.NormObjectGetType(self)
+        return c.ObjectType(value)
 
     def hasObjectInfo(self):
         return libnorm.NormObjectHasInfo(self)
@@ -37,23 +38,25 @@ class Object(object):
             raise NormError("No object info received yet.")
         return buf.value
 
-    def getSize(self):
+    def getSize(self) -> int:
         return libnorm.NormObjectGetSize(self)
 
-    def getBytesPending(self):
+    def getBytesPending(self) -> int:
         return libnorm.NormObjectGetBytesPending(self)
 
-    def cancel(self):
+    def cancel(self) -> None:
         libnorm.NormObjectCancel(self)
 
-    def getFileName(self):
-        # TBD - should we do something to get file name size first?
+    def getFileName(self) -> str:
         buf = ctypes.create_string_buffer(256)
-        libnorm.NormFileGetName(self, buf, ctypes.sizeof(buf))
-        return buf.value
+        success = libnorm.NormFileGetName(self, buf, ctypes.sizeof(buf))
+        if success:
+            return  buf.value.decode(Object.locale_encoding)
+        else:
+            return None
 
-    def renameFile(self, name):
-        libnorm.NormFileRename(self, name.encode('utf-8'))
+    def renameFile(self, name:str) -> bool:
+        return libnorm.NormFileRename(self, name.encode(Object.locale_encoding))
 
     # Because 'ctypes.string_at()' makes a _copy_ of the data, we don't
     # support the usual NORM accessData / detachData options.  We use
@@ -71,23 +74,23 @@ class Object(object):
     def getSender(self):
         return Node(libnorm.NormObjectGetSender(self))
 
-    def setNackingMode(self, mode):
-        libnorm.NormObjectSetNackingMode(self, mode)
+    def setNackingMode(self, mode:c.NackingMode):
+        libnorm.NormObjectSetNackingMode(self, mode.value)
 
     ## Stream sending functions
     def streamClose(self, graceful=False):
         libnorm.NormStreamClose(self, graceful)
 
-    def streamWrite(self, msg):
-        return libnorm.NormStreamWrite(self, msg.encode('utf-8'), len(msg))
+    def streamWrite(self, msg:bytes):
+        return libnorm.NormStreamWrite(self, msg, len(msg))
 
-    def streamFlush(self, eom=False, flushmode=c.NORM_FLUSH_PASSIVE):
-        libnorm.NormStreamFlush(self, eom, flushmode)
+    def streamFlush(self, eom=False, flushmode:c.FlushMode = c.FlushMode.PASSIVE):
+        libnorm.NormStreamFlush(self, eom, flushmode.value)
 
-    def streamSetAutoFlush(self, mode):
-        libnorm.NormStreamSetAutoFlush(self, mode)
+    def streamSetAutoFlush(self, flushMode:c.FlushMode):
+        libnorm.NormStreamSetAutoFlush(self, flushMode.value)
 
-    def streamPushEnable(self, push):
+    def streamPushEnable(self, push:bool):
         libnorm.NormStreamSetPushEnable(self, push)
 
     def streamHasVacancy(self):
@@ -97,11 +100,11 @@ class Object(object):
         libnorm.NormStreamMarkEom(self)
 
     ## Stream receiving functions
-    def streamRead(self, size):
+    def streamRead(self, size) -> (int,bytes):
         buf = ctypes.create_string_buffer(size)
         numBytes = ctypes.c_uint(ctypes.sizeof(buf))
         libnorm.NormStreamRead(self, buf, ctypes.byref(numBytes))
-        return (numBytes, buf.value)
+        return (numBytes.value, buf)
 
     def streamSeekMsgStart(self):
         return libnorm.NormStreamSeekMsgStart(self)
@@ -110,32 +113,34 @@ class Object(object):
         return libnorm.NormStreamGetReadOffset(self)
 
     ## Properties
-    type = property(getType)
-    info = property(getInfo)
-    size = property(getSize)
-    bytesPending = property(getBytesPending)
-    filename = property(getFileName, renameFile)
-    sender = property(getSender)
+    type:c.ObjectType = property(getType)
+    info:bytes = property(getInfo)
+    size:int = property(getSize)
+    bytesPending:int = property(getBytesPending)
+    filename:bytes = property(getFileName, renameFile)
+    sender:Node = property(getSender)
+    handle:int = property( lambda self:self._object )
 
     ## Private functions
+    def __copy__(self):
+        return Object(self._object)
+        
+    def __deepcopy__(self, memo):
+        return Object(self._object)
+    
     def __del__(self):
-        libnorm.NormObjectRelease(self._object)
+        libnorm.NormObjectRelease(self)
 
     @property
     def _as_parameter_(self):
         return self._object
 
     def __str__(self):
-        if self.type == c.NORM_OBJECT_DATA:
-            return "NORM_OBJECT_DATA"
-        elif self.type == c.NORM_OBJECT_FILE:
-            return "NORM_OBJECT_FILE"
-        elif self.type == c.NORM_OBJECT_STREAM:
-            return "NORM_OBJECT_STREAM"
-        elif self.type == c.NORM_OBJECT_NONE:
-            return "NORM_OBJECT_NONE"
+        return self.type.name
 
     def __cmp__(self, other):
+        def cmp(a, b):
+            return (a > b) - (a < b)        
         return cmp(self._as_parameter_, other._as_parameter_)
 
     def __hash__(self):
