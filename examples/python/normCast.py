@@ -93,7 +93,7 @@ def get_arg_options():
     parser = argparse.ArgumentParser(description='Optional app description')
 
     ##    Required positional argument
-    parser.add_argument('--id', type=int, #required=True,
+    parser.add_argument('--id', type=int, required=True,
                         help='id <nodeIdInteger>')
 
     parser.add_argument('--send', '-S',nargs='+',

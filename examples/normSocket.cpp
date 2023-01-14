@@ -65,7 +65,7 @@ const char* NormNodeGetAddressString(NormNodeHandle node)
         else
             addrFamily = AF_INET6;
         inet_ntop(addrFamily, addr, text, 31);
-        sprintf(text + strlen(text), "/%hu", port);
+        snprintf(text + strlen(text), 64 - strlen(text), "/%hu", port);
         return text;
     }
     else
