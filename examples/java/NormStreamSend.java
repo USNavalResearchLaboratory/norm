@@ -10,8 +10,8 @@ public class NormStreamSend {
 	static final long REPAIR_WINDOW_SIZE = 1024 * 1024;
 	static final long SESSION_BUFFER_SIZE = 1024 * 1024;
 	static final int SEGMENT_SIZE = 1400;
-	static final int BLOCK_SIZE = 64;
-	static final int PARITY_SEGMENTS = 16;
+	static final short BLOCK_SIZE = 64;
+	static final short PARITY_SEGMENTS = 16;
 	static final String DEST_ADDRESS = "224.1.2.3";
 	static final int DEST_PORT = 6003;
 
