@@ -1,0 +1,40 @@
+@startuml
+class NormOutputStream {
+    - _normInstance : NormInstance
+    - _normSession : NormSession
+    - _normStream : NormStream
+    - _normEventListeners : List<INormEventListener>
+    - _closed : bool
+    - _closeLock : object
+    - _bufferIsFull : bool
+    + NormOutputStream(address:string, port:int)
+    + OpenDebugLog(filename:string) : void
+    + CloseDebugLog() : void
+    + SetDebugLevel(level:int) : void
+    + SetMessageTrace(messageTrace:bool) : void
+    + SetMulticastInterface(multicastInterface:string) : void
+    + SetEcnSupport(ecnEnable:bool, ignoreLoss:bool): void
+    + SetTtl(ttl:byte) : void
+    + SetTos(tos:byte) : void
+    + SetCongestionControl(ccEnabled:bool, ccAdjustRate: bool) : void
+    + SetTxRateBounds(rateMin:double, rateMax:double) : void
+    + TxRate:double <<get>> <<set>>
+    + GrttEstimate:double <<get>> <<set>>
+    + SetGroupSize(groupSize:long) : void
+    + SetAutoParity(autoParity:short) : void
+    + SetBackoffFactor(backoffFactor:double) : void
+    + SetAutoFlush(flushMode:NormFlushMode) : void
+    + SetPushEnable(pushEnable:bool) : void
+    + MarkEom() : void
+    + AddNormEventListener(normEventListener:INormEventListener) : void
+    + RemoveNormEventListener(normEventListener:INormEventListener): void
+    - FireNormEventOccured(normEvent:NormEvent) : void
+    + Open(sessionId:int, bufferSpace:long, segmentSize:int, blockSize:short, numParity:short, repairWindow:long) : void
+    + <<override>> Dispose() : void
+    + IsClosed : bool <<get>>
+    + Write(b:int) : void
+    + <<override>> Write(buffer:byte[], offset:int, count:int)
+    - ProcessEvent() : void
+}
+Stream <|-- NormOutputStream
+@enduml

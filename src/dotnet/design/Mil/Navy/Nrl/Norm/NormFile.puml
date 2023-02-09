@@ -1,0 +1,8 @@
+@startuml
+class NormFile {
+    ~ NormFile(handle:long)
+    + Name : string <<get>>
+    + Rename(filename:string) : void
+}
+NormObject <|-- NormFile
+@enduml

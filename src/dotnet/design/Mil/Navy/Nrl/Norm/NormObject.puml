@@ -1,0 +1,17 @@
+@startuml
+class NormObject {
+    # _handle:long
+    ~ NormObject(handle:long)
+    + SetNackingMode(nackingMode:NormNackingMode) : void
+    + Type : NormObjectType <<get>>
+    + Info : byte[] <<get>>
+    + Size : long <<get>>
+    + GetBytesPending() : long
+    + Cancel() : void
+    + Retain() : void
+    + Release() : void
+    + Sender : NormNode <<get>>
+    + <<override>> GetHashCode() : int
+    + <<override>> Equals(obj:object) : bool
+}
+@enduml

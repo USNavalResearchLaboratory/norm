@@ -1,0 +1,33 @@
+@startuml
+class NormInputStream {
+    - _normInstance : NormInstance
+    - _normSession : NormSession
+    - _normStream : NormStream
+    - _normEventListeners : List<INormEventListener>
+    - _closed : bool
+    - _closeLock : object
+    - _bufferIsEmpty : bool
+    - _receivedEof : bool
+    + NormInputStream(address:string, port:int)
+    + OpenDebugLog(filename:string) : void
+    + SetDebugLevel(level:int) : void
+    + SetMessageTrace(messageTrace:bool) : void
+    + SetMulticastInterface(multicastInterface: string) : void
+    + SetEcnSupport(ecnEnable:bool, ignoreLoss:bool)
+    + SetTtl(ttl:byte) : void
+    + SetTos(tos:byte) : void
+    + SetSilentReceiver(silent:bool, maxDelay:int) : void
+    + SetDefaultUnicastNack(defaultUnicastNack:bool) : void
+    + SeekMsgStart() : void
+    + AddNormEventListener(normEventListener:INormEventListener) : void
+    + RemoveNormEventListener(normEventListener:INormEventListener) : void
+    - FireNormEventOccured(normEvent:NormEvent) : void
+    + Open(bufferSpace:long) : void
+    + <<override>> Dispose() : void
+    + IsClosed : bool <<get>>
+    + Read() : int
+    + <<override>> Read(buffer:byte[], offset:int, length:int) : int
+    - ProcessEvent() : void
+}
+Stream <|-- NormInputStream
+@enduml

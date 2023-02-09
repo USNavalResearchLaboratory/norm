@@ -1,0 +1,9 @@
+@startuml
+enum NormTrackingStatus
+{
+    NORM_TRACK_NONE
+    NORM_TRACK_RECEIVERS
+    NORM_TRACK_SENDERS
+    NORM_TRACK_ALL
+}
+@enduml

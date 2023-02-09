@@ -1,0 +1,21 @@
+@startuml
+class NormInstance {
+    - _handle: long
+    + NormInstance()
+    + NormInstance(priorityBoost:bool)
+    - CreateInstance(priorityBoost:bool) : void
+    + DestroyInstance() : void
+    + StopInstance() : void
+    + RestartInstance() : bool
+    + SuspendInstance() : bool
+    + ResumeInstance() : void
+    + SetCacheDirectory(cachePath:string) : void
+    + OpenDebugLog(filename:string) : void
+    + CloseDebugLog() : void
+    + OpenDebugPipe(pipename:string) : void
+    + DebugLevel: int <<get>> <<set>>
+    + HasNextEvent(sec:int, usec:int) : boolean
+    + GetNextEvent() : NormEvent
+    + CreateSession(address:string, port:int, localNodeId:long) : NormSession
+}
+@enduml

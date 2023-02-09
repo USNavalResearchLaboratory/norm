@@ -1,0 +1,70 @@
+@startuml
+class NormSession {
+    {static} -_normSessions : Dictionary<long, NormSession>
+    - _handle : long
+    ~ NormSession(handle:long)
+    {static} ~ NormSession GetSession(handle:long)
+    + DestroySession() : void
+    - DestroySessionNative() : void
+    + LocalNodeId: long <<get>>
+    + SetTxPort(port:int) : void
+    + SetTxPort(port:int, enableReuse:bool, txAddress:string) : void
+    + SetRxPortReuse(enable:bool) : void
+    + SetRxPortReuse(enable:bool, rxBindAddress:string, senderAddress:string, senderPort:int) : void
+    + SetEcnSupport(ecnEnable:bool, ignoreLoss:bool) : void
+    + SetEcnSupport(ecnEnable:bool, ignoreLoss:bool, tolerateLoss:bool) : void
+    + SetMulticastInterface(interfaceName:string) : void
+    + SetSSM(sourceAddr:string) : void
+    + SetTTL(ttl:byte) : void
+    + SetTOS(tos:byte) : void
+    + SetLoopback(loopbackEnable:bool) : void
+    + SetMessageTrace(flag:bool) : void
+    + SetTxLoss(precent:double) : void
+    + SetRxLoss(precent:double) : void
+    + ReportInterval: double <<get>> <<set>>
+    + StartSender(sessionId:int, bufferSpace:long, segmentSize:int, blockSize:short, numParity:short) : void
+    + StartSender(sessionId:int, bufferSpace:long, segmentSize:int, blockSize:short, numParity:short, fecId:NormFecType) : void
+    + StopSender() : void
+    + SetTxOnly(txOnly:bool) : void
+    + TxRate:double <<get>> <<set>>
+    + SetFlowControl(flowControlFactor:double) : void
+    + SetTxSocketBuffer(bufferSize:long) : void
+    + SetCongestionControl(enable:bool) : void
+    + SetCongestionControl(enable:bool, adjustRate:bool) : void
+    + SetTxRateBounds(rateMin:double, rateMax:double) : void
+    + SetTxCacheBounds(sizeMax:long, countMin:long, countMax:long) : void
+    + SetAutoParity(autoParity:short) : void
+    + GrttEstimate:double <<get>> <<set>>
+    + SetGrttMax(grttMax:double) : void
+    + SetGrttProbingMode(probingMode:NormProbingMode) : void
+    + SetGrttProbingInterval(intervalMin:double, intervalMax:double) : void
+    + SetBackoffFactor(backoffFactor:double) : void
+    + SetGroupSize(groupSize:long) : void
+    + SetTxRobustFactor(robustFactor:int) : void
+    + FileEnqueue(filename:string) : NormFile
+    + FileEnqueue(filename:string, info:byte[], infoOffset:int, infoLength:int) : NormFile
+    + DataEnqueue(dataBuffer:MemoryStream, dataOffset:int, dataLength:int) : NormData
+    + DataEnqueue(dataBuffer:MemoryStream, dataOffset:int, dataLength:int, info:byte[], infoOffset:int, infoLength:int) : NormData
+    + RequeueObject(object:NormObject) : void
+    + StreamOpen(bufferSize:long) : NormStream
+    + StreamOpen(bufferSize:long, info:byte[], infoOffset:int, infoLength:int) : NormStream
+    + SetWatermark(object:NormObject, overrideFlush:bool) : void
+    + CancelWatermark() : void
+    + ResetWatermark() : void
+    + AddAckingNode(nodeId:long) : void
+    + RemoveAckingNode(nodeId:long) : void
+    + GetAckingStatus(nodeId:long): NormAckingStatus
+    + SendCommand(cmdBuffer:byte[], cmdOffset:int, cmdLength:int, robust:bool) : void
+    + CancelCommand() : void
+    + StartReceiver(bufferSpace:long) : void
+    + StopReceiver() : void
+    + SetRxCacheLimit(countMax:int) : void
+    + SetRxSocketBuffer(bufferSize:long) : void
+    + SetSilentReceiver(silent:bool, maxDelay:int) : void
+    + SetDefaultUnicastNack(enabled:bool) : void
+    + SetDefaultSyncPolicy(syncPolicy:NormSyncPolicy) : void
+    + SetDefaultNackingMode(nackingMode: NormNackingMode) : void
+    + SetDefaultRepairBoundary(repairBoundary: NormRepairBoundry) : void
+    + SetDefaultRxRobustFactor(robustFactor: int): void
+}
+@enduml

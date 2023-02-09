@@ -1,0 +1,5 @@
+@startuml
+interface INormEventListener {
+    NormEventOccurred(normEvent:NormEvent) : void
+}
+@enduml

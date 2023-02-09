@@ -1,0 +1,18 @@
+@startuml
+class NormNode {
+    + <<const>> NORM_NODE_ANY : long = 0xffffffff
+    - _handle : long
+    ~ NormNode(handle:long)
+    + SetUnicastNack(state:bool) : void
+    + SetNackingMode(nackingMode:NormNackingMode) : void
+    + SetRepairBoundary(repairBoundary:NormRepairBoundary) : void
+    + SetRxRobustFactor(robustFactor:int) : void
+    + Id : long <<get>>
+    + Address : SocketAddress <<get>>
+    + Grtt : double <<get>>
+    + GetCommand(buffer:byte[], offset:int, length:int) : int
+    + FreeBuffers() : void
+    + Retain() : void
+    + Release(): void
+}
+@enduml

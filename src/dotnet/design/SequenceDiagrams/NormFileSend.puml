@@ -1,0 +1,49 @@
+@startuml NormFileSend
+Client -> NormInstance : new()
+NormInstance -> NormInstance : CreateInstance(false)
+NormInstance -> NormApi : NormCreateInstance(false)
+NormInstance <- NormApi : instanceHandle
+Client <- NormInstance : NormInstance
+Client -> NormInstance : CreateSession(address, port, localNodeId)
+NormInstance -> NormApi : NormCreateSession(instanceHandle, address, port, localNodeId)
+NormInstance <- NormApi : sessionHandle
+alt sessionHandle == NORM_SESSION_INVALID
+    NormInstance -> IOException : throw new("Failed to create session")
+end
+NormInstance -> NormSession : new(sessionHandle)
+NormInstance <- NormSession : NormSession
+Client <- NormInstance : NormSession
+Client -> NormSession : StartSender(sessionId, bufferSpace, segmentSize, blockSize, numParity, fecId)
+NormSession -> NormApi : NormStartSender(sessionHandle, sessionId, bufferSpace, segmentSize, blockSize, numParity, fecId)
+NormSession <- NormApi : success
+alt success == false
+    NormSession -> IOException : throw new("Failed to start sender")
+end
+Client -> NormSession : FileEnqueue(filename)
+NormSession -> ASCII : GetBytes(filename)
+NormSession <- ASCII : info
+NormSession -> NormApi : NormFileEnqueue(sessionHandle, filename, info, info.Length)
+NormSession <- NormApi : objectHandle
+alt objectHandle == NormApi.NORM_OBJECT_INVALID
+    NormSession -> IOException : throw new("Failed to enqueue file")
+end
+NormSession -> NormFile: new(objectHandle)
+NormSession <- NormFile : NormFile
+Client <- NormSession : NormFile
+loop NormEvent != null
+    Client -> NormInstance : GetNextEvent()
+    NormInstance -> NormApi : NormGetNextEvent(instanceHandle, NormEvent)
+    NormInstance <- NormApi : success
+    alt success == false
+        Client <- NormInstance : null
+    end
+    Client <- NormInstance : NormEvent
+end
+Client -> NormSession : StopSender();
+NormSession -> NormApi : NormStopSender(sessionHandle)
+Client -> NormSession : DestroySession()
+NormSession -> NormSession : DestroySessionNative()
+NormSession -> NormApi : NormDestroySession(sessionHandle)
+Client -> NormInstance : DestroyInstance()
+NormInstance -> NormApi : NormDestroyInstance(instanceHandle)
+@enduml

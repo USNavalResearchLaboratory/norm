@@ -1,0 +1,14 @@
+@startuml
+class NormEvent {
+    - _type: NormEventType
+    - _sessionHandle: long
+    - _nodeHandle: long
+    - _objectHandle: long
+    + NormEvent(type:NormEventType, sessionHandle:long, nodeHandle:long, objectHandle:long)
+    + Type : NormEventType <<get>>
+    + Session : NormSession <<get>>
+    + Node : NormNode <<get>>
+    + Object : NormObject <<get>>
+    + <<override>> ToString() : string
+}
+@enduml
