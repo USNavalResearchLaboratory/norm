@@ -28,6 +28,15 @@ class NormInputStream {
     + Read() : int
     + <<override>> Read(buffer:byte[], offset:int, length:int) : int
     - ProcessEvent() : void
+    + <<override>> Flush() : void
+    + <<override>> Write(buffer:byte[], offset:int, count:int) : void
+    + <<override>> Seek(offset:long, origin:SeekOrigin) : long
+    + <<override>> SetLength(value:long) : void
+    + <<override>> CanRead : bool <<get>>
+    + <<override>> CanSeek : bool <<get>>
+    + <<override>> CanWrite : bool <<get>>
+    + <<override>> Length : long <<get>>
+    + <<override>> Position : long <<get>> <<set>>
 }
 Stream <|-- NormInputStream
 @enduml

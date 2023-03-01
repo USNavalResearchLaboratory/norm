@@ -1,5 +1,6 @@
 @startuml
 class NormInstance {
+    + <<const>> NORM_DESCRIPTOR_INVALID : int = 0
     - _handle: long
     + NormInstance()
     + NormInstance(priorityBoost:bool)
@@ -14,7 +15,9 @@ class NormInstance {
     + CloseDebugLog() : void
     + OpenDebugPipe(pipename:string) : void
     + DebugLevel: int <<get>> <<set>>
-    + HasNextEvent(sec:int, usec:int) : boolean
+    + HasNextEvent(sec:int, usec:int) : bool
+    + HasNextEvent(waitTime:TimeSpan) : bool
+    + GetNextEvent(waitForEvent:bool) : NormEvent
     + GetNextEvent() : NormEvent
     + CreateSession(address:string, port:int, localNodeId:long) : NormSession
 }

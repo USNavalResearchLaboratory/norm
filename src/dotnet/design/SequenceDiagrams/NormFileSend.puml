@@ -7,7 +7,7 @@ Client <- NormInstance : NormInstance
 Client -> NormInstance : CreateSession(address, port, localNodeId)
 NormInstance -> NormApi : NormCreateSession(instanceHandle, address, port, localNodeId)
 NormInstance <- NormApi : sessionHandle
-alt sessionHandle == NORM_SESSION_INVALID
+alt sessionHandle == NormApi.NORM_SESSION_INVALID
     NormInstance -> IOException : throw new("Failed to create session")
 end
 NormInstance -> NormSession : new(sessionHandle)
@@ -30,9 +30,9 @@ end
 NormSession -> NormFile: new(objectHandle)
 NormSession <- NormFile : NormFile
 Client <- NormSession : NormFile
-loop NormEvent != null
-    Client -> NormInstance : GetNextEvent()
-    NormInstance -> NormApi : NormGetNextEvent(instanceHandle, NormEvent)
+loop NormInstance.HasNextEvent(waitTime)
+    Client -> NormInstance : GetNextEvent(false)
+    NormInstance -> NormApi : NormGetNextEvent(instanceHandle, NormEvent, false)
     NormInstance <- NormApi : success
     alt success == false
         Client <- NormInstance : null

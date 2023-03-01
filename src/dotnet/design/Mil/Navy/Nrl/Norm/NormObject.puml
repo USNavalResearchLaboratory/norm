@@ -1,5 +1,6 @@
 @startuml
 class NormObject {
+    + <<const>> NORM_OBJECT_INVALID : int = 0
     # _handle:long
     ~ NormObject(handle:long)
     + SetNackingMode(nackingMode:NormNackingMode) : void

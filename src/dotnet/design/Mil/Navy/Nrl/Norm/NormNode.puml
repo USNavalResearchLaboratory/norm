@@ -1,6 +1,8 @@
 @startuml
 class NormNode {
     + <<const>> NORM_NODE_ANY : long = 0xffffffff
+    + <<const>> NORM_NODE_NONE : int = 0
+    + <<const>> NORM_NODE_INVALID : int = 0
     - _handle : long
     ~ NormNode(handle:long)
     + SetUnicastNack(state:bool) : void
@@ -8,9 +10,9 @@ class NormNode {
     + SetRepairBoundary(repairBoundary:NormRepairBoundary) : void
     + SetRxRobustFactor(robustFactor:int) : void
     + Id : long <<get>>
-    + Address : SocketAddress <<get>>
+    + Address : IPEndPoint <<get>>
     + Grtt : double <<get>>
-    + GetCommand(buffer:byte[], offset:int, length:int) : int
+    + Command : byte[] <<get>>
     + FreeBuffers() : void
     + Retain() : void
     + Release(): void

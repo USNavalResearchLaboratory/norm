@@ -1,5 +1,6 @@
 @startuml
 class NormSession {
+    + <<const>> NORM_SESSION_INVALID : int = 0
     {static} -_normSessions : Dictionary<long, NormSession>
     - _handle : long
     ~ NormSession(handle:long)
@@ -22,8 +23,10 @@ class NormSession {
     + SetTxLoss(precent:double) : void
     + SetRxLoss(precent:double) : void
     + ReportInterval: double <<get>> <<set>>
-    + StartSender(sessionId:int, bufferSpace:long, segmentSize:int, blockSize:short, numParity:short) : void
     + StartSender(sessionId:int, bufferSpace:long, segmentSize:int, blockSize:short, numParity:short, fecId:NormFecType) : void
+    + StartSender(sessionId:int, bufferSpace:long, segmentSize:int, blockSize:short, numParity:short) : void
+    + StartSender(bufferSpace:long, segmentSize:int, blockSize:short, numParity:short, fecId:NormFecType) : void
+    + StartSender(bufferSpace:long, segmentSize:int, blockSize:short, numParity:short) : void
     + StopSender() : void
     + SetTxOnly(txOnly:bool) : void
     + TxRate:double <<get>> <<set>>
@@ -43,11 +46,12 @@ class NormSession {
     + SetTxRobustFactor(robustFactor:int) : void
     + FileEnqueue(filename:string) : NormFile
     + FileEnqueue(filename:string, info:byte[], infoOffset:int, infoLength:int) : NormFile
-    + DataEnqueue(dataBuffer:MemoryStream, dataOffset:int, dataLength:int) : NormData
-    + DataEnqueue(dataBuffer:MemoryStream, dataOffset:int, dataLength:int, info:byte[], infoOffset:int, infoLength:int) : NormData
+    + DataEnqueue(dataBuffer:byte[], dataLength:int) : NormData
+    + DataEnqueue(dataBuffer:byte[], dataOffset:int, dataLength:int, info:byte[], infoOffset:int, infoLength:int) : NormData
     + RequeueObject(object:NormObject) : void
     + StreamOpen(bufferSize:long) : NormStream
     + StreamOpen(bufferSize:long, info:byte[], infoOffset:int, infoLength:int) : NormStream
+    + SetWatermark(object:NormObject) : void
     + SetWatermark(object:NormObject, overrideFlush:bool) : void
     + CancelWatermark() : void
     + ResetWatermark() : void
