@@ -134,8 +134,7 @@ namespace Mil.Navy.Nrl.Norm
         /// This function retrieves the next available NORM protocol event from the protocol engine.
         /// </summary>
         /// <remarks>
-        /// This is a default function which calls GetNextEvent(bool waitForEvent) override
-        /// with waitForEvent set as true.
+        /// This is an overload which calls GetNextEvent() with waitForEvent set as true.
         /// </remarks>
         /// <returns>Returns an instance of NormEvent if NormGetNextEvent() returns true, returns null otherwise.</returns>
         public NormEvent? GetNextEvent()

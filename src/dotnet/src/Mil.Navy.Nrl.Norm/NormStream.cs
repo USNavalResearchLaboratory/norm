@@ -83,8 +83,7 @@
         /// This function causes an immediate "flush" of the transmit stream.
         /// </summary>
         /// <remarks>
-        /// This is a default function which calls Flush(bool eom, NormFlushMode flushMode) override
-        /// with eom set as false and flushMode set to NORM_FLUSH_PASSIVE
+        /// This is an overload which calls Flush() with eom set as false and flushMode set to NORM_FLUSH_PASSIVE
         /// </remarks>
         public void Flush()
         {
@@ -107,8 +106,7 @@
         /// has been explicitly retained by a call to NormObjectRetain().
         /// </summary>
         /// <remarks>
-        /// This is a default function which calls Close(bool graceful) override
-        /// with graceful set as false.
+        /// This is an overload which calls Close() with graceful set as false.
         /// </remarks>
         public void Close()
         {
