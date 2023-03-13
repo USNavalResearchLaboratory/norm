@@ -3,28 +3,71 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.4.33213.308
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mil.Navy.Nrl.Norm", "src\Mil.Navy.Nrl.Norm\Mil.Navy.Nrl.Norm.csproj", "{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Mil.Navy.Nrl.Norm", "src\Mil.Navy.Nrl.Norm\Mil.Navy.Nrl.Norm.csproj", "{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A6F15F54-6953-49E7-9394-8F6BF6EF64D0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mil.Navy.Nrl.Norm.IntegrationTests", "tests\Mil.Navy.Nrl.Norm.IntegrationTests\Mil.Navy.Nrl.Norm.IntegrationTests.csproj", "{E5CDA4C5-C1A1-4AD7-B10D-80B8A995FC49}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Mil.Navy.Nrl.Norm.IntegrationTests", "tests\Mil.Navy.Nrl.Norm.IntegrationTests\Mil.Navy.Nrl.Norm.IntegrationTests.csproj", "{E5CDA4C5-C1A1-4AD7-B10D-80B8A995FC49}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{8B6C912C-2A15-41F3-B3A4-E9C01E6672DE}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Mil.Navy.Nrl.Norm.win-x64", "src\Mil.Navy.Nrl.Norm.win-x64\Mil.Navy.Nrl.Norm.win-x64.csproj", "{EC81BD1A-ECF0-4F4D-86E3-B0B53531EBD4}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Mil.Navy.Nrl.Norm.win-x86", "src\Mil.Navy.Nrl.Norm.win-x86\Mil.Navy.Nrl.Norm.win-x86.csproj", "{E5EABC55-159A-4AA2-80EC-F817C20BDA40}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{CD4475A5-559A-4852-A2FE-E85A8AB9E0D8}"
+	ProjectSection(SolutionItems) = preProject
+		pack-linux.sh = pack-linux.sh
+		pack-win32.bat = pack-win32.bat
+		pack-win64.bat = pack-win64.bat
+	EndProjectSection
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Mil.Navy.Nrl.Norm.linux-x64", "src\Mil.Navy.Nrl.Norm.linux-x64\Mil.Navy.Nrl.Norm.linux-x64.csproj", "{A4967E0C-FF3E-4B61-BD6B-D63D040585CA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
+		Release-linux-x64|Any CPU = Release-linux-x64|Any CPU
+		Release-win-x64|Any CPU = Release-win-x64|Any CPU
+		Release-win-x86|Any CPU = Release-win-x86|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}.Release-linux-x64|Any CPU.ActiveCfg = Release|Any CPU
+		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}.Release-linux-x64|Any CPU.Build.0 = Release|Any CPU
+		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}.Release-win-x64|Any CPU.ActiveCfg = Release|Any CPU
+		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}.Release-win-x64|Any CPU.Build.0 = Release|Any CPU
+		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}.Release-win-x86|Any CPU.ActiveCfg = Release|Any CPU
+		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F}.Release-win-x86|Any CPU.Build.0 = Release|Any CPU
 		{E5CDA4C5-C1A1-4AD7-B10D-80B8A995FC49}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{E5CDA4C5-C1A1-4AD7-B10D-80B8A995FC49}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E5CDA4C5-C1A1-4AD7-B10D-80B8A995FC49}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E5CDA4C5-C1A1-4AD7-B10D-80B8A995FC49}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E5CDA4C5-C1A1-4AD7-B10D-80B8A995FC49}.Release-linux-x64|Any CPU.ActiveCfg = Release|Any CPU
+		{E5CDA4C5-C1A1-4AD7-B10D-80B8A995FC49}.Release-win-x64|Any CPU.ActiveCfg = Release|Any CPU
+		{E5CDA4C5-C1A1-4AD7-B10D-80B8A995FC49}.Release-win-x86|Any CPU.ActiveCfg = Release|Any CPU
+		{EC81BD1A-ECF0-4F4D-86E3-B0B53531EBD4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EC81BD1A-ECF0-4F4D-86E3-B0B53531EBD4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EC81BD1A-ECF0-4F4D-86E3-B0B53531EBD4}.Release-linux-x64|Any CPU.ActiveCfg = Release|Any CPU
+		{EC81BD1A-ECF0-4F4D-86E3-B0B53531EBD4}.Release-win-x64|Any CPU.ActiveCfg = Release|Any CPU
+		{EC81BD1A-ECF0-4F4D-86E3-B0B53531EBD4}.Release-win-x64|Any CPU.Build.0 = Release|Any CPU
+		{EC81BD1A-ECF0-4F4D-86E3-B0B53531EBD4}.Release-win-x86|Any CPU.ActiveCfg = Release|Any CPU
+		{E5EABC55-159A-4AA2-80EC-F817C20BDA40}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E5EABC55-159A-4AA2-80EC-F817C20BDA40}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E5EABC55-159A-4AA2-80EC-F817C20BDA40}.Release-linux-x64|Any CPU.ActiveCfg = Release|Any CPU
+		{E5EABC55-159A-4AA2-80EC-F817C20BDA40}.Release-win-x64|Any CPU.ActiveCfg = Release|Any CPU
+		{E5EABC55-159A-4AA2-80EC-F817C20BDA40}.Release-win-x86|Any CPU.ActiveCfg = Release|Any CPU
+		{E5EABC55-159A-4AA2-80EC-F817C20BDA40}.Release-win-x86|Any CPU.Build.0 = Release|Any CPU
+		{A4967E0C-FF3E-4B61-BD6B-D63D040585CA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A4967E0C-FF3E-4B61-BD6B-D63D040585CA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A4967E0C-FF3E-4B61-BD6B-D63D040585CA}.Release-linux-x64|Any CPU.ActiveCfg = Release|Any CPU
+		{A4967E0C-FF3E-4B61-BD6B-D63D040585CA}.Release-linux-x64|Any CPU.Build.0 = Release|Any CPU
+		{A4967E0C-FF3E-4B61-BD6B-D63D040585CA}.Release-win-x64|Any CPU.ActiveCfg = Release|Any CPU
+		{A4967E0C-FF3E-4B61-BD6B-D63D040585CA}.Release-win-x86|Any CPU.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -32,6 +75,9 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{0B38FE25-685E-4ADC-B63D-CA43EC023E1F} = {A6F15F54-6953-49E7-9394-8F6BF6EF64D0}
 		{E5CDA4C5-C1A1-4AD7-B10D-80B8A995FC49} = {8B6C912C-2A15-41F3-B3A4-E9C01E6672DE}
+		{EC81BD1A-ECF0-4F4D-86E3-B0B53531EBD4} = {A6F15F54-6953-49E7-9394-8F6BF6EF64D0}
+		{E5EABC55-159A-4AA2-80EC-F817C20BDA40} = {A6F15F54-6953-49E7-9394-8F6BF6EF64D0}
+		{A4967E0C-FF3E-4B61-BD6B-D63D040585CA} = {A6F15F54-6953-49E7-9394-8F6BF6EF64D0}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {8BC1F27F-D633-4B45-A16D-D112CB08840E}

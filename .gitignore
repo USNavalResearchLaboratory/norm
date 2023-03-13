@@ -306,3 +306,6 @@ Packages.props
 
 #Local Log Files
 log*.txt
+
+.NET Extension Library Files
+/src/dotnet/lib
