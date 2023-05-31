@@ -380,12 +380,18 @@ bool ChantCommand::OpenNormSession(NormInstanceHandle instance, const char* addr
     }
     if (is_multicast)
     {
+        NormSetTxPort(norm_session, port, true);  // for single port operation
         if (loopback)
         {
             NormSetRxPortReuse(norm_session, true);
             NormSetMulticastLoopback(norm_session, true);
         }
     }
+    else
+    {
+        NormSetTxPort(norm_session, port, false);  // for single port operation
+    }
+    
     //NormSetLoopback(norm_session, loopback);
     
     // Set some default parameters (maybe we should put parameter setting in Start())
