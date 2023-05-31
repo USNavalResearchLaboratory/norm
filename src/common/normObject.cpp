@@ -2794,16 +2794,16 @@ NormStreamObject::NormStreamObject(class NormSession&       theSession,
 
 NormStreamObject::~NormStreamObject()
 {
-    Close();    
+    Close();
     tx_offset = write_offset = read_offset = 0;
     NormBlock* b;
     while ((b = stream_buffer.Find(stream_buffer.RangeLo())))
     {
         stream_buffer.Remove(b);
         b->EmptyToPool(segment_pool);
-        block_pool.Put(b);   
+        block_pool.Put(b);
     }
-    stream_buffer.Destroy();    
+    stream_buffer.Destroy();
     segment_pool.Destroy();
     block_pool.Destroy();
 }  
@@ -2898,10 +2898,10 @@ bool NormStreamObject::Open(UINT32      bufferSize,
     // since our objects are exclusively read _or_ write
     read_init = true;
     
-    read_index.block = read_index.segment = read_index.offset = 0; 
+    read_index.block = read_index.segment = read_index.offset = 0;
     write_index.block = write_index.segment = 0;
     tx_index.block = tx_index.segment = 0;
-    tx_offset = write_offset = read_offset = 0;    
+    tx_offset = write_offset = read_offset = 0;
     write_vacancy = true;
     stream_sync = false;
     flush_pending = false;
@@ -3028,7 +3028,7 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
                     else
                     {
                         // Stream broken
-                        return false;   
+                        return false;
                     }
                 }
                 else
@@ -3073,22 +3073,23 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
         //stream_next_id = blockId + pending_mask.GetSize(); 
         stream_next_id = blockId;
         Increment(stream_next_id, pending_mask.GetSize());
-        if (NULL != sender)
+        if ((NULL != sender) && read_init)
         {
-            if (read_init && (NormSenderNode::SYNC_CURRENT != sender->GetSyncPolicy()))
+            // This is a fresh rx stream, so init the read indices
+            PLOG(PL_DEBUG, "NormStreamObject::StreamUpdateStatus() syncing stream to blockId: %lu\n",
+                           (unsigned long)blockId.GetValue());
+            read_init = false;
+            read_index.block = blockId;
+            read_index.segment = 0;  
+            read_index.offset = 0; 
+            read_offset = 0;
+            sender->DecrementResyncCount();  // correction since stream sync here will falsely increment
+            if ((NormSenderNode::SYNC_CURRENT != sender->GetSyncPolicy()) &&
+                (0 != blockId.GetValue()))
             {
-                // This is a fresh rx stream, so init the read indices
-                read_init = false;
-                PLOG(PL_DEBUG, "NormStreamObject::StreamUpdateStatus() syncing stream to blockId: %lu\n",
-                        (unsigned long)blockId.GetValue());
-                read_index.block = blockId;
-                if (0 != blockId.GetValue()) stream_broken = true;
-                read_index.segment = 0;  
-                read_index.offset = 0; 
-                read_offset = 0;
-                sender->DecrementResyncCount();  // correction since stream sync here will falsely increment
+                stream_broken = true;
             }
-        }
+        }  // end if ((NULL != sender) && read_init)
         
         // Since we're doing a resync including "read_init", dump any buffered data
         // (TBD) this may not be necessary??? and is thus currently commented-out code
@@ -3230,16 +3231,8 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
                                     NormSegmentId segmentId, 
                                     const char*   segment)
 {
-    UINT32 segmentOffset = NormDataMsg::ReadStreamPayloadOffset(segment);
-    if (read_init)
-    {
-        read_init = false;
-        read_index.block = blockId;
-        read_index.segment = segmentId;   
-        read_index.offset = 0;
-        read_offset = segmentOffset;
-        read_ready = true;
-    } 
+    //UINT32 segmentOffset = NormDataMsg::ReadStreamPayloadOffset(segment);
+    ASSERT(!read_init);
     
     //if ((blockId < read_index.block) ||
     if ((Compare(blockId, read_index.block) < 0) ||
@@ -3273,7 +3266,7 @@ bool NormStreamObject::WriteSegment(NormBlockId   blockId,
             if (Compare(blockId, block->GetId()) < 0)
             {
                 PLOG(PL_DEBUG, "NormStreamObject::WriteSegment() blockId too old!?\n"); 
-                return false;   
+                return false;
             }
             while (block->IsPending())
             {

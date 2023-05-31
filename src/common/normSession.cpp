@@ -2275,7 +2275,6 @@ void NormSession::TxSocketRecvHandler(ProtoSocket &theSocket,
         unsigned int msgLength = NormMsg::MAX_SIZE;
         while (true)
         {
-
             if (theSocket.RecvFrom(msg.AccessBuffer(),
                                    msgLength,
                                    msg.AccessAddress()))
@@ -2631,6 +2630,7 @@ void NormTrace(const struct timeval &currentTime,
     time_t secs = (time_t)currentTime.tv_sec;
     struct tm *ct = gmtime(&secs);
 #endif // if/else _WIN32_WCE
+
     PLOG(PL_ALWAYS, "trace>%02d:%02d:%02d.%06lu ",
          (int)ct->tm_hour, (int)ct->tm_min, (int)ct->tm_sec, (unsigned int)currentTime.tv_usec);
     PLOG(PL_ALWAYS, "node>%lu %s>%s/%hu ", (unsigned long)localId, status, addr.GetHostString(), addr.GetPort());
@@ -2741,12 +2741,13 @@ void NormTrace(const struct timeval &currentTime,
     {
         PLOG(PL_ALWAYS, "inst>%hu ", instId);
         // look for NormCCFeedback extension
+        bool ccExt = false;
         NormHeaderExtension ext;
         while (msg.GetNextExtension(ext))
         {
             if (NormHeaderExtension::CC_FEEDBACK == ext.GetType())
             {
-                clrFlag = ((NormCCFeedbackExtension &)ext).CCFlagIsSet(NormCC::CLR);
+                ccExt = true;
                 break;
             }
         }
@@ -2774,6 +2775,23 @@ void NormTrace(const struct timeval &currentTime,
         {
             PLOG(PL_ALWAYS, "NACK ");
             // TBD - provide deeper NACK inspection?
+        }
+        if (ccExt)
+        {
+            clrFlag = ((NormCCFeedbackExtension &)ext).CCFlagIsSet(NormCC::CLR);
+            // Print ccRtt (only valid if pcap file is from sender node)
+            double ccRtt = NormUnquantizeRtt(((NormCCFeedbackExtension &)ext).GetCCRtt());
+            double ccLoss = NormUnquantizeLoss32(((NormCCFeedbackExtension &)ext).GetCCLoss32());
+            PLOG(PL_ALWAYS, "ccRtt:%lf ccLoss:%lf ", ccRtt, ccLoss);
+            // Print locally measured rtt (only valid if pcap file is from sender node)
+            struct timeval grttResponse;
+            if (NormMsg::NACK == msgType)
+                static_cast<const NormNackMsg &>(msg).GetGrttResponse(grttResponse);
+            else
+                static_cast<const NormAckMsg &>(msg).GetGrttResponse(grttResponse);
+
+            double rtt = ProtoTime::Delta(ProtoTime(currentTime), ProtoTime(grttResponse));
+            PLOG(PL_ALWAYS, "rtt:%lf ", rtt);
         }
         break;
     }
@@ -4811,46 +4829,46 @@ bool NormSession::OnTxTimeout(ProtoTimer & /*theTimer*/)
 
         switch (SendMessage(*msg))
         {
-        case MSG_SEND_OK:
-            if (tx_rate > 0.0)
-                tx_timer.SetInterval(GetTxInterval(msgLength, tx_rate));
-            if (advertise_repairs)
-            {
-                advertise_repairs = false;
-                suppress_rate = -1.0; // reset cc feedback suppression rate
-            }
-            else
-            {
-                ReturnMessageToPool(msg);
-            }
-            // Pre-serve to allow pre-prompt for empty tx queue
-            // (TBD) do this in a better way ???  There is a slight chance
-            // that with this approach some new data may get pre-queued
-            // when an interim repair request should be serviced first
-            // instead ???
-            //if (message_queue.IsEmpty() && IsSender()) Serve();
-            return true; // reinstall tx_timer
+            case MSG_SEND_OK:
+                if (tx_rate > 0.0)
+                    tx_timer.SetInterval(GetTxInterval(msgLength, tx_rate));
+                if (advertise_repairs)
+                {
+                    advertise_repairs = false;
+                    suppress_rate = -1.0; // reset cc feedback suppression rate
+                }
+                else
+                {
+                    ReturnMessageToPool(msg);
+                }
+                // Pre-serve to allow pre-prompt for empty tx queue
+                // (TBD) do this in a better way ???  There is a slight chance
+                // that with this approach some new data may get pre-queued
+                // when an interim repair request should be serviced first
+                // instead ???
+                //if (message_queue.IsEmpty() && IsSender()) Serve();
+                return true; // reinstall tx_timer
 
-        case MSG_SEND_BLOCKED:
-            // Message was not sent due to to EWOULDBLOCK, so we invoke async i/o output notification
-            if (!advertise_repairs)
-                message_queue.Prepend(msg);
-            if (tx_timer.IsActive())
-                tx_timer.Deactivate();
-            tx_socket->StartOutputNotification();
-            return false; // since timer was deactivated
+            case MSG_SEND_BLOCKED:
+                // Message was not sent due to to EWOULDBLOCK, so we invoke async i/o output notification
+                if (!advertise_repairs)
+                    message_queue.Prepend(msg);
+                if (tx_timer.IsActive())
+                    tx_timer.Deactivate();
+                tx_socket->StartOutputNotification();
+                return false; // since timer was deactivated
 
-        case MSG_SEND_FAILED:
-            // Message was not sent due to socket error (no route, etc), so so just timeout and try again
-            // (TBD - is there something smarter we should do)
-            if (!advertise_repairs)
-                message_queue.Prepend(msg);
-            if (tx_rate > 0.0)
-                tx_timer.SetInterval(GetTxInterval(msgLength, tx_rate));
-            else if (0.0 == tx_timer.GetInterval())
-                tx_timer.SetInterval(0.001);
-            return true; // timer will be reactivated
-        }
+            case MSG_SEND_FAILED:
+                // Message was not sent due to socket error (no route, etc), so so just timeout and try again
+                // (TBD - is there something smarter we should do)
+                if (!advertise_repairs)
+                    message_queue.Prepend(msg);
+                if (tx_rate > 0.0)
+                    tx_timer.SetInterval(GetTxInterval(msgLength, tx_rate));
+                else if (0.0 == tx_timer.GetInterval())
+                    tx_timer.SetInterval(0.001);
+                return true; // timer will be reactivated
+            }
     }
     else
     {

@@ -1637,12 +1637,15 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
     bool presetStream = false;
     NormObject* obj = NULL;
     bool doInsert = true;
+    bool seen = false;
     switch (status)
     {
         case OBJ_PENDING:
         {
             if (NULL != (obj = rx_table.Find(objectId)))
             {
+                // This checks for an object that's been "seen" but did not
+                // include Object FTI information previously.   
                 if (0 == obj->GetSize().GetOffset())
                 {
                     // It's a seen object for which are awaiting FTI 
@@ -1651,6 +1654,7 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
                         gotFTI = true; 
                         obj->SetNackingMode(default_nacking_mode);
                         doInsert = false;
+                        seen = true;
                         // Intentionally pass through to case OBJ_NEW
                     }
                     else
@@ -1759,7 +1763,7 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
                     if (GetFtiData(msg, ftiData) || session.GetPresetFtiData(ftiData))
                         gotFTI = true;
                 }
-                if (gotFTI) 
+                if (gotFTI || presetStream)  // this assumes presetStream matches if !gotFTI (if we get conflicting info, an abort/resync will be forced)
                 {
                     if (presetStream || 
                         obj->RxOpen(ftiData.GetObjectSize(), 
@@ -1791,7 +1795,7 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
                                     NormBlockId syncId = blockId;
                                     stream->Decrement(syncId, stream->GetPendingMaskSize() - 1);
                                     if ((stream->Compare(blockId, NormBlockId(0)) >= 0) &&
-                                        (stream->Compare(syncId, NormBlockId(0)) <= 0))
+                                        (stream->Compare(syncId, NormBlockId(0)) <= 0) && !seen)
                                     {
                                         // Assume we are "in-range" of sender initial stream startup
                                         syncId = NormBlockId(0);
@@ -1835,8 +1839,8 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
                                    (unsigned long)GetId(), (UINT16)objectId);
                     if (!presetStream) DeleteObject(obj);
                     obj = NULL;
-                }
-            }
+                }  // end if/else (gotFTI : ((NormMsg::INFO != msgType) && msg.FlagIsSet(NormObjectMsg::FLAG_INFO)))
+            }  // end if (NULL != obj)
             break;
         }
         case OBJ_COMPLETE:
@@ -1875,7 +1879,7 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
                 completion_count++;
             }
         } 
-    }  
+    }  // end (if (NULL != obj)  
     switch (repair_boundary)
     {
         case BLOCK_BOUNDARY:
