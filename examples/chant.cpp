@@ -881,16 +881,15 @@ void ChantCommand::HandleNormEvent(const NormEvent& event)
 
 void Usage()
 {
-    fprintf(stderr, "Usage: chant [name <chatName>][id <nodeIdInteger>][addr <addr>[/<port>]]\n"
-                    "             [interface <name>] [loopback] [info]\n"
+    fprintf(stderr, "Usage: chant [name <chatName>][addr <addr>[/<port>]]\n"
+                    "             [interface <name>] [loopback]\n"
                     "             [cc|cce|ccl|rate <bitsPerSecond>]\n"
                     "             [ack _auto_|<node1>[,<node2>,...]]\n"
-                    "             [flush {none|passive|active}]\n"
+                    "             [id <normNodeId>][flush {none|passive|active}]\n"
                     "             [boost] [debug <level>] [trace]\n"
                     "             [log <logfile>] [segment <bytes>] [block <count>]\n"
                     "             [parity <count>] [auto <count>]\n"
-                    "             [streambuffer <bytes>][silent]\n"
-                    "             [txloss <lossFraction>] [rxloss <lossFraction>]\n");
+                    "             [streambuffer <bytes>][silent]\n");
 }  // end Usage()
 
 void PrintHelp()
