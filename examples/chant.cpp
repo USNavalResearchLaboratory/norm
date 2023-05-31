@@ -923,7 +923,7 @@ int main(int argc, char* argv[])
     unsigned int sessionPort = 6003;
     
     double txRate = 0.0; // used for non-default NORM_FIXED ccMode
-    ChantCommand::CCMode ccMode = ChantCommand::NORM_CC;
+    ChantCommand::CCMode ccMode = ChantCommand::NORM_CCL;
     const char* mcastIface = NULL;
     NormNodeId ackingNodeList[256]; 
     unsigned int ackingNodeCount = 0;
