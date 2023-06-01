@@ -769,7 +769,7 @@ void ChantCommand::HandleNormEvent(const NormEvent& event)
                 //       For example, an application could make a decision at this
                 //       point, depending upon some count of ACK request failures
                 //       to choose to remove a previously included receiver.
-                fprintf(stderr, "flow control watermark reset\n");
+                //fprintf(stderr, "flow control watermark reset\n");
                 if (tx_ack_pending)
                 {
                     // May as well advance the ack request point
