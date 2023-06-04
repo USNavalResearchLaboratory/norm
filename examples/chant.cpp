@@ -60,7 +60,7 @@ class ChantClient : public ProtoTree::Item
         unsigned int GetKeysize() const {return (sizeof(NormNodeHandle) << 3);}
         
         NormNodeHandle      node_handle;
-        char                chat_name[CHAT_NAME_MAX+1];  // from NORM_INFO
+        char                chat_name[CHAT_NAME_MAX+1];  // conveyed via NORM_INFO
         NormObjectHandle    rx_stream;
         bool                msg_sync;
         char                rx_buffer[MSG_SIZE_MAX+1];
@@ -541,6 +541,7 @@ void ChantCommand::ReadInput()
                 NormSetWatermark(norm_session, tx_stream, true);
                 tx_ack_pending = false;
             }
+            input_needed = false;
         }
         else
         {
@@ -934,7 +935,7 @@ int main(int argc, char* argv[])
     unsigned int ackingNodeCount = 0;
             
     bool loopback = false;
-    bool ftiInfo = false;
+    bool ftiInfo = true;
     int debugLevel = 0;
     bool trace = false;
     const char* logFile = NULL;
@@ -948,7 +949,6 @@ int main(int argc, char* argv[])
     ChantCommand chant;
     chant.SetFlushMode(NORM_FLUSH_ACTIVE);
     
-    chant.SetFtiInfo(true);  // set true by default to reduce per-packet overhead
     chant.SetAutoAck(true);  // more succinct flushing
     
     // Parse command-line
