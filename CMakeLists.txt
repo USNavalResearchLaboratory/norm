@@ -212,6 +212,7 @@ if(NORM_BUILD_EXAMPLES)
         normMsgr
         normStreamer
         normCast
+        chant
         normClient
         normServer
         #wintest

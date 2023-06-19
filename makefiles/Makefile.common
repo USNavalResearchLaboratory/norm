@@ -207,6 +207,16 @@ normCastApp:    $(CASTAPP_OBJ) libnorm.a $(LIBPROTO)
 	mkdir -p ../bin
 	cp $@ ../bin/$@
 
+# (chant) NORM command-line chat sender/receiver
+CHANT_SRC = $(EXAMPLE)/chant.cpp
+CHANT_OBJ = $(CHANT_SRC:.cpp=.o)
+
+chant:    $(CHANT_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(CHANT_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
+
+
 # These are the new "NormSocket" API extension examples
 SERVER_SRC = $(EXAMPLE)/normServer.cpp  $(EXAMPLE)/normSocket.cpp
 SERVER_OBJ = $(SERVER_SRC:.cpp=.o)

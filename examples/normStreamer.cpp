@@ -17,7 +17,7 @@
 #include <sys/timerfd.h>
 #endif // LINUX
 
-const unsigned int LOOP_MAX = 100;
+const unsigned int LOOP_MAX = 1;
 
 // Setting SHOOT_FIRST to non-zero means that an ACK request
 // will be used to advance the acking "watermark" point
@@ -577,7 +577,7 @@ bool NormStreamer::OpenNormSession(NormInstanceHandle instance, const char* addr
     NormSetLoopback(norm_session, loopback);
     
     // Set some default parameters (maybe we should put parameter setting in Start())
-    NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_STREAM);
+    NormSetDefaultSyncPolicy(norm_session, NORM_SYNC_CURRENT);
     
     if (!is_multicast)
         NormSetDefaultUnicastNack(norm_session, true);
@@ -711,7 +711,7 @@ bool NormStreamer::Start(bool sender, bool receiver)
 void NormStreamer::ReadInputSocket()
 {
     unsigned int loopCount = 0;
-    NormSuspendInstance(NormGetInstance(norm_session));
+    //NormSuspendInstance(NormGetInstance(norm_session));
     while (input_needed && input_ready && (loopCount < LOOP_MAX))
     {
         loopCount++;
@@ -739,7 +739,7 @@ void NormStreamer::ReadInputSocket()
             input_ready = false;
         }
     }
-    NormResumeInstance(NormGetInstance(norm_session));
+    //NormResumeInstance(NormGetInstance(norm_session));
 }  // end NormStreamer::ReadInputSocket()
 
 void NormStreamer::ReadInput()
@@ -748,7 +748,7 @@ void NormStreamer::ReadInput()
     // The loop count makes sure we don't spend too much time here
     // before going back to the main loop to handle NORM events, etc
     unsigned int loopCount = 0;
-    NormSuspendInstance(NormGetInstance(norm_session));
+    //NormSuspendInstance(NormGetInstance(norm_session));
     while (input_needed && input_ready && (loopCount < LOOP_MAX))
     {
         loopCount++;
@@ -766,7 +766,9 @@ void NormStreamer::ReadInput()
             assert(input_index < input_msg_length);
             numBytes = input_msg_length - input_index;
         }
+        TRACE("reading STDIN ...\n");
         ssize_t result = read(input_fd, input_buffer + input_index, numBytes);
+        TRACE("   result: %d\n", (int)result);
         if (result > 0)
         {
             input_index += result;
@@ -833,7 +835,7 @@ void NormStreamer::ReadInput()
             break;
         }
     }  // end while (input_needed && input_ready)
-    NormResumeInstance(NormGetInstance(norm_session));
+    //NormResumeInstance(NormGetInstance(norm_session));
 }  // end NormStreamer::ReadInput()
 
 void NormStreamer::SendData()
@@ -1000,7 +1002,7 @@ void NormStreamer::RecvData()
     // before going back to the main loop to handle NORM events, etc
     unsigned int loopCount = 0;
     // Reads data from rx_stream to available output_buffer
-    NormSuspendInstance(NormGetInstance(norm_session));
+    //NormSuspendInstance(NormGetInstance(norm_session));
     while (rx_needed && rx_ready && (loopCount < LOOP_MAX))
     {
         loopCount++;
@@ -1065,7 +1067,7 @@ void NormStreamer::RecvData()
                 WriteOutput();
         }
     }
-    NormResumeInstance(NormGetInstance(norm_session));
+    //NormResumeInstance(NormGetInstance(norm_session));
     
 }  // end NormStreamer::RecvData()
 
@@ -1120,8 +1122,8 @@ void NormStreamer::WriteOutput()
             if (0 != output_bucket_depth)
             {
                 // Debit output token bucket since it's active
-                if (result > output_bucket_count)
-                    TRACE("result:%d output_bucket_count:%u\n", (int)result, output_bucket_count);
+                //if (result > output_bucket_count)
+                //    TRACE("result:%d output_bucket_count:%u\n", (int)result, output_bucket_count);
                 ASSERT(output_bucket_count >= result);
                 output_bucket_count -= result; 
             }
@@ -1174,7 +1176,7 @@ void NormStreamer::HandleNormEvent(const NormEvent& event)
             break;
             
         case NORM_GRTT_UPDATED:
-            //fprintf(stderr, "new GRTT = %lf\n", NormGetGrttEstimate(norm_session));
+            fprintf(stderr, "new GRTT = %lf\n", NormGetGrttEstimate(norm_session));
             break;
             
         case NORM_ACKING_NODE_NEW:
@@ -1453,7 +1455,7 @@ int main(int argc, char* argv[])
     unsigned long outputSocketBufferSize = 0;   // 6*1024*1024;
     unsigned long txSocketBufferSize = 0;       // 6*1024*1024;
     unsigned long rxSocketBufferSize = 0;       // 6*1024*1024;
-    unsigned long streamBufferSize = 1*1024*1024;
+    unsigned long streamBufferSize = 10*1024*1024;
 
     // Instantiate a NormStreamer and set default params
     NormStreamer normStreamer;
@@ -2136,6 +2138,7 @@ int main(int argc, char* argv[])
         int maxfd = -1;
         int fdMask = 0;
         bool waitOnNorm = false;
+        bool waitOnInput = false;
         double timeoutInterval = -1.0;
         if (send)
         {
@@ -2151,6 +2154,7 @@ int main(int argc, char* argv[])
                     FD_SET(inputfd, &fdsetInput);
                     if (inputfd > maxfd) maxfd = inputfd;
                     fdMask |= 0x01;
+                    waitOnInput = true;
                 }
             }
             else
@@ -2268,6 +2272,7 @@ int main(int argc, char* argv[])
             timeout.tv_sec = timeout.tv_usec = 0;
         }
 #endif // if/else LINUX
+        //ßTRACE("waitOnNorm:%d  waitOnInput:%d\n", waitOnNorm, waitOnInput);
         int result = select(maxfd+1, &fdsetInput, &fdsetOutput, NULL, timeoutPtr);
         switch (result)
         {
@@ -2304,9 +2309,14 @@ int main(int argc, char* argv[])
         }
         // We always clear out/handle pending NORM API events
         // (to keep event queue from building up)
+        unsigned int eventCount = 0;
+        const unsigned int maxBurstCount = 50;
         NormEvent event;
-        while (NormGetNextEvent(normInstance, &event, false))
+        while ((eventCount < maxBurstCount) && (NormGetNextEvent(normInstance, &event, false)))
+        {
             normStreamer.HandleNormEvent(event);
+            eventCount += 1;
+        }
         
         struct timeval thisTime;
         gettimeofday(&thisTime, NULL);
