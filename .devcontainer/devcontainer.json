@@ -1,0 +1,19 @@
+{
+  "image": "mcr.microsoft.com/devcontainers/cpp:1.0.0-buster",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11"
+    },
+    "ghcr.io/devcontainers/features/dotnet:1": {
+      "version": "6"
+    },
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "17",
+      "installAnt": true,
+      "antVersion": "1.10.12"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "20.10"
+    }
+  }
+}
