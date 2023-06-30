@@ -1,0 +1,30 @@
+name: ".NET Publish"
+
+on:
+  workflow_run:
+    workflows: ['.NET']
+    types:
+    - completed
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./src/dotnet
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    
+    - name: Package .NET
+      uses: devcontainers/ci@v0.3
+      with:
+        push: never
+        runCmd: | 
+          cd ./src/dotnet
+          chmod 755 *.sh
+          ./pack-linux-x64.sh
