@@ -5,11 +5,16 @@ on:
     workflows: ['.NET']
     types:
     - completed
+    branches:
+      - master
+      - main
 
 jobs:
-  build:
+  publish:
 
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
     defaults:
       run:
         working-directory: ./src/dotnet
@@ -18,7 +23,33 @@ jobs:
     steps:
     - uses: actions/checkout@v3
       with:
-        ref: ${{ github.event.workflow_run.head_branch }}
+        submodules: recursive
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 6.0.x
+        source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+      env:
+        NUGET_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+
+    - name: Package .NET
+      run: dotnet pack . -c Release
+    - name: Publish .NET
+      run: |
+        package=$(find . -type f -name "*.nupkg")
+        dotnet nuget push "$package" --skip-duplicate
+
+  publish-linux-x64:
+
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+    - uses: actions/checkout@v3
+      with:
         submodules: recursive
     
     - name: Package .NET
@@ -29,3 +60,82 @@ jobs:
           cd ./src/dotnet
           chmod 755 *.sh
           ./pack-linux-x64.sh
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '6.0.x'
+        source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+      env:
+        NUGET_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+    - name: Publish .NET
+      run: |
+        package=$(find . -type f -name "*linux-x64*.nupkg")
+        dotnet nuget push "$package" --skip-duplicate
+
+  publish-win-x64:
+
+    runs-on: windows-latest
+    permissions:
+      packages: write
+    defaults:
+      run:
+        working-directory: ./src/dotnet
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: Setup Python
+      uses: actions/setup-python@v3.1.4
+      with:
+        python-version: 3.x
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 6.0.x
+        source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+      env:
+        NUGET_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+
+    - name: Package .NET
+      run: .\pack-win-x64.bat
+    - name: Publish .NET
+      run: |
+        $package=Get-ChildItem -Path .\ -Filter *win-x64*.nupkg -Recurse -File | ForEach-Object { $_.FullName }
+        dotnet nuget push "$package" --skip-duplicate
+
+  publish-win-x86:
+
+    runs-on: windows-latest
+    permissions:
+      packages: write
+    defaults:
+      run:
+        working-directory: ./src/dotnet
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: Setup Python
+      uses: actions/setup-python@v3.1.4
+      with:
+        python-version: 3.x
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 6.0.x
+        source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+      env:
+        NUGET_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+
+    - name: Package .NET
+      run: .\pack-win-x86.bat
+    - name: Publish .NET
+      run: |
+        $package=Get-ChildItem -Path .\ -Filter *win-x86*.nupkg -Recurse -File | ForEach-Object { $_.FullName }
+        dotnet nuget push "$package" --skip-duplicate
