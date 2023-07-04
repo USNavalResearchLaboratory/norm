@@ -1,0 +1,11 @@
+{
+  "image": "mcr.microsoft.com/devcontainers/cpp:1.0.0-buster",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11"
+    },
+    "ghcr.io/devcontainers/features/dotnet:1": {
+      "version": "6"
+    }
+  }
+}
