@@ -18,22 +18,22 @@
     "ghcr.io/devcontainers/features/powershell:1": {
       "version": "7.3"
     }
-  },
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "DavidAnson.vscode-markdownlint",
-        "eamodio.gitlens",
-        "github.vscode-github-actions",
-        "GitHub.codespaces",
-        "jebbs.plantuml",
-        "ms-python.isort",
-        "ms-vscode-remote.remote-containers",
-        "ms-vscode.cpptools-themes",
-        "ms-vscode.PowerShell",
-        "tomoki1207.pdf",
-        "yzhang.markdown-all-in-one"
-      ]
-    }
-  }
+},
+"customizations": {
+	"vscode": {
+		"extensions": [
+			"DavidAnson.vscode-markdownlint",
+			"eamodio.gitlens",
+			"github.vscode-github-actions",
+			"GitHub.codespaces",
+			"jebbs.plantuml",
+			"ms-python.isort",
+			"ms-vscode-remote.remote-containers",
+			"ms-vscode.cpptools-themes",
+      "ms-vscode.PowerShell",
+			"tomoki1207.pdf",
+			"yzhang.markdown-all-in-one"
+		]
+	}
+}
 }

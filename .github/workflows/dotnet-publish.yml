@@ -56,7 +56,6 @@ jobs:
       uses: devcontainers/ci@v0.3
       with:
         push: never
-        subFolder: .devcontainer/dotnet-linux-x64
         runCmd: | 
           cd ./src/dotnet
           chmod 755 *.sh
