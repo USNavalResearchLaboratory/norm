@@ -96,11 +96,12 @@
 
       <orderedlist>
         <listitem>
-          <para>Download and unpack the NORM source code tarball.</para>
+            <para>Download and unpack the NORM source code tarball or clone the
+            repository using <literal>git clone --recurse-submodules https://github.com/USNavalResearchLaboratory/norm.git</literal></para>
         </listitem>
 
         <listitem>
-          <para><literal>cd norm/unix</literal></para>
+          <para><literal>cd norm/makefiles</literal></para>
         </listitem>
 
         <listitem>
