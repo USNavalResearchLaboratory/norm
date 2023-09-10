@@ -146,7 +146,7 @@
       <para>The easiest way to run these builds is with Visual Studio. If you do not already have Visual Studio installed, then it can
       be downloaded for free <ulink url="https://visualstudio.microsoft.com/downloads/?cid=learn-onpage-download-cta">here</ulink>.
       When you launch Visual Studio, make sure to select "Visual C++" and open the "<filename>norm.sln</filename>" file.
-      This should load all of the project files and allow you to right click on any of them in the Solution Explorer on the
+      This should load all of the project files and allow you to right-click on any of them in the Solution Explorer on the
       left side and select "build".</para>
     </sect2>
   </sect1>
@@ -388,7 +388,7 @@
     <para>A minimal example <emphasis>norm</emphasis> sender command-line
     syntax is:</para>
 
-    <para><literal>norm addr &lt;addr/port&gt; sendFile
+    <para><literal>norm addr &lt;addr/port&gt; sendfile
     &lt;fileName&gt;</literal></para>
 
     <para>The corresponding minimal <emphasis>norm</emphasis> receiver
