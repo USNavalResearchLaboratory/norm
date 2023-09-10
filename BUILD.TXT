@@ -6,11 +6,26 @@ To see a full list of options, run:
 
     ./waf -h
 
+Note: if attempting to run waf as an executable as shown above results in a
+message like this: 
+
+/usr/bin/env: ‘python’: No such file or directory
+
+then try calling python directly:
+
+python waf <args>
+
+or
+
+python3 waf <args>
+
+For more background information about waf, visit the gitlab page at
+https://gitlab.com/ita1024/./waf/
 
 Configuring
 -----------
 
-To perform the configure checks, run:
+To perform the configuration checks, run:
 
     ./waf configure
 
@@ -50,6 +65,9 @@ To install, run:
 
 This will install the compiled library and headers to wherever your prefix was
 specified.  (See configure flags)
+
+This command may have to be run with root priviledges for certain prefix
+directories depending on your system setup.
 
 Uninstalling
 ------------

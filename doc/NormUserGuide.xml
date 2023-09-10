@@ -96,11 +96,13 @@
 
       <orderedlist>
         <listitem>
-          <para>Download and unpack the NORM source code tarball.</para>
+            <para>Download and unpack the NORM source code tarball or clone the github
+            repository using 
+            <literal>git clone --recurse-submodules https://github.com/USNavalResearchLaboratory/norm.git</literal></para>
         </listitem>
 
         <listitem>
-          <para><literal>cd norm/unix</literal></para>
+          <para><literal>cd norm/makefiles</literal></para>
         </listitem>
 
         <listitem>
@@ -118,7 +120,8 @@
 
       <orderedlist>
         <listitem>
-          <para>Download and unpack the NORM source code tarball</para>
+            <para>Download and unpack the NORM source code tarball or clone the
+        repository as described in the section above.</para>
         </listitem>
 
         <listitem>
@@ -128,7 +131,7 @@
         </listitem>
 
         <listitem>
-          <para>Open the "<filename>norm.sln</filename>" (VC++ .Net),
+            <para>Inside the "<filename>norm/makefiles/win32</filename>" directory, open the "<filename>norm.sln</filename>" (VC++ .Net),
           "<filename>norm.dsw</filename>" (VC++ 6.0), or
           "<filename>norm.vcw</filename>" (Embedded VC++) workspace
           file.</para>
@@ -140,6 +143,11 @@
           the "<filename>norm/win32/norm/Release</filename>" directory.</para>
         </listitem>
       </orderedlist>
+      <para>The easiest way to run these builds is with Visual Studio. If you do not already have Visual Studio installed, then it can
+      be downloaded for free <ulink url="https://visualstudio.microsoft.com/downloads/?cid=learn-onpage-download-cta">here</ulink>.
+      When you launch Visual Studio, make sure to select "Visual C++" and open the "<filename>norm.sln</filename>" file.
+      This should load all of the project files and allow you to right-click on any of them in the Solution Explorer on the
+      left side and select "build".</para>
     </sect2>
   </sect1>
 
@@ -380,7 +388,7 @@
     <para>A minimal example <emphasis>norm</emphasis> sender command-line
     syntax is:</para>
 
-    <para><literal>norm addr &lt;addr/port&gt; sendFile
+    <para><literal>norm addr &lt;addr/port&gt; sendfile
     &lt;fileName&gt;</literal></para>
 
     <para>The corresponding minimal <emphasis>norm</emphasis> receiver
