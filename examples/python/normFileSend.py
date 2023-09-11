@@ -44,7 +44,7 @@ def main(argv):
     session.startSender(randint(0, 1000), 1024**2, 1400, 64, 16)
 
     print(('Sending file %s' % filename))
-    session.fileEnqueue(filepath, filename)
+    session.fileEnqueue(filepath, info=filename.encode())
 
     try:
         for event in instance:
