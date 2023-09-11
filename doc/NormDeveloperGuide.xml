@@ -13,19 +13,19 @@
 
     <abstract>
       <para>This document describes an application programming interface (API)
-      for the <ulink url="http://norm.pf.itd.nrl.navy.mil/">Nack-Oriented
+      for the <ulink url="https://www.nrl.navy.mil/Our-Work/Areas-of-Research/Information-Technology/NCS/NORM/">Nack-Oriented
       Reliable Multicast (NORM)</ulink> protocol implementation developed by
       the Protocol Engineering and Advance Networking (<ulink
-      url="http://cs.itd.nrl.navy.mil/">PROTEAN</ulink>) Research Group of the
-      United States <ulink url="http://www.nrl.navy.mil/">Naval Research
+      url="https://www.nrl.navy.mil/itd/ncs/">PROTEAN</ulink>) Research Group of the
+      United States <ulink url="https://www.nrl.navy.mil/">Naval Research
       Laboratory</ulink> (NRL). The NORM protocol provides general purpose
       reliable data transport for applications wishing to use Internet
       Protocol (IP) Multicast services for group data delivery. NORM can also
       support unicast (point-to-point) data communication and may be used for
       such when deemed appropriate. The current NORM protocol specification is
-      given in the <ulink url="http://www.ietf.org/">Internet Engineering Task
+      given in the <ulink url="https://www.ietf.org/">Internet Engineering Task
       Force</ulink> (IETF) <ulink
-      url="http://norm.pf.itd.nrl.navy.mil/rfc3940.pdf">RFC 3940</ulink>. This
+      url="https://datatracker.ietf.org/doc/html/rfc5740">RFC 5740</ulink>. This
       document is currently a reference guide to the NORM API of the NRL
       reference implementation. More tutorial material may be include in a
       future version of this document or a separate developer's tutorial may
@@ -37,19 +37,19 @@
     <title>Background</title>
 
     <para>This document describes an application programming interface (API)
-    for the <ulink url="http://norm.pf.itd.nrl.navy.mil/">Nack-Oriented
+    for the <ulink url="https://www.nrl.navy.mil/Our-Work/Areas-of-Research/Information-Technology/NCS/NORM/">Nack-Oriented
     Reliable Multicast (NORM)</ulink> protocol implementation developed by the
     Protocol Engineering and Advance Networking (<ulink
-    url="http://cs.itd.nrl.navy.mil/">PROTEAN</ulink>) Research Group of the
-    United States <ulink url="http://www.nrl.navy.mil/">Naval Research
+    url="https://www.nrl.navy.mil/itd/ncs/">PROTEAN</ulink>) Research Group of the
+    United States <ulink url="https://www.nrl.navy.mil/">Naval Research
     Laboratory</ulink> (NRL). The NORM protocol provides general purpose
     reliable data transport for applications wishing to use Internet Protocol
     (IP) Multicast services for group data delivery. NORM can also support
     unicast (point-to-point) data communication and may be used for such when
     deemed appropriate. The current NORM protocol specification is given in
-    the <ulink url="http://www.ietf.org/">Internet Engineering Task
+    the <ulink url="https://www.ietf.org/">Internet Engineering Task
     Force</ulink> (IETF) <ulink
-    url="http://norm.pf.itd.nrl.navy.mil/rfc5740.pdf">RFC 5740</ulink>.</para>
+    url="https://datatracker.ietf.org/doc/html/rfc5740">RFC 5740</ulink>.</para>
 
     <para>The NORM protocol is designed to provide end-to-end reliable
     transport of bulk data objects or streams over generic IP multicast
@@ -134,7 +134,7 @@
     may participate as senders and/or receivers within a NORM session. NORM
     senders transmit data to the session destination address (usually an IP
     multicast group) while receivers are notified of incoming data. The NORM
-    API provides and event notification scheme to notify the application of
+    API provides an event notification scheme to notify the application of
     significant sender and receiver events. There are also a number support
     functions provided for the application to control and monitor its
     participation within a NORM transport session.</para>
@@ -159,7 +159,7 @@
       linkend="NormCreateInstance"><literal>NormCreateInstance()</literal></link>)
       as needed for applications with specific requirements for accessing and
       controlling participation in multiple <emphasis>NormSessions</emphasis>
-      from separate operating system multiple threads. Or, alternatively, a
+      from separate operating system threads. Or, alternatively, a
       single <emphasis>NormInstance</emphasis> could be used, with a "master
       thread" serving as an intermediary between the <link
       linkend="NormGetNextEvent"><literal>NormGetNextEvent()</literal></link>
@@ -194,7 +194,7 @@
       number of concurrently active senders, this may translate to significant
       memory allocation on receiver nodes. Currently, the API allows the
       application to control how much buffer space is allocated for each
-      active sender (NOTE: In the future, API functions may be provided limit
+      active sender (NOTE: In the future, API functions may be provided to limit
       the number of active senders monitored and/or provide the application
       with finer control over receive buffer allocation, perhaps on a per
       sender basis).</para>
@@ -227,7 +227,7 @@
         <title>Data Transmission</title>
 
         <para>The behavior of data transport operation is largely placed in
-        the control of the NORM sender(s). NORM senders controls their data
+        the control of the NORM sender(s). NORM senders control their data
         transmission rate, forward error correction (FEC) encoding settings,
         and parameters controlling feedback from the receiver group. Multiple
         senders may operate in a session, each with independent transmission
@@ -253,7 +253,7 @@
         be called before any calls to <link
         linkend="NormStartReceiver"><literal>NormStartReceiver()</literal></link>
         are made. However, note that the cache directory may be changed even
-        during active NORM reception. In this case, the new specified
+        during active NORM reception. In this case, the newly specified
         directory path will be used for subsequently-received files. Any files
         received before a directory path change will remain in the previous
         cache location. Note that the <link
@@ -477,15 +477,14 @@
     Protokit. These are described below.</para>
 
     <para>The "makefiles" directory contains Unix Makefiles for various
-    platforms the "win32" and "wince" sub-directories there contain Microsoft
+    platforms. The "win32" and "wince" sub-directories there contain Microsoft
     Visual C++ (VC++) and Embedded VC++ project files for building the NORM
     implementation. Additionally, a "waf" (Python-based build tool) build
     option is supported that can be used to build and install the NORM library
     code on the supported platforms. Finally, Python and Java bindings to the
-    NORM API are included and "src/python" and "src/java" directories contain
-    the code for these and the "makefiles/java" directory contains Makefiles
-    to build the NORM Java JNI bindings. Note the "waf" tool can also be used
-    to build the Java and Python bindings.</para>
+    NORM API are included in the "src/python" and "src/java" directories and the
+    "makefiles/java" directory contains Makefiles to build the NORM Java JNI bindings.
+    Note the "waf" tool can also be used to build the Java and Python bindings.</para>
 
     <sect2>
       <title>Unix Platforms</title>
