@@ -140,7 +140,7 @@
         <listitem>
           <para>The "<emphasis>norm</emphasis>" project can be selected and
           built.  The "<filename>norm.exe</filename>" file will be found in
-          the "<filename>norm/win32/norm/Release</filename>" directory.</para>
+          the "<filename>norm/Win32/norm/Release</filename>" directory.</para>
         </listitem>
       </orderedlist>
       <para>The easiest way to run these builds is with Visual Studio. If you do not already have Visual Studio installed, then it can
