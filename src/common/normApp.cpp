@@ -96,6 +96,8 @@ class NormApp : public NormController, public ProtoApp
         
         enum EcnMode {ECN_OFF, ECN_ON, ECN_ONLY};
         
+        enum {MSG_BUFFER_SIZE = 65535};
+        
 #ifdef UNIX
         static void SignalHandler(int sigNum);
 #endif // UNIX
@@ -115,7 +117,7 @@ class NormApp : public NormController, public ProtoApp
         FILE*               output; // output stream
         char*               output_io_buffer;
         unsigned int        output_io_bufsize;
-        char                input_buffer[65535];
+        char                input_buffer[MSG_BUFFER_SIZE];
         unsigned int        input_index;
         unsigned int        input_length;
         bool                input_active;
@@ -127,7 +129,7 @@ class NormApp : public NormController, public ProtoApp
         bool                msg_test;
         unsigned int        msg_test_length;
         UINT32              msg_test_seq;
-        char                output_buffer[65535];
+        char                output_buffer[MSG_BUFFER_SIZE];
         UINT16              output_index;
         bool                output_messaging;
         UINT16              output_msg_length;
@@ -161,7 +163,7 @@ class NormApp : public NormController, public ProtoApp
         NormSession::ProbingMode grtt_probing_mode;
         double              group_size;
         unsigned long       tx_buffer_size; // bytes
-	    unsigned int	    tx_sock_buffer_size;
+        unsigned int        tx_sock_buffer_size;
         unsigned long       tx_cache_min;
         unsigned long       tx_cache_max;
         NormObjectSize      tx_cache_size;        
@@ -212,7 +214,6 @@ class NormApp : public NormController, public ProtoApp
         double              rx_loss;
     
 }; // end class NormApp
-
 
 NormApp::FileCacheItem::FileCacheItem(const char* thePath)
 {
@@ -603,7 +604,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
     else if (!strncmp("address", cmd, len))
     {
         size_t len = strlen(val);
-        if (address) delete address;
+        if (address) delete[] address;
         if (!(address = new char[len+1]))
         {
             PLOG(PL_FATAL, "NormApp::OnCommand(address) allocation error:%s\n",
@@ -614,7 +615,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         char* ptr = strchr(address, '/');
         if (!ptr)
         {
-            delete address;
+            delete[] address;
             address = NULL;
             PLOG(PL_FATAL, "NormApp::OnCommand(address) missing port number!\n");   
             return false;
@@ -623,7 +624,7 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
         int portNum = atoi(ptr);
         if ((portNum < 1) || (portNum > 65535))
         {
-            delete address;
+            delete[] address;
             address = NULL;
             PLOG(PL_FATAL, "NormApp::OnCommand(address) invalid port number!\n");   
             return false;
@@ -1405,7 +1406,7 @@ void NormApp::OnInputReady()
             {
                 if (input_msg_length)
                 {
-                    UINT16 bufferSpace = 65535 - input_index;
+                    UINT16 bufferSpace = MSG_BUFFER_SIZE - input_index;
                     UINT16 msgRemainder = input_msg_length - input_msg_index;
                     readLength = MIN(bufferSpace, msgRemainder);
                 }
@@ -1418,7 +1419,7 @@ void NormApp::OnInputReady()
                     memcpy(&input_msg_length, input_buffer, 2);
                     input_msg_length = ntohs(input_msg_length);
                     ASSERT(input_msg_length >= 2);
-                    UINT16 bufferSpace = 65535 - input_index;
+                    UINT16 bufferSpace = MSG_BUFFER_SIZE - input_index;
                     UINT16 msgRemainder = input_msg_length - 2;
                     readLength = MIN(bufferSpace, msgRemainder);  
                 }
@@ -1443,7 +1444,7 @@ void NormApp::OnInputReady()
                 {
                     hdrOffset = 0;
                 }
-                int hdrLen = sprintf(input_buffer + hdrOffset, "NORM Test Msg %08u ", msg_test_seq++);
+                int hdrLen = snprintf(input_buffer + hdrOffset, MSG_BUFFER_SIZE - hdrOffset, "NORM Test Msg %08u ", msg_test_seq++);
                 char testChar = 'a' + msg_test_seq % 26;
                 memset(input_buffer + hdrLen + hdrOffset, testChar, msg_test_length - (hdrLen + hdrOffset));
                 input_buffer[msg_test_length - 1] = '\n';
