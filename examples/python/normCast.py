@@ -301,14 +301,16 @@ class NormCaster():
                 self.is_running = False
                 return 
         
-        obj:Optional[pynorm.Object] = session.fileEnqueue(self.pendingSendFilePath, info= self.pendingSendFilePath.replace("\\","/").encode() )
+        lastSlash = self.pendingSendFilePath.rfind('/')
+        filename = self.pendingSendFilePath[lastSlash+1:]
+        obj:Optional[pynorm.Object] = session.fileEnqueue(self.pendingSendFilePath, info= filename.encode() )
         if obj:
             if self.opts.ack:
                 session.setWatermark(obj,True)
             logging.info(f"add file:{self.pendingSendFilePath}  {obj._object}")
             self.pendingSendFilePath = None # succeed enqued
         else:
-            logging.warning(f"fileEnqueue: {sendFilePath} failure!")
+            logging.warning(f"fileEnqueue: {self.pendingSendFilePath} failure!")
 
     def handle_norm_event(self, event:pynorm.Event):
         session:pynorm.Session = event.session

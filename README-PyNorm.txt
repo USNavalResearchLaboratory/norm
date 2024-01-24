@@ -28,7 +28,7 @@ in similar places as your system's compiler.  On UNIX systems, this is usually
 PATH environment variable.
 
 On Windows, PyNORM requires the "PyWin32" module, available at:
-    http://sf.net/projects/pywin32
+    https://sourceforge.net/projects/pywin32
     
 -------------
 Installation
