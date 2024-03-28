@@ -14,12 +14,12 @@ jobs:
         working-directory: ./src/dotnet
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
     
     - name: Setup Python
-      uses: actions/setup-python@v3.1.4
+      uses: actions/setup-python@v5.1.0
       with:
         python-version: 3.x
     - name: Build NORM
@@ -27,7 +27,7 @@ jobs:
       working-directory: .
         
     - name: Setup .NET
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 6.0.x
     - name: Restore dependencies
@@ -37,7 +37,7 @@ jobs:
     - name: Test
       run: dotnet test --no-build --verbosity normal --configuration Release --logger trx --results-directory TestResults
     - name: Upload test results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: dotnet-results
         path: ./src/dotnet/TestResults
