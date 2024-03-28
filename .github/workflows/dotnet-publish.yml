@@ -21,12 +21,12 @@ jobs:
 
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 6.0.x
         source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
@@ -48,7 +48,7 @@ jobs:
 
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
     
@@ -61,7 +61,7 @@ jobs:
           chmod 755 *.sh
           ./pack-linux-x64.sh
     - name: Set up .NET
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '6.0.x'
         source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
@@ -83,16 +83,16 @@ jobs:
 
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
 
     - name: Setup Python
-      uses: actions/setup-python@v3.1.4
+      uses: actions/setup-python@v5.1.0
       with:
         python-version: 3.x
     - name: Setup .NET
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 6.0.x
         source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
@@ -117,16 +117,16 @@ jobs:
 
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
 
     - name: Setup Python
-      uses: actions/setup-python@v3.1.4
+      uses: actions/setup-python@v5.1.0
       with:
         python-version: 3.x
     - name: Setup .NET
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 6.0.x
         source-url: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
