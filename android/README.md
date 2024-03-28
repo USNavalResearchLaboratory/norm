@@ -1,4 +1,4 @@
-This directoy contains Android Studio project files for building the NORM
+This directory contains Android Studio project files for building the NORM
 library for Android.
 
 REQUIREMENTS:

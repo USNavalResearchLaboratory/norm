@@ -15,6 +15,7 @@ NormPostProcessor::~NormPostProcessor()
     SetCommand(NULL);
 }
 
+/*  This was defined/implemented, but unused so commented out (for now)
 void NormPostProcessor::GetCommand(char* buffer, unsigned int buflen)
 {
     if (process_argv && buffer)
@@ -52,6 +53,7 @@ void NormPostProcessor::GetCommand(char* buffer, unsigned int buflen)
         if (buflen > 4) buffer[4] = '\0';
     }
 }  // end NormPostProcessor::GetCommand()
+*/
 
 bool NormPostProcessor::SetCommand(const char* cmd)
 {

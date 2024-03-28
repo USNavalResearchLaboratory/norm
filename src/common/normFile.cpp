@@ -136,6 +136,7 @@ bool NormFile::Open(const char* thePath, int theFlags)
     if((fd = open(thePath, theFlags, 0640)) >= 0)
     {
         offset = 0;
+        flags = theFlags;
         return true;  // no error
     }
     else
@@ -246,9 +247,11 @@ bool NormFile::Rename(const char* oldName, const char* newName)
 #endif  // WIN32
     // In Win32, the old file can't be open and on Unix (Linux at least), it's better
     // performance to close/reopen a file being renamed
+    bool wasOpen = false;
 	int oldFlags = 0;
 	if (IsOpen())
 	{
+        wasOpen = true;
 		oldFlags = flags;
 		oldFlags &= ~(O_CREAT | O_TRUNC);  // unset these
 		Close();
@@ -321,22 +324,19 @@ bool NormFile::Rename(const char* oldName, const char* newName)
     {
         PLOG(PL_ERROR, "NormFile::Rename() rename() error: %s\n", GetErrorString());	
 #endif // if/else _WIN32_WCE / WIN32|UNIX
-        if (oldFlags) 
-        {
-            if (!Open(oldName, oldFlags))
-                PLOG(PL_ERROR, "NormFile::Rename() error re-opening file w/ old name\n");
-        }  
+        if (wasOpen && !Open(oldName, oldFlags))
+            PLOG(PL_ERROR, "NormFile::Rename() error re-opening file w/ old name\n");
         return false;
     }
     else
     {
-        if (oldFlags) 
+        if (wasOpen && !Open(newName, oldFlags))
         {
-            if (!Open(newName, oldFlags))
-                PLOG(PL_ERROR, "NormFile::Rename() error opening file w/ new name\n");
+           PLOG(PL_ERROR, "NormFile::Rename() error opening file w/ new name\n");
+           return false;
         }
-        return true;
     }
+    return true;
 }  // end NormFile::Rename()
 
 size_t NormFile::Read(char* buffer, size_t len)
@@ -388,10 +388,11 @@ size_t NormFile::Write(const char* buffer, size_t len)
 #endif // if/else _WIN32_WCE
 #else
         size_t result = write(fd, buffer+put, len-put);
+        if (result <= 0) perror("NormFile::Write() write() error");
 #endif // if/else WIN32
         if (result <= 0)
         {
- #ifndef _WIN32_WCE
+#ifndef _WIN32_WCE
             if (EINTR != errno)
 #endif // !_WIN32_WCE
             {

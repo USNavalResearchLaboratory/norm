@@ -1,4 +1,4 @@
-"""
+o"""
 pynorm - Python wrapper for NRL's libnorm
 By: Tom Wambold <wambold@itd.nrl.navy.mil>
 """
