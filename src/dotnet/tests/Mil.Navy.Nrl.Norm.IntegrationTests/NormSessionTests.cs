@@ -463,7 +463,10 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
                 var actualEventTypes = actualEvents.Select(e => e.Type).ToList();
                 Assert.Equivalent(expectedEventTypes, actualEventTypes);
 
-                var actualData = normData.Data;
+                var actualEvent = actualEvents.FirstOrDefault(e => e.Type == NormEventType.NORM_RX_OBJECT_COMPLETED);
+                var actualNormData = Assert.IsType<NormData>(actualEvent.Object);
+                
+                var actualData = actualNormData.Data;
                 Assert.Equal(expectedData, actualData);
                 var actualContent = Encoding.ASCII.GetString(actualData);
                 Assert.Equal(expectedContent, actualContent);
