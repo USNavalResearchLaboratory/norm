@@ -1,7 +1,7 @@
 @startuml
 class NormData {
     ~ NormData(handle:long)
-    + byte[] Data <<get>>   
+    + byte[] GetData()
 }
 NormObject <|-- NormData
 @enduml
