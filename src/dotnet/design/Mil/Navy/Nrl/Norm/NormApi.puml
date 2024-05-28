@@ -59,7 +59,8 @@ class NormApi
     + {static} NormSetGroupSize(sessionHandle:long, groupSize:long) : void 
     + {static} NormSetTxRobustFactor(sessionHandle:long, robustFactor:int) : void
     + {static} NormFileEnqueue(sessionHandle:long, fileName:string, infoPtr:string, infoLen:int): long 
-    + {static} NormDataEnqueue(sessionHandle:long, dataPtr:byte[], dataLen:int, infoPtr:byte[], infoLen:int) : long 
+    + {static} NormDataEnqueue(sessionHandle:long, dataPtr:nint, dataLen:int, infoPtr:nint, infoLen:int) : long 
+    + {static} NormDataEnqueue(sessionHandle:long, data:byte[], dataLen:int, info:byte[], infoLen:int) : long 
     + {static} NormRequeueObject(sessionHandle:long, objectHandle:long) : bool
     + {static} NormStreamOpen(sessionHandle:long, bufferSize:long, infoPtr:string, infoLen:int) : long 
     + {static} NormStreamClose(streamHandle:long, graceful:bool) : void 
