@@ -1,5 +1,4 @@
-﻿using System.Runtime.CompilerServices;
-using System.Text;
+﻿using System.Text;
 
 namespace Mil.Navy.Nrl.Norm
 {
@@ -75,10 +74,12 @@ namespace Mil.Navy.Nrl.Norm
         /// </summary>
         /// <param name="handle">Specifies the session to return.</param>
         /// <returns>Returns a NormSession.</returns>
-        [MethodImpl(MethodImplOptions.Synchronized)]
         internal static NormSession GetSession(long handle)
         {
-            return _normSessions[handle];
+            lock (_normSessions)
+            {
+                return _normSessions[handle];
+            }
         }
 
         /// <summary>
