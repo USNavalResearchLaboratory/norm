@@ -74,11 +74,11 @@ namespace Mil.Navy.Nrl.Norm
         /// </summary>
         /// <param name="handle">Specifies the session to return.</param>
         /// <returns>Returns a NormSession.</returns>
-        internal static NormSession GetSession(long handle)
+        internal static NormSession? GetSession(long handle)
         {
             lock (_normSessions)
             {
-                return _normSessions[handle];
+                return _normSessions.TryGetValue(handle, out NormSession? session) ? session : null;
             }
         }
 
