@@ -152,15 +152,15 @@ namespace ProtoPktSOCKS
             
             UINT8 GetVersion() const
                 {return ((pkt_length > OFFSET_VERSION) ? 
-                            (((UINT8*)buffer_ptr)[OFFSET_VERSION]) : 0);}
+                            GetUINT8(OFFSET_VERSION) : 0);}
             
             Command GetCommand() const
                 {return ((pkt_length > OFFSET_COMMAND) ? 
-                            (Command)(((UINT8*)buffer_ptr)[OFFSET_COMMAND]) : CMD_INVALID);}
+                    (Command)GetUINT8(OFFSET_COMMAND) : CMD_INVALID);}
             
             AddrType GetAddressType() const
                 {return ((pkt_length > OFFSET_ATYPE) ? 
-                            (AddrType)(((UINT8*)buffer_ptr)[OFFSET_ATYPE]) : ADDR_INVALID);}
+                            (AddrType)GetUINT8(OFFSET_ATYPE) : ADDR_INVALID);}
             
             UINT8 GetAddressLength() const;
             
@@ -175,18 +175,18 @@ namespace ProtoPktSOCKS
             
             void SetVersion(UINT8 version)
             {
-                ((UINT8*)buffer_ptr)[OFFSET_VERSION] = version;
+                SetUINT8(OFFSET_VERSION, version);
                 pkt_length = 1;
             }
             void SetCommand(Command cmd)
             {
-                ((UINT8*)buffer_ptr)[OFFSET_COMMAND] = (UINT8)cmd;
+                SetUINT8(OFFSET_COMMAND, (UINT8)cmd);
                 pkt_length = 2;
             }
             void SetAddressType(AddrType addrType)
             {
                 ((UINT8*)buffer_ptr)[OFFSET_RESERVED] = 0;
-                ((UINT8*)buffer_ptr)[OFFSET_ATYPE] = (UINT8)addrType;
+                SetUINT8(OFFSET_ATYPE, (UINT8)addrType);
                 pkt_length = 4;
             }
             bool SetAddress(const ProtoAddress& theAddr);  // note this sets port, too
@@ -242,18 +242,19 @@ namespace ProtoPktSOCKS
                                 bool            freeOnDestruct = false)
                 {return ProtoPkt::InitFromBuffer(replyLength, bufferPtr, numBytes, freeOnDestruct);}
             
+            AddrType GetAddressType() const
             UINT8 GetVersion() const
                 {return ((pkt_length > OFFSET_VERSION) ? 
-                            (((UINT8*)buffer_ptr)[OFFSET_VERSION]) : 0);}
+                            GetUINT8(OFFSET_VERSION) : 0);}
             
             Type GetType() const
                 {return ((pkt_length > OFFSET_TYPE) ? 
-                            (Type)(((UINT8*)buffer_ptr)[OFFSET_TYPE]) : TYPE_INVALID);}
+                    (Type)GetUINT8(OFFSET_TYPE) : CMD_INVALID);}
             
             AddrType GetAddressType() const
                 {return ((pkt_length > OFFSET_ATYPE) ? 
-                            (AddrType)(((UINT8*)buffer_ptr)[OFFSET_ATYPE]) : ADDR_INVALID);}
-            
+                            (AddrType)GetUINT8(OFFSET_ATYPE) : ADDR_INVALID);}
+                            
             UINT8 GetAddressLength() const;
             
             const char* GetAddressPtr() const
@@ -266,12 +267,12 @@ namespace ProtoPktSOCKS
             // Reply building (call these in order
             void SetVersion(UINT8 version)
             {
-                ((UINT8*)buffer_ptr)[OFFSET_VERSION] = version;
+                SetUINT8(OFFSET_VERSION, version);
                 pkt_length = 1;
             }
             void SetType(Type replyType)
             {
-                ((UINT8*)buffer_ptr)[OFFSET_TYPE] = (UINT8)replyType;
+                SetUINT8(OFFSET_TYPE, (UINT8)replyType);
                 pkt_length = 2;
             }
             void SetAddress(AddrType addrType, const char* addrPtr, UINT8 addrLen);
@@ -316,12 +317,12 @@ namespace ProtoPktSOCKS
             
             UINT8 GetFrag() const
                 {return ((pkt_length > OFFSET_FRAG) ? 
-                            (((UINT8*)buffer_ptr)[OFFSET_FRAG]) : 0);}
+                            GetUINT8(OFFSET_FRAG) : 0);}
             
             AddrType GetAddressType() const
                 {return ((pkt_length > OFFSET_ATYPE) ? 
-                            (AddrType)(((UINT8*)buffer_ptr)[OFFSET_ATYPE]) : ADDR_INVALID);}
-            
+                            (AddrType)GetUINT8(OFFSET_ATYPE) : ADDR_INVALID);}
+                            
             UINT8 GetAddressLength() const;
             
             const char* GetAddressPtr() const
@@ -342,7 +343,8 @@ namespace ProtoPktSOCKS
             void SetFragment(UINT8 fragId)
             {
                 ((UINT8*)buffer_ptr)[OFFSET_RESERVED] = 0;
-                ((UINT8*)buffer_ptr)[OFFSET_FRAG] = fragId;
+                SetUINT8(OFFSET_RESERVED, 0);
+                SetUINT8(OFFSET_FRAG], fragId);
                 pkt_length = OFFSET_FRAG + 1;
             }
             void SetAddress(AddrType addrType, const char* addrPtr, UINT8 addrLen);
