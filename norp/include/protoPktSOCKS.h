@@ -242,14 +242,13 @@ namespace ProtoPktSOCKS
                                 bool            freeOnDestruct = false)
                 {return ProtoPkt::InitFromBuffer(replyLength, bufferPtr, numBytes, freeOnDestruct);}
             
-            AddrType GetAddressType() const
             UINT8 GetVersion() const
                 {return ((pkt_length > OFFSET_VERSION) ? 
                             GetUINT8(OFFSET_VERSION) : 0);}
             
             Type GetType() const
                 {return ((pkt_length > OFFSET_TYPE) ? 
-                    (Type)GetUINT8(OFFSET_TYPE) : CMD_INVALID);}
+                    (Type)GetUINT8(OFFSET_TYPE) : TYPE_INVALID);}
             
             AddrType GetAddressType() const
                 {return ((pkt_length > OFFSET_ATYPE) ? 
@@ -344,7 +343,7 @@ namespace ProtoPktSOCKS
             {
                 ((UINT8*)buffer_ptr)[OFFSET_RESERVED] = 0;
                 SetUINT8(OFFSET_RESERVED, 0);
-                SetUINT8(OFFSET_FRAG], fragId);
+                SetUINT8(OFFSET_FRAG, fragId);
                 pkt_length = OFFSET_FRAG + 1;
             }
             void SetAddress(AddrType addrType, const char* addrPtr, UINT8 addrLen);
