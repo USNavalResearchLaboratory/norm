@@ -12,7 +12,7 @@
 // numbers for NORM traffic.
 
 // Uncomment this to enable new NORM port handling to improve NAT compatibility
-#define NEW_PORT
+#define NEW_PORT 1
 
 PortPool::PortPool(UINT16 basePort)
  : base_port(basePort)
