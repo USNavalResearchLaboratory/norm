@@ -12,7 +12,7 @@
 // numbers for NORM traffic.
 
 // Uncomment this to enable new NORM port handling to improve NAT compatibility
-#define NEW_PORT
+#define NEW_PORT 1
 
 PortPool::PortPool(UINT16 basePort)
  : base_port(basePort)
@@ -533,6 +533,7 @@ bool NorpSession::PutClientAuthReply()
         else
         {
             // AuthReply was fully sent
+            TRACE("AuthReply fully sent %d bytes ...\n", remote_index);
             socks_client_socket.StopOutputNotification();
             socks_state = SOCKS_GET_REQUEST;
             remote_pending = remote_index = 0;

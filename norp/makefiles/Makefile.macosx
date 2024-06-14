@@ -8,8 +8,8 @@ WX_CFLAGS = `$(WX_CONFIG_PATH) --cxxflags`
 WX_LIBS = `$(WX_CONFIG_PATH) --libs`
 
 # 2) System-specific flags and libs
-SYSTEM_CFLAGS = -arch x86_64
-SYSTEM_LIBS = -arch x86_64 -lresolv
+SYSTEM_CFLAGS = 
+SYSTEM_LIBS = -lresolv -lpcap
 
 # 3) System-specific Protolib flags (_must_ correspond to Protolib SYSTEM_HAVES)
 # Must choose appropriate for the following:

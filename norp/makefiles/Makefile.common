@@ -44,7 +44,7 @@ norp: $(LIBPROTO) $(LIBNORM) $(NORP_OBJ)
 	$(CC) $(LDFLAGS) -o $@ $(NORP_OBJ) $(LIBS) $(LIBNORM) $(LIBPROTO)
     
 clean:
-	rm -f norp $(COMMON)/*.o;
+	rm -f norp $(COMMON)/*.o $(COMMON)/protoPktSOCKS.o;
 	$(MAKE) -C $(NORM)/makefiles -f Makefile.$(SYSTEM) clean;
 	$(MAKE) -C $(PROTOLIB)/makefiles -f Makefile.$(SYSTEM) clean;
     
