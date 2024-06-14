@@ -545,41 +545,6 @@ namespace Mil.Navy.Nrl.Norm
         public static extern long NormDataEnqueue(long sessionHandle, nint dataPtr, int dataLen, nint infoPtr, int infoLen);
 
         /// <summary>
-        /// This function enqueues a segment of application memory space for transmission within the specified NORM sessionHandle.
-        /// </summary>
-        /// <param name="sessionHandle">Used to identify application in the NormSession.</param>
-        /// <param name="data">The data parameter must be a managed buffer to be transmitted.</param>
-        /// <param name="dataLen">The dataLen parameter indicates the quantity of data to transmit.</param>
-        /// <param name="info">The optional info and infoLen parameters 
-        /// are used to associate NORM_INFO content with the sent transport object. The maximum allowed infoLen
-        /// corresponds to the segmentSize used in the prior call to NormStartSender(). The use and interpretation of the
-        /// NORM_INFO content is left to the application's discretion.</param>
-        /// <param name="infoLen">The optional info and infoLen parameters 
-        /// are used to associate NORM_INFO content with the sent transport object. The maximum allowed infoLen
-        /// corresponds to the segmentSize used in the prior call to NormStartSender(). The use and interpretation of the
-        /// NORM_INFO content is left to the application's discretion</param>
-        /// <returns>A NormObjectHandle is returned which the application may use in other NORM API calls as needed.</returns>
-        public static long NormDataEnqueue(long sessionHandle, byte[] data, int dataLen, byte[]? info, int infoLen)
-        {
-            long objectHandle;
-            var dataHandle = GCHandle.Alloc(data, GCHandleType.Pinned);
-            var infoHandle = GCHandle.Alloc(info, GCHandleType.Pinned);
-            
-            try
-            {
-                var dataPtr = dataHandle.AddrOfPinnedObject();
-                var infoPtr = infoHandle.AddrOfPinnedObject();
-                objectHandle = NormDataEnqueue(sessionHandle, dataPtr, dataLen, infoPtr, infoLen);
-            }
-            finally
-            {
-                dataHandle.Free();
-                infoHandle.Free();
-            }
-            return objectHandle;
-        }
-
-        /// <summary>
         /// This function allows the application to resend (or reset transmission of) a NORM_OBJECT_FILE or NORM_OBJECT_DATA
         /// transmit object that was previously enqueued for the indicated sessionHandle.
         /// </summary>

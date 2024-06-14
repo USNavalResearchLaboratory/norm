@@ -186,10 +186,20 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
         /// Generates text content
         /// </summary>
         /// <returns>The generated text content</returns>
-        private string GenerateTextContent()
+        private static string GenerateTextContent()
         {
             var faker = new Faker();
             return faker.Lorem.Paragraph();
+        }
+
+        /// <summary>
+        /// Generates info content
+        /// </summary>
+        /// <returns>The generated info content</returns>
+        private static string GenerateInfoContent()
+        {
+            var faker = new Faker();
+            return faker.Lorem.Sentence();
         }
 
         private IEnumerable<NormEvent> GetEvents(TimeSpan delayTime)
@@ -398,24 +408,85 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
             }
         }
 
-        [SkippableFact(typeof(IOException))]
-        public void EnqueuesData()
+        public static IEnumerable<object[]> GenerateData()
+        {
+            var data = new List<object[]>();
+
+            var dataContent = GenerateTextContent();
+            var expectedDataContent = dataContent;
+            var dataOffset = 0;
+            var dataLength = dataContent.Length;
+            data.Add(new object[] { dataContent, expectedDataContent, dataOffset, dataLength });
+
+            var infoContent = GenerateInfoContent();
+            var expectedInfoContent = infoContent;
+            var infoOffset = 0;
+            var infoLength = infoContent.Length;
+            data.Add(new object[] { dataContent, expectedDataContent, dataOffset, dataLength, infoContent, expectedInfoContent, infoOffset, infoLength });
+
+            var faker = new Faker();
+            infoLength = faker.Random.Int(infoContent.Length / 2, infoContent.Length - 1);
+            expectedInfoContent = infoContent.Substring(infoOffset, infoLength);
+            data.Add(new object[] { dataContent, expectedDataContent, dataOffset, dataLength, infoContent, expectedInfoContent, infoOffset, infoLength });
+
+            infoOffset = faker.Random.Int(1, infoContent.Length - 1 / 2);
+            infoLength = infoContent.Length - infoOffset;
+            expectedInfoContent = infoContent.Substring(infoOffset, infoLength);
+            data.Add(new object[] { dataContent, expectedDataContent, dataOffset, dataLength, infoContent, expectedInfoContent, infoOffset, infoLength });
+
+            infoOffset = faker.Random.Int(1, infoContent.Length - 1 / 2);
+            infoLength = faker.Random.Int(1, infoContent.Length - infoOffset);
+            expectedInfoContent = infoContent.Substring(infoOffset, infoLength);
+            data.Add(new object[] { dataContent, expectedDataContent, dataOffset, dataLength, infoContent, expectedInfoContent, infoOffset, infoLength });
+
+            dataLength = faker.Random.Int(dataContent.Length / 2, dataContent.Length - 1);
+            expectedDataContent = dataContent.Substring(dataOffset, dataLength);
+            data.Add(new object[] { dataContent, expectedDataContent, dataOffset, dataLength });
+
+            dataOffset = faker.Random.Int(1, dataContent.Length - 1 / 2);
+            dataLength = dataContent.Length - dataOffset;
+            expectedDataContent = dataContent.Substring(dataOffset, dataLength);
+            data.Add(new object[] { dataContent, expectedDataContent, dataOffset, dataLength });
+
+            dataOffset = faker.Random.Int(1, dataContent.Length - 1 / 2);
+            dataLength = faker.Random.Int(1, dataContent.Length - dataOffset);
+            expectedDataContent = dataContent.Substring(dataOffset, dataLength);
+            data.Add(new object[] { dataContent, expectedDataContent, dataOffset, dataLength });
+
+            return data;
+        }
+
+        [SkippableTheory(typeof(IOException))]
+        [MemberData(nameof(GenerateData))]
+        public void EnqueuesData(string dataContent, string expectedDataContent, int dataOffset, int dataLength, string? infoContent = null, string expectedInfoContent = "", int? infoOffset = null, int? infoLength = null)
         {
             StartSender();
-            //Create data to write to the stream
-            var expectedContent = GenerateTextContent();
-            byte[] expectedData = Encoding.ASCII.GetBytes(expectedContent);
+            //Create data to write to enqueue
+            var data = Encoding.ASCII.GetBytes(dataContent);
+            var expectedData = Encoding.ASCII.GetBytes(expectedDataContent);
+            //Create info to enqueue
+            var info = infoContent != null ? Encoding.ASCII.GetBytes(infoContent) : null;
+            var expectedInfo = Encoding.ASCII.GetBytes(expectedInfoContent);
 
             try
             {
-                var normData = _normSession.DataEnqueue(expectedData, 0, expectedData.Length);
+                var normData = infoOffset != null && infoLength != null ? 
+                    _normSession.DataEnqueue(data, dataOffset, dataLength, info, infoOffset.Value, infoLength.Value) : 
+                    _normSession.DataEnqueue(data, dataOffset, dataLength);
                 var expectedEventTypes = new List<NormEventType> { NormEventType.NORM_TX_OBJECT_SENT, NormEventType.NORM_TX_QUEUE_EMPTY };
                 var actualEventTypes = GetEvents().Select(e => e.Type).ToList();
                 Assert.Equal(expectedEventTypes, actualEventTypes);
                 var actualData = normData.GetData();
                 Assert.Equal(expectedData, actualData);
-                var actualContent = Encoding.ASCII.GetString(actualData);
-                Assert.Equal(expectedContent, actualContent);
+                var actualDataContent = Encoding.ASCII.GetString(actualData);
+                Assert.Equal(expectedDataContent, actualDataContent);
+                var actualInfo = normData.Info;
+                Assert.Equal(expectedInfo, actualInfo);
+                if (actualInfo != null)
+                {
+                    var actualInfoContent = Encoding.ASCII.GetString(actualInfo);
+                    Assert.Equal(expectedInfoContent, actualInfoContent);
+                }
             }
             catch (Exception)
             {
@@ -427,8 +498,81 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
             }
         }
 
-        [SkippableFact(typeof(IOException))]
-        public void ReceivesData()
+        public static IEnumerable<object[]> GenerateOutOfRangeData()
+        {
+            var data = new List<object[]>();
+
+            var dataContent = GenerateTextContent();
+            var faker = new Faker();
+            var dataOffset = faker.Random.Int(-dataContent.Length, -1);
+            var dataLength = dataContent.Length;
+            data.Add(new object[] { dataContent, dataOffset, dataLength });
+
+            dataOffset = faker.Random.Int(dataContent.Length, dataContent.Length * 2);
+            dataLength = dataContent.Length;
+            data.Add(new object[] { dataContent, dataOffset, dataLength });
+
+            dataOffset = 0;
+            dataLength = faker.Random.Int(dataContent.Length + 1, dataContent.Length * 2);
+            data.Add(new object[] { dataContent, dataOffset, dataLength });
+
+            dataOffset = dataContent.Length - 1;
+            dataLength = dataContent.Length;
+            data.Add(new object[] { dataContent, dataOffset, dataLength });
+
+            dataOffset = 0;
+            dataLength = dataContent.Length;
+
+            var infoContent = GenerateInfoContent();
+            var infoOffset = faker.Random.Int(-infoContent.Length, -1);
+            var infoLength = infoContent.Length;
+            data.Add(new object[] { dataContent, dataOffset, dataLength, infoContent, infoOffset, infoLength });
+
+            infoOffset = faker.Random.Int(infoContent.Length, infoContent.Length * 2);
+            infoLength = infoContent.Length;
+            data.Add(new object[] { dataContent, dataOffset, dataLength, infoContent, infoOffset, infoLength });
+
+            infoOffset = 0;
+            infoLength = faker.Random.Int(infoContent.Length + 1, infoContent.Length * 2);
+            data.Add(new object[] { dataContent, dataOffset, dataLength, infoContent, infoOffset, infoLength });
+
+            infoOffset = infoContent.Length - 1;
+            infoLength = infoContent.Length;
+            data.Add(new object[] { dataContent, dataOffset, dataLength, infoContent, infoOffset, infoLength });
+
+            return data;
+        }
+
+        [SkippableTheory(typeof(IOException))]
+        [MemberData(nameof(GenerateOutOfRangeData))]
+        public void EnqueuesDataThrowsExceptionWhenOutOfRange(string dataContent, int dataOffset, int dataLength, string? infoContent = null, int? infoOffset = null, int? infoLength = null)
+        {
+            StartSender();
+            //Create data to enqueue
+            var data = Encoding.ASCII.GetBytes(dataContent);
+            //Create info to enqueue
+            var info = infoContent != null ? Encoding.ASCII.GetBytes(infoContent) : null;
+
+            try
+            {
+                Assert.Throws<ArgumentOutOfRangeException>(() => 
+                infoOffset != null && infoLength != null ? 
+                _normSession.DataEnqueue(data, dataOffset, dataLength, info, infoOffset.Value, infoLength.Value) : 
+                _normSession.DataEnqueue(data, dataOffset, dataLength));
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+            finally
+            {
+                StopSender();
+            }
+        }
+
+        [SkippableTheory(typeof(IOException))]
+        [MemberData(nameof(GenerateData))]
+        public void ReceivesData(string content, string expectedDataContent, int dataOffset, int dataLength, string? infoContent = null, string expectedInfoContent = "", int? infoOffset = null, int? infoLength = null)
         {
             _normSession.SetLoopback(true);
             StartSender();
@@ -441,12 +585,17 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
             _normInstance.SetCacheDirectory(cachePath);
 
             //Create data to be sent
-            var expectedContent = GenerateTextContent();
-            var expectedData = Encoding.ASCII.GetBytes(expectedContent);
+            var data = Encoding.ASCII.GetBytes(content);
+            var expectedData = Encoding.ASCII.GetBytes(expectedDataContent);
+            //Create info to be sent
+            var info = infoContent != null ? Encoding.ASCII.GetBytes(infoContent) : null;
+            var expectedInfo = Encoding.ASCII.GetBytes(expectedInfoContent);
 
             try
             {
-                var normData = _normSession.DataEnqueue(expectedData, 0, expectedData.Length);
+                var normData = infoOffset != null && infoLength != null ?
+                    _normSession.DataEnqueue(data, dataOffset, dataLength, info, infoOffset.Value, infoLength.Value) :
+                    _normSession.DataEnqueue(data, dataOffset, dataLength);
                 var expectedEventTypes = new List<NormEventType>
                 {
                     NormEventType.NORM_REMOTE_SENDER_NEW,
@@ -468,8 +617,15 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
                 
                 var actualData = actualNormData.GetData();
                 Assert.Equal(expectedData, actualData);
-                var actualContent = Encoding.ASCII.GetString(actualData);
-                Assert.Equal(expectedContent, actualContent);
+                var actualDataContent = Encoding.ASCII.GetString(actualData);
+                Assert.Equal(expectedDataContent, actualDataContent);
+                var actualInfo = normData.Info;
+                Assert.Equal(expectedInfo, actualInfo);
+                if (actualInfo != null)
+                {
+                    var actualInfoContent = Encoding.ASCII.GetString(actualInfo);
+                    Assert.Equal(expectedInfoContent, actualInfoContent);
+                }
             }
             catch (Exception)
             {
