@@ -1,7 +1,7 @@
 @startuml
 enum NormFecType {
-    RS
-    RS8
-    SB
+    RS,
+    RS8,
+    SB,
 }
 @enduml

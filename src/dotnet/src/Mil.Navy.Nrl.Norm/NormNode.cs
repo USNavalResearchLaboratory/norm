@@ -1,4 +1,6 @@
-﻿using System.Net;
+﻿using Mil.Navy.Nrl.Norm.Buffers;
+using System.Net;
+using System.Runtime.InteropServices;
 
 namespace Mil.Navy.Nrl.Norm
 {
@@ -45,14 +47,23 @@ namespace Mil.Navy.Nrl.Norm
         {
             get
             {
-                var buffer = new byte[256];
-                var bufferLength = buffer.Length;
-                if (!NormNodeGetAddress(_handle, buffer, ref bufferLength, out var port))
+                var bufferLength = 256;
+                using var buffer = ByteBuffer.AllocateDirect(bufferLength);
+                int port;
+
+                unsafe
                 {
-                    throw new IOException("Failed to get node address");
+                    byte* addrBuffer = null;
+                    buffer.AcquirePointer(ref addrBuffer);
+                    if (!NormNodeGetAddress(_handle, (nint)addrBuffer, ref bufferLength, out port))
+                    {
+                        throw new IOException("Failed to get node address");
+                    }
                 }
-                buffer = buffer.Take(bufferLength).ToArray();
-                var ipAddressText = string.Join('.', buffer);
+
+                var addressBytes = new byte[bufferLength];
+                buffer.ReadArray(0, addressBytes, 0, bufferLength);
+                var ipAddressText = string.Join('.', addressBytes);
                 var ipAddress = IPAddress.Parse(ipAddressText);
 
                 return new IPEndPoint(ipAddress, port);
@@ -65,20 +76,35 @@ namespace Mil.Navy.Nrl.Norm
         public double Grtt => NormNodeGetGrtt(_handle);
 
         /// <summary>
-        /// NORM application-defined command for transmission.
+        /// This function retrieves the content of an application-defined command that was received from a remote sender.
         /// </summary>
-        public byte[] Command
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the offset or length are outside of the buffer.</exception>
+        public int GetCommand(byte[] buffer, int offset, int length)
         {
-            get
+            if (offset < 0 || offset >= buffer.Length)
             {
-                var buffer = new byte[256];
-                var bufferLength = buffer.Length;
-                if (!NormNodeGetCommand(_handle, buffer, ref bufferLength))
+                throw new ArgumentOutOfRangeException(nameof(offset), "The offset is out of range");
+            }
+            if (length < 1 || offset + length > buffer.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(length), "The length is out of range");
+            }
+
+            var bufferHandle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+
+            try
+            {
+                var bufferPtr = bufferHandle.AddrOfPinnedObject() + offset;
+                if (!NormNodeGetCommand(_handle, bufferPtr, ref length))
                 {
                     throw new IOException("Failed to get command");
                 }
-                return buffer.Take(bufferLength).ToArray();
+            } 
+            finally
+            {
+                bufferHandle.Free();
             }
+            return length;
         }
 
         /// <summary>

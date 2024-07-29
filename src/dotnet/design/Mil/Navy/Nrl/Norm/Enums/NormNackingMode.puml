@@ -1,7 +1,7 @@
 @startuml
 enum NormNackingMode {
-    NORM_NACK_NONE
-    NORM_NACK_INFO_ONLY
-    NORM_NACK_NORMAL
+    NORM_NACK_NONE,
+    NORM_NACK_INFO_ONLY,
+    NORM_NACK_NORMAL,
 }
 @enduml

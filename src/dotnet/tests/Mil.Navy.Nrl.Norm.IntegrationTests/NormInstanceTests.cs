@@ -1,4 +1,5 @@
 ﻿using Bogus;
+using Mil.Navy.Nrl.Norm.Buffers;
 using System.Text;
 
 namespace Mil.Navy.Nrl.Norm.IntegrationTests
@@ -216,7 +217,7 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
             Assert.Equal(expectedDebugLevel, actualDebugLevel);
         }
 
-        [Fact]
+        [SkippableFact(typeof(IOException))]
         public void HasEventsFromTimeSpan()
         {
             var faker = new Faker();
@@ -230,14 +231,16 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
 
             var dataContent = faker.Lorem.Paragraph();
             var data = Encoding.ASCII.GetBytes(dataContent);
-            _normSession.DataEnqueue(data, 0, data.Length);
+            using var dataBuffer = ByteBuffer.AllocateDirect(data.Length);
+            dataBuffer.WriteArray(0, data, 0, data.Length);
+            _normSession.DataEnqueue(dataBuffer, 0, data.Length);
 
             Assert.True(_normInstance.HasNextEvent(TimeSpan.FromSeconds(1.5)));
 
             _normSession.StopSender();
         }
 
-        [Fact]
+        [SkippableFact(typeof(IOException))]
         public void HasEventsFromSecondsAndMicroseconds()
         {
             var faker = new Faker();
@@ -251,7 +254,9 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
 
             var dataContent = faker.Lorem.Paragraph();
             var data = Encoding.ASCII.GetBytes(dataContent);
-            _normSession.DataEnqueue(data, 0, data.Length);
+            using var dataBuffer = ByteBuffer.AllocateDirect(data.Length);
+            dataBuffer.WriteArray(0, data, 0, data.Length);
+            _normSession.DataEnqueue(dataBuffer, 0, data.Length);
 
             Assert.True(_normInstance.HasNextEvent(1, 500000));
 

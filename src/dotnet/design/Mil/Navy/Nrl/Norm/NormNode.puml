@@ -4,17 +4,17 @@ class NormNode {
     + <<const>> NORM_NODE_NONE : int = 0
     + <<const>> NORM_NODE_INVALID : int = 0
     - _handle : long
-    ~ NormNode(handle:long)
+    <<internal>> NormNode(handle:long)
+    + Id : long <<get>>
+    + Grtt : double <<get>>
+    + GetCommand(buffer:byte[], offset:int, length:int) : int
     + SetUnicastNack(state:bool) : void
     + SetNackingMode(nackingMode:NormNackingMode) : void
     + SetRepairBoundary(repairBoundary:NormRepairBoundary) : void
     + SetRxRobustFactor(robustFactor:int) : void
-    + Id : long <<get>>
-    + Address : IPEndPoint <<get>>
-    + Grtt : double <<get>>
-    + Command : byte[] <<get>>
     + FreeBuffers() : void
     + Retain() : void
-    + Release(): void
+    + Release() : void
 }
+NormNode --> "Address" IPEndPoint
 @enduml

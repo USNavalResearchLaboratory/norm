@@ -524,7 +524,7 @@ namespace Mil.Navy.Nrl.Norm
         /// NORM_INFO content is left to the application's discretion</param>
         /// <returns>A NormObjectHandle is returned which the application may use in other NORM API calls as needed.</returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern long NormFileEnqueue(long sessionHandle, string fileName, byte[]? infoPtr, int infoLen);
+        public static extern long NormFileEnqueue(long sessionHandle, string fileName, nint infoPtr, int infoLen);
 
         /// <summary>
         /// This function enqueues a segment of application memory space for transmission within the specified NORM sessionHandle.
@@ -571,7 +571,7 @@ namespace Mil.Navy.Nrl.Norm
         /// which will enable NORM receiver applications to properly interpret the received stream as it is being received.</param>
         /// <returns>A NormObjectHandle is returned which the application may use in other NORM API calls as needed.</returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern long NormStreamOpen(long sessionHandle, long bufferSize, byte[]? infoPtr, int infoLen);
+        public static extern long NormStreamOpen(long sessionHandle, long bufferSize, nint infoPtr, int infoLen);
 
         /// <summary>
         /// This function halts transfer of the stream specified by the streamHandle parameter and releases any resources
@@ -591,7 +591,7 @@ namespace Mil.Navy.Nrl.Norm
         /// <param name="numBytes">The numBytes parameter indicates the length of the data content.</param>
         /// <returns>This function returns the number of bytes of data successfully enqueued for NORM stream transmission.</returns>
         [DllImport(NORM_LIBRARY)]
-        internal static extern int NormStreamWrite(long streamHandle, byte[] buffer, int numBytes);
+        internal static extern int NormStreamWrite(long streamHandle, nint buffer, int numBytes);
 
         /// <summary>
         /// This function causes an immediate "flush" of the transmit stream specified by the streamHandle parameter.
@@ -725,7 +725,7 @@ namespace Mil.Navy.Nrl.Norm
         /// operation (see NormStartSender()), the cmdLength exceeds the configured session segmentLength, or a previously-
         /// enqueued command has not yet been sent.</returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern bool NormSendCommand(long sessionHandle, byte[] cmdBuffer, int cmdLength, bool robust);
+        public static extern bool NormSendCommand(long sessionHandle, nint cmdBuffer, int cmdLength, bool robust);
 
         /// <summary>
         /// This function terminates any pending NORM_CMD(APPLICATION) transmission that was previously initiated with the NormSendCommand() call. 
@@ -892,9 +892,10 @@ namespace Mil.Navy.Nrl.Norm
         /// <param name="buffer">The buffer parameter must be a pointer to an array where the received
         /// data can be stored of a length as referenced by the numBytes pointer</param>
         /// <param name="numBytes">Specifies the length of data.</param>
-        /// <returns></returns>
+        /// <returns>This function normally returns a value of true. However, if a break in the integrity of the reliable received stream 
+        /// occurs(or the stream has been ended by the sender), a value of false is returned to indicate the break. </returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern bool NormStreamRead(long streamHandle, byte[] buffer, ref int numBytes);
+        public static extern bool NormStreamRead(long streamHandle, nint buffer, ref int numBytes);
 
         /// <summary>
         /// This function advances the read offset of the receive stream referenced by the streamHandle parameter to align
@@ -960,7 +961,7 @@ namespace Mil.Navy.Nrl.Norm
         /// function can be used to determine the length of NORM_INFO content for the object even if a NULL buffer value and
         /// zero bufferLen is provided. A zero value is returned if NORM_INFO content has not yet been received (or is nonexistent) for the specified object.</returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern int NormObjectGetInfo(long objectHandle, [Out] byte[] buffer, int bufferLen);
+        public static extern int NormObjectGetInfo(long objectHandle, nint buffer, int bufferLen);
 
         /// <summary>
         /// This function can be used to determine the size (in bytes) of the transport object specified by the objectHandle parameter.
@@ -1019,7 +1020,7 @@ namespace Mil.Navy.Nrl.Norm
         /// does not refer to an object of type NORM_OBJECT_FILE.
         /// </returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern bool NormFileGetName(long fileHandle, [Out] char[] nameBuffer, int bufferLen);
+        public static extern bool NormFileGetName(long fileHandle, nint nameBuffer, int bufferLen);
 
         /// <summary>
         /// This function renames the file used to store content for the NORM_OBJECT_FILE transport object specified by 
@@ -1080,7 +1081,7 @@ namespace Mil.Navy.Nrl.Norm
         /// <param name="port">port number and/or specify a specific source address binding that is used for packet transmission.</param>
         /// <returns>A value of true is returned upon success and false upon failure. An invalid nodeHandle parameter value would lead to such failure.</returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern bool NormNodeGetAddress(long nodeHandle, [Out] byte[] addrBuffer, ref int bufferLen, out int port);
+        public static extern bool NormNodeGetAddress(long nodeHandle, nint addrBuffer, ref int bufferLen, out int port);
 
         /// <summary>
         /// This function retrieves the advertised estimate of group round-trip timing (GRTT) for the remote sender referenced by the given nodeHandle value.
@@ -1097,13 +1098,13 @@ namespace Mil.Navy.Nrl.Norm
         /// This function retrieves the content of an application-defined command that was received from a remote sender associated with the given nodeHandle.
         /// </summary>
         /// <param name="remoteSender"> notification for a given remote sender when multiple senders may be providing content</param>
-        /// <param name="buffer">Allocated system resources for each active sender</param>
+        /// <param name="cmdBuffer">Allocated system resources for each active sender</param>
         /// <param name="buflen">A return value of false indicates that either no command was available or the provided buffer size</param>
         /// <returns>This function returns true upon successful retrieval of command content. A return value of false indicates that
         /// either no command was available or the provided buffer size (buflen parameter) was inadequate.
         /// The value referenced by the buflen parameter is adjusted to indicate the actual command length (in bytes) upon return.</returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern bool NormNodeGetCommand(long remoteSender, [Out] byte[] buffer, ref int buflen);
+        public static extern bool NormNodeGetCommand(long remoteSender, nint cmdBuffer, ref int buflen);
 
         /// <summary>
         /// This function releases memory resources that were allocated for a remote sender. 

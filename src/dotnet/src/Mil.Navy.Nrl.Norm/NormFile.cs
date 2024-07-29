@@ -1,4 +1,7 @@
-﻿namespace Mil.Navy.Nrl.Norm
+﻿using System.Runtime.InteropServices;
+using System.Text;
+
+namespace Mil.Navy.Nrl.Norm
 {
     /// <summary>
     /// A transport object of type NORM_OBJECT_FILE.
@@ -26,13 +29,24 @@
         {
             get
             {
-                var buffer = new char[FILENAME_MAX];
-                if (!NormFileGetName(_handle, buffer, FILENAME_MAX))
+                var buffer = new byte[FILENAME_MAX];
+                var bufferHandle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+
+                try
                 {
-                    throw new IOException("Failed to get file name");
+                    var bufferPtr = bufferHandle.AddrOfPinnedObject();
+                    if (!NormFileGetName(_handle, bufferPtr, FILENAME_MAX))
+                    {
+                        throw new IOException("Failed to get file name");
+                    }
+                } 
+                finally
+                {
+                    bufferHandle.Free();
                 }
+                
                 buffer = buffer.Where(c => c != 0).ToArray();
-                return new string(buffer);
+                return new string(buffer.Select(Convert.ToChar).ToArray());
             }
         }
 

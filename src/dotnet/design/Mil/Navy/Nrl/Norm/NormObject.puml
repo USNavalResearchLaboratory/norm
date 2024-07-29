@@ -1,18 +1,19 @@
 @startuml
 class NormObject {
     + <<const>> NORM_OBJECT_INVALID : int = 0
-    # _handle:long
-    ~ NormObject(handle:long)
-    + SetNackingMode(nackingMode:NormNackingMode) : void
-    + Type : NormObjectType <<get>>
+    # _handle : long
+    <<internal>> NormObject(handle:long)
+    + Handle : long <<get>>
     + Info : byte[] <<get>>
     + Size : long <<get>>
+    + Sender : long <<get>>
+    + SetNackingMode(nackingMode:NormNackingMode) : void
     + GetBytesPending() : long
     + Cancel() : void
     + Retain() : void
     + Release() : void
-    + Sender : NormNode <<get>>
     + <<override>> GetHashCode() : int
-    + <<override>> Equals(obj:object) : bool
+    + <<override>> Equals(obj:object?) : bool
 }
+NormObject --> "Type" NormObjectType
 @enduml

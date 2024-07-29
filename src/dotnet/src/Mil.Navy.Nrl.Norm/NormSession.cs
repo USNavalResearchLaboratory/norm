@@ -466,23 +466,35 @@ namespace Mil.Navy.Nrl.Norm
         /// <param name="infoLength">The optional info and infoLength parameters are used to associate NORM_INFO content with the sent transport object.</param>
         /// <returns>A NormFile is returned which the application may use in other NORM API calls as needed.</returns>
         /// <exception cref="IOException">Thrown when NormFileEnqueue() returns NORM_OBJECT_INVALID, indicating the failure to enqueue file.</exception>
-        public NormFile FileEnqueue(string filename, byte[] info, int infoOffset, int infoLength)
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the info offset or info length are outside of the info buffer.</exception>
+        public NormFile FileEnqueue(string filename, byte[]? info, int infoOffset, int infoLength)
         {
-            byte[]? infoBytes;
-            if (info != null)
+            if (infoOffset < 0 || infoOffset >= info?.Length)
             {
-                infoBytes = info.Skip(infoOffset).Take(infoLength).ToArray();
+                throw new ArgumentOutOfRangeException(nameof(infoOffset), "The info offset is out of range");
             }
-            else
+            if (info != null && infoLength < 1 || infoOffset + infoLength > info?.Length)
             {
-                infoBytes = null;
-                infoLength = 0;
+                throw new ArgumentOutOfRangeException(nameof(infoLength), "The info length is out of range");
             }
-            var objectHandle = NormFileEnqueue(_handle, filename, infoBytes, infoLength);
-            if (objectHandle == NormObject.NORM_OBJECT_INVALID)
+
+            long objectHandle;
+            var infoHandle = GCHandle.Alloc(info, GCHandleType.Pinned);
+
+            try
             {
-                throw new IOException("Failed to enqueue file");
+                var infoPtr = infoHandle.AddrOfPinnedObject() + infoOffset;
+                objectHandle = NormFileEnqueue(_handle, filename, infoPtr, infoLength);
+                if (objectHandle == NormObject.NORM_OBJECT_INVALID)
+                {
+                    throw new IOException("Failed to enqueue file");
+                }
+            } 
+            finally
+            {
+                infoHandle.Free();
             }
+
             return new NormFile(objectHandle);
         }
 
@@ -499,7 +511,7 @@ namespace Mil.Navy.Nrl.Norm
         /// <returns>A NormData is returned which the application may use in other NORM API calls as needed.</returns>
         /// <exception cref="IOException">Thrown when NormDataEnqueue() returns NORM_OBJECT_INVALID, indicating the failure to enqueue data.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when the data offset or data length are outside of the data buffer.</exception>
-        public NormData DataEnqueue(byte[] dataBuffer, int dataOffset, int dataLength)
+        public NormData DataEnqueue(SafeBuffer dataBuffer, int dataOffset, int dataLength)
         {
             return DataEnqueue(dataBuffer, dataOffset, dataLength, null, 0, 0);
         }
@@ -517,32 +529,73 @@ namespace Mil.Navy.Nrl.Norm
         /// <returns>A NormData is returned which the application may use in other NORM API calls as needed.</returns>
         /// <exception cref="IOException">Thrown when NormDataEnqueue() returns NORM_OBJECT_INVALID, indicating the failure to enqueue data.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when the data offset, data length, info offset or info length are outside of the associated buffer.</exception>
-        public NormData DataEnqueue(byte[] dataBuffer, int dataOffset, int dataLength, byte[]? info, int infoOffset, int infoLength)
+        public NormData DataEnqueue(SafeBuffer dataBuffer, int dataOffset, int dataLength, byte[]? info, int infoOffset, int infoLength)
         {
-            if (dataOffset < 0 || dataOffset >= dataBuffer.Length)
+            if (dataOffset < 0 || Convert.ToUInt64(dataOffset) >= dataBuffer.ByteLength)
             {
                 throw new ArgumentOutOfRangeException(nameof(dataOffset), "The data offset is out of range");
             }
-            if (dataOffset + dataLength > dataBuffer.Length)
+            if (dataLength < 1 || Convert.ToUInt64(dataOffset + dataLength) > dataBuffer.ByteLength)
             {
                 throw new ArgumentOutOfRangeException(nameof(dataLength), "The data length is out of range");
             }
+            
+            unsafe 
+            {
+                byte* dataPtr = null;
+                dataBuffer.AcquirePointer(ref dataPtr);
+                return DataEnqueue((nint)dataPtr, dataOffset, dataLength, info, infoOffset, infoLength);
+            }
+        }
+
+        /// <summary>
+        /// This function enqueues a segment of application memory space for transmission.
+        /// </summary>
+        /// <remarks>
+        /// This is an overload which will call DataEnqueue() with info set to null, infoOffset set to 0, and infoLength set to 0.
+        /// </remarks>
+        /// <param name="dataPtr">The dataPtr is a pointer to the message to be transmitted.</param>
+        /// <param name="dataOffset">Indicates the start of the message. Anything before it will not be sent. 
+        /// Note: to send full message dataOffset should be set to 0.</param>
+        /// <param name="dataLength">Size of the message.</param>
+        /// <returns>A NormData is returned which the application may use in other NORM API calls as needed.</returns>
+        /// <exception cref="IOException">Thrown when NormDataEnqueue() returns NORM_OBJECT_INVALID, indicating the failure to enqueue data.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the data offset or data length are outside of the data buffer.</exception>
+        public NormData DataEnqueue(nint dataPtr, int dataOffset, int dataLength)
+        {
+            return DataEnqueue(dataPtr, dataOffset, dataLength, null, 0, 0);
+        }
+
+        /// <summary>
+        /// This function enqueues a segment of application memory space for transmission.
+        /// </summary>
+        /// <param name="dataPtr">The dataPtr is a pointer to the message to be transmitted.</param>
+        /// <param name="dataOffset">Indicates the start of the message. Anything before it will not be sent. 
+        /// Note: to send full message dataOffset should be set to 0.</param>
+        /// <param name="dataLength">Size of the message.</param>
+        /// <param name="info">The optional info and infoLength parameters are used to associate NORM_INFO content with the sent transport object.</param>
+        /// <param name="infoOffset">Indicates the start of the message.</param>
+        /// <param name="infoLength">The optional info and infoLength parameters are used to associate NORM_INFO content with the sent transport object.</param>
+        /// <returns>A NormData is returned which the application may use in other NORM API calls as needed.</returns>
+        /// <exception cref="IOException">Thrown when NormDataEnqueue() returns NORM_OBJECT_INVALID, indicating the failure to enqueue data.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the data offset, data length, info offset or info length are outside of the associated buffer.</exception>
+        public NormData DataEnqueue(nint dataPtr, int dataOffset, int dataLength, byte[]? info, int infoOffset, int infoLength)
+        {
             if (infoOffset < 0 || infoOffset >= info?.Length)
             {
                 throw new ArgumentOutOfRangeException(nameof(infoOffset), "The info offset is out of range");
             }
-            if (infoOffset + infoLength > info?.Length)
+            if (info != null && infoLength < 1 || infoOffset + infoLength > info?.Length)
             {
                 throw new ArgumentOutOfRangeException(nameof(infoLength), "The info length is out of range");
             }
 
             long objectHandle;
-            var dataHandle = GCHandle.Alloc(dataBuffer, GCHandleType.Pinned);
             var infoHandle = GCHandle.Alloc(info, GCHandleType.Pinned);
 
             try
             {
-                var dataPtr = dataHandle.AddrOfPinnedObject() + dataOffset;
+                dataPtr += dataOffset;
                 var infoPtr = infoHandle.AddrOfPinnedObject() + infoOffset;
                 objectHandle = NormDataEnqueue(_handle, dataPtr, dataLength, infoPtr, infoLength);
                 if (objectHandle == NormObject.NORM_OBJECT_INVALID)
@@ -552,7 +605,6 @@ namespace Mil.Navy.Nrl.Norm
             } 
             finally
             {
-                dataHandle.Free();
                 infoHandle.Free();
             }
 
@@ -597,23 +649,35 @@ namespace Mil.Navy.Nrl.Norm
         /// <param name="infoLength">Size of the message.</param>
         /// <returns>A NormStream is returned which the application may use in other NORM API calls as needed.</returns>
         /// <exception cref="IOException">Thrown when NormStreamOpen() returns NORM_OBJECT_INVALID, indicating the failure to open stream.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the info offset or info length are outside of the info buffer.</exception>
         public NormStream StreamOpen(long bufferSize, byte[]? info, int infoOffset, int infoLength)
         {
-            byte[]? infoBytes;
-            if (info != null)
+            if (infoOffset < 0 || infoOffset >= info?.Length)
             {
-                infoBytes = info.Skip(infoOffset).Take(infoLength).ToArray();
+                throw new ArgumentOutOfRangeException(nameof(infoOffset), "The info offset is out of range");
             }
-            else
+            if (info != null && infoLength < 1 || infoOffset + infoLength > info?.Length)
             {
-                infoBytes = null;
-                infoLength = 0;
+                throw new ArgumentOutOfRangeException(nameof(infoLength), "The info length is out of range");
             }
-            var objectHandle = NormStreamOpen(_handle, bufferSize, infoBytes, infoLength);
-            if (objectHandle == NormObject.NORM_OBJECT_INVALID)
+
+            long objectHandle;
+            var infoHandle = GCHandle.Alloc(info, GCHandleType.Pinned);
+
+            try
             {
-                throw new IOException("Failed to open stream");
+                var infoPtr = infoHandle.AddrOfPinnedObject() + infoOffset;
+                objectHandle = NormStreamOpen(_handle, bufferSize, infoPtr, infoLength);
+                if (objectHandle == NormObject.NORM_OBJECT_INVALID)
+                {
+                    throw new IOException("Failed to open stream");
+                }
+            } 
+            finally
+            {
+                infoHandle.Free();
             }
+
             return new NormStream(objectHandle);
         }
 
@@ -825,16 +889,37 @@ namespace Mil.Navy.Nrl.Norm
         /// This function enqueues a NORM application-defined command for transmission.
         /// </summary>
         /// <param name="cmdBuffer">The cmdBuffer parameter points to a buffer containing the application-defined command content that will be contained in the NORM_CMD(APPLICA-TION) message payload.</param>
+        /// <param name="cmdOffset"></param>
         /// <param name="cmdLength">The cmdLength indicates the length of this content (in bytes) and MUST be less than or equal to the segmentLength value for the given session.</param>
         /// <param name="robust">The command is NOT delivered reliably, 
         /// but can be optionally transmitted with repetition (once per GRTT) according to the NORM transmit robust factor
         /// value for the given session if the robust parameter is set to true.</param>
         /// <exception cref="IOException">Thrown when NormSendCommand() returns false, indicating the failure to send command.</exception>
-        public void SendCommand(byte[] cmdBuffer, int cmdLength, bool robust)
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the offset or length are outside of the buffer.</exception>
+        public void SendCommand(byte[] cmdBuffer, int cmdOffset, int cmdLength, bool robust)
         {
-            if(!NormSendCommand(_handle, cmdBuffer, cmdLength, robust))
+            if (cmdOffset < 0 || cmdOffset >= cmdBuffer.Length)
             {
-                throw new IOException("Failed to send command");
+                throw new ArgumentOutOfRangeException(nameof(cmdOffset), "The offset is out of range");
+            }
+            if (cmdLength < 1 || cmdOffset + cmdLength > cmdBuffer.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(cmdLength), "The command length is out of range");
+            }
+
+            var commandHandle = GCHandle.Alloc(cmdBuffer, GCHandleType.Pinned);
+
+            try
+            {
+                var cmdPtr = commandHandle.AddrOfPinnedObject() + cmdOffset;
+                if (!NormSendCommand(_handle, cmdPtr, cmdLength, robust))
+                {
+                    throw new IOException("Failed to send command");
+                }
+            }
+            finally
+            {
+                commandHandle.Free();
             }
         }
 

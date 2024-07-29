@@ -1,6 +1,6 @@
 @startuml
 class StreamBreakException {
-    + StreamBreakException(message:string)
+    + StreamBreakException(message:string?)
 }
 IOException <|-- StreamBreakException
 @enduml

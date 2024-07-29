@@ -1,32 +1,30 @@
 @startuml
 class NormInputStream {
-    - _normInstance : NormInstance
-    - _normSession : NormSession
-    - _normStream : NormStream
-    - _normEventListeners : List<INormEventListener>
+    - _normStream : NormStream?
     - _closed : bool
     - _closeLock : object
     - _bufferIsEmpty : bool
     - _receivedEof : bool
     + NormInputStream(address:string, port:int)
-    + OpenDebugLog(filename:string) : void
-    + SetDebugLevel(level:int) : void
+    + OpenDebugLog(fileName:string) : void
+    + CloseDebugLog() : void
+    + NormSetDebugLevel(level:int) : void
     + SetMessageTrace(messageTrace:bool) : void
-    + SetMulticastInterface(multicastInterface: string) : void
-    + SetEcnSupport(ecnEnable:bool, ignoreLoss:bool)
+    + SetMulticastInterface(multicastInterface:string) : void
+    + SetEcnSupport(ecnEnable:bool, ignoreLoss:bool) : void
     + SetTtl(ttl:byte) : void
     + SetTos(tos:byte) : void
-    + SetSilentReceiver(silent:bool, maxDelay:int) : void
+    + setSilentReceiver(silent:bool, maxDelay:int) : void
     + SetDefaultUnicastNack(defaultUnicastNack:bool) : void
     + SeekMsgStart() : void
     + AddNormEventListener(normEventListener:INormEventListener) : void
     + RemoveNormEventListener(normEventListener:INormEventListener) : void
     - FireNormEventOccured(normEvent:NormEvent) : void
     + Open(bufferSpace:long) : void
-    + <<override>> Dispose() : void
+    + <<override>> Close() : void
     + IsClosed : bool <<get>>
     + Read() : int
-    + <<override>> Read(buffer:byte[], offset:int, length:int) : int
+    + <<override>> Read(buffer:byte[], offset:int, count:int) : int
     - ProcessEvent() : void
     + <<override>> Flush() : void
     + <<override>> Write(buffer:byte[], offset:int, count:int) : void
@@ -38,5 +36,10 @@ class NormInputStream {
     + <<override>> Length : long <<get>>
     + <<override>> Position : long <<get>> <<set>>
 }
+class "List`1"<T> {
+}
 Stream <|-- NormInputStream
+NormInputStream --> "_normInstance" NormInstance
+NormInputStream --> "_normSession" NormSession
+NormInputStream --> "_normEventListeners<INormEventListener>" "List`1"
 @enduml

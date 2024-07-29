@@ -1,6 +1,6 @@
 @startuml
 enum NormRepairBoundary {
-    NORM_BOUNDARY_BLOCK
-    NORM_BOUNDARY_OBJECT
+    NORM_BOUNDARY_BLOCK,
+    NORM_BOUNDARY_OBJECT,
 }
 @enduml

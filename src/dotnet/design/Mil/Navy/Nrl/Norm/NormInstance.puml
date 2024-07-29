@@ -1,24 +1,24 @@
 @startuml
 class NormInstance {
     + <<const>> NORM_DESCRIPTOR_INVALID : int = 0
-    - _handle: long
-    + NormInstance()
+    - _handle : long
     + NormInstance(priorityBoost:bool)
+    + NormInstance()
     - CreateInstance(priorityBoost:bool) : void
     + DestroyInstance() : void
+    + CreateSession(address:string, port:int, localNodeId:long) : NormSession
+    + HasNextEvent(sec:int, usec:int) : bool
+    + HasNextEvent(waitTime:TimeSpan) : bool
+    + GetNextEvent(waitForEvent:bool) : NormEvent?
+    + GetNextEvent() : NormEvent?
+    + SetCacheDirectory(cachePath:string) : void
     + StopInstance() : void
     + RestartInstance() : bool
     + SuspendInstance() : bool
     + ResumeInstance() : void
-    + SetCacheDirectory(cachePath:string) : void
-    + OpenDebugLog(filename:string) : void
+    + OpenDebugLog(fileName:string) : void
     + CloseDebugLog() : void
     + OpenDebugPipe(pipename:string) : void
-    + DebugLevel: int <<get>> <<set>>
-    + HasNextEvent(sec:int, usec:int) : bool
-    + HasNextEvent(waitTime:TimeSpan) : bool
-    + GetNextEvent(waitForEvent:bool) : NormEvent
-    + GetNextEvent() : NormEvent
-    + CreateSession(address:string, port:int, localNodeId:long) : NormSession
+    + DebugLevel : int <<get>> <<set>>
 }
 @enduml

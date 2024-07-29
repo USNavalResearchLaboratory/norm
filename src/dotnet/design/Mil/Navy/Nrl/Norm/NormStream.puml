@@ -1,18 +1,18 @@
 @startuml
 class NormStream {
-    ~ NormStream(handle:long)
-    + Close() : void
-    + Close(boolean graceful) : void
-    + Write(buffer:byte[], offset:int, length:int) : int
-    + Flush() : void
-    + Flush(eom:bool, flushMode:NormFlushMode) : void
-    + SetAutoFlush(flushMode:NormFlushMode) : void
-    + SetPushEnable(pushEnable:bool) : void
     + HasVacancy : bool <<get>>
+    + ReadOffset : long <<get>>
+    <<internal>> NormStream(handle:long)
+    + Write(buffer:byte[], offset:int, length:int) : int
     + MarkEom() : void
+    + Flush(eom:bool, flushMode:NormFlushMode) : void
+    + Flush() : void
+    + Close(graceful:bool) : void
+    + Close() : void
     + Read(buffer:byte[], offset:int, length:int) : int
     + SeekMsgStart() : bool
-    + ReadOffset : long <<get>>
+    + SetPushEnable(pushEnable:bool) : void
+    + SetAutoFlush(flushMode:NormFlushMode) : void
 }
 NormObject <|-- NormStream
 @enduml

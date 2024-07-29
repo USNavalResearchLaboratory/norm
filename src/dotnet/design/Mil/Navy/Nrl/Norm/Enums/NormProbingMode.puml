@@ -1,7 +1,7 @@
 @startuml
 enum NormProbingMode {
-    NORM_PROBE_NONE
-    NORM_PROBE_PASSIVE
-    NORM_PROBE_ACTIVE
+    NORM_PROBE_NONE,
+    NORM_PROBE_PASSIVE,
+    NORM_PROBE_ACTIVE,
 }
 @enduml

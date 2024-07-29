@@ -1,9 +1,6 @@
 @startuml
 class NormOutputStream {
-    - _normInstance : NormInstance
-    - _normSession : NormSession
-    - _normStream : NormStream
-    - _normEventListeners : List<INormEventListener>
+    - _normStream : NormStream?
     - _closed : bool
     - _closeLock : object
     - _bufferIsFull : bool
@@ -13,13 +10,13 @@ class NormOutputStream {
     + SetDebugLevel(level:int) : void
     + SetMessageTrace(messageTrace:bool) : void
     + SetMulticastInterface(multicastInterface:string) : void
-    + SetEcnSupport(ecnEnable:bool, ignoreLoss:bool): void
+    + SetEcnSupport(ecnEnable:bool, ignoreLoss:bool) : void
     + SetTtl(ttl:byte) : void
     + SetTos(tos:byte) : void
-    + SetCongestionControl(ccEnabled:bool, ccAdjustRate: bool) : void
+    + SetCongestionControl(ccEnabled:bool, ccAdjustRate:bool) : void
     + SetTxRateBounds(minTxRate:double, maxTxRate:double) : void
-    + TxRate:double <<get>> <<set>>
-    + GrttEstimate:double <<get>> <<set>>
+    + TxRate : double <<get>> <<set>>
+    + GrttEstimate : double <<get>> <<set>>
     + SetGroupSize(groupSize:long) : void
     + SetAutoParity(autoParity:short) : void
     + SetBackoffFactor(backoffFactor:double) : void
@@ -27,16 +24,16 @@ class NormOutputStream {
     + SetPushEnable(pushEnable:bool) : void
     + MarkEom() : void
     + AddNormEventListener(normEventListener:INormEventListener) : void
-    + RemoveNormEventListener(normEventListener:INormEventListener): void
+    + RemoveNormEventListener(normEventListener:INormEventListener) : void
     - FireNormEventOccured(normEvent:NormEvent) : void
     + Open(sessionId:int, bufferSpace:long, segmentSize:int, blockSize:short, numParity:short, repairWindow:long) : void
     + <<override>> Close() : void
     + IsClosed : bool <<get>>
     + Write(b:int) : void
-    + <<override>> Write(buffer:byte[], offset:int, count:int)
+    + <<override>> Write(buffer:byte[], offset:int, count:int) : void
     - ProcessEvent() : void
     + <<override>> Flush() : void
-    + <<override>> Read(buffer:byte[], offset:int, length:int) : int
+    + <<override>> Read(buffer:byte[], offset:int, count:int) : int
     + <<override>> Seek(offset:long, origin:SeekOrigin) : long
     + <<override>> SetLength(value:long) : void
     + <<override>> CanRead : bool <<get>>
@@ -45,5 +42,10 @@ class NormOutputStream {
     + <<override>> Length : long <<get>>
     + <<override>> Position : long <<get>> <<set>>
 }
+class "List`1"<T> {
+}
 Stream <|-- NormOutputStream
+NormOutputStream --> "_normInstance" NormInstance
+NormOutputStream --> "_normSession" NormSession
+NormOutputStream --> "_normEventListeners<INormEventListener>" "List`1"
 @enduml
