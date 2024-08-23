@@ -31,6 +31,7 @@ namespace Mil.Navy.Nrl.Norm
             {
                 var buffer = new byte[FILENAME_MAX];
                 var bufferHandle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+                string? name;
 
                 try
                 {
@@ -39,14 +40,14 @@ namespace Mil.Navy.Nrl.Norm
                     {
                         throw new IOException("Failed to get file name");
                     }
+                    name = Marshal.PtrToStringAnsi(bufferPtr);
                 } 
                 finally
                 {
                     bufferHandle.Free();
                 }
                 
-                buffer = buffer.Where(c => c != 0).ToArray();
-                return new string(buffer.Select(Convert.ToChar).ToArray());
+                return name ?? string.Empty;
             }
         }
 
