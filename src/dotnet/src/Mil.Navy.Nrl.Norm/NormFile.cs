@@ -25,28 +25,19 @@ namespace Mil.Navy.Nrl.Norm
         /// The name of the file.
         /// </summary>
         /// <exception cref="IOException">Thrown when failed to get file name.</exception>
-        public string Name
+        public unsafe string Name
         {
             get
             {
-                var buffer = new byte[FILENAME_MAX];
-                var bufferHandle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-                string? name;
+                var buffer = stackalloc byte[FILENAME_MAX];
+                var bufferPtr = (nint)buffer;
 
-                try
+                if (!NormFileGetName(_handle, bufferPtr, FILENAME_MAX))
                 {
-                    var bufferPtr = bufferHandle.AddrOfPinnedObject();
-                    if (!NormFileGetName(_handle, bufferPtr, FILENAME_MAX))
-                    {
-                        throw new IOException("Failed to get file name");
-                    }
-                    name = Marshal.PtrToStringAnsi(bufferPtr);
-                } 
-                finally
-                {
-                    bufferHandle.Free();
+                    throw new IOException("Failed to get file name");
                 }
-                
+                var name = Marshal.PtrToStringAnsi(bufferPtr);
+
                 return name ?? string.Empty;
             }
         }
