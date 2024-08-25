@@ -1,5 +1,4 @@
-﻿using Mil.Navy.Nrl.Norm.Buffers;
-using System.Net;
+﻿using System.Net;
 using System.Runtime.InteropServices;
 
 namespace Mil.Navy.Nrl.Norm
@@ -43,29 +42,21 @@ namespace Mil.Navy.Nrl.Norm
         /// <summary>
         /// The current network source address detected for packets received from remote NORM sender.
         /// </summary>
-        public IPEndPoint Address
+        public unsafe IPEndPoint Address
         {
             get
             {
                 var bufferLength = 256;
-                using var buffer = ByteBuffer.AllocateDirect(bufferLength);
-                int port;
+                var buffer = stackalloc byte[bufferLength];
+                var addrBuffer = (nint)buffer;
 
-                unsafe
+                if (!NormNodeGetAddress(_handle, addrBuffer, ref bufferLength, out int port))
                 {
-                    byte* addrBuffer = null;
-                    buffer.AcquirePointer(ref addrBuffer);
-                    if (!NormNodeGetAddress(_handle, (nint)addrBuffer, ref bufferLength, out port))
-                    {
-                        throw new IOException("Failed to get node address");
-                    }
+                    throw new IOException("Failed to get node address");
                 }
 
-                var addressBytes = new byte[bufferLength];
-                buffer.ReadArray(0, addressBytes, 0, bufferLength);
-                var ipAddressText = string.Join('.', addressBytes);
-                var ipAddress = IPAddress.Parse(ipAddressText);
-
+                var addressBytes = new ReadOnlySpan<byte>(buffer, bufferLength);
+                var ipAddress = new IPAddress(addressBytes);
                 return new IPEndPoint(ipAddress, port);
             }
         }
