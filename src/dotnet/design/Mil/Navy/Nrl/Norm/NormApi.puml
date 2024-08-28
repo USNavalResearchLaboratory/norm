@@ -56,7 +56,7 @@ class NormApi <<static>> {
     + {static} <<extern>> NormRequeueObject(sessionHandle:long, objectHandle:long) : bool
     + {static} <<extern>> NormStreamOpen(sessionHandle:long, bufferSize:long, infoPtr:nint, infoLen:int) : long
     + {static} <<extern>> NormStreamClose(streamHandle:long, graceful:bool) : void
-    <<internal>> {static} <<extern>> NormStreamWrite(streamHandle:long, buffer:nint, numBytes:int) : int
+    + <<unsafe>> {static} <<extern>> NormStreamWrite(streamHandle:long, buffer:byte*, numBytes:int) : int
     + {static} <<extern>> NormStreamFlush(streamHandle:long, eom:bool, flushMode:NormFlushMode) : void
     + {static} <<extern>> NormStreamSetAutoFlush(streamHandle:long, flushMode:NormFlushMode) : void
     + {static} <<extern>> NormStreamSetPushEnable(streamHandle:long, pushEnable:bool) : void
@@ -85,7 +85,7 @@ class NormApi <<static>> {
     + {static} <<extern>> NormNodeSetRepairBoundary(remoteSender:long, repairBoundary:NormRepairBoundary) : void
     + {static} <<extern>> NormSetDefaultRxRobustFactor(sessionHandle:long, robustFactor:int) : void
     + {static} <<extern>> NormNodeSetRxRobustFactor(remoteSender:long, robustFactor:int) : void
-    + {static} <<extern>> NormStreamRead(streamHandle:long, buffer:nint, numBytes:int) : bool
+    + <<unsafe>> {static} <<extern>> NormStreamRead(streamHandle:long, buffer:byte*, numBytes:int) : bool
     + {static} <<extern>> NormStreamSeekMsgStart(streamHandle:long) : bool
     + {static} <<extern>> NormStreamGetReadOffset(streamHandle:long) : long
     + {static} <<extern>> NormObjectGetType(objectHandle:long) : NormObjectType

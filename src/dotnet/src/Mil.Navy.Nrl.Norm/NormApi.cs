@@ -591,7 +591,7 @@ namespace Mil.Navy.Nrl.Norm
         /// <param name="numBytes">The numBytes parameter indicates the length of the data content.</param>
         /// <returns>This function returns the number of bytes of data successfully enqueued for NORM stream transmission.</returns>
         [DllImport(NORM_LIBRARY)]
-        internal static extern int NormStreamWrite(long streamHandle, nint buffer, int numBytes);
+        public unsafe static extern int NormStreamWrite(long streamHandle, byte* buffer, int numBytes);
 
         /// <summary>
         /// This function causes an immediate "flush" of the transmit stream specified by the streamHandle parameter.
@@ -895,7 +895,7 @@ namespace Mil.Navy.Nrl.Norm
         /// <returns>This function normally returns a value of true. However, if a break in the integrity of the reliable received stream 
         /// occurs(or the stream has been ended by the sender), a value of false is returned to indicate the break. </returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern bool NormStreamRead(long streamHandle, nint buffer, ref int numBytes);
+        public unsafe static extern bool NormStreamRead(long streamHandle, byte* buffer, ref int numBytes);
 
         /// <summary>
         /// This function advances the read offset of the receive stream referenced by the streamHandle parameter to align
