@@ -1,7 +1,4 @@
-﻿using System.Runtime.InteropServices;
-using System.Text;
-
-namespace Mil.Navy.Nrl.Norm
+﻿namespace Mil.Navy.Nrl.Norm
 {
     /// <summary>
     /// A transport object of type NORM_OBJECT_FILE.
@@ -29,16 +26,14 @@ namespace Mil.Navy.Nrl.Norm
         {
             get
             {
-                var buffer = stackalloc byte[FILENAME_MAX];
-                var bufferPtr = (nint)buffer;
+                var buffer = stackalloc sbyte[FILENAME_MAX];
 
-                if (!NormFileGetName(_handle, bufferPtr, FILENAME_MAX))
+                if (!NormFileGetName(_handle, buffer, FILENAME_MAX))
                 {
                     throw new IOException("Failed to get file name");
                 }
-                var name = Marshal.PtrToStringAnsi(bufferPtr);
-
-                return name ?? string.Empty;
+                
+                return new string(buffer);
             }
         }
 

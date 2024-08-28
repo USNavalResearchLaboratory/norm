@@ -1020,7 +1020,7 @@ namespace Mil.Navy.Nrl.Norm
         /// does not refer to an object of type NORM_OBJECT_FILE.
         /// </returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern bool NormFileGetName(long fileHandle, nint nameBuffer, int bufferLen);
+        public unsafe static extern bool NormFileGetName(long fileHandle, sbyte* nameBuffer, int bufferLen);
 
         /// <summary>
         /// This function renames the file used to store content for the NORM_OBJECT_FILE transport object specified by 

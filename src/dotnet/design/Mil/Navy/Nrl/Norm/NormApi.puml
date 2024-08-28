@@ -97,7 +97,7 @@ class NormApi <<static>> {
     + {static} <<extern>> NormObjectCancel(objectHandle:long) : void
     + {static} <<extern>> NormObjectRetain(objectHandle:long) : void
     + {static} <<extern>> NormObjectRelease(objectHandle:long) : void
-    + {static} <<extern>> NormFileGetName(fileHandle:long, nameBuffer:nint, bufferLen:int) : bool
+    + <<unsafe>> {static} <<extern>> NormFileGetName(fileHandle:long, nameBuffer:sbyte*, bufferLen:int) : bool
     + {static} <<extern>> NormFileRename(fileHandle:long, fileName:string) : bool
     + {static} <<extern>> NormDataAccessData(objectHandle:long) : nint
     + {static} <<extern>> NormObjectGetSender(objectHandle:long) : long
