@@ -102,9 +102,9 @@ class NormApi <<static>> {
     + {static} <<extern>> NormDataAccessData(objectHandle:long) : nint
     + {static} <<extern>> NormObjectGetSender(objectHandle:long) : long
     + {static} <<extern>> NormNodeGetId(nodeHandle:long) : long
-    + {static} <<extern>> NormNodeGetAddress(nodeHandle:long, addrBuffer:nint, bufferLen:int, port:int) : bool
+    + <<unsafe>> {static} <<extern>> NormNodeGetAddress(nodeHandle:long, addrBuffer:byte*, bufferLen:int, port:int) : bool
     + {static} <<extern>> NormNodeGetGrtt(nodeHandle:long) : double
-    + {static} <<extern>> NormNodeGetCommand(remoteSender:long, cmdBuffer:nint, buflen:int) : bool
+    + <<unsafe>> {static} <<extern>> NormNodeGetCommand(remoteSender:long, cmdBuffer:byte*, buflen:int) : bool
     + {static} <<extern>> NormNodeFreeBuffers(remoteSender:long) : void
     + {static} <<extern>> NormNodeRetain(nodeHandle:long) : void
     + {static} <<extern>> NormNodeRelease(nodeHandle:long) : void

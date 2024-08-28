@@ -1,6 +1,4 @@
-﻿using System.Runtime.InteropServices;
-
-namespace Mil.Navy.Nrl.Norm
+﻿namespace Mil.Navy.Nrl.Norm
 {
     /// <summary>
     /// A transport object of type NORM_OBJECT_STREAM.
