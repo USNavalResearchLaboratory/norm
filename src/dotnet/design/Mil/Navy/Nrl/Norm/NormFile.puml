@@ -2,7 +2,7 @@
 class NormFile {
     + <<const>> FILENAME_MAX : int = 260
     <<internal>> NormFile(handle:long)
-    + Name : string <<get>>
+    + <<unsafe>> Name : string <<get>>
     + Rename(filePath:string) : void
 }
 NormObject <|-- NormFile

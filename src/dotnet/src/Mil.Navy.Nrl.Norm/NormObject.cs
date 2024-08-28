@@ -1,6 +1,4 @@
-﻿using System.Runtime.InteropServices;
-
-namespace Mil.Navy.Nrl.Norm
+﻿namespace Mil.Navy.Nrl.Norm
 {
     /// <summary>
     /// The base transport object.
@@ -44,17 +42,7 @@ namespace Mil.Navy.Nrl.Norm
 
                 var length = NormObjectGetInfoLength(_handle);
                 var buffer = new byte[length];
-                var bufferHandle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-
-                try
-                {
-                    var bufferPtr = bufferHandle.AddrOfPinnedObject();
-                    NormObjectGetInfo(_handle, bufferPtr, length);
-                }
-                finally
-                {
-                    bufferHandle.Free();
-                }
+                NormObjectGetInfo(_handle, buffer, length);
 
                 return buffer;
             }

@@ -961,7 +961,7 @@ namespace Mil.Navy.Nrl.Norm
         /// function can be used to determine the length of NORM_INFO content for the object even if a NULL buffer value and
         /// zero bufferLen is provided. A zero value is returned if NORM_INFO content has not yet been received (or is nonexistent) for the specified object.</returns>
         [DllImport(NORM_LIBRARY)]
-        public static extern int NormObjectGetInfo(long objectHandle, nint buffer, int bufferLen);
+        public static extern int NormObjectGetInfo(long objectHandle, [Out] byte[] buffer, int bufferLen);
 
         /// <summary>
         /// This function can be used to determine the size (in bytes) of the transport object specified by the objectHandle parameter.

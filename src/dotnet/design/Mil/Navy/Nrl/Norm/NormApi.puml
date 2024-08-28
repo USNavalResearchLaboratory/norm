@@ -91,7 +91,7 @@ class NormApi <<static>> {
     + {static} <<extern>> NormObjectGetType(objectHandle:long) : NormObjectType
     + {static} <<extern>> NormObjectHasInfo(objectHandle:long) : bool
     + {static} <<extern>> NormObjectGetInfoLength(objectHandle:long) : int
-    + {static} <<extern>> NormObjectGetInfo(objectHandle:long, buffer:nint, bufferLen:int) : int
+    + {static} <<extern>> NormObjectGetInfo(objectHandle:long, buffer:byte[], bufferLen:int) : int
     + {static} <<extern>> NormObjectGetSize(objectHandle:long) : int
     + {static} <<extern>> NormObjectGetBytesPending(objectHandle:long) : long
     + {static} <<extern>> NormObjectCancel(objectHandle:long) : void
