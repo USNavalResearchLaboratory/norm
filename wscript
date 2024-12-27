@@ -15,7 +15,6 @@ build), use the -o (--out) flag when configuring.  For example:
 To build examples, use the --target directive.  For example:
 
     ./waf build --target=normClient,normServer
-
 '''
 
 import platform
@@ -181,7 +180,6 @@ def build(ctx):
         # Disabled by default
         posted = True,
     )
-       
     if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
         normapp.source.append('src/unix/unixPostProcess.cpp')
 
@@ -189,37 +187,6 @@ def build(ctx):
         normapp.source.append('src/win32/win32PostProcess.cpp')
         normapp.defines.append('_CONSOLE')
         normapp.stlib = (["Shell32"]);
-
-    normCast = ctx.program(
-        target = 'normCast',
-        includes = ['include', 'protolib/include'],
-        use = use, 
-        defines = [],
-        source = source + ['examples/normCast.cpp', 'src/common/normPostProcess.cpp'],
-        # Disabled by default
-        posted = True,
-        # Don't install examples
-        install_path = False,
-    )
-
-    if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
-        normCast.source.append('src/unix/unixPostProcess.cpp')
-
-    normCastApp = ctx.program(
-        target = 'normCastApp',
-        includes = ['include', 'protolib/include'],
-        use = use, 
-        defines = [],
-        source = source + ['examples/normCastApp.cpp', 'src/common/normPostProcess.cpp'],
-        # Disabled by default
-        posted = True,
-        # Don't install examples
-        install_path = False,
-    )
-
-    if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
-        normCastApp.source.append('src/unix/unixPostProcess.cpp')
-       
 
     for example in (
             #'normDataExample',
@@ -278,6 +245,12 @@ def _make_simple_example(ctx, name, path='examples'):
     source += ['{0}/{1}.cpp'.format(path, name)]
     if 'normClient' == name or 'normServer' == name:
         source.append('%s/normSocket.cpp' % path)
+    if 'normCast' == name:
+        source.append('src/common/normPostProcess.cpp')
+        if system in ('linux', 'darwin', 'freebsd', 'gnu', 'gnu/kfreebsd'):
+            source.append('src/unix/unixPostProcess.cpp')
+        elif system == 'windows':
+            source.append('src/win32/win32PostProcess.cpp')
     example =  ctx.program(
         target = name,
         includes = ['include', 'protolib/include'],
@@ -292,4 +265,5 @@ def _make_simple_example(ctx, name, path='examples'):
 
     if 'windows' == system:
         example.defines.append('_CONSOLE')
+        example.stlib = (["Shell32"])
         
