@@ -86,7 +86,19 @@ int main(int argc, char *argv[])
         ProtoPktETH::Type ethType;
         unsigned int payloadLength;
         UINT32 *payloadPtr;
-        if (DLT_NULL == deviceType)
+        if (DLT_LINUX_SLL == deviceType)
+        {
+            // For now, assume the header is 16 bytes (6-byte link addr)
+            // TBD - do proper DLT_LINUX_SLL parsing
+            memcpy(alignedBuffer, pktData, numBytes);
+            //ethType = (ProtoPktETH::Type)ntohs(((UINT16*)alignedBuffer)[7]);
+            payloadPtr = alignedBuffer + 4;  // assumes 16 byte header
+            //ipBufferBytes = maxBytes + 2 - 16;
+            payloadLength = numBytes - 16;
+            ethType = ProtoPktETH::IP;
+
+        }
+        else if (DLT_NULL == deviceType)
         {
             // pcap was captured from "loopback" device
             memcpy(alignedBuffer, pktData, numBytes);
