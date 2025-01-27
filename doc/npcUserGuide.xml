@@ -35,12 +35,12 @@
     content.</para>
 
     <para>The Naval Research Laboratory (NRL) reference implementation of the
-    NORM protocol includes support for 8-bit (and very soon 16-bit)
-    Reed-Solomon FEC encoding with additional support for other coding
-    algorithms (e.g., Low-Density Parity Check (LDPC)) planned for the future.
-    The NORM specification allows for different FEC algorithms to be applied
-    within the protocol. The current Reed-Solomon NORM FEC algorithms in the
-    NRL implementation are limited to modest code block sizes (With 16-bit
+    NORM protocol includes support for 8-bit and 16-bit Reed-Solomon FEC
+    encoding with additional support for other coding algorithms (e.g.,
+    Low-Density Parity Check (LDPC)) planned for the future. The NORM
+    specification allows for different FEC algorithms to be applied within the
+    protocol. The current Reed-Solomon NORM FEC algorithms in the NRL
+    implementation are limited to modest code block sizes (With 16-bit
     Reed-Solomon coding, larger block sizes will be allowed but very high data
     rates may not be possible). For channels with random errors, the current
     NORM FEC codecs are often adequate as there is flexibility in how the
@@ -59,17 +59,10 @@
     sizes).</para>
 
     <para>The NORM protocol is described in Internet Engineering Task Force
-    (IETF) Request For Comments (RFC) RFC 3940 and RFC 3941. These are
-    experimental RFC standards. These documents have been revised in recent
-    Internet-Drafts and it should be noted that the Naval Research Laboratory
-    (NRL) implementation of NORM that is represented here has been updated to
-    reflect the revised protocol. In addition to this demonstration
-    application, NRL provides a NORM protocol library with a well-defined API
-    that it is suitable for application development. Additionally, the NRL
-    source code distribution supports building the NORM protocol as a
-    component into <emphasis>ns-2</emphasis> and OPNET network simulation
-    environments. Refer to the NRL NORM website &lt;<ulink
-    url="http://cs.itd.nrl.navy.mil/work/norm">http://cs.itd.nrl.navy.mil/work/norm</ulink>&gt;
+    (IETF) Request For Comments (RFC) RFC 5740 and RFC 5741. NRL provides a
+    NORM protocol library with a well-defined API that it is suitable for
+    application development. Refer to the NORM website &lt;<ulink
+    url="https://github.com/USNavalResearchLaboratory/norm">https://github.com/USNavalResearchLaboratory/norm</ulink>&gt;
     for these other components as well as up-to-date versions of this
     demonstration application and documentation.</para>
 
@@ -203,12 +196,12 @@
 
     <programlisting>npc encode input originalFile.txt</programlisting>
 
-    <para>The default npc configuration is XXX.</para>
-
     <para>This will produce and output file named
     "<filename>originalFile_txt.npc</filename>" in the current working
-    directory, The original file can be recovered (decoded) using the
-    syntax:</para>
+    directory. The default <command>npc</command> configuration is
+    "<command>auto 100.0</command>" providing 100% parity content which makes
+    the encoded file size roughly double the input file. The original file can
+    be recovered (decoded) using the syntax:</para>
 
     <programlisting>npc decode input originalFile_txt.npc</programlisting>
 
@@ -216,8 +209,8 @@
     named "<filename>originalFile.txt"</filename> in the current working
     directory. (The file name information was stored in first "meta data"
     segment of the ".npc" file). This default naming convention can be
-    overridden by using the npc "output" option. For example, the
-    syntax:</para>
+    overridden by using the <command>npc</command> "<option>output</option>"
+    command. For example, the syntax:</para>
 
     <programlisting>npc decode input originalFile_txt.npc output file.txt</programlisting>
 
@@ -247,13 +240,13 @@
       commands included to support transport of <command>npc</command> encoded
       files. The distinction here is that a file that _fails_ NORM transport
       might still be successfully decoded with <command>npc</command>. There
-      are two receiver-side norm demo application options that apply
-      here:</para>
+      are two receiver-side <command>norm</command> demo application options
+      that apply here:</para>
 
       <orderedlist>
         <listitem>
           <para>The "<option>saveAborts</option>" command causes
-          <emphasis>norm</emphasis> to not delete (and attempt to postprocess)
+          <command>norm</command> to not delete (and attempt to postprocess)
           "aborted" files (files that failed reliable NORM transport).</para>
         </listitem>
 
@@ -323,8 +316,8 @@
             </option><parameter>&lt;numData&gt;</parameter></para></entry>
 
             <entry><para>Specify the number of source data segments (packets)
-            per npc FEC coding block. (Default block sizing is
-            auto)</para></entry>
+            per <command>npc</command> FEC coding block. (Default block sizing
+            is auto)</para></entry>
           </row>
 
           <row>
@@ -332,7 +325,7 @@
             </option><parameter>&lt;numParity&gt;</parameter></para></entry>
 
             <entry><para>Specify the number of FEC parity segments (packets)
-            added per npc FEC coding block. (Default is 2
+            added per <command>npc</command> FEC coding block. (Default is 2
             segments).</para></entry>
           </row>
 
@@ -345,10 +338,10 @@
             percentage of FEC parity segments to include per block. The "auto"
             block sizing sets the block size as large as possible to treat the
             entire files as one logical FEC block to maximize FEC performance.
-            The maximum possible block size currently supported by npc are
-            blocks where (numData + numParity) is less than or equal to 65536.
-            The maximum buffer size can be limited by using the
-            <option>bmax</option> command.</para></entry>
+            The maximum possible block size currently supported by
+            <command>npc</command> are blocks where (numData + numParity) is
+            less than or equal to 65536. The maximum buffer size can be
+            limited by using the <option>bmax</option> command.</para></entry>
           </row>
 
           <row>

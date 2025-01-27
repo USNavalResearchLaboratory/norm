@@ -112,7 +112,7 @@ const ProtoFile::Offset NormPrecodeApp::SEGMENT_MAX = 8192;
 
 NormPrecodeApp::NormPrecodeApp()
  : encode(true), segment_size(1024), num_data(196), num_parity(4), 
-   parity_fraction(-1.0), b_max(65536),
+   parity_fraction(100.0), b_max(65536),
    i_max(1000), i_buffer_max(1500000000)
 {  
     in_file_path[0] = '\0';  
@@ -222,6 +222,7 @@ bool NormPrecodeApp::OnCommand(const char* cmd, const char* val)
             return false;
         }
         num_data = numData;
+        parity_fraction = -1.0;  // explicit block size overrides "auto" mode
     }
     else if (!strncmp("parity", cmd, len))
     {
