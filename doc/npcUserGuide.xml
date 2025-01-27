@@ -1,0 +1,420 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+<article lang="">
+  <articleinfo>
+    <title><inlinemediaobject>
+        <imageobject>
+          <imagedata align="center" fileref="NormLogo.gif" scale="50"/>
+        </imageobject>
+      </inlinemediaobject> <command>npc</command> User Guide</title>
+
+    <subtitle>(NORM Precoder User Guide)</subtitle>
+
+    <titleabbrev><command>npc</command> User Guide</titleabbrev>
+  </articleinfo>
+
+  <sect1>
+    <title>Background</title>
+
+    <para>The NACK-Oriented Reliable Multicast (NORM) protocol is capable of
+    supporting robust transmission of content to "silent" receivers that are
+    required or only capable of operating in an emission-controlled (EMCON)
+    manner. This capability is enabled when the NORM sender is configured to
+    proactively transmit Forward Error Correction (FEC) erasure coding content
+    as part of its original data transmission. For NACK-based operation, the
+    FEC repair packets are usually sent only reactively, in response to repair
+    requests (NACKs) from the receiver group. However, hybrid operation with a
+    combination of proactive FEC content and additional reactive FEC repairs
+    as needed is also supported. Similarly, a mix of nacking and silent
+    receivers may be supported with silent receivers capitalizing on the FEC
+    repair information sent proactively and/or reactively. The purpose of the
+    NORM Pre-Coder (<command>npc</command>) software utility described here is
+    to support additional robustness for purely-proactive sessions, where the
+    receivers are unable to request repair or retransmission of
+    content.</para>
+
+    <para>The Naval Research Laboratory (NRL) reference implementation of the
+    NORM protocol includes support for 8-bit (and very soon 16-bit)
+    Reed-Solomon FEC encoding with additional support for other coding
+    algorithms (e.g., Low-Density Parity Check (LDPC)) planned for the future.
+    The NORM specification allows for different FEC algorithms to be applied
+    within the protocol. The current Reed-Solomon NORM FEC algorithms in the
+    NRL implementation are limited to modest code block sizes (With 16-bit
+    Reed-Solomon coding, larger block sizes will be allowed but very high data
+    rates may not be possible). For channels with random errors, the current
+    NORM FEC codecs are often adequate as there is flexibility in how the
+    encoded data can be partitioned into FEC blocks (a block consists of some
+    number of data segments (packets)) and the number of FEC parity packets
+    that can computed and possibly transmitted per source data block. For
+    channels with large bursts of packet loss (with respect to the configured
+    NORM FEC block size), it is quite possible that the number of lost packets
+    (erasures) that occur within a NORM FEC block may exceed the configured
+    erasure-filling capability. The <command>npc</command> utility was created
+    to "pre-encode" (and "post-decode") files for NORM transmission to silent
+    (non- NACKing) receivers by adding additional FEC encoding, and
+    importantly, interleaving of the FEC segments (packets) to re-distribute
+    bursts of packet losses as random losses over the entire file. It is thus
+    most applicable to very large files (with respect to FEC block
+    sizes).</para>
+
+    <para>The NORM protocol is described in Internet Engineering Task Force
+    (IETF) Request For Comments (RFC) RFC 3940 and RFC 3941. These are
+    experimental RFC standards. These documents have been revised in recent
+    Internet-Drafts and it should be noted that the Naval Research Laboratory
+    (NRL) implementation of NORM that is represented here has been updated to
+    reflect the revised protocol. In addition to this demonstration
+    application, NRL provides a NORM protocol library with a well-defined API
+    that it is suitable for application development. Additionally, the NRL
+    source code distribution supports building the NORM protocol as a
+    component into <emphasis>ns-2</emphasis> and OPNET network simulation
+    environments. Refer to the NRL NORM website &lt;<ulink
+    url="http://cs.itd.nrl.navy.mil/work/norm">http://cs.itd.nrl.navy.mil/work/norm</ulink>&gt;
+    for these other components as well as up-to-date versions of this
+    demonstration application and documentation.</para>
+
+    <para>The <command>npc</command> tool is designed to use in conjunction
+    with the NORM protocol and accompanying NORM file transfer examples that
+    are part of the NORM source code distribution. However, the encoded file
+    format that <command>npc</command> creates can be use with other
+    transports as well. The key is to align the segmentation parameters of the
+    <command>npc</command> configuration with that of the intended transport
+    mechanism.</para>
+  </sect1>
+
+  <sect1>
+    <title>Overview</title>
+
+    <para>The <command>npc</command> utility takes, as input", a file and
+    logically divides it into segments, adding cyclic-redundancy checksum
+    (CRC) to the segments, encoding the source segments with Reeed-Solomon
+    encoding (adding a configurable number of parity segments per FEC source
+    block), and interleaves the source and encoding segments to an output
+    file. The use of the CRC allows erasure to be detected and also provides
+    additional assurance of correct content delivery by possibly detecting bit
+    errors that may have been undetected during transport (i.e., link-layer
+    framing, Internet Protocol (IP), and/or User Datagram Protocol (UDP)
+    checksums). The interleaving by default is a block interleaver using the
+    entire file as a logical block, but a limit on the interleaving size can
+    be set to help increase the speed of the <command>npc</command>
+    encoding/decoding process. This may be useful for extremely large file
+    sizes.</para>
+  </sect1>
+
+  <sect1>
+    <title>Usage</title>
+
+    <para>The following is a synopsis of <command>npc</command> usage:</para>
+
+    <programlisting>npc {encode|decode} input &lt;inFile&gt; [output &lt;outFile&gt;][segment &lt;segmentSize&gt;] 
+    {[[block &lt;numData&gt;][parity &lt;numParity&gt;]] | 
+     [auto &lt;parityPercentage&gt;][bmax &lt;maxBlockSize&gt;]}
+    [imax &lt;widthLimit&gt;][ibuffer &lt;bytes&gt;][background][help][debug &lt;debugLevel&gt;]</programlisting>
+
+    <para>The <command>npc</command> utility may be instructed to either
+    "encode" a file (add FEC content and interleaving to the given
+    &lt;inFile&gt;) or "decode" a file that was previously encoded with
+    <command>npc</command>. The ".npc" file extension is suggested to
+    delineate files that are of the <command>npc</command> encoded format.
+    Note the "output" filename is optional. By default, <command>npc</command>
+    will use the filename of the &lt;inFile&gt; as the output filename,
+    replacing the '.' extension delimiter with a '_' (underscore) and adding
+    the ".npc" extension suffix. The <command>npc</command> format includes
+    some minimal "meta-data" in the first encoded &lt;segmentSize&gt; to
+    convey the file size and name of the original file. On decoding, if the
+    "output" file option is omitted, this "meta-data" is used to name the
+    decoded output file.</para>
+
+    <para>The optional FEC parameters,
+    <parameter>&lt;segmentSize&gt;</parameter>,
+    <parameter>&lt;numData&gt;</parameter>, and
+    <parameter>&lt;numParity&gt;</parameter> control the logical segmentation,
+    blocking, and amount of FEC parity content added to the file. For use with
+    NORM, it is recommended that the
+    <parameter>&lt;segmentSize&gt;</parameter> value correspond to the same
+    segmentation size used for NORM transmission. The
+    <parameter>&lt;numData&gt;</parameter> (source segments per FEC encoding
+    block) and <parameter>&lt;numParity&gt;</parameter> parameters should be
+    selected to provide erasure filling coverage for the expected transmission
+    packet loss characteristics. Note that when used with proactive NORM FEC
+    transmission, the <command>npc</command> encoding provides an "inner" FEC
+    code and interleaving and the NORM protocol provides an "outer" FEC
+    encoding. The "outer" NORM code might be configured to deal with typical
+    random packet loss due to channel BER, etc and the "inner"
+    <command>npc</command> interleaving and coding could be correspondingly
+    configured to handle expected burst losses (e.g. outages) that might
+    occur.</para>
+
+    <para>The <parameter>&lt;auto&gt;</parameter> option provides an
+    alternative means for setting the FEC encoding protection level instead of
+    using the <parameter>&lt;block&gt;</parameter> and
+    <parameter>&lt;parity&gt;</parameter> options. First the
+    <parameter>&lt;auto&gt;</parameter> option causes <command>npc</command>
+    to select a block size corresponding to the entire input file size (plus
+    the segment of meta data information that npc adds). Then, the
+    <parameter>&lt;auto&gt;</parameter> option
+    <parameter>&lt;parityPercentage&gt;</parameter> value is used to set the
+    number of parity packets per encoding block to the given percentage of the
+    automatically determined block size. For exanple, the command
+    "<option>auto 100"</option> causes <command>npc</command> to set an
+    encoding rate of 100%. I.e., the parity segments sent will equal the
+    number of segments in a bock. Note that the
+    <parameter>&lt;parityPercentage&gt;</parameter> can even exceed 100% if
+    desired for high levels of loss protection. Also note that the percentage
+    here is _not_ a loss protection percentage with a 100%
+    <parameter>&lt;parityPercentage&gt;</parameter> value being able to
+    correct up to 50% errored or lost packets within a coding block. With 50%
+    uniform random packet loss, this would result in successful file transfer
+    about 50% of the time as, per Gaussian distribution, burst error
+    probabilities would result in half of blocks arriving with greater than
+    50% packet loss and half with less than 50% packet loss.</para>
+
+    <para>When the <command>npc</command> encoder uses the
+    "<option>auto</option>" command the <command>npc</command> decoder MUST
+    also use the "<option>auto</option>" command and be configured with the
+    same <parameter>&lt;segmentSize&gt;</parameter> and
+    <parameter>&lt;parityPercentage&gt;</parameter> values. Similarly when the
+    "<option>block</option>" and "<option>parity</option>" commands are used
+    to explicitly set the <parameter>&lt;numdData&gt;</parameter> and
+    <parameter>&lt;numParity&gt;</parameter> at the encoder, the decoder MUST
+    be configured with the same corresponding options and values, again
+    including <parameter>&lt;segmentSize&gt;</parameter>. And for use with
+    NORM protocol transport, the <parameter>&lt;segmentSize&gt;</parameter>
+    parameter SHOULD be matched for best coding gain performance. The NORM
+    block size (numData) and parity (numParity) parameters may be set
+    indepedently. Basically, the NORM protocol proactive erasure coding can be
+    configured to deal with expected short term random packet loss while the
+    <command>npc</command> parameters can be configured to counter large burst
+    (or outage) losses. The inner/outer encoding approach that the combination
+    of <command>npc</command> and NORM provides, can allow for a sort of
+    multiplicative coding gain to deal well with both random packet loss and
+    bursts or outages with lower FEC overhead. However, when the
+    <command>npc</command> coding is configured (e.g., via the "auto" option)
+    to encapsulate an entire file into a single logical coding block, the
+    desired level of loss protection can be simply "dialed into" the
+    <command>npc</command> <parameter>&lt;parityPercentage&gt;</parameter>
+    option. The tradeoff is that the larger FEC block size increases the
+    computational requirement for file encoding and decoding. Future versions
+    of <command>npc</command> may provide additional FEC code types</para>
+
+    <para>As basic example usage, to encode a file name "originalFile.txt"
+    with the default <command>npc</command> naming convention, FEC, and
+    interleaving parameters, use the following syntax:</para>
+
+    <programlisting>npc encode input originalFile.txt</programlisting>
+
+    <para>The default npc configuration is XXX.</para>
+
+    <para>This will produce and output file named
+    "<filename>originalFile_txt.npc</filename>" in the current working
+    directory, The original file can be recovered (decoded) using the
+    syntax:</para>
+
+    <programlisting>npc decode input originalFile_txt.npc</programlisting>
+
+    <para>This will decode the ".npc" file, and in this case produce a file
+    named "<filename>originalFile.txt"</filename> in the current working
+    directory. (The file name information was stored in first "meta data"
+    segment of the ".npc" file). This default naming convention can be
+    overridden by using the npc "output" option. For example, the
+    syntax:</para>
+
+    <programlisting>npc decode input originalFile_txt.npc output file.txt</programlisting>
+
+    <para>will produce a file named "<filename>file.txt</filename>" that is
+    identical in content to "<filename>originalFile.txt</filename>".</para>
+
+    <sect2>
+      <title>Notes</title>
+
+      <para>The FEC and interleaving parameters that are used for
+      <command>npc</command> encoding MUST be exactly matched to successfully
+      decode the encoded file. I.e., if the defaults are used for encoding,
+      the defaults must be used for decoding. The parameters that must match
+      include <parameter>&lt;segmentSize&gt;</parameter>,
+      <parameter>&lt;parityPercentage&gt;</parameter> and
+      <parameter>&lt;maxBlockSize&gt;</parameter> (or
+      <parameter>&lt;numData&gt;</parameter> and
+      <parameter>&lt;numParity&gt;</parameter>), and
+      <parameter>&lt;widthMax&gt;</parameter>.</para>
+
+      <para>It is possible that in some cases it may be beneficial to apply
+      more proactive FEC content with the <command>npc</command> program
+      instead of with the NORM transport. The trade-offs are
+      scenario-specific.</para>
+
+      <para>The NRL "<command>norm</command>" demonstration application has
+      commands included to support transport of <command>npc</command> encoded
+      files. The distinction here is that a file that _fails_ NORM transport
+      might still be successfully decoded with <command>npc</command>. There
+      are two receiver-side norm demo application options that apply
+      here:</para>
+
+      <orderedlist>
+        <listitem>
+          <para>The "<option>saveAborts</option>" command causes
+          <emphasis>norm</emphasis> to not delete (and attempt to postprocess)
+          "aborted" files (files that failed reliable NORM transport).</para>
+        </listitem>
+
+        <listitem>
+          <para>The <command>norm</command> "<option>lowDelay</option>"
+          command should be applied for silent-receivers to more immediately
+          deliver "failed" files to the application for post-processing (i.e.,
+          attempted <command>npc</command> decoding)</para>
+        </listitem>
+      </orderedlist>
+    </sect2>
+  </sect1>
+
+  <sect1>
+    <title><command>npc</command> Command Reference</title>
+
+    <para>The following table describes each of the <command>npc</command>
+    commands available in the command-line syntax.</para>
+
+    <informaltable frame="all">
+      <tgroup cols="2">
+        <colspec colnum="1" colwidth="1*"/>
+
+        <colspec colname="2" colwidth="2*"/>
+
+        <tbody>
+          <row>
+            <entry><para><option>encode</option> |
+            <option>decode</option></para></entry>
+
+            <entry><para>Determine whether <command>npc</command> is to encode
+            or decode the given <parameter>&lt;inFile&gt;</parameter>. This
+            option is required and only one should be given.</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>input
+            </option><parameter>&lt;inFile&gt;</parameter></para></entry>
+
+            <entry><para>Specifies the file to be processed. Required
+            command.</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>output
+            </option><parameter>&lt;outFile&gt;</parameter></para></entry>
+
+            <entry><para>Specifies the name of the output file to be produced.
+            Overrides the default <command>npc</command> output file naming
+            convention. Optional.</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>segment
+            </option><parameter>&lt;segmentSize&gt;</parameter></para></entry>
+
+            <entry><para>Sets the segmentation size (e.g., packet payload
+            size) in bytes. Note four bytes of the
+            <parameter>&lt;segmentSize&gt;</parameter> are used for a 32-bit
+            CRC that <command>npc</command> applies to each segment. (Default
+            <parameter>&lt;segmentSize&gt;</parameter> is 1024
+            bytes)</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>block
+            </option><parameter>&lt;numData&gt;</parameter></para></entry>
+
+            <entry><para>Specify the number of source data segments (packets)
+            per npc FEC coding block. (Default block sizing is
+            auto)</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>parity
+            </option><parameter>&lt;numParity&gt;</parameter></para></entry>
+
+            <entry><para>Specify the number of FEC parity segments (packets)
+            added per npc FEC coding block. (Default is 2
+            segments).</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>auto
+            </option><parameter>&lt;parityPercentage&gt;</parameter></para></entry>
+
+            <entry><para>Specifies automatic FEC block sizing with
+            <parameter>&lt;parityPercentage&gt;</parameter> indicating the
+            percentage of FEC parity segments to include per block. The "auto"
+            block sizing sets the block size as large as possible to treat the
+            entire files as one logical FEC block to maximize FEC performance.
+            The maximum possible block size currently supported by npc are
+            blocks where (numData + numParity) is less than or equal to 65536.
+            The maximum buffer size can be limited by using the
+            <option>bmax</option> command.</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>bmax
+            </option><parameter>&lt;maxBlockSize&gt;</parameter></para></entry>
+
+            <entry><para>Limits the maximum block size when the
+            <option>auto</option> command is used for automatic block sizing
+            (Default is 65536)</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>imax
+            </option><parameter>&lt;widthMax&gt;</parameter></para></entry>
+
+            <entry><para>Limits interleaving of encoded file to a maximum
+            interleaver width of <parameter>&lt;widthMax&gt;</parameter>
+            segments. A value of ZERO (or less) defaults to
+            <command>npc</command> calculating a block interleaver that
+            encompasses the entire encoded file size. For extremely large
+            files, this option may be beneficial to limit file seeking
+            operations required to interleave the file. If the encoded file
+            size is less than
+            <parameter>&lt;widthMax&gt;</parameter>*<parameter>&lt;widthMax&gt;</parameter>
+            segments, <command>npc</command> will again calculate its own
+            maximum block size. (Default is 1000 segments interleaver depth
+            (i.e., about 1 Gbyte interleaver size with the default 1024 byte
+            <parameter>&lt;segmentSize&gt;</parameter> value))</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>ibuffer
+            </option><parameter>&lt;bufferSize&gt;</parameter></para></entry>
+
+            <entry><para>This sets the maximum memory (in bytes) that
+            <command>npc</command> allocates for encoding. A larger value
+            allows <command>npc</command> to perform file input/output with
+            less seeking and improved encoding/decoding times can be achieved.
+            (Default is 1.5 GByte)</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>debug
+            </option><parameter>&lt;debugLevel&gt;</parameter></para></entry>
+
+            <entry><para>Specifies debug output verbosity. Higher number is
+            more verbose debugging information. (Default is
+            ZERO).</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>background</option></para></entry>
+
+            <entry><para>Sets percentage of received messages that are
+            randomly dropped (for testing purposes). Default = 0.0
+            percent.</para></entry>
+          </row>
+
+          <row>
+            <entry><para><option>help</option></para></entry>
+
+            <entry><para>Displays <command>npc</command> usage
+            statement.</para></entry>
+          </row>
+        </tbody>
+      </tgroup>
+    </informaltable>
+  </sect1>
+</article>

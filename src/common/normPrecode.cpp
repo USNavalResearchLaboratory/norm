@@ -1,6 +1,6 @@
 
 #include "protoApp.h"
-#include "normFile.h"
+#include "protoFile.h"
 
 // Commment this #define out to use new, faster RS8 codec instead
 // (TBD - provide option use 16-bit Reed Solomon for large block sizes?)
@@ -10,6 +10,7 @@
 #include "normEncoderMDP.h"
 #else
 #include "normEncoderRS8.h"
+#include "normEncoderRS16.h"
 #endif // if/else USE_MDP_FEC
 
 #include <sys/types.h>  // for BYTE_ORDER macro
@@ -38,22 +39,22 @@ class NormPrecodeApp : public ProtoApp
         bool Encode();
         bool Decode();
         
-        void InitInterleaver(NormFile::Offset numSegments);
-        NormFile::Offset ComputeInterleaverOffset(NormFile::Offset segmentId, NormFile::Offset numSegments);
-        NormFile::Offset ComputeSegmentOffset(NormFile::Offset interleaverId, NormFile::Offset numSegments);
+        void InitInterleaver(ProtoFile::Offset numSegments);
+        ProtoFile::Offset ComputeInterleaverOffset(ProtoFile::Offset segmentId, ProtoFile::Offset numSegments);
+        ProtoFile::Offset ComputeSegmentOffset(ProtoFile::Offset interleaverId, ProtoFile::Offset numSegments);
         // CRC32 checksum stuff
         static const UINT32 CRC32_TABLE[256];
         static UINT32 ComputeCRC32(const char* buffer, unsigned int buflen);
     
-        static const NormFile::Offset SEGMENT_MIN;
-        static const NormFile::Offset SEGMENT_MAX;
+        static const ProtoFile::Offset SEGMENT_MIN;
+        static const ProtoFile::Offset SEGMENT_MAX;
         
         // We use these assuming IEEE754 floating point
-        static NormFile::Offset ntoho(NormFile::Offset offset)
+        static ProtoFile::Offset ntoho(ProtoFile::Offset offset)
         {
 # if BYTE_ORDER == LITTLE_ENDIAN
-            NormFile::Offset result;
-            switch (sizeof(NormFile::Offset))
+            ProtoFile::Offset result;
+            switch (sizeof(ProtoFile::Offset))
             {
                 case 8:
                 {
@@ -78,37 +79,40 @@ class NormPrecodeApp : public ProtoApp
             return offset;
 #endif  // if/else __BIG_ENDIAN
         }
-        static NormFile::Offset htono(NormFile::Offset offset)
+        static ProtoFile::Offset htono(ProtoFile::Offset offset)
         {
             return ntoho(offset);
         }
     
-        NormFile         in_file;
-        char             in_file_path[PATH_MAX];
-        NormFile         out_file;
-        bool             encode;
+        ProtoFile         in_file;
+        char              in_file_path[PATH_MAX];
+        ProtoFile         out_file;
+        bool              encode;
         
-        unsigned int     segment_size;  // should be same as NORM segment size
-        unsigned int     num_data;
-        unsigned int     num_parity;
+        unsigned int      segment_size;  // should be same as NORM segment size
+        unsigned int      num_data;
+        unsigned int      num_parity;
+        double            parity_fraction;  // invokes "auto" block/parity sizing based on file size
+        ProtoFile::Offset b_max;           // optional max block size for "auto" mode
         
-        NormFile::Offset i_max;         // max interleaver dimension
-        NormFile::Offset i_buffer_max;  // Read buffer max (bigger yields less seeking)
+        ProtoFile::Offset i_max;         // max interleaver dimension
+        ProtoFile::Offset i_buffer_max;  // Read buffer max (bigger yields less seeking)
                 
-        NormFile::Offset interleaver_width;
-        NormFile::Offset interleaver_height;
-        NormFile::Offset interleaver_size;  // (width * height)
+        ProtoFile::Offset interleaver_width;
+        ProtoFile::Offset interleaver_height;
+        ProtoFile::Offset interleaver_size;  // (width * height)
         
 }; // end class NormPrecodeApp
 
 // Our application instance 
 PROTO_INSTANTIATE_APP(NormPrecodeApp) 
         
-const NormFile::Offset NormPrecodeApp::SEGMENT_MIN = 8;
-const NormFile::Offset NormPrecodeApp::SEGMENT_MAX = 8192;
+const ProtoFile::Offset NormPrecodeApp::SEGMENT_MIN = 8;
+const ProtoFile::Offset NormPrecodeApp::SEGMENT_MAX = 8192;
 
 NormPrecodeApp::NormPrecodeApp()
  : encode(true), segment_size(1024), num_data(196), num_parity(4), 
+   parity_fraction(-1.0), b_max(65536),
    i_max(1000), i_buffer_max(1500000000)
 {  
     in_file_path[0] = '\0';  
@@ -122,6 +126,7 @@ void NormPrecodeApp::Usage()
 {
    fprintf(stderr, "Usage:  npc {encode|decode} input <inFile> [output <outFile>]\n"
                    "            [segment <segmentSize>][block numData][parity numParity]\n"
+                   "            [auto <parityPercentage>]\n"
                    "            [background][help][debug <debugLevel>\n");  
 }  // end NormPrecodeApp::Usage()
 
@@ -136,6 +141,8 @@ const char* const NormPrecodeApp::cmd_list[] =
     "+segment",     // set segment size (default = 1024)    
     "+block",       // set block size (default = 128)    
     "+parity",      // set parity per block (default = 2)    
+    "+auto",        // set auto block/parity mode (specifies parity_fraction as percent)    
+    "+bmax",        // limit maximum allowed block size for "auto" operation (default = 65536)
     "+imax",        // set interleaver max dimension
     "+ibuffer",     // set imax interleaver buffer (buffer is used if interleaver size fits)
     "-background",  // run w/out command shel (Win32)  
@@ -208,23 +215,44 @@ bool NormPrecodeApp::OnCommand(const char* cmd, const char* val)
     }
     else if (!strncmp("block", cmd, len))
     {
-        int numData = atoi(val);
-        if ((numData < 1) || (numData > 127))
+        unsigned short numData;
+        if (1 != sscanf(val, "%hu", &numData))
         {
-            PLOG(PL_FATAL, "npc: error: block <numData> out of range\n");
+            PLOG(PL_FATAL, "npc: error: invalid block <numData> value!\n");
             return false;
         }
         num_data = numData;
     }
     else if (!strncmp("parity", cmd, len))
     {
-        int numParity = atoi(val);
-        if ((numParity < 0) || (numParity > 127))
+        unsigned short numParity;
+        if (1 != sscanf(val, "%hu", &numParity))
         {
-            PLOG(PL_FATAL, "npc: error: parity <numParity> out of range\n");
+            PLOG(PL_FATAL, "npc: error: invalid block <numParity> value!\n");
             return false;
         }
         num_parity = numParity;
+    }
+    else if (!strncmp("auto", cmd, len))
+    {
+        double percent;
+        if (1 != sscanf(val,"%lf", &percent))
+        {
+            PLOG(PL_FATAL, "npc: error: invalid block <auto> value!\n");
+            return false;
+        }
+        if (percent < 0.0)
+        {
+            PLOG(PL_FATAL, "npc: error: invalid block <auto> value!\n");
+            return false;
+        }
+        parity_fraction = percent/100.0;
+    }
+    else if (!strncmp("bmax", cmd, len))
+    {
+        int bMax = atoi(val);
+        if (bMax <= 0) bMax = 65536;
+        b_max = bMax;
     }
     else if (!strncmp("imax", cmd, len))
     {
@@ -318,6 +346,49 @@ bool NormPrecodeApp::OnStartup(int argc, const char*const* argv)
         return false;
     }
     
+    if (parity_fraction >= 0.0)
+    {
+        // Set up auto mode using input file size
+        // (This uses the max block size possible for the file given "segment_size")
+        ProtoFile::Offset fileSize = in_file.GetSize();
+        unsigned int blockSize;
+        if (encode)
+        {
+            // (segment_size - 4) here accounts for 4-byte CRC
+            blockSize = (unsigned int) (fileSize / (segment_size - 4));
+            if (0 != (fileSize % (segment_size - 4)))
+                blockSize += 1;
+            blockSize += 1;  // for meta data segment
+        }
+        else
+        {
+            // Need to use post decode size
+            ProtoFile::Offset numSegments = fileSize / segment_size;
+            ASSERT(0 == (fileSize % segment_size));
+            blockSize = (unsigned int)((numSegments / (1.0 + parity_fraction)) + 0.5);
+        }
+        if (blockSize > b_max) blockSize = b_max;
+        unsigned int numParity = (unsigned int)((parity_fraction * blockSize) + 0.5);
+        if ((blockSize + numParity) > 65536)
+        {
+            // need to scale down to fit within max possible FEC block size
+            double scaleFactor = 65536.0 / ((double)(blockSize + numParity));
+            blockSize = (unsigned int)(scaleFactor * blockSize);
+            numParity = (unsigned int)(scaleFactor * numParity);
+        }
+        //TRACE("auto fileSize:%llu block:%u parity:%u\n", fileSize, blockSize, numParity);
+        num_data = blockSize;
+        num_parity = numParity;
+    }
+    
+    // Validate num_data / num_parity params
+    unsigned int totalBlockSize = num_data + num_parity;
+    if (totalBlockSize > 65536)
+    {
+        PLOG(PL_FATAL, "npc: error: numData/numParity total exceeds max block size!\n");
+        return false;
+    }
+    
     if (encode)
         return Encode();
     else
@@ -335,9 +406,9 @@ void NormPrecodeApp::OnShutdown()
 
 #define DIFF_T(a,b) (1+ 1000000*(a.tv_sec - b.tv_sec) + (a.tv_usec - b.tv_usec) )
 
-void NormPrecodeApp::InitInterleaver(NormFile::Offset numSegments)
+void NormPrecodeApp::InitInterleaver(ProtoFile::Offset numSegments)
 {
-    interleaver_width = (NormFile::Offset)(sqrt((double)numSegments));
+    interleaver_width = (ProtoFile::Offset)(sqrt((double)numSegments));
     interleaver_height = numSegments / interleaver_width;
     if (0 != (numSegments % interleaver_height)) interleaver_height++;
     // Limit dimension if "i_max" is set to non-zero value
@@ -345,19 +416,19 @@ void NormPrecodeApp::InitInterleaver(NormFile::Offset numSegments)
         interleaver_height = interleaver_width = i_max;
     interleaver_size = interleaver_height * interleaver_width;
     PLOG(PL_INFO, "npc interleaver width:%lu height:%lu segments (numSeg:%lld)\n", 
-            (unsigned long)interleaver_width, (unsigned long)interleaver_height, numSegments);
+           (unsigned long)interleaver_width, (unsigned long)interleaver_height, numSegments);
     
 }  // end NormPrecodeApp::InitInterleaver()
 
 
-NormFile::Offset NormPrecodeApp::ComputeInterleaverOffset(NormFile::Offset segmentId, NormFile::Offset numSegments)
+ProtoFile::Offset NormPrecodeApp::ComputeInterleaverOffset(ProtoFile::Offset segmentId, ProtoFile::Offset numSegments)
 {
     ASSERT(0 != interleaver_height);
     
-    NormFile::Offset interleaverWidth = interleaver_width;
-    NormFile::Offset interleaverHeight = interleaver_height;
-    NormFile::Offset interleaverSize = interleaver_size;
-    NormFile::Offset blockId;
+    ProtoFile::Offset interleaverWidth = interleaver_width;
+    ProtoFile::Offset interleaverHeight = interleaver_height;
+    ProtoFile::Offset interleaverSize = interleaver_size;
+    ProtoFile::Offset blockId;
     if (i_max > 0) 
     {
         blockId = segmentId / interleaverSize;
@@ -366,26 +437,25 @@ NormFile::Offset NormPrecodeApp::ComputeInterleaverOffset(NormFile::Offset segme
     else
     {
         blockId = 0;
-    }
-    
+    }    
     
     // Check to see if we're in the last block
-    NormFile::Offset lastSegmentId = numSegments - 1;
-    NormFile::Offset lastBlockId = lastSegmentId / interleaverSize;
+    ProtoFile::Offset lastSegmentId = numSegments - 1;
+    ProtoFile::Offset lastBlockId = lastSegmentId / interleaverSize;
     if ((blockId == lastBlockId) && (0 != (numSegments % interleaverSize)))
     {
         // This block is smaller than our usual interleaver_size,
         // so we're going to "square things up" to maximize the
         // distance of this last block within interleaver_size constraint
-        NormFile::Offset lastBlockSize = (numSegments % interleaverSize);
-        interleaverWidth = (NormFile::Offset)(sqrt((double)lastBlockSize)); 
+        ProtoFile::Offset lastBlockSize = (numSegments % interleaverSize);
+        interleaverWidth = (ProtoFile::Offset)(sqrt((double)lastBlockSize)); 
         interleaverHeight = lastBlockSize / interleaverWidth;
         if (0 != (lastBlockSize % interleaverHeight)) interleaverHeight++;
     }
     
-    NormFile::Offset interleaverCol = segmentId / interleaverHeight;
-    NormFile::Offset interleaverRow = segmentId % interleaverHeight;
-    NormFile::Offset interleaverId = ((interleaverRow * interleaverWidth) + interleaverCol);
+    ProtoFile::Offset interleaverCol = segmentId / interleaverHeight;
+    ProtoFile::Offset interleaverRow = segmentId % interleaverHeight;
+    ProtoFile::Offset interleaverId = ((interleaverRow * interleaverWidth) + interleaverCol);
     
     if (0 != blockId)
         interleaverId += (blockId * interleaver_size);
@@ -394,18 +464,18 @@ NormFile::Offset NormPrecodeApp::ComputeInterleaverOffset(NormFile::Offset segme
     if (interleaverId >= numSegments)
     {
         // We're here because we hit a "hole" in the rectangle
-        NormFile::Offset lastSegmentId = numSegments -  1;
+        ProtoFile::Offset lastSegmentId = numSegments -  1;
         if (0 != blockId)
         {
             interleaverId = interleaverId % interleaverSize;
             lastSegmentId = lastSegmentId % interleaverSize;    
         }        
         // Find non-interleaved position of lastSegmentId within interleaver
-        NormFile::Offset maxRow = lastSegmentId / interleaverWidth;
-        NormFile::Offset maxCol = lastSegmentId % interleaverWidth;
+        ProtoFile::Offset maxRow = lastSegmentId / interleaverWidth;
+        ProtoFile::Offset maxCol = lastSegmentId % interleaverWidth;
         // There may be empty rows if lastSegmentId small wr2 interleaver size
-        NormFile::Offset emptyRows = interleaverHeight - maxRow - 1;
-        NormFile::Offset delta = 1 + emptyRows * interleaverCol;
+        ProtoFile::Offset emptyRows = interleaverHeight - maxRow - 1;
+        ProtoFile::Offset delta = 1 + emptyRows * interleaverCol;
         if (interleaverCol > maxCol)
         {
             delta += interleaverRow - maxRow;
@@ -417,8 +487,8 @@ NormFile::Offset NormPrecodeApp::ComputeInterleaverOffset(NormFile::Offset segme
         }
         
         // Find interleaved position of lastSegmentId within interleaver
-        NormFile::Offset lastCol = lastSegmentId / interleaverHeight;
-        NormFile::Offset lastRow = lastSegmentId % interleaverHeight;
+        ProtoFile::Offset lastCol = lastSegmentId / interleaverHeight;
+        ProtoFile::Offset lastRow = lastSegmentId % interleaverHeight;
         
         // Remap this segment to the "delta" interleaved position after "lastSegmentId"
         lastRow += delta;
@@ -445,12 +515,12 @@ NormFile::Offset NormPrecodeApp::ComputeInterleaverOffset(NormFile::Offset segme
 }  // end NormPrecodeApp::ComputeInterleaverOffset()
 
         
-NormFile::Offset NormPrecodeApp::ComputeSegmentOffset(NormFile::Offset interleaverId, NormFile::Offset numSegments)
+ProtoFile::Offset NormPrecodeApp::ComputeSegmentOffset(ProtoFile::Offset interleaverId, ProtoFile::Offset numSegments)
 {
-    NormFile::Offset interleaverWidth = interleaver_width;
-    NormFile::Offset interleaverHeight = interleaver_height;
-    NormFile::Offset interleaverSize = interleaver_size;
-    NormFile::Offset blockId;
+    ProtoFile::Offset interleaverWidth = interleaver_width;
+    ProtoFile::Offset interleaverHeight = interleaver_height;
+    ProtoFile::Offset interleaverSize = interleaver_size;
+    ProtoFile::Offset blockId;
     if (i_max > 0) 
     {
         blockId = interleaverId / interleaverSize;
@@ -462,10 +532,10 @@ NormFile::Offset NormPrecodeApp::ComputeSegmentOffset(NormFile::Offset interleav
     }
     
     
-    NormFile::Offset interleaverRow = interleaverId / interleaverWidth;
-    NormFile::Offset interleaverCol = interleaverId % interleaverWidth;
+    ProtoFile::Offset interleaverRow = interleaverId / interleaverWidth;
+    ProtoFile::Offset interleaverCol = interleaverId % interleaverWidth;
     
-    NormFile::Offset segmentId = interleaverCol * interleaverHeight + interleaverRow;
+    ProtoFile::Offset segmentId = interleaverCol * interleaverHeight + interleaverRow;
     if (0 != blockId)
         segmentId += (blockId * interleaver_size);
     
@@ -473,26 +543,26 @@ NormFile::Offset NormPrecodeApp::ComputeSegmentOffset(NormFile::Offset interleav
     if (segmentId >= numSegments)
     {
         // It was a "hole", so find its hole delta
-        NormFile::Offset lastSegmentId = numSegments - 1;
+        ProtoFile::Offset lastSegmentId = numSegments - 1;
         if (0 != blockId)
         {
             segmentId = segmentId % interleaverSize;
             lastSegmentId = lastSegmentId % interleaverSize;
         }
         // Here maxRow/maxCol are wr2 _interleaved_ position of lastSegmentId    
-        NormFile::Offset maxCol = lastSegmentId / interleaverHeight;
-        NormFile::Offset maxRow = lastSegmentId % interleaverHeight;
+        ProtoFile::Offset maxCol = lastSegmentId / interleaverHeight;
+        ProtoFile::Offset maxRow = lastSegmentId % interleaverHeight;
         // AS above, this assertion _should_ be true if we're "square" enough
         // (it does break when interleaver width is much greater than height,
         //  so, some day (TBD) we may want to generalize this remapping trick more???
         ASSERT(interleaverCol >= maxCol);
-        NormFile::Offset delta = (interleaverCol - maxCol)*(maxRow+1) + interleaverRow - maxRow;
+        ProtoFile::Offset delta = (interleaverCol - maxCol)*(maxRow+1) + interleaverRow - maxRow;
         
         // Then, remap "delta" to find _original_ "hole" position (corrected interleaver position)
         // Here maxRow/maxCol are wr2 _source_ position of lastSegmentId
         maxRow = lastSegmentId / interleaverWidth;
         maxCol = lastSegmentId % interleaverWidth;
-        NormFile::Offset emptyRows = interleaverHeight - maxRow - 1;
+        ProtoFile::Offset emptyRows = interleaverHeight - maxRow - 1;
         if (delta <= (emptyRows*(maxRow + 1)))
         {
             // in first area
@@ -510,7 +580,7 @@ NormFile::Offset NormPrecodeApp::ComputeSegmentOffset(NormFile::Offset interleav
         if (0 != blockId) segmentId += (blockId * interleaver_size);   
         ASSERT(segmentId < numSegments);
     }
-    NormFile::Offset segmentOffset = segment_size * segmentId;
+    ProtoFile::Offset segmentOffset = segment_size * segmentId;
     return segmentOffset;
 }  // end NormPrecodeApp::ComputeSegmentOffset()
 
@@ -544,35 +614,43 @@ bool NormPrecodeApp::Encode()
     struct timeval t1, t2;
     ProtoSystemTime(t1);
     
-    NormFile::Offset fileSize = in_file.GetSize();
+    ProtoFile::Offset fileSize = in_file.GetSize();
     
     // We reserve 4 bytes for our CRC (used to detect erasures)
     unsigned int dataSegmentSize = segment_size - 4;
     
-    NormFile::Offset numInputSegments = 1 + fileSize / dataSegmentSize;
+    ProtoFile::Offset numInputSegments = 1 + fileSize / dataSegmentSize;
     unsigned int lastFecSegSize = (unsigned int)(fileSize % dataSegmentSize);
     
-    if (0 != lastFecSegSize) numInputSegments++;
+    if (0 != lastFecSegSize) 
+        numInputSegments++;
+    else
+        lastFecSegSize = dataSegmentSize;
     
     // Calculate FEC block size(s)
-    NormFile::Offset numBlocks = numInputSegments / num_data;
+    ProtoFile::Offset numBlocks = numInputSegments / num_data;
     unsigned int fecBlockSize = num_data;
     unsigned int lastBlockSize = (unsigned int)(numInputSegments % num_data);
-    if (0 != lastBlockSize) numBlocks++; 
-    NormFile::Offset lastBlockId = numBlocks - 1;
+    if (0 != lastBlockSize) 
+        numBlocks++; 
+    else
+        lastBlockSize = num_data;
+    ProtoFile::Offset lastBlockId = numBlocks - 1;
      
     // 0) Calculate "out_file" size and determine interleaver width and height
-    NormFile::Offset numOutputSegments =  
+    ProtoFile::Offset numOutputSegments =  
         ((numBlocks - 1) * (fecBlockSize + num_parity)) + lastBlockSize + num_parity;
     
     
     InitInterleaver(numOutputSegments);
     // 1) Init our FEC encoder
-#ifdef USE_MDP_FEC
-    NormEncoderMDP encoder;
-#else
-    NormEncoderRS8 encoder;
-#endif // if/else USE_MDP_FEC
+    NormEncoder* encoderPtr;
+    if ((num_data + num_parity) > 256)
+        encoderPtr = new NormEncoderRS16;
+    else
+        encoderPtr = new NormEncoderRS8;
+    NormEncoder& encoder = *encoderPtr;
+    
     if (!encoder.Init(num_data, num_parity, dataSegmentSize))  // 4 CRC bytes are _not_ encoded
     {
         PLOG(PL_FATAL, "npc: error initializing FEC encoder\n");
@@ -581,7 +659,7 @@ bool NormPrecodeApp::Encode()
     
     // Determine number of segments to allocate for FEC encoding and
     // interleaver buffering if applicable
-    NormFile::Offset interleaverBytes = interleaver_size * segment_size;
+    ProtoFile::Offset interleaverBytes = interleaver_size * segment_size;
 	char* iBuffer = NULL;
     bool useBuffering = false;
     if (interleaverBytes <= i_buffer_max)
@@ -625,20 +703,20 @@ bool NormPrecodeApp::Encode()
     // (TBD) This could be built directly into iBuffer segment zero
     char metaData[SEGMENT_MAX+4];
     memset(metaData, 0, SEGMENT_MAX);
-    NormFile::Offset sz = fileSize;
-    if (sizeof(NormFile::Offset) == 8)
+    ProtoFile::Offset sz = fileSize;
+    if (sizeof(ProtoFile::Offset) == 8)
     {
         sz = htono(fileSize);
         memcpy(metaData, &sz, 8);
     }
-    else if (sizeof(NormFile::Offset) == 4)
+    else if (sizeof(ProtoFile::Offset) == 4)
     {
         sz = htonl((UINT32)sz);
         memcpy(metaData + 4, &sz, 4);
     }
     else
     {
-        PLOG(PL_FATAL, "npc: error: unsupported file offset size (%d bytes)\n", sizeof(NormFile::Offset));
+        PLOG(PL_FATAL, "npc: error: unsupported file offset size (%d bytes)\n", sizeof(ProtoFile::Offset));
         return false;
     }
     // put in_file_path file name portion into middle section of "metaData"
@@ -653,24 +731,23 @@ bool NormPrecodeApp::Encode()
     // 2) Read "in_file" segments, encode, and output to "out_file"
     PLOG(PL_ALWAYS, "npc: encoding file ... (progress:   0%%)");
     // State to track/display encoding progress
-    NormFile::Offset progressThreshold = numOutputSegments / 100;
-    double progressIncrement = 100.0;
-    if (progressThreshold > 1)
-         progressIncrement = (double)numOutputSegments / (double)progressThreshold;
-    else
-        progressThreshold = numOutputSegments; // small number of segments
-    NormFile::Offset progressCounter = 0;
+    ProtoFile::Offset progressThreshold = numInputSegments / 100;
+    if (progressThreshold < 1) progressThreshold = 1;
+    ProtoFile::Offset progressCounter = 0;
     int progressPercent = 0;
     
     
-    NormFile::Offset blockId = 0;
+    ProtoFile::Offset blockId = 0;
     unsigned int parityCount = 0;
     bool parityReady = false;
-    NormFile::Offset inputSegmentId = 0;
-    NormFile::Offset outputSegmentId = 0;
+    ProtoFile::Offset inputSegmentId = 0;
+    ProtoFile::Offset outputSegmentId = 0;
     while (outputSegmentId < numOutputSegments)
     {
-        NormFile::Offset interleaverOffset = ComputeInterleaverOffset(outputSegmentId, numOutputSegments);
+        // The ComputerInterleaverOffset() call here retrieves the _output_ offset location that the
+        // current input segment will be mapped to.  I.e., data is read from the input order, but mapped
+        // to interleaved output position via this offset
+        ProtoFile::Offset interleaverOffset = ComputeInterleaverOffset(outputSegmentId, numOutputSegments);
         char* segment = useBuffering ? (iBuffer + (interleaverOffset % interleaverBytes)) : iBuffer;
         if (parityReady)
         {
@@ -696,25 +773,30 @@ bool NormPrecodeApp::Encode()
             else
             {
                 // B) Read in data portion of next "segment"
-                unsigned int bytesToRead;
+                unsigned int expectedBytes;
                 if (inputSegmentId != numInputSegments)
                 {
-                    bytesToRead = dataSegmentSize; 
+                    expectedBytes = dataSegmentSize; 
                 }
                 else
                 {
                     memset(segment, 0, dataSegmentSize);
-                    bytesToRead = lastFecSegSize;
+                    expectedBytes = lastFecSegSize;
                 }
-                if (in_file.Read(segment, bytesToRead) != bytesToRead)
+                unsigned int bytesToRead = expectedBytes;
+                if (!in_file.Read(segment, bytesToRead))
                 {
                     PLOG(PL_FATAL, "\nnpc: unexpected error reading input file: %s\n", GetErrorString());
                     return false;
                 }
+                if (bytesToRead != expectedBytes)
+                {
+                    PLOG(PL_FATAL, "\nnpc: unexpected end-of-file: %s\n", GetErrorString());
+                    return false;
+                }
+                if (0 != bytesToRead) segment[bytesToRead] = '\0';
             }
             // C) Encode and check for parity readiness
-            //TRACE("outputSegmentId:%lu\n", outputSegmentId);
-            
             encoder.Encode(outputSegmentId % fecBlockSize, segment, parityVec);
             unsigned int numData = (blockId != lastBlockId) ? fecBlockSize : lastBlockSize;
             if (numData == ++parityCount) 
@@ -722,20 +804,29 @@ bool NormPrecodeApp::Encode()
                 parityCount = num_parity;
                 parityReady = true;
             }
+            if (++progressCounter >= progressThreshold)
+            {
+                progressPercent = int((double)inputSegmentId / (double)numInputSegments);
+                if (progressPercent < 9)
+                    PLOG(PL_ALWAYS, "\b\b\b%d%%)", progressPercent + 1);
+                else if (progressPercent < 99)
+                    PLOG(PL_ALWAYS, "\b\b\b\b%d%%)", progressPercent + 1);
+                if (progressPercent < 99) progressPercent++;
+                progressCounter = 0;
+            }   
         }
         // E) Calculate and add CRC32 checksum to each "segment"
         UINT32 checksum = ComputeCRC32(segment, dataSegmentSize);
         checksum = htonl(checksum);
-        memcpy(segment+dataSegmentSize, &checksum, 4);   
+        memcpy(segment+dataSegmentSize, &checksum, 4);
         
         if (useBuffering)
         {
-            
             outputSegmentId++;
             if ((0 == (outputSegmentId % interleaver_size)) || (outputSegmentId == numOutputSegments))
             {
                 // Output our buffered interleaver block from memory (iBuffer) to "out_file"
-                NormFile::Offset bytesToWrite;
+                ProtoFile::Offset bytesToWrite;
                 if ((outputSegmentId != numOutputSegments) || (numOutputSegments == interleaver_size))
                     bytesToWrite = interleaver_size;
                 else
@@ -764,23 +855,12 @@ bool NormPrecodeApp::Encode()
                 return false;
             }   
             outputSegmentId++;
-             
-        }
-        if (++progressCounter >= progressThreshold)
-        {
-            if (progressPercent < 9)
-                PLOG(PL_ALWAYS, "\b\b\b%d%%)", progressPercent + 1);
-            else if (progressPercent < 99)
-                PLOG(PL_ALWAYS, "\b\b\b\b%d%%)", progressPercent + 1);
-            if (progressPercent < 99) progressPercent++;
-            progressCounter = 0;
-        }      
+        }   
     } 
     if (progressPercent < 10)
         PLOG(PL_ALWAYS, "\b\b\b100%%)\n");
     else 
         PLOG(PL_ALWAYS, "\b\b\b\b100%%)\n");
-    
     in_file.Close();
     out_file.Close();
     
@@ -801,15 +881,15 @@ bool NormPrecodeApp::Encode()
 bool NormPrecodeApp::Decode()
 {
     // 1) Determine file size and init interleaving
-    NormFile::Offset inputFileSize = in_file.GetSize();
-    NormFile::Offset numInputSegments = inputFileSize / segment_size;
+    ProtoFile::Offset inputFileSize = in_file.GetSize();
+    ProtoFile::Offset numInputSegments = inputFileSize / segment_size;
     if (0 != (inputFileSize % segment_size))
     {
         PLOG(PL_FATAL, "npc: error: input file size not integral number of given <segmentSize>\n");
         return false;
     }
     // Reverse calculate the FEC blocking
-    NormFile::Offset numFecBlocks = numInputSegments / (num_data + num_parity);
+    ProtoFile::Offset numFecBlocks = numInputSegments / (num_data + num_parity);
     unsigned int fecBlockSize = num_data;
     unsigned int lastFecBlockSize = (unsigned int)(numInputSegments % (num_data + num_parity));
     if (0 != lastFecBlockSize)
@@ -818,17 +898,23 @@ bool NormPrecodeApp::Decode()
         lastFecBlockSize -= num_parity;
         numFecBlocks++;
     }
-    NormFile::Offset lastFecBlockId = numFecBlocks - 1;
+    else
+    {
+        lastFecBlockSize = num_data;
+    }
+    ProtoFile::Offset lastFecBlockId = numFecBlocks - 1;
     // Calculate interleaver dimensions from file size
     // set "interleaver_size", etc
     InitInterleaver(numInputSegments);
     
     // 2) init FEC decoder
-#ifdef USE_MDP_FEC
-    NormDecoderMDP decoder;
-#else
-    NormDecoderRS8 decoder;
-#endif // if/else USE_MDP_FEC
+    NormDecoder* decoderPtr;
+    if ((num_data + num_parity) > 256)
+        decoderPtr = new NormDecoderRS16;
+    else
+        decoderPtr = new NormDecoderRS8;
+    NormDecoder& decoder = *decoderPtr;
+    
     unsigned int dataSegmentSize = segment_size - 4;  // leaves space for our CRC
     if (!decoder.Init(num_data, num_parity, dataSegmentSize))
     {
@@ -842,7 +928,7 @@ bool NormPrecodeApp::Decode()
     // interleaver buffering if applicable
     char* iBuffer = NULL;
     bool useBuffering = false;
-    NormFile::Offset interleaverBytes = interleaver_size * segment_size;
+    ProtoFile::Offset interleaverBytes = interleaver_size * segment_size;
     
     if ((interleaverBytes <= i_buffer_max))// && 
         //((num_data + num_parity) <= interleaver_size) &&
@@ -893,32 +979,29 @@ bool NormPrecodeApp::Decode()
     }
     
     
-    PLOG(PL_FATAL, "npc: decoding file ... (progress:   0%%)");
+    PLOG(PL_ALWAYS, "npc: decoding file ... (progress:   0%%)");
     // State to track/display decoding progress
-    NormFile::Offset progressThreshold = numInputSegments / 100;
-    double progressIncrement = 100.0;
-    if (progressThreshold > 1)
-         progressIncrement = (double)numInputSegments / (double)progressThreshold;
-    else
-        progressThreshold = numInputSegments; // small number of segments
-    NormFile::Offset progressCounter = 0;
+    ProtoFile::Offset progressThreshold = numInputSegments / 100;
+    if (progressThreshold <= 1)
+         progressThreshold = numInputSegments; // small number of segments
+    ProtoFile::Offset progressCounter = 0;
     int progressPercent = 0;
     
     
     // Read and decode each block in "in_file"
-    NormFile::Offset fecBlockId = 0;
-    NormFile::Offset outFileSize = 0;
+    ProtoFile::Offset fecBlockId = 0;
+    ProtoFile::Offset outFileSize = 0;
     
-    NormFile::Offset lastInterleaverBlockId = numInputSegments / interleaver_size;
-    NormFile::Offset lastInterleaverBytes = (numInputSegments % interleaver_size) * segment_size;
-    NormFile::Offset interleaverBlockId = 0;
+    ProtoFile::Offset lastInterleaverBlockId = numInputSegments / interleaver_size;
+    ProtoFile::Offset lastInterleaverBytes = (numInputSegments % interleaver_size) * segment_size;
+    ProtoFile::Offset interleaverBlockId = 0; 
     
     unsigned int erasureCount = 0;
     unsigned int segmentCount = 0;
     
     enum State {READING, ADVANCING, DECODING};
     State state = READING;
-    NormFile::Offset inputSegmentId = 0;
+    ProtoFile::Offset inputSegmentId = 0;
     while ((inputSegmentId < numInputSegments) || (DECODING == state))
     {
         switch (state)
@@ -927,14 +1010,20 @@ bool NormPrecodeApp::Decode()
                 if (useBuffering)
                 {
                     // Read in a full interleaver block
-                    NormFile::Offset bytesToRead; 
+                    size_t bytesToRead; 
                     if (interleaverBlockId != lastInterleaverBlockId)
                         bytesToRead = interleaverBytes;
                     else
                         bytesToRead = lastInterleaverBytes;
-                    if (in_file.Read(iBuffer, bytesToRead) != bytesToRead)
+                        
+                    if (!in_file.Read(iBuffer, bytesToRead))
                     {
                         PLOG(PL_FATAL, "\nnpc: error reading input file: %s\n", GetErrorString());
+                        return false;
+                    }    
+                    if (0 == bytesToRead)
+                    {
+                        PLOG(PL_FATAL, "\nnpc: error reading input file: unexpected end-of-file\n");
                         return false;
                     }
                     interleaverBlockId++;
@@ -947,7 +1036,7 @@ bool NormPrecodeApp::Decode()
                     for (unsigned int i = 0 ; i < (numData + num_parity); i++)
                     {
                         // Calc offset (de-interleave) and seek
-                        NormFile::Offset interleaverOffset = ComputeInterleaverOffset(inputSegmentId, numInputSegments);
+                        ProtoFile::Offset interleaverOffset = ComputeInterleaverOffset(inputSegmentId, numInputSegments);
                         // seek to interleaver offset
                         if (!in_file.Seek(interleaverOffset))
                         {
@@ -955,9 +1044,15 @@ bool NormPrecodeApp::Decode()
                             return false;
                         }
                         // Read segment
-                        if (in_file.Read(fecVec[i], segment_size) != segment_size)
+                        unsigned int bytesToRead = segment_size;
+                        if (!in_file.Read(fecVec[i], bytesToRead))
                         {
                             PLOG(PL_FATAL, "\nnpc: unexpected error reading input file: %s\n", GetErrorString());
+                            return false;
+                        }
+                        if (bytesToRead != segment_size)
+                        {
+                            PLOG(PL_FATAL, "\nnpc: read() error: incomplete segment (len: %lu out of %lu bytes)\n", bytesToRead, segment_size);
                             return false;
                         }
                         inputSegmentId++;
@@ -988,7 +1083,7 @@ bool NormPrecodeApp::Decode()
                 unsigned int priorSegmentCount = segmentCount;
                 for (; segmentCount < (numData + num_parity); segmentCount++)
                 {
-                    NormFile::Offset interleaverOffset = ComputeInterleaverOffset(inputSegmentId, numInputSegments);
+                    ProtoFile::Offset interleaverOffset = ComputeInterleaverOffset(inputSegmentId, numInputSegments);
                     fecVec[segmentCount] = iBuffer + (interleaverOffset % interleaverBytes);
                     inputSegmentId++;
                     // Validate checksum (detects errors/ erasures)
@@ -1045,7 +1140,7 @@ bool NormPrecodeApp::Decode()
                     if((0 == fecBlockId) && (0 == i))
                     {
                         // First segment of first block is our "meta_data" with file size info   
-                        switch (sizeof(NormFile::Offset))
+                        switch (sizeof(ProtoFile::Offset))
                         {
                             case 8:
                                 memcpy(&outFileSize, fecVec[0], 8);
@@ -1078,6 +1173,7 @@ bool NormPrecodeApp::Decode()
                     {
                         // Last segment, so calculate "lastSegmentSize"
                         segmentSize = (unsigned int)(outFileSize % segmentSize); 
+                        if (0 == segmentSize) segmentSize = segment_size - 4;
                     }
                     if (out_file.Write(fecVec[i], segmentSize) != segmentSize)
                     {
@@ -1118,8 +1214,6 @@ bool NormPrecodeApp::Decode()
     
     return true;
 }  // end NormPrecodeApp::Decode()
-
-
 
 
 /*****************************************************************/
