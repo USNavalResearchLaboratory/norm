@@ -2782,7 +2782,8 @@ void NormTrace(const struct timeval &currentTime,
             // Print ccRtt (only valid if pcap file is from sender node)
             double ccRtt = NormUnquantizeRtt(((NormCCFeedbackExtension &)ext).GetCCRtt());
             double ccLoss = NormUnquantizeLoss32(((NormCCFeedbackExtension &)ext).GetCCLoss32());
-            PLOG(PL_ALWAYS, "ccRtt:%lf ccLoss:%lf ", ccRtt, ccLoss);
+            double ccRate = 8.0e-03 * NormUnquantizeRate(((NormCCFeedbackExtension &)ext).GetCCRate());
+            PLOG(PL_ALWAYS, "ccRtt:%lf ccLoss:%lf ccRate:%lf kbps ", ccRtt, ccLoss, ccRate);
             // Print locally measured rtt (only valid if pcap file is from sender node)
             struct timeval grttResponse;
             if (NormMsg::NACK == msgType)
@@ -5540,6 +5541,9 @@ void NormSession::AdjustRate(bool onResponse)
             if (cc_slow_start)
             {
                 txRate = clr->GetRate();
+                // Don't adjust rate more than double per RTT during slow start
+                double rateDouble = 2.0*tx_rate;
+                if (txRate > rateDouble) txRate = rateDouble;
                 if (GetDebugLevel() >= 6)
                 {
                     double sentRate = 8.0e-03 * sent_accumulator.GetScaledValue(1.0 / (report_timer.GetInterval() - report_timer.GetTimeRemaining()));
@@ -5647,10 +5651,14 @@ void NormSession::AdjustRate(bool onResponse)
             }
         }
     }
+    // Limit rate to tx_rate_max if that has been set
     if ((tx_rate_max >= 0.0) && (txRate > tx_rate_max))
         txRate = tx_rate_max;
     if (txRate != tx_rate)
     {
+        // TBD - don't adjust rate more than double per RTT all the time???
+        //double rateDouble = 2.0*tx_rate;
+        //if (txRate > rateDouble) txRate = rateDouble;
         if (cc_adjust)
             SetTxRateInternal(txRate);
         if (!posted_tx_rate_changed)
