@@ -1,0 +1,9 @@
+@startuml
+class NormFile {
+    + <<const>> FILENAME_MAX : int = 260
+    <<internal>> NormFile(handle:long)
+    + <<unsafe>> Name : string <<get>>
+    + Rename(filePath:string) : void
+}
+NormObject <|-- NormFile
+@enduml

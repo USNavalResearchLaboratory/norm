@@ -1,0 +1,7 @@
+@startuml
+class DirectByteBuffer <<sealed>> {
+    <<internal>> DirectByteBuffer(capacity:int)
+    # <<override>> ReleaseHandle() : bool
+}
+ByteBuffer <|-- DirectByteBuffer
+@enduml
