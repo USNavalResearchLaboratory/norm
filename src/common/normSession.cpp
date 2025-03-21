@@ -2628,7 +2628,14 @@ void NormTrace(const struct timeval &currentTime,
     struct tm *ct = &timeStruct;
 #else
     time_t secs = (time_t)currentTime.tv_sec;
-    struct tm *ct = gmtime(&secs);
+    struct tm timeStruct;
+#ifdef WIN32
+    gmtime_s(&timeStruct, &secs);
+    struct tm *ct = &timeStruct;
+#else
+    struct tm *ct = gmtime_r(&secs, &timeStruct);
+#endif
+
 #endif // if/else _WIN32_WCE
 
     PLOG(PL_ALWAYS, "trace>%02d:%02d:%02d.%06lu ",
