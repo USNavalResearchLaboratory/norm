@@ -1,0 +1,7 @@
+@startuml
+abstract class ByteBuffer {
+    # ByteBuffer()
+    + {static} AllocateDirect(capacity:int) : ByteBuffer
+}
+SafeBuffer <|-- ByteBuffer
+@enduml

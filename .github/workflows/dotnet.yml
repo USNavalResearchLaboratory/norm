@@ -1,0 +1,49 @@
+name: .NET
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      pull-requests: write
+    defaults:
+      run:
+        working-directory: ./src/dotnet
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5.1.0
+      with:
+        python-version: 3.x
+    - name: Build NORM
+      run: ./waf
+      working-directory: .
+        
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 6.0.x
+    - name: Restore dependencies
+      run: dotnet restore /property:Configuration=Release
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+    - name: Test
+      run: dotnet test --no-build --verbosity normal --configuration Release --logger trx --results-directory TestResults
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: dotnet-results
+        path: ./src/dotnet/TestResults
+      if: ${{ always() }}
+    - name: Publish test results
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      with:
+        files: ./src/dotnet/TestResults/*.trx
+      if: ${{ always() }}

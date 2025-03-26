@@ -1,0 +1,18 @@
+@startuml
+class NormStream {
+    + HasVacancy : bool <<get>>
+    + ReadOffset : long <<get>>
+    <<internal>> NormStream(handle:long)
+    + Write(buffer:byte[], offset:int, length:int) : int
+    + MarkEom() : void
+    + Flush(eom:bool, flushMode:NormFlushMode) : void
+    + Flush() : void
+    + Close(graceful:bool) : void
+    + Close() : void
+    + Read(buffer:byte[], offset:int, length:int) : int
+    + SeekMsgStart() : bool
+    + SetPushEnable(pushEnable:bool) : void
+    + SetAutoFlush(flushMode:NormFlushMode) : void
+}
+NormObject <|-- NormStream
+@enduml
