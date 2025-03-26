@@ -6,7 +6,7 @@ env:
   CMAKE_VERSION: 3.16.2
   NINJA_VERSION: 1.9.0
   BUILD_TYPE: Release
-  CCACHE_VERSION: 3.7.7
+  CCACHE_VERSION: 4.0.0
 
 jobs:
   build:
@@ -102,7 +102,7 @@ jobs:
         string(TIMESTAMP current_date "%Y-%m-%d-%H;%M;%S" UTC)
         message("::set-output name=timestamp::${current_date}")
     - name: ccache cache files
-      uses: actions/cache@v4.0.0
+      uses: actions/cache@v4
       with:
         path: .ccache
         key: ${{ matrix.config.name }}-ccache-${{ steps.ccache_cache_timestamp.outputs.timestamp }}
