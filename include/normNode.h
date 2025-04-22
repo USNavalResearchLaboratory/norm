@@ -188,6 +188,28 @@ class NormLossEstimator2
     
 };  // end class NormLossEstimator2
 
+class NormCongestionDetector
+{
+    // This class implements a delay-based congestion indicator
+    // based on feedback from NORM receivers.  Similar to loss-based
+    // congestion detection, this detector monitors the history of
+    // RTT measurement
+    
+    // NOTES:
+    // 1) One challenge to consider is reverse path contribution
+    //    to RTT may create "false positives" on RTT change detection.
+    //    A technique to mitigate is to use reference timing that the
+    //    receiver can establish on expected sender packet arrivals
+    //    given rate information to helps separate sender->receiver
+    //    contribution to RTT versus the reverse path receiver->sender 
+    //    aspect.  E.g., the receiver could compare the stats of arriving
+    //    sender packets in reference to advertised rate to have an indication
+    //    of increasing (or decreasing) sender->receiver latency.
+    //
+    // 2)
+    //
+};  // end class NormCongestionDetector
+
 class NormAckingNode : public NormNode
 {
     public:

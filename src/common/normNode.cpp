@@ -3535,7 +3535,8 @@ bool NormLossEstimator::Update(const struct timeval&    currentTime,
     }    
     else if (delta > 0)             // new packet arrival
     {
-        if (ecn || (delta > 1)) outage = true;
+        if (ecn || (delta > 1)) 
+            outage = true;
         index_seq = seq;
     }
     else // (delta <= 0)            // old misordered or duplicate packet
