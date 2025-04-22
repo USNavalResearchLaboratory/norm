@@ -2824,15 +2824,15 @@ void NormSenderNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
         {
             // Approximate initial recv_rate when initial packets arrive in a burst
             recv_rate = recv_accumulator.GetValue() / NORM_TICK_MIN;
-            TRACE("BURST INIT: accum:%lf tick:%lf rate:%lf kbps\n", recv_accumulator.GetValue(), NORM_TICK_MIN, recv_rate*8.0e-03);
+            //TRACE("BURST INIT: accum:%lf tick:%lf rate:%lf kbps\n", recv_accumulator.GetValue(), NORM_TICK_MIN, recv_rate*8.0e-03);
             recv_rate_prev = 0.0;
         }
         nominal_packet_size += 0.05 * (((double)msgSize) - nominal_packet_size); 
-        TRACE("UPDATED RECV rate: %lf kbps nsize: %lf\n", 8.0e-3*recv_rate, nominal_packet_size);
+        //TRACE("UPDATED RECV rate: %lf kbps nsize: %lf\n", 8.0e-3*recv_rate, nominal_packet_size);
     }
     else
     {
-        TRACE("RATE INIT ZERO\n");
+        //TRACE("RATE INIT ZERO\n");
         recv_rate = recv_rate_prev = 0.0;  
         prev_update_time = currentTime;
         recv_accumulator.Reset();
