@@ -732,7 +732,8 @@ class NormObjectMsg : public NormMsg
             FLAG_UNRELIABLE = 0x08,
             FLAG_FILE       = 0x10,
             FLAG_STREAM     = 0x20,
-            FLAG_SYN        = 0x40
+            FLAG_SYN        = 0x40,
+            FLAG_PAIR       = 0x80
             //FLAG_MSG_START  = 0x40 deprecated
         }; 
         UINT16 GetInstanceId() const
@@ -1458,8 +1459,12 @@ class NormCmdCCMsg : public NormCmdMsg
             sendTime.tv_usec = ntohl(buffer[SEND_TIME_USEC_OFFSET]);
         }
         
-        bool AppendCCNode(UINT16 segMax, NormNodeId nodeId, UINT8 flags, 
-                          UINT8 rtt, UINT16 rate)
+        bool AppendCCNode(UINT16        segMax, 
+                          NormNodeId    nodeId, 
+                          UINT8         flags, 
+                          UINT8         rtt, 
+                          UINT16        rate
+                          UINT8         minRtt)
         {
             if ((length-header_length+CC_ITEM_SIZE)> segMax) return false;
             UINT32* ptr = buffer + length/4;
@@ -1467,10 +1472,13 @@ class NormCmdCCMsg : public NormCmdMsg
             ((UINT8*)ptr)[CC_FLAGS_OFFSET] = flags;
             ((UINT8*)ptr)[CC_RTT_OFFSET] = rtt;
             ((UINT16*)ptr)[CC_RATE_OFFSET] = htons(rate);
+#ifdef NORM_CCD
+            ((UINT8*)ptr)[CC_MIN_RTT_OFFSET] = minRtt;
+#endif // NORM_CCD
             length += CC_ITEM_SIZE;
             return true;
         } 
-        bool GetCCNode(NormNodeId nodeId, UINT8& flags, UINT8& rtt, UINT16& rate) const;
+        bool GetCCNode(NormNodeId nodeId, UINT8& flags, UINT8& rtt, UINT16& rate UINT8& minRtt) const;
         
         // This function uses the "reserved" field of the NORM_CMD(CC) message
         // and is not strictly compliant with RFC 5740 when invoked.
@@ -1512,13 +1520,24 @@ class NormCmdCCMsg : public NormCmdMsg
             CC_FLAGS_OFFSET     = CC_NODE_ID_OFFSET + 4,
             CC_RTT_OFFSET       = CC_FLAGS_OFFSET + 1,
             CC_RATE_OFFSET      = (CC_RTT_OFFSET + 1)/2,
-            CC_ITEM_SIZE        = (CC_RATE_OFFSET*2)+2
+#ifdef NORM_CCD
+            CC_MIN_RATE_OFFSET  = (CC_RATE_OFFSET*2) + 2,
+            CC_ITEM_SIZE        = CC_MIN_RATE_OFFSET + 4  // to maintain 32-bit alignment
+#else
+            CC_ITEM_SIZE        = (CC_RATE_OFFSET*2) + 2 
+#endif // if/else NORM_CCD
         };
                         
 };  // end class NormCmdCCMsg
 
 class NormCCRateExtension : public NormHeaderExtension
 {
+// FORMAT:
+// 0                   1                   2                   3
+// 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |    het = 128  |    reserved   |           send_rate           |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     public:
             
         virtual void Init(UINT32* theBuffer, UINT16 numBytes)
@@ -1531,6 +1550,20 @@ class NormCCRateExtension : public NormHeaderExtension
             {((UINT16*)buffer)[SEND_RATE_OFFSET] = htons(sendRate);}
         UINT16 GetSendRate() 
             {return (ntohs(((UINT16*)buffer)[SEND_RATE_OFFSET]));}
+            
+        // For experimental NORM-CCD congestion control, we use
+        // a bit of the "reserved" field for the FLAG_PAIR marker
+        enum Flag {PAIR = 0x01};
+        void ResetFlags() 
+            {flags = 0;}
+        void SetFlag(NormCCRateExtension::Flag theFlag) 
+            {flags |= theFlag;} 
+        void ClearFlag(NormRepairRequest::Flag theFlag) 
+            {flags &= ~theFlag;}    
+        void SetFlags(int theFlags)
+            {flags = theFlags;}   
+        bool FlagIsSet(NormCCRateExtension::Flag theFlag) const
+            {return (0 != (theFlag & flags));}
             
     private:
         enum 
