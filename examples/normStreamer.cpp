@@ -766,9 +766,9 @@ void NormStreamer::ReadInput()
             assert(input_index < input_msg_length);
             numBytes = input_msg_length - input_index;
         }
-        TRACE("reading STDIN ...\n");
+        //TRACE("reading STDIN ...\n");
         ssize_t result = read(input_fd, input_buffer + input_index, numBytes);
-        TRACE("   result: %d\n", (int)result);
+        //TRACE("   result: %d\n", (int)result);
         if (result > 0)
         {
             input_index += result;
@@ -1176,7 +1176,7 @@ void NormStreamer::HandleNormEvent(const NormEvent& event)
             break;
             
         case NORM_GRTT_UPDATED:
-            fprintf(stderr, "new GRTT = %lf\n", NormGetGrttEstimate(norm_session));
+            //TRACE("normStreamer: new GRTT = %lf\n", NormGetGrttEstimate(norm_session));
             break;
             
         case NORM_ACKING_NODE_NEW:
@@ -1455,7 +1455,7 @@ int main(int argc, char* argv[])
     unsigned long outputSocketBufferSize = 0;   // 6*1024*1024;
     unsigned long txSocketBufferSize = 0;       // 6*1024*1024;
     unsigned long rxSocketBufferSize = 0;       // 6*1024*1024;
-    unsigned long streamBufferSize = 10*1024*1024;
+    unsigned long streamBufferSize = 2*1024*1024;
 
     // Instantiate a NormStreamer and set default params
     NormStreamer normStreamer;
