@@ -1801,7 +1801,7 @@ class NormCCFeedbackExtension : public NormHeaderExtension
             CC_LOSS_OFFSET      = (CC_RTT_OFFSET + 1)/2,
             CC_RATE_OFFSET      = ((CC_LOSS_OFFSET*2)+2)/2,
             //CC_RESERVED_OFFSET  = ((CC_RATE_OFFSET*2)+2)/2
-            CC_LOSS_EX_OFFSET  = ((CC_RATE_OFFSET*2)+2)/2  // extended precision loss estimate (non-RFC5940 compliant, but compatible)
+            CC_LOSS_EX_OFFSET  = ((CC_RATE_OFFSET*2)+2)/2  // extended precision loss estimate (non-RFC5740 compliant, but compatible)
         };
                             
 };  // end class NormCCFeedbackExtension
