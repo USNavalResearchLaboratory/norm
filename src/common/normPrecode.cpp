@@ -1011,7 +1011,7 @@ bool NormPrecodeApp::Decode()
                 if (useBuffering)
                 {
                     // Read in a full interleaver block
-                    size_t bytesToRead; 
+                    unsigned int bytesToRead;
                     if (interleaverBlockId != lastInterleaverBlockId)
                         bytesToRead = interleaverBytes;
                     else

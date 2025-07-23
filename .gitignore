@@ -18,6 +18,9 @@ norp/makefiles/norp
 *.o
 *.a
 
+# python build files
+src/pynorm.egg-info
+
 # build java files
 *.class
 
@@ -307,5 +310,5 @@ Packages.props
 #Local Log Files
 log*.txt
 
-.NET Extension Library Files
+#.NET Extension Library Files
 /src/dotnet/lib
