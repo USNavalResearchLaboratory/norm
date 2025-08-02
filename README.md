@@ -156,12 +156,12 @@ The NORM code depends upon the current "Protolib" release:
 
   https://github.com/USNavalResearchLaboratory/protolib 
   
-It has been addded as a git submodule to the NORM git repository.  So, to 
+It has been added as a git submodule to the NORM git repository.  So, to 
 to build you will need to do the following steps to download the protolib code:
 
 git clone --recurse-submodules https://github.com/USNavalResearchLaboratory/norm.git
 
-Alternatively after a basic "git clone" you can do the folowing to pull in the protolib source:
+Alternatively after a basic "git clone" you can do the following to pull in the protolib source:
 
 cd norm
 git submodule update --init
