@@ -45,7 +45,7 @@ system = platform.system().lower()
 
 def options(ctx):
     ctx.recurse('protolib')    
-    build_opts = ctx.parser.add_option_group('Compile/install Options', 'Use during build/install step.')
+    build_opts = ctx.parser.add_argument_group('Compile/install Options', 'Use during build/install step.')
 
 def configure(ctx):
     ctx.recurse('protolib')
