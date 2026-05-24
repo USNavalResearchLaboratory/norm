@@ -69,11 +69,11 @@ inline UINT16 NormQuantizeLoss(double lossFraction)
     lossFraction = MIN(lossFraction, 65535.0);
     return (UINT16)lossFraction;
 }  // end NormQuantizeLossFraction()
+
 inline double NormUnquantizeLoss(UINT16 lossQuantized)
 {
     return (((double)lossQuantized) / 65535.0);
 }  // end NormUnquantizeLossFraction()
-
 
 // Extended precision Norm loss quantize/unquantize with
 // 32-bit precision (needed for low BER, high bandwidth*delay) 

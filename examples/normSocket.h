@@ -92,6 +92,30 @@ ssize_t NormWrite(NormSocketHandle normSocket, const void* buf, size_t nbyte);
 
 int NormFlush(NormSocketHandle normSocket);
 
+/* 
+
+// These calls _will_ be used for file/data object and message-stream delivery. (Sketching the calls out for now)
+
+NormObject NormSendFile(NormSocketHandle normSocket, 
+                        const char*      filePath, 
+                        const char*      infoPtr, 
+                        ssize_t          infoLen);
+
+NormObject NormSendData(NormSocketHandle normSocket, 
+                        const char*      data,       // NormSocket will copy the "data" unlike NORM low-level API
+                        ssize_t          nbyte, 
+                        const char*      infoPtr, 
+                        ssize_t          infoLen); 
+ 
+// Notification events will indicate receipt of file/data objects.  Are additional NormSocket API calls
+// needed to manage receipt?
+
+ssize_t NormSendMsg(NormSocketHandle normSocket, const char* data, ssize_t nbyte, bool flush);
+ 
+ssize_t NormRecvMsg(NormSocketHandle normSocket, const char* data, ssize_t nbyte); 
+
+*/
+
 // NormSocket helper functions
 
 void NormSetSocketUserData(NormSocketHandle normSocket, const void* userData);
