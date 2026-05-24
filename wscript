@@ -19,6 +19,8 @@ To build examples, use the --target directive.  For example:
 
 import platform
 import waflib
+import sys
+import os
 
 # Fetch VERSION from include/normVersion.h file
 VERSION = None
@@ -47,8 +49,26 @@ def options(ctx):
     ctx.recurse('protolib')    
     build_opts = ctx.parser.add_argument_group('Compile/install Options', 'Use during build/install step.')
 
+    # Add Rust binding options
+    ctx.add_option('--build-rust', action='store_true', default=False,
+                help='Build Rust bindings for NORM')
+    ctx.add_option('--rust-release', action='store_true', default=False,
+                help='Build Rust bindings in release mode')
+    ctx.add_option('--rust-docs', action='store_true', default=False,
+                help='Generate documentation for Rust bindings')
+
 def configure(ctx):
     ctx.recurse('protolib')
+
+    # Configure Rust bindings if requested
+    if ctx.options.build_rust:
+        try:
+            ctx.find_program('cargo', var='CARGO', mandatory=True)
+            ctx.env.BUILD_RUST = True
+            ctx.env.RUST_RELEASE = ctx.options.rust_release
+            ctx.env.RUST_DOCS = ctx.options.rust_docs
+        except ctx.errors.ConfigurationError:
+            ctx.fatal('Rust toolchain not found. Install Rust from https://rustup.rs')
 
     # Use this USE variable to add flags to NORM's compilation
     ctx.env.USE_BUILD_NORM += ['BUILD_NORM']
@@ -70,6 +90,16 @@ def configure(ctx):
 
 def build(ctx):
     ctx.recurse('protolib')
+
+    # Build Rust bindings if configured
+    if hasattr(ctx.env, 'BUILD_RUST') and ctx.env.BUILD_RUST:
+        # Import our custom Rust build module
+        sys.path.insert(0, os.path.join(ctx.path.abspath(), 'src/rust'))
+        try:
+            import waf_rust
+            waf_rust.build_rust_bindings(ctx)
+        except ImportError:
+            ctx.fatal('Failed to import Rust waf module. Check src/rust/waf_rust.py exists.')
     
     # Setup to install NORM header file
     ctx.install_files("${PREFIX}/include/", "include/normApi.h")

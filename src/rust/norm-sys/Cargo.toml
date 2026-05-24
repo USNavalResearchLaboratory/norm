@@ -1,0 +1,18 @@
+[package]
+name = "norm-sys"
+version.workspace = true
+edition.workspace = true
+links = "norm"
+description = "Raw FFI bindings to the NORM (NACK-Oriented Reliable Multicast) library"
+license.workspace = true
+repository.workspace = true
+
+[build-dependencies]
+bindgen = "0.69"
+cc = "1.0"
+
+[dependencies]
+libc = "0.2"
+
+[features]
+default = []

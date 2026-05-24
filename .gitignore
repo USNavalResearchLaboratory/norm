@@ -20,6 +20,7 @@ norp/makefiles/norp
 
 # python build files
 src/pynorm.egg-info
+**/__pycache__/
 
 # build java files
 *.class

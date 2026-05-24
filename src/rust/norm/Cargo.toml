@@ -1,0 +1,37 @@
+[package]
+name = "norm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Safe Rust bindings for NORM (NACK-Oriented Reliable Multicast)"
+
+[dependencies]
+norm-sys = { workspace = true }
+libc = "0.2"
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["full"], optional = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+
+[features]
+default = []
+tokio = ["dep:tokio"]
+async-std = []
+
+[[example]]
+name = "data_send"
+path = "../examples/data_send.rs"
+
+[[example]]
+name = "data_recv"
+path = "../examples/data_recv.rs"
+
+[[example]]
+name = "stream_send"
+path = "../examples/stream_send.rs"
+
+[[example]]
+name = "stream_recv"
+path = "../examples/stream_recv.rs"
