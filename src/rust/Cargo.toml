@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "norm-sys",
+    "norm",
+]
+
+[workspace.package]
+version = "1.5.10" # Matching NORM's version
+edition = "2021"
+license = "BSD-3-Clause"
+repository = "https://github.com/USNavalResearchLaboratory/norm"
+
+[workspace.dependencies]
+norm-sys = { path = "norm-sys", version = "1.5.10" }
+rand = "0.8"
