@@ -238,14 +238,16 @@ class NormBlock
                                        NormBlockId finalBlockId,
                                        UINT16      finalSegmentSize) const;
         
-        bool AppendRepairRequest(NormNackMsg&   nack, 
+        bool AppendRepairRequest(class NormNackMsg& nack, 
                                  UINT8          fecId,
                                  UINT8          fecM,
                                  UINT16         numData, 
                                  UINT16         numParity,
                                  NormObjectId   objectId,
                                  bool           pendingInfo,
-                                 UINT16         payloadMax);
+                                 UINT16         payloadMax,
+                                 UINT16         fecOverhead = 2,
+                                 bool           isRateless = false);
         
         
         void SetLastNackTime(const ProtoTime& theTime)

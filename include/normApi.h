@@ -851,6 +851,31 @@ NORM_API_LINKAGE
 bool NormNodeDenySender(NormNodeId senderId);
 
 #ifdef __cplusplus
+struct NormFecLayout
+{
+    UINT16 payloadIdLength;
+    UINT32 blockMask;
+    void (*packPayloadId)(UINT32* buffer, UINT32 blockId, UINT16 symbolId, UINT16 blockLen);
+    UINT32 (*unpackBlockId)(const UINT32* buffer);
+    UINT16 (*unpackSymbolId)(const UINT32* buffer);
+    UINT16 (*unpackBlockLength)(const UINT32* buffer);
+};
+
+class NormEncoder;
+class NormDecoder;
+typedef NormEncoder* (*NormEncoderFactory)();
+typedef class NormDecoder* (*NormDecoderFactory)();
+
+NORM_API_LINKAGE
+bool NormRegisterFecCoder(NormSessionHandle sessionHandle,
+                          UINT8              fecId,
+                          NormEncoderFactory encoderFactory,
+                          NormDecoderFactory decoderFactory,
+                          bool               isRateless);
+
+NORM_API_LINKAGE
+void NormRegisterFecLayout(NormInstanceHandle instance, UINT8 fecId, const NormFecLayout* layout);
+
 } // end extern "C"
 #endif /* __cplusplus */
 

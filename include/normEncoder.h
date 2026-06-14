@@ -35,6 +35,17 @@
 
 #include "protokit.h"  // protolib stuff
 
+class NormTelemetryContext
+{
+    public:
+        virtual ~NormTelemetryContext() {}
+        virtual double GetGrtt() const = 0;
+        virtual double GetTxRate() const = 0;
+        virtual unsigned int GetGroupSize() const = 0;
+        virtual double GetCurrentTime() const = 0;
+};
+
+
 class NormEncoder
 {
     public:
@@ -42,6 +53,10 @@ class NormEncoder
         virtual bool Init(unsigned int numData, unsigned int numParity, UINT16 vectorSize) = 0;
         virtual void Destroy() = 0;
         virtual void Encode(unsigned int segmentId, const char *dataVector, char **parityVectorList) = 0;    
+        virtual void EncodeParity(unsigned int parityId, char* parityVector) { (void)parityId; (void)parityVector; }
+        virtual bool IsRateless() const { return false; }
+        virtual UINT16 CalculateProactiveParity(unsigned int blockId, UINT16 numData, const NormTelemetryContext& context) { return 0; }
+        virtual UINT16 CalculateReactiveParity(unsigned int blockId, UINT16 requestedErasures, const NormTelemetryContext& context) { return requestedErasures; }
 };  // end class NormEncoder
 
 class NormDecoder

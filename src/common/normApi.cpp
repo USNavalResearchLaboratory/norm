@@ -1677,6 +1677,36 @@ void NormSetAutoParity(NormSessionHandle sessionHandle, unsigned char autoParity
 }  // end NormSetAutoParity()
 
 NORM_API_LINKAGE
+bool NormRegisterFecCoder(NormSessionHandle sessionHandle,
+                          UINT8              fecId,
+                          NormEncoderFactory encoderFactory,
+                          NormDecoderFactory decoderFactory,
+                          bool               isRateless)
+{
+    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        NormSession* session = (NormSession*)sessionHandle;
+        if (session)
+        {
+            session->RegisterFecCoder(fecId, encoderFactory, decoderFactory, isRateless);
+            instance->dispatcher.ResumeThread();
+            return true;
+        }
+        instance->dispatcher.ResumeThread();
+    }
+    return false;
+}  // end NormRegisterFecCoder()
+
+NORM_API_LINKAGE
+void NormRegisterFecLayout(NormInstanceHandle instanceHandle, UINT8 fecId, const NormFecLayout* layout)
+{
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    if (instance)
+        instance->SetFecLayout(fecId, layout);
+}  // end NormRegisterFecLayout()
+
+NORM_API_LINKAGE
 void NormSetGrttEstimate(NormSessionHandle sessionHandle,
                          double            grttEstimate)
 {

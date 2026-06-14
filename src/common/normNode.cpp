@@ -287,72 +287,85 @@ bool NormSenderNode::AllocateBuffers(unsigned int   bufferSpace,
     
     if (0 != numParity)
     {
-        switch (fecId)
+        NormDecoderFactory decoderFactory = session.GetDecoderFactory(fecId);
+        if (NULL != decoderFactory)
         {
-            case 2:
-                if (8 == fecM)
-                {
-                    if (NULL == (decoder = new NormDecoderRS8))
-                    {
-                        PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderRS8 error: %s\n", GetErrorString());
-                        Close();
-                        return false; 
-                    }
-                }
-                else if (16 == fecM)
-                {
-                    if (NULL == (decoder = new NormDecoderRS16))
-                    {
-                        PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderRS16 error: %s\n", GetErrorString());
-                        Close();
-                        return false; 
-                    }
-                }
-                else
-                {
-                    PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() error: unsupported fecId=2 'm' value %d!\n", fecM);
-                    Close();
-                    return false;
-                }
-                break;
-            case 5:
-                if (NULL == (decoder = new NormDecoderRS8))
-                {
-                    PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderRS8 error: %s\n", GetErrorString());
-                    Close();
-                    return false; 
-                }
-                break;
-            case 129:
-#ifdef ASSUME_MDP_FEC 
-                if (NULL == (decoder = new NormDecoderMDP))
-                {
-                    PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderMDP error: %s\n", GetErrorString());
-                    Close();
-                    return false; 
-                }
-#else
-                if (0 == fecInstanceId)
-                {
-                    if (NULL == (decoder = new NormDecoderRS8))
-                    {
-                        PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderRS8 error: %s\n", GetErrorString());
-                        Close();
-                        return false; 
-                    }
-                }
-                else
-                {
-                    PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() error: unknown fecId=129 instanceId!\n");
-                    Close();
-                    return false;
-                }
-#endif // if/else ASSUME_MDP_FEC
-                break;
-            default:
-                PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() error: unknown fecId>%d!\n", fecId);
+            if (NULL == (decoder = decoderFactory()))
+            {
+                PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new custom decoder error\n");
                 Close();
-                return false;     
+                return false;
+            }
+        }
+        else
+        {
+            switch (fecId)
+            {
+                case 2:
+                    if (8 == fecM)
+                    {
+                        if (NULL == (decoder = new NormDecoderRS8))
+                        {
+                            PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderRS8 error: %s\n", GetErrorString());
+                            Close();
+                            return false; 
+                        }
+                    }
+                    else if (16 == fecM)
+                    {
+                        if (NULL == (decoder = new NormDecoderRS16))
+                        {
+                            PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderRS16 error: %s\n", GetErrorString());
+                            Close();
+                            return false; 
+                        }
+                    }
+                    else
+                    {
+                        PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() error: unsupported fecId=2 'm' value %d!\n", fecM);
+                        Close();
+                        return false;
+                    }
+                    break;
+                case 5:
+                    if (NULL == (decoder = new NormDecoderRS8))
+                    {
+                        PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderRS8 error: %s\n", GetErrorString());
+                        Close();
+                        return false; 
+                    }
+                    break;
+                case 129:
+    #ifdef ASSUME_MDP_FEC 
+                    if (NULL == (decoder = new NormDecoderMDP))
+                    {
+                        PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderMDP error: %s\n", GetErrorString());
+                        Close();
+                        return false; 
+                    }
+    #else
+                    if (0 == fecInstanceId)
+                    {
+                        if (NULL == (decoder = new NormDecoderRS8))
+                        {
+                            PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new NormDecoderRS8 error: %s\n", GetErrorString());
+                            Close();
+                            return false; 
+                        }
+                    }
+                    else
+                    {
+                        PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() error: unknown fecId=129 instanceId!\n");
+                        Close();
+                        return false;
+                    }
+    #endif // if/else ASSUME_MDP_FEC
+                    break;
+                default:
+                    PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() error: unknown fecId>%d!\n", fecId);
+                    Close();
+                    return false;     
+            }
         }
         if (!decoder->Init(numData, numParity, segmentSize+NormDataMsg::GetStreamPayloadHeaderLength()))
         {
@@ -1422,6 +1435,24 @@ bool NormSenderNode::GetFtiData(const NormObjectMsg& msg, NormFtiData& ftiData)
                 {
                     ftiData.SetFecInstanceId(fti.GetFecInstanceId());
                     ftiData.SetFecFieldSize(8);
+                    ftiData.SetSegmentSize(fti.GetSegmentSize());
+                    ftiData.SetFecMaxBlockLen(fti.GetFecMaxBlockLen());
+                    ftiData.SetFecNumParity(fti.GetFecNumParity());
+                    ftiData.SetObjectSize(fti.GetObjectSize());
+                    return true;
+                }
+            }
+            break;
+        }
+        case 131:
+        {
+            NormFtiExtension131 fti;
+            while (msg.GetNextExtension(fti))
+            {
+                if (NormHeaderExtension::FTI == fti.GetType())
+                {
+                    ftiData.SetFecInstanceId(fti.GetFecInstanceId());
+                    ftiData.SetFecFieldSize(16);
                     ftiData.SetSegmentSize(fti.GetSegmentSize());
                     ftiData.SetFecMaxBlockLen(fti.GetFecMaxBlockLen());
                     ftiData.SetFecNumParity(fti.GetFecNumParity());

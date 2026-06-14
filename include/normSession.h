@@ -4,9 +4,9 @@
 #include "normMessage.h"
 #include "normObject.h"
 #include "normNode.h"
-#include "normEncoder.h"
 
-#include "protokit.h"
+#include "normEncoder.h"
+#include <protoTree.h>
 
 #include "protoCap.h"  // for ProtoCap for ECN_SUPPORT
 
@@ -27,6 +27,10 @@ class NormController
 {
     public:
         virtual ~NormController() {}
+        NormController() { memset(fec_layouts, 0, sizeof(fec_layouts)); }
+
+        void SetFecLayout(UINT8 id, const NormFecLayout* layout) { fec_layouts[id] = layout; }
+        const NormFecLayout* GetFecLayout(UINT8 id) const { return fec_layouts[id]; }
         enum Event
         {
             EVENT_INVALID = 0,
@@ -68,6 +72,7 @@ class NormController
                             class NormNode*       node,
                             class NormObject*     object) = 0;
                     
+        const NormFecLayout* fec_layouts[256];
 };  // end class NormController
 
 class NormSessionMgr
@@ -123,10 +128,13 @@ class NormSessionMgr
               
 };  // end class NormSessionMgr
 
+typedef class NormEncoder* (*NormEncoderFactory)();
+typedef class NormDecoder* (*NormDecoderFactory)();
 
-class NormSession
+class NormSession : public NormTelemetryContext
 {
     friend class NormSessionMgr;
+
     
     public:
         enum {DEFAULT_MESSAGE_POOL_DEPTH = 16};
@@ -465,6 +473,13 @@ class NormSession
         void SenderSetExtraParity(UINT16 extraParity)
             {extra_parity = extraParity;}
         
+        void RegisterFecCoder(UINT8 fecId, NormEncoderFactory encoderFactory, NormDecoderFactory decoderFactory, bool isRateless);
+        NormEncoderFactory GetEncoderFactory(UINT8 fecId) const;
+        NormDecoderFactory GetDecoderFactory(UINT8 fecId) const;
+        bool IsRatelessFec(UINT8 fecId) const { return is_rateless_codec[fecId]; }
+        
+        NormEncoder* GetEncoder() const { return encoder; }
+        
         INT32 Difference(NormBlockId a, NormBlockId b) const
             {return NormBlockId::Difference(a, b, fec_block_mask);}
         int Compare(NormBlockId a, NormBlockId b) const
@@ -521,8 +536,21 @@ class NormSession
         void SenderSetFtiMode(FtiMode ftiMode)
             {fti_mode = ftiMode;}
         
+        void SetReceiverMaxDelay(unsigned int msec)
+            {rcvr_max_delay = msec;}
+        unsigned int GetReceiverMaxDelay() const
+            {return rcvr_max_delay;}
+            
+        // NormTelemetryContext Implementation
+        double GetGrtt() const override { return SenderGrtt(); }
+        double GetTxRate() const override { return tx_rate; }
+        virtual unsigned int GetGroupSize() const override { return (unsigned int)((NormNodeList*)&cc_node_list)->GetCount(); }
+        double GetCurrentTime() const override { ProtoTime t; t.GetCurrentTime(); return t.GetValue(); }
+        
         void SenderEncode(unsigned int segmentId, const char* segment, char** parityVectorList)
             {encoder->Encode(segmentId, segment, parityVectorList);}
+        void SenderEncodeParity(unsigned int parityId, char* parityVector)
+            {encoder->EncodeParity(parityId, parityVector);}
         
         
         NormBlock* SenderGetFreeBlock(NormObjectId objectId, NormBlockId blockId);
@@ -789,6 +817,9 @@ class NormSession
         NormBlockPool                   block_pool;
         NormSegmentPool                 segment_pool;
         NormEncoder*                    encoder;
+        NormEncoderFactory              encoder_factories[256];
+        NormDecoderFactory              decoder_factories[256];
+        bool                            is_rateless_codec[256];
         UINT8                           fec_id;
         UINT8                           fec_m;
         INT32                           fec_block_mask;

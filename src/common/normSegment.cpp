@@ -1,4 +1,5 @@
 #include "normSegment.h"
+#include "normEncoder.h"
 
 NormSegmentPool::NormSegmentPool()
  : seg_size(0), seg_count(0), seg_total(0), seg_list(NULL), seg_pool(NULL),
@@ -528,8 +529,35 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
                                     UINT16          numParity,
                                     NormObjectId    objectId,
                                     bool            pendingInfo,
-                                    UINT16          payloadMax)
+                                    UINT16          payloadMax,
+                                    UINT16          fecOverhead,
+                                    bool            isRateless)
 {
+    if (isRateless)
+    {
+        int needed = (int)erasure_count - (int)parity_count + (int)fecOverhead;
+        if (needed <= 0) return false;
+        
+        UINT16 needed_clamped = (needed > 65535) ? 65535 : (UINT16)needed;
+        
+        NormRepairRequest req;
+        nack.AttachRepairRequest(req, payloadMax);
+        req.SetForm(NormRepairRequest::ERASURES);
+        req.SetFlag(NormRepairRequest::SEGMENT);
+        if (pendingInfo) req.SetFlag(NormRepairRequest::INFO);
+        
+        if (req.AppendErasureCount(fecId, fecM, objectId, blk_id, numData, needed_clamped))
+        {
+            if (0 == nack.PackRepairRequest(req))
+            {
+                PLOG(PL_WARN, "NormBlock::AppendRepairRequest() warning: full NACK msg\n");
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
     bool requestAppended = false;
     NormSegmentId nextId = 0;
     NormSegmentId endId;

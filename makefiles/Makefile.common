@@ -234,6 +234,15 @@ normClient:    $(CLIENT_OBJ) libnorm.a $(LIBPROTO)
 	$(CC) $(CFLAGS) -o $@ $(CLIENT_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
 	mkdir -p ../bin
 	cp $@ ../bin/$@
+
+# (normRatelessTest) rateless fec tester
+RATELESS_SRC = $(EXAMPLE)/normRatelessTest.cpp
+RATELESS_OBJ = $(RATELESS_SRC:.cpp=.o)
+
+normRatelessTest:    $(RATELESS_OBJ) libnorm.a $(LIBPROTO) 
+	$(CC) $(CFLAGS) -o $@ $(RATELESS_OBJ) $(LDFLAGS) libnorm.a $(LIBPROTO) $(LIBS)
+	mkdir -p ../bin
+	cp $@ ../bin/$@
     
            
     
@@ -308,4 +317,3 @@ distclean:  clean
 
 # DO NOT DELETE THIS LINE -- mkdep uses it.
 # DO NOT PUT ANYTHING AFTER THIS LINE, IT WILL GO AWAY.
-
