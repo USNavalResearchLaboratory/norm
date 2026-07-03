@@ -47,7 +47,7 @@ system = platform.system().lower()
 
 def options(ctx):
     ctx.recurse('protolib')    
-    build_opts = ctx.parser.add_argument_group('Compile/install Options', 'Use during build/install step.')
+    build_opts = ctx.add_option_group('Compile/install Options', 'Use during build/install step.')
 
     # Add Rust binding options
     ctx.add_option('--build-rust', action='store_true', default=False,

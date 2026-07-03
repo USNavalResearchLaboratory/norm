@@ -1718,28 +1718,12 @@ void NormApp::Notify(NormController::Event event,
                         // we can use that for file name right away ???
                         // (TBD) Manage recv file name collisions, etc ...
                         char fileName[PATH_MAX];
-                        strcpy(fileName, rx_cache_path);
-                        size_t catMax = strlen(fileName);
-                        if (catMax > PATH_MAX)
-                            catMax = 0;
-                        else
-                            catMax = PATH_MAX - catMax;
-                        strcat(fileName, "normTempXXXXXX");
 #ifdef WIN32
 #ifdef _WIN32_WCE
                         bool tempFileOK = false;
                         for (int i = 0; i < 255; i++)
                         {
-                            strncpy(fileName, rx_cache_path, PATH_MAX);
-                            catMax = strlen(fileName);
-                            if (catMax > PATH_MAX) 
-                                catMax = 0;
-                            else
-                                catMax = PATH_MAX - catMax;
-                            strncat(fileName, "normTempXXXXXX", catMax);
-                            char tempName[16];
-                            sprintf(tempName, "normTemp%06u", i);
-                            strcat(fileName, tempName);
+                            snprintf(fileName, PATH_MAX, "%snormTemp%06u", rx_cache_path, i);
                             if(!NormFile::IsLocked(fileName))
                             {
                                 tempFileOK = true;
@@ -1748,9 +1732,11 @@ void NormApp::Notify(NormController::Event event,
                         }
                         if (!tempFileOK)
 #else
+                        snprintf(fileName, PATH_MAX, "%snormTempXXXXXX", rx_cache_path);
                         if (!_mktemp(fileName))
 #endif // if/else _WIN32_WCE
 #else
+                        snprintf(fileName, PATH_MAX, "%snormTempXXXXXX", rx_cache_path);
                         int fd = mkstemp(fileName); 
                         if (fd >= 0)
                         {
