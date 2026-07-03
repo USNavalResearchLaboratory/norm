@@ -79,7 +79,7 @@ bool NormMsg::InitFromBuffer(UINT16 msgLength)
             PLOG(PL_FATAL, "NormMsg::InitFromBuffer() invalid message type!\n");
             return false;
     }
-    if (msgLength < header_length)
+    if ((msgLength < header_length) || (header_length < header_length_base))
     {
         PLOG(PL_FATAL, "NormMsg::InitFromBuffer() invalid message or header length\n");
         return false;

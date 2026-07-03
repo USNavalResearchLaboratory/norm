@@ -271,29 +271,12 @@ void NormInstance::Notify(NormController::Event   event,
                     if (NULL != rx_cache_path)
                     {
                         char fileName[PATH_MAX];
-                        strncpy(fileName, rx_cache_path, PATH_MAX);
-                        size_t catMax = strlen(fileName);
-                        if (catMax > PATH_MAX) 
-                            catMax = 0;
-                        else
-                            catMax = PATH_MAX - catMax;
-                        strncat(fileName, "normTempXXXXXX", catMax);
-                        
 #ifdef WIN32
 #ifdef _WIN32_WCE
                         bool tempFileOK = false;
                         for (int i = 0; i < 255; i++)
                         {
-                            strncpy(fileName, rx_cache_path, PATH_MAX);
-                            catMax = strlen(fileName);
-                            if (catMax > PATH_MAX) 
-                                catMax = 0;
-                            else
-                                catMax = PATH_MAX - catMax;
-                            strncat(fileName, "normTempXXXXXX", catMax);
-                            char tempName[16];
-                            sprintf(tempName, "normTemp%06u", i);
-                            strcat(fileName, tempName);
+                            snprintf(fileName, PATH_MAX, "%snormTemp%06u", rx_cache_path, i);
                             if(!NormFile::IsLocked(fileName))
                             {
                                 tempFileOK = true;
@@ -302,9 +285,11 @@ void NormInstance::Notify(NormController::Event   event,
                         }
                         if (!tempFileOK)
 #else
+                        snprintf(fileName, PATH_MAX, "%snormTempXXXXXX", rx_cache_path);
                         if (!_mktemp(fileName))
 #endif // if/else _WIN32_WCE
 #else
+                        snprintf(fileName, PATH_MAX, "%snormTempXXXXXX", rx_cache_path);
                         int fd = mkstemp(fileName); 
                         if (fd >= 0)
                         {
