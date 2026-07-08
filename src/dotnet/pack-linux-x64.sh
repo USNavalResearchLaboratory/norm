@@ -1,6 +1,7 @@
 #!/bin/bash
 currenPath="$PWD"
 cd ../../
+./waf configure
 ./waf
 cd "$currenPath"
 libPath="$currenPath/lib"
