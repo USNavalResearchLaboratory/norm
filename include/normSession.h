@@ -560,8 +560,8 @@ class NormSession : public NormTelemetryContext
         
         void SenderEncode(unsigned int segmentId, const char* segment, char** parityVectorList)
             {encoder->Encode(segmentId, segment, parityVectorList);}
-        void SenderEncodeParity(unsigned int parityId, char* parityVector)
-            {encoder->EncodeParity(parityId, parityVector);}
+        void SenderEncodeParity(unsigned int parityId, const char** sourceVectorList, unsigned int numData, char* parityVector)
+            {encoder->EncodeParity(parityId, sourceVectorList, numData, parityVector);}
         
         
         NormBlock* SenderGetFreeBlock(NormObjectId objectId, NormBlockId blockId);

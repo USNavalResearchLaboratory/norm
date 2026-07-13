@@ -52,8 +52,13 @@ class NormEncoder
         virtual ~NormEncoder();
         virtual bool Init(unsigned int numData, unsigned int numParity, UINT16 vectorSize) = 0;
         virtual void Destroy() = 0;
-        virtual void Encode(unsigned int segmentId, const char *dataVector, char **parityVectorList) = 0;    
-        virtual void EncodeParity(unsigned int parityId, char* parityVector) { (void)parityId; (void)parityVector; }
+        virtual void Encode(unsigned int segmentId, const char *dataVector, char **parityVectorList) = 0;
+        // Rateless codes generate parity symbols on demand.  Unlike the block-oriented
+        // Encode() above, EncodeParity() is handed the block's source symbol vectors so a
+        // fountain/rateless encoder can synthesize the "parityId"-th (innovative) repair
+        // symbol without having to cache source state across calls.
+        virtual void EncodeParity(unsigned int parityId, const char** sourceVectorList, unsigned int numData, char* parityVector)
+            { (void)parityId; (void)sourceVectorList; (void)numData; (void)parityVector; }
         virtual bool IsRateless() const { return false; }
         virtual UINT16 CalculateProactiveParity(unsigned int blockId, UINT16 numData, const NormTelemetryContext& context) { return 0; }
         virtual UINT16 CalculateReactiveParity(unsigned int blockId, UINT16 requestedErasures, const NormTelemetryContext& context) { return requestedErasures; }
@@ -65,7 +70,13 @@ class NormDecoder
         virtual ~NormDecoder();
         virtual bool Init(unsigned int numData, unsigned int numParity, UINT16 vectorSize) = 0;
         virtual void Destroy() = 0;
-        virtual int Decode(char** vectorList, unsigned int numData,  unsigned int erasureCount, unsigned int* erasureLocs) = 0;    
+        // Decode in place, filling any erased source symbol vectors in "vectorList".
+        // For ideal (MDS) codes (e.g. Reed-Solomon) the return value is unused by the
+        // receiver, which assumes success whenever it holds >= erasureCount repair symbols.
+        // For rateless/non-ideal codes the return value MUST be the number of source
+        // symbol erasures that could NOT be recovered (0 == fully decoded); the receiver
+        // uses this to keep the block pending and NACK for additional repair symbols.
+        virtual int Decode(char** vectorList, unsigned int numData,  unsigned int erasureCount, unsigned int* erasureLocs) = 0;
 };  // end class NormDecoder
 
 #endif // _NORM_ENCODER

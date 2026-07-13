@@ -208,10 +208,16 @@ bool NormBlock::IsRepairPending(UINT16 numData, UINT16 numParity)
     }
     else
     {
+        // We need "erasure_count" repair symbols, plus "decode_overhead" more for
+        // rateless codes whose earlier repair symbols weren't innovative enough to
+        // decode (decode_overhead is always 0 for ideal MDS codes, preserving the
+        // original behavior).
+        UINT16 parityNeed = erasure_count + decode_overhead;
+        if (parityNeed > numParity) parityNeed = numParity;
         repair_mask.SetBits(0, numData);
-        repair_mask.SetBits(numData+erasure_count, numParity-erasure_count);
+        repair_mask.SetBits(numData+parityNeed, numParity-parityNeed);
     }
-    // Calculate repair_mask = pending_mask - repair_mask 
+    // Calculate repair_mask = pending_mask - repair_mask
     repair_mask.XCopy(pending_mask);
     return (repair_mask.IsSet());
 }  // end NormBlock::IsRepairPending()
@@ -535,7 +541,9 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
 {
     if (isRateless)
     {
-        int needed = (int)erasure_count - (int)parity_count + (int)fecOverhead;
+        // "decode_overhead" grows when a prior decode attempt fell short of innovative
+        // symbols, so the receiver keeps asking for more parity until the block decodes.
+        int needed = (int)erasure_count - (int)parity_count + (int)fecOverhead + (int)decode_overhead;
         if (needed <= 0) return false;
         
         UINT16 needed_clamped = (needed > 65535) ? 65535 : (UINT16)needed;
