@@ -163,6 +163,7 @@ class NormBlock
             erasure_count = ndata;
             parity_count = 0;
             parity_offset = 0;
+            decode_overhead = 0;
             flags = 0;
         }
         // Note: This invalidates the repair_mask state.
@@ -172,6 +173,10 @@ class NormBlock
         UINT16 ErasureCount() const {return erasure_count;}
         void IncrementParityCount() {parity_count++;}
         UINT16 ParityCount() const {return parity_count;}
+        // Extra repair symbols a (rateless) receiver needs beyond ErasureCount() because
+        // prior decode attempts were short of innovative symbols (0 for ideal MDS codes).
+        void IncrementDecodeOverhead() {decode_overhead++;}
+        UINT16 DecodeOverhead() const {return decode_overhead;}
         
         bool GetFirstPending(NormSymbolId& symbolId) const
         {
@@ -238,14 +243,16 @@ class NormBlock
                                        NormBlockId finalBlockId,
                                        UINT16      finalSegmentSize) const;
         
-        bool AppendRepairRequest(NormNackMsg&   nack, 
+        bool AppendRepairRequest(class NormNackMsg& nack, 
                                  UINT8          fecId,
                                  UINT8          fecM,
                                  UINT16         numData, 
                                  UINT16         numParity,
                                  NormObjectId   objectId,
                                  bool           pendingInfo,
-                                 UINT16         payloadMax);
+                                 UINT16         payloadMax,
+                                 UINT16         fecOverhead = 2,
+                                 bool           isRateless = false);
         
         
         void SetLastNackTime(const ProtoTime& theTime)
@@ -277,6 +284,7 @@ class NormBlock
         int          flags;
         UINT16       erasure_count;
         UINT16       parity_count;  // how many fresh parity we are currently planning to send
+        UINT16       decode_overhead;  // extra repair symbols a rateless rcvr needs after a short decode
         UINT16       parity_offset; // offset from where our fresh parity will be sent
         UINT16       seg_size_max;
         

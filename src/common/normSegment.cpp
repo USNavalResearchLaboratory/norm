@@ -1,4 +1,5 @@
 #include "normSegment.h"
+#include "normEncoder.h"
 
 NormSegmentPool::NormSegmentPool()
  : seg_size(0), seg_count(0), seg_total(0), seg_list(NULL), seg_pool(NULL),
@@ -207,10 +208,16 @@ bool NormBlock::IsRepairPending(UINT16 numData, UINT16 numParity)
     }
     else
     {
+        // We need "erasure_count" repair symbols, plus "decode_overhead" more for
+        // rateless codes whose earlier repair symbols weren't innovative enough to
+        // decode (decode_overhead is always 0 for ideal MDS codes, preserving the
+        // original behavior).
+        UINT16 parityNeed = erasure_count + decode_overhead;
+        if (parityNeed > numParity) parityNeed = numParity;
         repair_mask.SetBits(0, numData);
-        repair_mask.SetBits(numData+erasure_count, numParity-erasure_count);
+        repair_mask.SetBits(numData+parityNeed, numParity-parityNeed);
     }
-    // Calculate repair_mask = pending_mask - repair_mask 
+    // Calculate repair_mask = pending_mask - repair_mask
     repair_mask.XCopy(pending_mask);
     return (repair_mask.IsSet());
 }  // end NormBlock::IsRepairPending()
@@ -528,8 +535,37 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
                                     UINT16          numParity,
                                     NormObjectId    objectId,
                                     bool            pendingInfo,
-                                    UINT16          payloadMax)
+                                    UINT16          payloadMax,
+                                    UINT16          fecOverhead,
+                                    bool            isRateless)
 {
+    if (isRateless)
+    {
+        // "decode_overhead" grows when a prior decode attempt fell short of innovative
+        // symbols, so the receiver keeps asking for more parity until the block decodes.
+        int needed = (int)erasure_count - (int)parity_count + (int)fecOverhead + (int)decode_overhead;
+        if (needed <= 0) return false;
+        
+        UINT16 needed_clamped = (needed > 65535) ? 65535 : (UINT16)needed;
+        
+        NormRepairRequest req;
+        nack.AttachRepairRequest(req, payloadMax);
+        req.SetForm(NormRepairRequest::ERASURES);
+        req.SetFlag(NormRepairRequest::SEGMENT);
+        if (pendingInfo) req.SetFlag(NormRepairRequest::INFO);
+        
+        if (req.AppendErasureCount(fecId, fecM, objectId, blk_id, numData, needed_clamped))
+        {
+            if (0 == nack.PackRepairRequest(req))
+            {
+                PLOG(PL_WARN, "NormBlock::AppendRepairRequest() warning: full NACK msg\n");
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
     bool requestAppended = false;
     NormSegmentId nextId = 0;
     NormSegmentId endId;
