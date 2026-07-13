@@ -133,11 +133,6 @@ NormSession::NormSession(NormSessionMgr &sessionMgr, NormNodeId localNodeId)
     user_timer.SetListener(this, &NormSession::OnUserTimeout);
     user_timer.SetInterval(0.0);
     user_timer.SetRepeat(0);
-
-    memset(encoder_factories, 0, sizeof(encoder_factories));
-    memset(decoder_factories, 0, sizeof(decoder_factories));
-    memset(is_rateless_codec, 0, sizeof(is_rateless_codec));
-    is_rateless_codec[NormPayloadId::RL] = true; // Built-in RL codec
 }
 
 NormSession::~NormSession()
@@ -150,23 +145,6 @@ NormSession::~NormSession()
         preset_sender = NULL;
     }
     Close();
-}
-
-void NormSession::RegisterFecCoder(UINT8 fecId, NormEncoderFactory encoderFactory, NormDecoderFactory decoderFactory, bool isRateless)
-{
-    encoder_factories[fecId] = encoderFactory;
-    decoder_factories[fecId] = decoderFactory;
-    is_rateless_codec[fecId] = isRateless;
-}
-
-NormEncoderFactory NormSession::GetEncoderFactory(UINT8 fecId) const
-{
-    return encoder_factories[fecId];
-}
-
-NormDecoderFactory NormSession::GetDecoderFactory(UINT8 fecId) const
-{
-    return decoder_factories[fecId];
 }
 
 bool NormSession::Open()
@@ -5841,7 +5819,18 @@ NormSessionMgr::NormSessionMgr(ProtoTimerMgr &timerMgr,
     : timer_mgr(timerMgr), socket_notifier(socketNotifier), channel_notifier(channelNotifier),
       controller(NULL), data_free_func(NULL), top_session(NULL)
 {
+    memset(encoder_factories, 0, sizeof(encoder_factories));
+    memset(decoder_factories, 0, sizeof(decoder_factories));
+    memset(is_rateless_codec, 0, sizeof(is_rateless_codec));
+    is_rateless_codec[NormPayloadId::RL] = true; // Built-in RL codec
 }
+
+void NormSessionMgr::RegisterFecCoder(UINT8 fecId, NormEncoderFactory encoderFactory, NormDecoderFactory decoderFactory, bool isRateless)
+{
+    encoder_factories[fecId] = encoderFactory;
+    decoder_factories[fecId] = decoderFactory;
+    is_rateless_codec[fecId] = isRateless;
+} // end NormSessionMgr::RegisterFecCoder()
 
 NormSessionMgr::~NormSessionMgr()
 {

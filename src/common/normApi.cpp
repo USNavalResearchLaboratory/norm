@@ -1689,7 +1689,7 @@ bool NormRegisterFecCoder(NormSessionHandle sessionHandle,
         NormSession* session = (NormSession*)sessionHandle;
         if (session)
         {
-            session->RegisterFecCoder(fecId, encoderFactory, decoderFactory, isRateless);
+            session->GetSessionMgr().RegisterFecCoder(fecId, encoderFactory, decoderFactory, isRateless);
             instance->dispatcher.ResumeThread();
             return true;
         }

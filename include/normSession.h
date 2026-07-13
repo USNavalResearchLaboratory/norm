@@ -75,6 +75,9 @@ class NormController
         const NormFecLayout* fec_layouts[256];
 };  // end class NormController
 
+typedef class NormEncoder* (*NormEncoderFactory)();
+typedef class NormDecoder* (*NormDecoderFactory)();
+
 class NormSessionMgr
 {
     friend class NormSession;
@@ -116,20 +119,27 @@ class NormSessionMgr
             {data_free_func = freeFunc;}
         NormDataObject::DataFreeFunctionHandle GetDataFreeFunction() const
             {return data_free_func;}
-        
-    private:   
-        ProtoTimerMgr&                          timer_mgr;      
-        ProtoSocket::Notifier&                  socket_notifier; 
-        ProtoChannel::Notifier*                 channel_notifier; 
-        NormController*                         controller;     
-        NormDataObject::DataFreeFunctionHandle  data_free_func;
-        
-        class NormSession*       top_session;  // top of NormSession list
-              
-};  // end class NormSessionMgr
 
-typedef class NormEncoder* (*NormEncoderFactory)();
-typedef class NormDecoder* (*NormDecoderFactory)();
+        // FEC codec factory registry (shared by all sessions this manager owns)
+        void RegisterFecCoder(UINT8 fecId, NormEncoderFactory encoderFactory, NormDecoderFactory decoderFactory, bool isRateless);
+        NormEncoderFactory GetEncoderFactory(UINT8 fecId) const {return encoder_factories[fecId];}
+        NormDecoderFactory GetDecoderFactory(UINT8 fecId) const {return decoder_factories[fecId];}
+        bool IsRatelessFec(UINT8 fecId) const {return is_rateless_codec[fecId];}
+
+    private:
+        ProtoTimerMgr&                          timer_mgr;
+        ProtoSocket::Notifier&                  socket_notifier;
+        ProtoChannel::Notifier*                 channel_notifier;
+        NormController*                         controller;
+        NormDataObject::DataFreeFunctionHandle  data_free_func;
+
+        class NormSession*       top_session;  // top of NormSession list
+
+        NormEncoderFactory       encoder_factories[256];
+        NormDecoderFactory       decoder_factories[256];
+        bool                     is_rateless_codec[256];
+
+};  // end class NormSessionMgr
 
 class NormSession : public NormTelemetryContext
 {
@@ -473,10 +483,11 @@ class NormSession : public NormTelemetryContext
         void SenderSetExtraParity(UINT16 extraParity)
             {extra_parity = extraParity;}
         
-        void RegisterFecCoder(UINT8 fecId, NormEncoderFactory encoderFactory, NormDecoderFactory decoderFactory, bool isRateless);
-        NormEncoderFactory GetEncoderFactory(UINT8 fecId) const;
-        NormDecoderFactory GetDecoderFactory(UINT8 fecId) const;
-        bool IsRatelessFec(UINT8 fecId) const { return is_rateless_codec[fecId]; }
+        // FEC codec factories are registered/owned by the NormSessionMgr so a
+        // single registry is shared across all sessions of a NORM API instance.
+        NormEncoderFactory GetEncoderFactory(UINT8 fecId) const {return session_mgr.GetEncoderFactory(fecId);}
+        NormDecoderFactory GetDecoderFactory(UINT8 fecId) const {return session_mgr.GetDecoderFactory(fecId);}
+        bool IsRatelessFec(UINT8 fecId) const {return session_mgr.IsRatelessFec(fecId);}
         
         NormEncoder* GetEncoder() const { return encoder; }
         
@@ -817,9 +828,6 @@ class NormSession : public NormTelemetryContext
         NormBlockPool                   block_pool;
         NormSegmentPool                 segment_pool;
         NormEncoder*                    encoder;
-        NormEncoderFactory              encoder_factories[256];
-        NormDecoderFactory              decoder_factories[256];
-        bool                            is_rateless_codec[256];
         UINT8                           fec_id;
         UINT8                           fec_m;
         INT32                           fec_block_mask;
