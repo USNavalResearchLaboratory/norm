@@ -12,12 +12,6 @@ jobs:
         os: [ubuntu-latest, macos-latest]
 
     env:
-      # The bindings link libnorm via `#cgo pkg-config: norm`. ./waf --build-go
-      # writes a norm.pc into build/pkgconfig pointing at the in-tree libraries.
-      PKG_CONFIG_PATH: ${{ github.workspace }}/build/pkgconfig
-      # Dynamic linking: let the loader find libnorm/libprotokit at test time.
-      LD_LIBRARY_PATH: ${{ github.workspace }}/build:${{ github.workspace }}/build/protolib
-      DYLD_LIBRARY_PATH: ${{ github.workspace }}/build:${{ github.workspace }}/build/protolib
       CGO_ENABLED: "1"
 
     defaults:
@@ -45,6 +39,29 @@ jobs:
     - name: Build NORM (with Go hook)
       run: ./waf configure --build-go && ./waf build
       working-directory: .
+
+    # The bindings link libnorm via `#cgo pkg-config: norm`. The waf --build-go
+    # hook writes a build-tree norm.pc under build/pkgconfig pointing at the
+    # in-tree libraries. (Note: build/norm.pc also exists but targets the install
+    # prefix /usr/local, which is empty on a runner — so we use the pkgconfig one
+    # explicitly.) Export the pkg-config + loader paths for the standalone go
+    # steps, and fail loudly if pkg-config cannot resolve norm.
+    - name: Configure pkg-config and loader paths
+      working-directory: .
+      run: |
+        pcdir="$PWD/build/pkgconfig"
+        libs="$PWD/build:$PWD/build/protolib"
+        if [ ! -f "$pcdir/norm.pc" ]; then
+          echo "build-tree norm.pc not found at $pcdir/norm.pc" >&2
+          echo "norm.pc files present under build/:" >&2
+          find "$PWD/build" -name norm.pc >&2 || true
+          exit 1
+        fi
+        echo "PKG_CONFIG_PATH=$pcdir" >> "$GITHUB_ENV"
+        echo "LD_LIBRARY_PATH=$libs" >> "$GITHUB_ENV"
+        echo "DYLD_LIBRARY_PATH=$libs" >> "$GITHUB_ENV"
+        echo "Resolved norm via pkg-config:"
+        PKG_CONFIG_PATH="$pcdir" pkg-config --cflags --libs norm
 
     - name: Check formatting
       run: test -z "$(gofmt -l .)" || { echo 'gofmt needed on:'; gofmt -l .; exit 1; }
