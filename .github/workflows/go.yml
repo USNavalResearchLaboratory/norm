@@ -34,16 +34,17 @@ jobs:
       with:
         python-version: 3.x
 
-    # Build the native NORM library (and generate build/pkgconfig/norm.pc) via the
-    # waf --build-go hook. Runs from the repo root, not ./src/go.
-    - name: Build NORM (with Go hook)
-      run: ./waf configure --build-go && ./waf build
-      working-directory: .
-
     - name: Setup Go
       uses: actions/setup-go@v5
       with:
         go-version: 'stable'
+
+    # Build the native NORM library (and generate build/pkgconfig/norm.pc) via the
+    # waf --build-go hook. Go must already be on PATH: `configure --build-go`
+    # probes for the toolchain. Runs from the repo root, not ./src/go.
+    - name: Build NORM (with Go hook)
+      run: ./waf configure --build-go && ./waf build
+      working-directory: .
 
     - name: Check formatting
       run: test -z "$(gofmt -l .)" || { echo 'gofmt needed on:'; gofmt -l .; exit 1; }
