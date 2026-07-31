@@ -355,7 +355,13 @@ NORM_API_LINKAGE
 UINT16 NormGetRxPort(NormSessionHandle sessionHandle);
 
 NORM_API_LINKAGE
+#ifdef __cplusplus
 bool NormGetRxBindAddress(NormSessionHandle sessionHandle, char* addr, unsigned int& addrLen, UINT16& port);
+#else
+// C callers get a pointer-based signature; references and pointers are ABI-identical
+// so this does not change the compiled library or C++ callers.
+bool NormGetRxBindAddress(NormSessionHandle sessionHandle, char* addr, unsigned int* addrLen, UINT16* port);
+#endif
 
 // TBD - We should probably have a "NormSetCCMode(NormCCMode ccMode)" function for users
 NORM_API_LINKAGE
@@ -575,7 +581,7 @@ NORM_API_LINKAGE
 bool NormStreamHasVacancy(NormObjectHandle streamHandle);
 
 NORM_API_LINKAGE
-unsigned int NormStreamGetVacancy(NormObjectHandle streamHandle, unsigned int bytesWanted = 0);
+unsigned int NormStreamGetVacancy(NormObjectHandle streamHandle, unsigned int bytesWanted DEFAULT(0));
 
 NORM_API_LINKAGE
 void NormStreamMarkEom(NormObjectHandle streamHandle);
