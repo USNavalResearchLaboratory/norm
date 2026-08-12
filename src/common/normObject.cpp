@@ -4513,6 +4513,10 @@ bool NormObjectTable::Remove(NormObject* theObject)
     if (range)
     {
         if ((objectId < range_lo) || (objectId > range_hi)) return false;
+        
+        // Ensure the object is actually in the tree before proceeding
+        if (theObject != tree.Find(objectId.GetValuePtr(), 8*sizeof(UINT16))) 
+            return false;
         if (range > 1)
         {
             if (objectId == range_lo)
