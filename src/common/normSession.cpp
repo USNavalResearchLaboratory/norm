@@ -761,6 +761,21 @@ bool NormSession::StartSender(UINT16 instanceId,
                               UINT16 numParity,
                               UINT8  fecId)
 {
+    if ((0 != fecId) && !NormPayloadId::IsValid(fecId))
+    {
+        PLOG(PL_FATAL, "NormSession::StartSender() error: no payload-id layout registered "
+                       "for fec_id %u (see NormRegisterFecLayout())\n", fecId);
+        return false;
+    }
+    // A rateless fecId has no built-in codec -- without a registered one we would
+    // silently build a Reed-Solomon encoder while advertising "fecId" on the wire, and
+    // every receiver would then reject the stream as an unknown fecId.  Fail up front.
+    if (IsRatelessFec(fecId) && (NULL == GetEncoderFactory(fecId)))
+    {
+        PLOG(PL_FATAL, "NormSession::StartSender() error: no FEC codec registered for "
+                       "rateless fec_id %u (see NormRegisterFecCoder())\n", fecId);
+        return false;
+    }
     UINT16 blockSize = numData + numParity;
     if (blockSize <= 255)
         fec_m = 8;
@@ -805,17 +820,23 @@ bool NormSession::StartSender(UINT16 instanceId,
     unsigned long maskSize = blockSize >> 3;
     if (0 != (blockSize & 0x07))
         maskSize++;
+    // A rateless sender synthesizes repair symbols on demand from the block's source
+    // symbols (see NormObject::CalculateBlockParity()), so it must also cache the
+    // source vectors -- budget numData + numParity segments per block instead of just
+    // the numParity a block code needs for its precomputed parity.
+    unsigned long segmentsPerBlock = IsRatelessFec(fecId) ? (numData + numParity) : numParity;
+
     unsigned long blockSpace = sizeof(NormBlock) +
                                blockSize * sizeof(char *) +
                                2 * maskSize +
-                               numParity * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());
+                               segmentsPerBlock * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());
 
     unsigned long numBlocks = bufferSpace / blockSpace;
     if (bufferSpace > (numBlocks * blockSpace))
         numBlocks++;
     if (numBlocks < 2)
         numBlocks = 2;
-    unsigned long numSegments = numBlocks * numParity;
+    unsigned long numSegments = numBlocks * segmentsPerBlock;
 
     if (!block_pool.Init((UINT32)numBlocks, blockSize))
     {
@@ -4047,15 +4068,6 @@ void NormSession::SenderHandleNackMessage(const struct timeval &currentTime, Nor
                     }
                     break;
                 case SEGMENT:
-                {
-                    UINT16 numErasuresVal = 0;
-                    if (NormRepairRequest::ERASURES == requestForm)
-                    {
-                        numErasuresVal = nextSegmentId;
-                        if (numErasuresVal > nparity) numErasuresVal = nparity;
-                        nextSegmentId = ndata;
-                        lastSegmentId = ndata;
-                    }
                     PLOG(PL_DETAIL, "NormSession::SenderHandleNackMessage(SEGMENT) obj>%hu blk>%lu segs>%hu:%hu\n",
                          (UINT16)nextObjectId, (unsigned long)nextBlockId.GetValue(),
                          (UINT16)nextSegmentId, (UINT16)lastSegmentId);
@@ -4118,13 +4130,12 @@ void NormSession::SenderHandleNackMessage(const struct timeval &currentTime, Nor
                     {
                         // mark nack time for potential flow control
                         static_cast<NormStreamObject *>(object)->SetLastNackTime(nextBlockId, ProtoTime(currentTime));
-                        if ((nextSegmentId < ndata) || (NormRepairRequest::ERASURES == requestForm))
+                        if (nextSegmentId < ndata)
                         {
                             bool attemptLock = true;
-                            NormSegmentId firstLockId = (NormRepairRequest::ERASURES == requestForm) ? 0 : nextSegmentId;
+                            NormSegmentId firstLockId = nextSegmentId;
                             NormSegmentId lastLockId = ndata - 1;
-                            if (NormRepairRequest::ERASURES != requestForm)
-                                lastLockId = MIN(lastLockId, lastSegmentId);
+                            lastLockId = MIN(lastLockId, lastSegmentId);
                             if (holdoff)
                             {
                                 if (nextObjectId == txObjectIndex)
@@ -4185,10 +4196,7 @@ void NormSession::SenderHandleNackMessage(const struct timeval &currentTime, Nor
 
                     // With a series of SEGMENT repair requests for a block, "numErasures" will
                     // eventually total the number of missing segments in the block.
-                    if (NormRepairRequest::ERASURES == requestForm)
-                        numErasures = numErasuresVal;
-                    else
-                        numErasures += (lastSegmentId - nextSegmentId + 1);
+                    numErasures += (lastSegmentId - nextSegmentId + 1);
                     if (holdoff)
                     {
                         if (nextObjectId > txObjectIndex)
@@ -4271,7 +4279,6 @@ void NormSession::SenderHandleNackMessage(const struct timeval &currentTime, Nor
                                                     numErasures);
                         startTimer = true;
                     } // end if/else (holdoff)
-                }
                     break;
                 case INFO:
                     // We already dealt with INFO request above with respect to initiating repair

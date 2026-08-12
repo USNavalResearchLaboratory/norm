@@ -214,10 +214,14 @@ bool NormBlock::IsRepairPending(UINT16 numData, UINT16 numParity)
         // original behavior).
         UINT16 parityNeed = erasure_count + decode_overhead;
         if (parityNeed > numParity) parityNeed = numParity;
-        repair_mask.SetBits(0, numData);
+        // Once every advertised repair symbol has arrived, a rateless decoder can
+        // still report a residual shortfall.  Leave the missing source symbols
+        // visible so the next NACK can fall back to explicit source repair.
+        if (!((0 != decode_overhead) && (parity_count >= numParity)))
+            repair_mask.SetBits(0, numData);
         repair_mask.SetBits(numData+parityNeed, numParity-parityNeed);
     }
-    // Calculate repair_mask = pending_mask - repair_mask
+    // Calculate repair_mask = pending_mask - repair_mask 
     repair_mask.XCopy(pending_mask);
     return (repair_mask.IsSet());
 }  // end NormBlock::IsRepairPending()
@@ -539,33 +543,6 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
                                     UINT16          fecOverhead,
                                     bool            isRateless)
 {
-    if (isRateless)
-    {
-        // "decode_overhead" grows when a prior decode attempt fell short of innovative
-        // symbols, so the receiver keeps asking for more parity until the block decodes.
-        int needed = (int)erasure_count - (int)parity_count + (int)fecOverhead + (int)decode_overhead;
-        if (needed <= 0) return false;
-        
-        UINT16 needed_clamped = (needed > 65535) ? 65535 : (UINT16)needed;
-        
-        NormRepairRequest req;
-        nack.AttachRepairRequest(req, payloadMax);
-        req.SetForm(NormRepairRequest::ERASURES);
-        req.SetFlag(NormRepairRequest::SEGMENT);
-        if (pendingInfo) req.SetFlag(NormRepairRequest::INFO);
-        
-        if (req.AppendErasureCount(fecId, fecM, objectId, blk_id, numData, needed_clamped))
-        {
-            if (0 == nack.PackRepairRequest(req))
-            {
-                PLOG(PL_WARN, "NormBlock::AppendRepairRequest() warning: full NACK msg\n");
-                return false;
-            }
-            return true;
-        }
-        return false;
-    }
-
     bool requestAppended = false;
     NormSegmentId nextId = 0;
     NormSegmentId endId;
@@ -581,6 +558,51 @@ bool NormBlock::AppendRepairRequest(NormNackMsg&    nack,
             GetNextPending(nextId);
         }
         endId = numData + numParity;
+    }
+    else if (isRateless)
+    {
+        // Nothing erased means nothing to repair -- don't let a non-zero "fecOverhead"
+        // conjure up a NACK for a block that is already complete.
+        if (0 == erasure_count) return false;
+        nextId = numData;
+        if (!GetNextPending(nextId) || (nextId >= (NormSegmentId)(numData + numParity)))
+        {
+            // The finite repair-symbol namespace is exhausted.  Request the
+            // remaining source symbols explicitly instead of leaving the block
+            // pending forever.
+            nextId = 0;
+            if (!GetFirstPending(nextId) || (nextId >= numData)) return false;
+            endId = numData;
+        }
+        else
+        {
+            // A rateless code is not MDS: recovery takes "erasure_count" innovative
+            // repair symbols plus slack, and "decode_overhead" grows whenever a
+            // decode attempt fell short, so keep asking until the block decodes.
+            int needed = (int)erasure_count - (int)parity_count +
+                         (int)fecOverhead + (int)decode_overhead;
+            if (needed <= 0) return false;
+            // Name the repair symbols we lack by index, rather than sending an ERASURES
+            // count.  A count leaves the sender to pick indices from its own parity
+            // accounting, and a block rebuilt by SenderRecoverBlock() has none left
+            // (TxRecover() sets parity_offset = parity_count = nparity), so the count
+            // collapses to a single index and the sender re-sends repair symbol 0 forever.
+            // Select by count across the whole parity range -- unlike the MDS case below,
+            // the symbols we already hold do not reduce how many more we need, so the
+            // range we ask over cannot be capped at "numData + needed".
+            NormSegmentId lastId = nextId;
+            NormSegmentId scanId = nextId;
+            int selected = 0;
+            while (1)
+            {
+                lastId = scanId;
+                if (++selected >= needed) break;
+                scanId++;
+                if (!GetNextPending(scanId)) break;
+                if (scanId >= (NormSegmentId)(numData + numParity)) break;
+            }
+            endId = lastId + 1;
+        }
     }
     else
     {

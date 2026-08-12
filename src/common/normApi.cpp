@@ -1,4 +1,6 @@
+#ifndef _NORM_API_BUILD
 #define _NORM_API_BUILD	// force 'dllexport' in "normApi.h"
+#endif // !_NORM_API_BUILD
 #include "normApi.h"
 #include "normSession.h"
 
@@ -1677,33 +1679,43 @@ void NormSetAutoParity(NormSessionHandle sessionHandle, unsigned char autoParity
 }  // end NormSetAutoParity()
 
 NORM_API_LINKAGE
-bool NormRegisterFecCoder(NormSessionHandle sessionHandle,
+bool NormRegisterFecCoder(NormInstanceHandle instanceHandle,
                           UINT8              fecId,
                           NormEncoderFactory encoderFactory,
                           NormDecoderFactory decoderFactory,
                           bool               isRateless)
 {
-    NormInstance* instance = NormInstance::GetInstanceFromSession(sessionHandle);
+    NormInstance* instance = (NormInstance*)instanceHandle;
     if (instance && instance->dispatcher.SuspendThread())
     {
-        NormSession* session = (NormSession*)sessionHandle;
-        if (session)
+        if ((NULL == encoderFactory) || (NULL == decoderFactory))
         {
-            session->GetSessionMgr().RegisterFecCoder(fecId, encoderFactory, decoderFactory, isRateless);
             instance->dispatcher.ResumeThread();
-            return true;
+            return false;
         }
+        // The registry is instance-wide, so refuse to swap a codec out from
+        // underneath sessions that may already be encoding/decoding with it.
+        if (instance->session_mgr.HasSessions())
+        {
+            instance->dispatcher.ResumeThread();
+            return false;
+        }
+        instance->session_mgr.RegisterFecCoder(fecId, encoderFactory, decoderFactory, isRateless);
         instance->dispatcher.ResumeThread();
+        return true;
     }
     return false;
 }  // end NormRegisterFecCoder()
 
 NORM_API_LINKAGE
-void NormRegisterFecLayout(NormInstanceHandle instanceHandle, UINT8 fecId, const NormFecLayout* layout)
+bool NormRegisterFecLayout(NormInstanceHandle instanceHandle, UINT8 fecId, const NormFecLayout* layout)
 {
-    NormInstance* instance = (NormInstance*)instanceHandle;
-    if (instance)
-        instance->SetFecLayout(fecId, layout);
+    // Validate before touching the process-wide table, so a bad handle can't leave a
+    // registration behind.
+    if (NULL == (NormInstance*)instanceHandle) return false;
+    // Layouts are keyed by fecId process-wide: the NormPayloadId call sites that need
+    // them (FTI/NACK parsing, block mask setup) have no instance context to consult.
+    return NormPayloadId::SetFecLayout(fecId, layout);
 }  // end NormRegisterFecLayout()
 
 NORM_API_LINKAGE

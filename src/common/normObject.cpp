@@ -1320,14 +1320,14 @@ bool NormObject::AppendRepairRequest(NormNackMsg&   nack,
                             blockRequestAppended = 
                                 block->AppendRepairRequest(nack, fec_id, fec_m, max_pending_segment, 0,
                                                            transport_id, pending_info, payloadMax,
-                                                           2, isRateless); 
+                                                       2, isRateless); 
                         }
                         else
                         {
                             blockRequestAppended = 
                                 block->AppendRepairRequest(nack, fec_id, fec_m, numData, nparity, 
                                                            transport_id, pending_info, payloadMax,
-                                                           2, isRateless); 
+                                                       2, isRateless); 
                         }
                     }
                     if (blockRequestAppended)
@@ -1621,32 +1621,32 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                         ratelessDecodeIncomplete = session.IsRatelessFec(fec_id) && (0 != unrecovered);
                         if (!ratelessDecodeIncomplete)
                         {
-                            for (UINT16 i = 0; i < erasureCount; i++)
+                        for (UINT16 i = 0; i < erasureCount; i++) 
+                        {
+                            NormSegmentId sid = sender->GetErasureLoc(i);
+                            if (sid < numData)
                             {
-                                NormSegmentId sid = sender->GetErasureLoc(i);
-                                if (sid < numData)
+                                if (WriteSegment(blockId, sid, block->GetSegment(sid)))
                                 {
-                                    if (WriteSegment(blockId, sid, block->GetSegment(sid)))
-                                    {
-                                        objectUpdated = true;
-                                        // For statistics only (TBD) #ifdef NORM_DEBUG
-                                        // "segmentLength" is not necessarily correct here (TBD - fix this)
-                                        sender->IncrementRecvGoodput(segmentLength);
-                                    }
-                                    else
-                                    {
-                                        if (IsStream())
-                                            PLOG(PL_DEBUG, "NormObject::HandleObjectMessage() WriteSegment() error\n");
-                                        else
-                                            PLOG(PL_ERROR, "NormObject::HandleObjectMessage() WriteSegment() error\n");
-                                    }
-                                }
+                                    objectUpdated = true;
+                                    // For statistics only (TBD) #ifdef NORM_DEBUG
+                                    // "segmentLength" is not necessarily correct here (TBD - fix this)
+                                    sender->IncrementRecvGoodput(segmentLength);
+                                }  
                                 else
                                 {
-                                    break;
-                                }
+                                    if (IsStream())
+                                        PLOG(PL_DEBUG, "NormObject::HandleObjectMessage() WriteSegment() error\n");
+                                    else
+                                        PLOG(PL_ERROR, "NormObject::HandleObjectMessage() WriteSegment() error\n");
+                                } 
+                            }
+                            else
+                            {
+                                break;
                             }
                         }
+                    }
                         else
                         {
                             // Not enough innovative repair symbols yet.  Note the shortfall so
@@ -1660,14 +1660,14 @@ void NormObject::HandleObjectMessage(const NormObjectMsg& msg,
                         }
                     }
                     // Clear any temporarily retrieved segments for the block
-                    for (UINT16 i = 0; i < retrievalCount; i++)
+                    for (UINT16 i = 0; i < retrievalCount; i++) 
                         block->DetachSegment(sender->GetRetrievalLoc(i));
                     if (!ratelessDecodeIncomplete)
                     {
-                        // OK, we're done with this block
-                        pending_mask.Unset(blockId.GetValue());
-                        block_buffer.Remove(block);
-                        sender->PutFreeBlock(block);
+                    // OK, we're done with this block
+                    pending_mask.Unset(blockId.GetValue());
+                    block_buffer.Remove(block);
+                    sender->PutFreeBlock(block); 
                     }
                 }  // if erasureCount <= parityCount (i.e., block complete)
                 // Notify application of new data available
@@ -1878,8 +1878,16 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
                 fti.SetFecNumParity(nparity);
                 break;
             }
-            case 131: // RL
+            default:
             {
+                // The rateless scheme (131) and registered codecs use the same generic
+                // FTI fields.  Their FEC payload-id format differs, but that is supplied
+                // separately by NormRegisterFecLayout().
+                if ((131 != fec_id) && (NULL == session.GetEncoderFactory(fec_id)))
+                {
+                    ASSERT(0);
+                    return false;
+                }
                 NormFtiExtension131 fti;
                 msg->AttachExtension(fti);
                 fti.SetObjectSize(object_size);
@@ -1889,9 +1897,6 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
                 fti.SetFecNumParity(nparity);
                 break;
             }
-            default:
-                ASSERT(0);
-                return false;
         }
     }
     if (pending_info)
@@ -1970,6 +1975,10 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
            UINT16 autoParity = session.SenderAutoParity();
            if (session.GetEncoder() && session.GetEncoder()->IsRateless()) {
                autoParity += session.GetEncoder()->CalculateProactiveParity(blockId.GetValue(), numData, session);
+               // Clamp as SenderHandleNackMessage() does for CalculateReactiveParity():
+               // autoParity indexes the block's parity space, and letting an app codec
+               // push it past nparity makes parity_offset overflow the segment table.
+               if (autoParity > nparity) autoParity = nparity;
            }
            block->TxInit(blockId, numData, autoParity);  
            //if (blockId < max_pending_block) 
@@ -2092,8 +2101,8 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
                     memset(buffer+payloadLength, 0, payloadMax-payloadLength);
                 // (TBD) the encode routine could update the block's parity readiness
                 block->UpdateSegSizeMax(payloadLength);
-                session.SenderEncode(segmentId, data->AccessPayload(), block->SegmentList(numData));
-                block->IncreaseParityReadiness();
+                session.SenderEncode(segmentId, data->AccessPayload(), block->SegmentList(numData)); 
+                block->IncreaseParityReadiness();     
                 // Rateless codecs synthesize repair symbols on demand from the block's
                 // source symbols, so retain each source vector in the block as it is sent.
                 // (This incremental path drives ParityReadiness to completion, after which
@@ -2109,24 +2118,46 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
                     }
                     else
                     {
-                        PLOG(PL_INFO, "NormObject::NextSenderMsg() node>%lu warning: no free segment to cache "
-                                      "rateless source symbol.\n", (unsigned long)LocalNodeId());
+                        // Not fatal here -- the data segment itself is still sent.  The block
+                        // just can't synthesize repair symbols until every source vector is
+                        // cached, which the HasSegments() guard below enforces.
+                        PLOG(PL_WARN, "NormObject::NextSenderMsg() node>%lu warning: no free segment to cache "
+                                      "rateless source symbol (block %lu cannot produce parity).\n",
+                                      (unsigned long)LocalNodeId(), (unsigned long)block->GetId().GetValue());
                     }
                 }
             }
         }
         else
         {   
+            bool isRateless = (NULL != session.GetEncoder()) && session.GetEncoder()->IsRateless();
             if (!block->ParityReady(numData)) 
             {
                 ASSERT(0 == block->ParityReadiness());
-                CalculateBlockParity(block);
+                // For a rateless block this also caches the source vectors that
+                // EncodeParity() needs, so a failure here must not be ignored.
+                if (!CalculateBlockParity(block) && isRateless)
+                {
+                    PLOG(PL_WARN, "NormObject::NextSenderMsg() node>%lu warning: could not prepare "
+                                  "rateless block %lu source symbols\n",
+                                  (unsigned long)LocalNodeId(), (unsigned long)blockId.GetValue());
+                    return false;
+                }
             }
             char* segment = block->GetSegment(segmentId);
-            if (session.GetEncoder() && session.GetEncoder()->IsRateless())
+            if (isRateless)
             {
                 if (NULL == segment)
                 {
+                    // Never hand the codec a partially-NULL source vector list -- a source
+                    // symbol may have gone uncached above when the segment pool was dry.
+                    if (!block->HasSegments(numData))
+                    {
+                        PLOG(PL_WARN, "NormObject::NextSenderMsg() node>%lu warning: rateless block %lu "
+                                      "is missing cached source symbols, cannot synthesize parity\n",
+                                      (unsigned long)LocalNodeId(), (unsigned long)blockId.GetValue());
+                        return false;
+                    }
                     segment = session.SenderGetFreeSegment(transport_id, blockId);
                     if (segment)
                     {
@@ -2325,7 +2356,7 @@ bool NormObject::CalculateBlockParity(NormBlock* block)
         }
         else
         {
-            return false;
+            return false;   
         }
     }
     block->SetParityReadiness(numData);

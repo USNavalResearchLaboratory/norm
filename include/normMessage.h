@@ -9,6 +9,7 @@
 #include <string.h>  // for memcpy(), etc
 #include <math.h>
 #include <stdlib.h>  // for rand(), etc
+#include <atomic>
 
 #ifdef _WIN32_WCE
 #include <stdio.h>
@@ -406,8 +407,25 @@ class NormPayloadId
             SB  = 129, // partially-specified "small block" codes
             RL  = 131  // partially-specified "rateless" codes
         };
-        static bool IsValid(UINT8 fecId, const NormFecLayout* layout = NULL) 
+        // Several NormPayloadId call sites (FTI/NACK parsing, block mask setup) have no
+        // session or controller handy to supply the layout for a custom "fecId", so the
+        // layouts registered via NormRegisterFecLayout() are also kept here and used
+        // whenever the caller doesn't pass one explicitly.
+        //
+        // The table is keyed by "fecId", which is the on-wire codec discriminator, so
+        // any number of codecs coexist here as long as they use distinct ids.  Claiming
+        // an id already held by a layout describing a *different* wire format is refused:
+        // that would mean two payload id formats sharing one discriminator, which cannot
+        // interoperate on a group no matter how the layouts are scoped.  Re-registering
+        // an equivalent layout (as separate NORM instances in one process do) is allowed.
+        // Published layouts are copied into library-owned storage and remain valid for
+        // process lifetime.  A NULL layout succeeds only when the id is unclaimed.
+        static bool SetFecLayout(UINT8 fecId, const NormFecLayout* layout);
+        static const NormFecLayout* GetFecLayout(UINT8 fecId) {return fec_layouts[fecId].load();}
+
+        static bool IsValid(UINT8 fecId) 
         {
+            const NormFecLayout* layout = fec_layouts[fecId].load();
             if (layout != NULL)
                 return true;
             switch (fecId)
@@ -421,14 +439,14 @@ class NormPayloadId
                     return false;
             }
         }
-        
         NormPayloadId(UINT8 fecId, UINT8 m, UINT32* theBuffer)
             : fec_id(fecId), fec_m(m), buffer(theBuffer) {}
         NormPayloadId(UINT8 fecId, UINT8 m, const UINT32* theBuffer)
             : fec_id(fecId), fec_m(m), cbuffer(theBuffer) {}
         
-        static UINT16 GetLength(UINT8 fecId, const NormFecLayout* layout = NULL)
+        static UINT16 GetLength(UINT8 fecId)
         {
+            const NormFecLayout* layout = fec_layouts[fecId].load();
             if (layout != NULL)
                 return layout->payloadIdLength;
             switch (fecId)
@@ -444,8 +462,9 @@ class NormPayloadId
             }
         }
         
-        static UINT32 GetFecBlockMask(UINT8 fecId, UINT8 fecM, const NormFecLayout* layout = NULL)
+        static UINT32 GetFecBlockMask(UINT8 fecId, UINT8 fecM)
         {
+            const NormFecLayout* layout = fec_layouts[fecId].load();
             if (layout != NULL)
                 return layout->blockMask;
             switch (fecId)
@@ -466,8 +485,9 @@ class NormPayloadId
             }
         }
         
-        void SetFecPayloadId(UINT32 blockId, UINT16 symbolId, UINT16 blockLen, const NormFecLayout* layout = NULL)
+        void SetFecPayloadId(UINT32 blockId, UINT16 symbolId, UINT16 blockLen)
         {
+            const NormFecLayout* layout = fec_layouts[fec_id].load();
             if (layout != NULL && layout->packPayloadId != NULL)
             {
                 layout->packPayloadId(buffer, blockId, symbolId, blockLen);
@@ -499,7 +519,7 @@ class NormPayloadId
                     ptr[0] = htons(blockLen);  // 2 bytes
                     ptr[1] = htons(symbolId);  // 2 bytes
                     break;
-                }
+            }   
                 case RL:
                 {
                     UINT16* payloadId = (UINT16*)buffer;
@@ -511,8 +531,9 @@ class NormPayloadId
         }
         
         // Message processing methods
-        NormBlockId GetFecBlockId(const NormFecLayout* layout = NULL) const
+        NormBlockId GetFecBlockId() const
         {
+            const NormFecLayout* layout = fec_layouts[fec_id].load();
             if (layout != NULL && layout->unpackBlockId != NULL)
             {
                 return layout->unpackBlockId(cbuffer);
@@ -548,8 +569,9 @@ class NormPayloadId
             }
         }        
         
-        UINT16 GetFecSymbolId(const NormFecLayout* layout = NULL)  const
+        UINT16 GetFecSymbolId()  const
         {
+            const NormFecLayout* layout = fec_layouts[fec_id].load();
             if (layout != NULL && layout->unpackSymbolId != NULL)
             {
                 return layout->unpackSymbolId(cbuffer);
@@ -588,8 +610,9 @@ class NormPayloadId
             }      
         } 
         
-        UINT16 GetFecBlockLength(const NormFecLayout* layout = NULL) const
+        UINT16 GetFecBlockLength() const
         {
+            const NormFecLayout* layout = fec_layouts[fec_id].load();
             if (layout != NULL && layout->unpackBlockLength != NULL)
             {
                 return layout->unpackBlockLength(cbuffer);
@@ -604,9 +627,12 @@ class NormPayloadId
                 return 0;
             }
         }        
-        
+                
         
     private:
+        // Registered via NormRegisterFecLayout(); read on the rx thread, so atomic.
+        static std::atomic<const NormFecLayout*> fec_layouts[256];
+        
         UINT8   fec_id;
         UINT8   fec_m;
         union

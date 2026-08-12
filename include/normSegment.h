@@ -95,6 +95,15 @@ class NormBlock
             segment_table[sid] = (char*)NULL;
             return segment;
         }
+        // Are the first "count" segment vectors all present?  A rateless sender needs
+        // every source vector cached before it can synthesize a repair symbol from them.
+        bool HasSegments(UINT16 count) const
+        {
+            ASSERT(count <= size);
+            for (UINT16 i = 0; i < count; i++)
+                if (NULL == segment_table[i]) return false;
+            return true;
+        }
         void SetSegment(NormSegmentId sid, char* segment)
         {
             ASSERT(sid < size);
@@ -243,7 +252,7 @@ class NormBlock
                                        NormBlockId finalBlockId,
                                        UINT16      finalSegmentSize) const;
         
-        bool AppendRepairRequest(class NormNackMsg& nack, 
+        bool AppendRepairRequest(class NormNackMsg& nack,
                                  UINT8          fecId,
                                  UINT8          fecM,
                                  UINT16         numData, 

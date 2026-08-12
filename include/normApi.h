@@ -866,15 +866,25 @@ class NormDecoder;
 typedef NormEncoder* (*NormEncoderFactory)();
 typedef class NormDecoder* (*NormDecoderFactory)();
 
+// Register a custom FEC codec for "fecId" with the given NORM instance.  The
+// registry is shared by every session the instance owns, so this must be called
+// before any session is created (it fails otherwise).
 NORM_API_LINKAGE
-bool NormRegisterFecCoder(NormSessionHandle sessionHandle,
+bool NormRegisterFecCoder(NormInstanceHandle instanceHandle,
                           UINT8              fecId,
                           NormEncoderFactory encoderFactory,
                           NormDecoderFactory decoderFactory,
                           bool               isRateless);
 
+// Describe the FEC payload id wire format for a custom "fecId" (the built-in codecs
+// already know their own).  Since "fecId" is the on-wire codec discriminator, layouts
+// are keyed by it process-wide: any number of codecs may be registered under distinct
+// ids, but claiming an id already held by a layout describing a different wire format
+// fails.  Re-registering an equivalent layout succeeds, so separate NORM instances in
+// one process may each register the codecs they use.  The layout is copied into
+// library-owned storage and remains registered for process lifetime.
 NORM_API_LINKAGE
-void NormRegisterFecLayout(NormInstanceHandle instance, UINT8 fecId, const NormFecLayout* layout);
+bool NormRegisterFecLayout(NormInstanceHandle instance, UINT8 fecId, const NormFecLayout* layout);
 
 } // end extern "C"
 #endif /* __cplusplus */

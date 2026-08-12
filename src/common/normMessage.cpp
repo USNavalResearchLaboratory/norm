@@ -1,4 +1,53 @@
 #include "normMessage.h"
+#include <mutex>
+
+std::atomic<const NormFecLayout*> NormPayloadId::fec_layouts[256] = {};
+static NormFecLayout norm_fec_layout_storage[256] = {};
+static std::mutex norm_fec_layout_mutex;
+
+// Do two layouts describe the same payload id wire format?  Compared field-wise
+// rather than by memcmp() so struct padding can't make equivalent layouts differ.
+static bool NormFecLayoutsEquivalent(const NormFecLayout* a, const NormFecLayout* b)
+{
+    return ((a->payloadIdLength   == b->payloadIdLength)   &&
+            (a->blockMask         == b->blockMask)         &&
+            (a->packPayloadId     == b->packPayloadId)     &&
+            (a->unpackBlockId     == b->unpackBlockId)     &&
+            (a->unpackSymbolId    == b->unpackSymbolId)    &&
+            (a->unpackBlockLength == b->unpackBlockLength));
+}  // end NormFecLayoutsEquivalent()
+
+bool NormPayloadId::SetFecLayout(UINT8 fecId, const NormFecLayout* layout)
+{
+    if (NULL == layout)
+    {
+        // Published layouts may be in use by any NORM instance in this process.
+        // Keep them immutable for process lifetime so readers and callback targets
+        // cannot be invalidated underneath packet processing.
+        return (NULL == fec_layouts[fecId].load());
+    }
+    if ((0 == layout->payloadIdLength) || (0 != (layout->payloadIdLength & 0x03)) ||
+        (0 == layout->blockMask) || (NULL == layout->packPayloadId) ||
+        (NULL == layout->unpackBlockId) || (NULL == layout->unpackSymbolId))
+    {
+        PLOG(PL_ERROR, "NormPayloadId::SetFecLayout() error: invalid layout for fec_id %u\n", fecId);
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(norm_fec_layout_mutex);
+    const NormFecLayout* current = fec_layouts[fecId].load();
+    if (NULL == current)
+    {
+        norm_fec_layout_storage[fecId] = *layout;
+        fec_layouts[fecId].store(&norm_fec_layout_storage[fecId]);
+        return true;
+    }
+    if (NormFecLayoutsEquivalent(current, layout))
+        return true;  // same wire format, so nothing to disagree about
+    PLOG(PL_ERROR, "NormPayloadId::SetFecLayout() error: fec_id %u is already registered "
+                   "with a different payload id layout\n", fecId);
+    return false;
+}  // end NormPayloadId::SetFecLayout()
 
 
 NormHeaderExtension::NormHeaderExtension()

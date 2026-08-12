@@ -4,9 +4,9 @@
 #include "normMessage.h"
 #include "normObject.h"
 #include "normNode.h"
-
 #include "normEncoder.h"
-#include <protoTree.h>
+
+#include "protokit.h"
 
 #include "protoCap.h"  // for ProtoCap for ECN_SUPPORT
 
@@ -27,10 +27,6 @@ class NormController
 {
     public:
         virtual ~NormController() {}
-        NormController() { memset(fec_layouts, 0, sizeof(fec_layouts)); }
-
-        void SetFecLayout(UINT8 id, const NormFecLayout* layout) { fec_layouts[id] = layout; }
-        const NormFecLayout* GetFecLayout(UINT8 id) const { return fec_layouts[id]; }
         enum Event
         {
             EVENT_INVALID = 0,
@@ -72,7 +68,6 @@ class NormController
                             class NormNode*       node,
                             class NormObject*     object) = 0;
                     
-        const NormFecLayout* fec_layouts[256];
 };  // end class NormController
 
 typedef class NormEncoder* (*NormEncoderFactory)();
@@ -119,6 +114,8 @@ class NormSessionMgr
             {data_free_func = freeFunc;}
         NormDataObject::DataFreeFunctionHandle GetDataFreeFunction() const
             {return data_free_func;}
+        
+        bool HasSessions() const {return (NULL != top_session);}
 
         // FEC codec factory registry (shared by all sessions this manager owns)
         void RegisterFecCoder(UINT8 fecId, NormEncoderFactory encoderFactory, NormDecoderFactory decoderFactory, bool isRateless);
@@ -126,15 +123,15 @@ class NormSessionMgr
         NormDecoderFactory GetDecoderFactory(UINT8 fecId) const {return decoder_factories[fecId];}
         bool IsRatelessFec(UINT8 fecId) const {return is_rateless_codec[fecId];}
 
-    private:
-        ProtoTimerMgr&                          timer_mgr;
-        ProtoSocket::Notifier&                  socket_notifier;
-        ProtoChannel::Notifier*                 channel_notifier;
-        NormController*                         controller;
+    private:   
+        ProtoTimerMgr&                          timer_mgr;      
+        ProtoSocket::Notifier&                  socket_notifier; 
+        ProtoChannel::Notifier*                 channel_notifier; 
+        NormController*                         controller;     
         NormDataObject::DataFreeFunctionHandle  data_free_func;
-
+        
         class NormSession*       top_session;  // top of NormSession list
-
+              
         NormEncoderFactory       encoder_factories[256];
         NormDecoderFactory       decoder_factories[256];
         bool                     is_rateless_codec[256];
@@ -144,7 +141,6 @@ class NormSessionMgr
 class NormSession : public NormTelemetryContext
 {
     friend class NormSessionMgr;
-
     
     public:
         enum {DEFAULT_MESSAGE_POOL_DEPTH = 16};
@@ -547,15 +543,17 @@ class NormSession : public NormTelemetryContext
         void SenderSetFtiMode(FtiMode ftiMode)
             {fti_mode = ftiMode;}
         
-        void SetReceiverMaxDelay(unsigned int msec)
-            {rcvr_max_delay = msec;}
-        unsigned int GetReceiverMaxDelay() const
-            {return rcvr_max_delay;}
-            
         // NormTelemetryContext Implementation
         double GetGrtt() const override { return SenderGrtt(); }
-        double GetTxRate() const override { return tx_rate; }
-        virtual unsigned int GetGroupSize() const override { return (unsigned int)((NormNodeList*)&cc_node_list)->GetCount(); }
+        double GetTxRateBits() const override { return tx_rate * 8.0; }
+        double GetTxRateBytes() const override { return tx_rate; }
+        double GetLossRate() const override
+        {
+            const NormCCNode* clr = (const NormCCNode*)((NormNodeList*)&cc_node_list)->Head();
+            return (NULL != clr) ? clr->GetLoss() : 0.0;
+        }
+        virtual unsigned int GetGroupSize() const override
+            { return (unsigned int)(gsize_advertised + 0.5); }
         double GetCurrentTime() const override { ProtoTime t; t.GetCurrentTime(); return t.GetValue(); }
         
         void SenderEncode(unsigned int segmentId, const char* segment, char** parityVectorList)
