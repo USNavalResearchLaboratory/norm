@@ -5,11 +5,64 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
-#include <sys/select.h>
-#include <sys/time.h>
+
+// The NORM descriptor is a socket on unix but a HANDLE on win32, so poll for events
+// instead of select()ing on it -- that keeps this test buildable on every platform.
+#ifdef WIN32
+#include <windows.h>
+static void SleepMsec(unsigned int msec) { Sleep(msec); }
+#else
+#include <unistd.h>
+static void SleepMsec(unsigned int msec) { usleep(msec * 1000); }
+#endif // if/else WIN32
+
+// Read an unsigned tunable from the environment, ignoring unset/empty/unparsable
+// values so a mistyped override can't silently produce a degenerate run.
+static unsigned long EnvULong(const char* name, unsigned long defaultValue)
+{
+    const char* text = getenv(name);
+    if ((NULL == text) || ('\0' == text[0])) return defaultValue;
+    char* end = NULL;
+    unsigned long value = strtoul(text, &end, 0);
+    if ((NULL == end) || ('\0' != *end) || (0 == value))
+    {
+        fprintf(stderr, "normRatelessTest warning: ignoring bad %s=\"%s\"\n", name, text);
+        return defaultValue;
+    }
+    return value;
+}
 
 // FEC ID for the (partially-specified) rateless code family.
 static const UINT8 RATELESS_FEC_ID = 131;
+
+static void PackCustomPayloadId(UINT32* buffer, UINT32 blockId, UINT16 symbolId, UINT16)
+{
+    UINT16* payloadId = (UINT16*)buffer;
+    payloadId[0] = htons((UINT16)blockId);
+    payloadId[1] = htons(symbolId);
+}
+
+static UINT32 UnpackCustomBlockId(const UINT32* buffer)
+{
+    return ntohs(((const UINT16*)buffer)[0]);
+}
+
+static UINT16 UnpackCustomSymbolId(const UINT32* buffer)
+{
+    return ntohs(((const UINT16*)buffer)[1]);
+}
+
+static UINT16 UnpackCustomBlockLength(const UINT32*) { return 0; }
+
+// Deliberately registers a stack object; the library must copy it.
+static bool RegisterCustomLayout(NormInstanceHandle instance, UINT8 fecId)
+{
+    NormFecLayout layout = {
+        4, 0x0000ffff, PackCustomPayloadId, UnpackCustomBlockId,
+        UnpackCustomSymbolId, UnpackCustomBlockLength
+    };
+    return NormRegisterFecLayout(instance, fecId, &layout);
+}
 
 // Deterministic permutation of [0, n) shared by encoder and decoder.
 // The seed depends only on "n", so both sides produce the identical ordering.
@@ -98,6 +151,14 @@ class MockRatelessDecoder : public NormDecoder
             for (unsigned int i = 0; i < numData; i++)
                 if (erased[i]) sourceErasures++;
 
+            // Exercise NORM's explicit-source fallback after every advertised
+            // repair symbol has been consumed.
+            if (getenv("NORM_FORCE_DECODE_FAILURE") != NULL)
+            {
+                delete[] erased;
+                return (int)sourceErasures;
+            }
+
             BuildRatelessPermutation(perm, numData);
 
             unsigned int recovered = 0;
@@ -136,7 +197,23 @@ int main(int /*argc*/, char* /*argv*/[])
     if (NORM_INSTANCE_INVALID == instance) return -1;
 
     if (getenv("NORM_DEBUG") != NULL) NormSetDebugLevel((unsigned int)atoi(getenv("NORM_DEBUG")));
-    srand((unsigned int)time(NULL));
+    // Keep simulated loss/backoff choices repeatable in automated runs.
+    srand(0x4e4f524dU);
+
+    UINT8 fecId = (UINT8)EnvULong("NORM_FEC_ID", RATELESS_FEC_ID);
+    if ((RATELESS_FEC_ID != fecId) && !RegisterCustomLayout(instance, fecId))
+    {
+        fprintf(stderr, "normRatelessTest error: failed to register custom FEC layout\n");
+        return -1;
+    }
+
+    // Register the mock rateless codec with the instance.  The registry is shared by
+    // every session the instance owns, so this must happen before any are created.
+    if (!NormRegisterFecCoder(instance, fecId, CreateMockEncoder, CreateMockDecoder, true))
+    {
+        fprintf(stderr, "normRatelessTest error: failed to register rateless FEC codec\n");
+        return -1;
+    }
 
     // Use two sessions with DISTINCT node ids on the same multicast group so the
     // receiver treats the sender as a genuine remote peer.  (A single session
@@ -148,14 +225,6 @@ int main(int /*argc*/, char* /*argv*/[])
     NormSessionHandle txSession = NormCreateSession(instance, groupAddr, groupPort, 1);
     NormSessionHandle rxSession = NormCreateSession(instance, groupAddr, groupPort, 2);
     if ((NORM_SESSION_INVALID == txSession) || (NORM_SESSION_INVALID == rxSession)) return -1;
-
-    // Register the mock rateless codec on both the sender and receiver sessions.
-    if (!NormRegisterFecCoder(txSession, RATELESS_FEC_ID, CreateMockEncoder, CreateMockDecoder, true) ||
-        !NormRegisterFecCoder(rxSession, RATELESS_FEC_ID, CreateMockEncoder, CreateMockDecoder, true))
-    {
-        fprintf(stderr, "normRatelessTest error: failed to register rateless FEC codec\n");
-        return -1;
-    }
 
     NormSetRxPortReuse(txSession, true);
     NormSetRxPortReuse(rxSession, true);
@@ -173,15 +242,23 @@ int main(int /*argc*/, char* /*argv*/[])
         return -1;
     }
 
-    // 16 source symbols/block, up to 64 repair symbols/block, 512-byte segments.
-    if (!NormStartSender(txSession, 1, 1024 * 1024, 512, 16, 64, RATELESS_FEC_ID))
+    // Shrinking the sender buffer (relative to the object) forces blocks out of the
+    // sender's block_buffer before their repairs finish, so repair requests have to be
+    // served from SenderRecoverBlock()-recovered blocks.  That is a distinct code path
+    // from steady-state repair, so make it reachable:
+    //   NORM_TX_BUFFER=131072 NORM_DATA_LEN=200000 ./normRatelessTest
+    UINT32 txBuffer = (UINT32)EnvULong("NORM_TX_BUFFER", 1024 * 1024);
+
+    UINT16 numData = (UINT16)EnvULong("NORM_NDATA", 16);
+    UINT16 numParity = (UINT16)EnvULong("NORM_NPARITY", 64);
+    if (!NormStartSender(txSession, 1, txBuffer, 512, numData, numParity, fecId))
     {
         fprintf(stderr, "normRatelessTest error: NormStartSender() failed\n");
         return -1;
     }
 
     // Build a known payload spanning several blocks (incl. a short final block).
-    const UINT32 dataLen = 20000;
+    const UINT32 dataLen = (UINT32)EnvULong("NORM_DATA_LEN", 20000);
     char* txData = new char[dataLen];
     for (UINT32 i = 0; i < dataLen; i++)
         txData[i] = (char)((i * 31 + 7) & 0xff);
@@ -192,28 +269,20 @@ int main(int /*argc*/, char* /*argv*/[])
         fprintf(stderr, "normRatelessTest error: NormDataEnqueue() failed\n");
         return -1;
     }
-    printf("normRatelessTest: sending %u bytes via mock rateless codec (10%% loss)...\n", dataLen);
+    printf("normRatelessTest: sending %u bytes via mock rateless codec (%.3g%% rx loss)...\n",
+           dataLen, lossPct);
 
     int result = -1;
-    // NormGetNextEvent() blocks, so drive it via select() on the NORM descriptor
-    // to enforce a wall-clock watchdog (the demo must never hang).
-    NormDescriptor normFd = NormGetDescriptor(instance);
-    time_t deadline = time(NULL) + 30;
+    // Poll non-blocking so the loop can enforce a wall-clock watchdog (must never hang).
+    time_t deadline = time(NULL) + 60;
     bool running = true;
     while (running && (time(NULL) <= deadline))
     {
-        fd_set fdSet;
-        FD_ZERO(&fdSet);
-        FD_SET(normFd, &fdSet);
-        struct timeval timeout;
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
-        int n = select((int)normFd + 1, &fdSet, NULL, NULL, &timeout);
-        if (n <= 0) continue;  // timeout tick (re-check deadline) or interrupted
-
         NormEvent event;
+        bool gotEvent = false;
         while (running && NormGetNextEvent(instance, &event, false))
         {
+            gotEvent = true;
             switch (event.type)
             {
                 case NORM_RX_OBJECT_COMPLETED:
@@ -241,6 +310,7 @@ int main(int /*argc*/, char* /*argv*/[])
                     break;
             }
         }
+        if (!gotEvent) SleepMsec(10);
     }
     if (running)
         fprintf(stderr, "normRatelessTest error: timed out waiting for object reception\n");

@@ -12,6 +12,18 @@ set(COMMON src/common)
 option(NORM_BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
 set(NORM_CUSTOM_PROTOLIB_VERSION OFF CACHE STRING "Set a custom protolib version to use, ./protolib to use the local version")
 
+# Self-checking tests build by default only when NORM is the top-level project, so
+# projects that add_subdirectory() NORM don't grow an extra binary unasked.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(NORM_BUILD_TESTING_DEFAULT ON)
+else()
+    set(NORM_BUILD_TESTING_DEFAULT OFF)
+endif()
+option(NORM_BUILD_TESTING "Enables building of the self-checking tests in /examples." ${NORM_BUILD_TESTING_DEFAULT})
+if(NORM_BUILD_TESTING)
+    enable_testing()
+endif()
+
 include(CheckCXXSymbolExists)
 check_cxx_symbol_exists(dirfd "dirent.h" HAVE_DIRFD)
 if(HAVE_DIRFD)
@@ -129,6 +141,12 @@ if(BUILD_SHARED_LIBS)
 	set_target_properties(norm PROPERTIES SOVERSION 1.5.10)
 	if(WIN32)
 		target_compile_definitions(norm PUBLIC NORM_USE_DLL)
+		# NORM_USE_DLL alone makes NORM_API_LINKAGE "dllimport" everywhere, which is
+		# what consumers want but is wrong inside the DLL itself: the classes marked
+		# with it (NormEncoder/NormDecoder) define members in normEncoder.cpp, and
+		# MSVC rejects defining a member of a dllimport class.  normApi.cpp defines
+		# this itself for the non-CMake builds; the whole library needs it.
+		target_compile_definitions(norm PRIVATE _NORM_API_BUILD)
 	endif()
 endif()
 
@@ -222,5 +240,18 @@ if(NORM_BUILD_EXAMPLES)
         add_executable(${example} examples/${example}.cpp examples/normSocket.cpp)
         target_link_libraries(${example} PRIVATE norm protokit::protokit)
     endforeach()
+
 endif()
 
+if(NORM_BUILD_TESTING)
+    add_executable(normRatelessTest examples/normRatelessTest.cpp)
+    target_link_libraries(normRatelessTest PRIVATE norm protokit::protokit)
+    add_test(NAME normRatelessTest COMMAND normRatelessTest)
+    add_test(NAME normCustomFecTest COMMAND normRatelessTest)
+    set_tests_properties(normCustomFecTest PROPERTIES ENVIRONMENT "NORM_FEC_ID=132")
+    add_test(NAME normRatelessExhaustionTest COMMAND normRatelessTest)
+    set_tests_properties(normRatelessExhaustionTest PROPERTIES ENVIRONMENT
+        "NORM_FORCE_DECODE_FAILURE=1;NORM_NDATA=4;NORM_NPARITY=4;NORM_DATA_LEN=2000;NORM_RX_LOSS=50")
+    set_tests_properties(normRatelessTest normCustomFecTest normRatelessExhaustionTest
+        PROPERTIES RUN_SERIAL TRUE TIMEOUT 75)
+endif()
