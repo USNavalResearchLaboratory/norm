@@ -886,6 +886,7 @@
         <para><programlisting>enum <link linkend="NormSyncPolicy"><literal>NormSyncPolicy</literal></link>
 {
     <literal>NORM_SYNC_CURRENT</literal><literal>,
+    NORM_SYNC_STREAM,
     NORM_</literal>SYNC_ALL<literal>
 };</literal></programlisting></para>
 
@@ -5299,6 +5300,13 @@ void <link linkend="NormSetDefaultSyncPolicy"><literal>NormSetDefaultSyncPolicy<
                 </row>
 
                 <row>
+                  <entry><para><literal>NORM_SYNC_STREAM</literal></para></entry>
+
+                  <entry><para>Attempt recovery and reliable reception of the
+                  current stream from its beginning.</para></entry>
+                </row>
+
+                <row>
                   <entry><para><literal>NORM_SYNC_ALL</literal></para></entry>
 
                   <entry><para>Attempt recovery and reliable reception of all
@@ -5326,6 +5334,12 @@ void <link linkend="NormSetDefaultSyncPolicy"><literal>NormSetDefaultSyncPolicy<
           content. For large scale, loosely-organized multicast applications,
           the <constant>NORM_SYNC_CURRENT</constant> policy is typically
           recommended.</para>
+
+          <para>The <constant>NORM_SYNC_STREAM</constant> policy is an
+          intermediate option that attempts to synchronize to the current stream
+          object, but aggressively recovers the stream from its beginning. This
+          is useful for applications where the receiver joins mid-stream and
+          needs the entire stream context.</para>
 
           <para>The <constant>NORM_SYNC_ALL</constant> policy allows newly
           joining receivers much more aggressive behavior as they will
