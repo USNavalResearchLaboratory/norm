@@ -1861,6 +1861,13 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
         NormInfoMsg* infoMsg = static_cast<NormInfoMsg*>(msg);
         infoMsg->SetInfo(info_ptr, info_len);
         pending_info = false;
+        
+        if (!pending_mask.IsSet() && first_pass && !IsStream())
+        {
+            first_pass = false;
+            session.Notify(NormController::TX_OBJECT_SENT, NULL, this);
+        }
+        
         return true;
     }
     // This block gets the next pending block/segment
@@ -1888,6 +1895,15 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
                     //ASSERT(IsRepairPending()); 
                     return false;
                 }
+            }
+            else if (NormObjectSize(0) == object_size)
+            {
+                if (first_pass)
+                {
+                    first_pass = false;
+                    session.Notify(NormController::TX_OBJECT_SENT, NULL, this);
+                }
+                return false;
             }
             else
             {
