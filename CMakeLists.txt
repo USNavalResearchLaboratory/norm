@@ -73,9 +73,20 @@ if(NORM_PROTOKIT_GIT_TAG)
 	  GIT_TAG        ${NORM_PROTOKIT_GIT_TAG}
 	)
 	FetchContent_MakeAvailable(protokit)
+	FetchContent_GetProperties(protokit SOURCE_DIR PROTOKIT_SRC_DIR)
 else()
 	message(STATUS "Building protokit from ${NORM_CUSTOM_PROTOLIB_VERSION}")
 	add_subdirectory(protolib)
+	set(PROTOKIT_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/protolib)
+endif()
+
+if (MINGW AND TARGET protokit)
+	target_sources(protokit PRIVATE
+		${PROTOKIT_SRC_DIR}/src/win32/win32Net.cpp
+		${PROTOKIT_SRC_DIR}/src/win32/win32RouteMgr.cpp
+	)
+	target_link_libraries(protokit PUBLIC ws2_32 iphlpapi user32 gdi32 Advapi32 ntdll)
+	target_compile_definitions(protokit PUBLIC _CRT_SECURE_NO_WARNINGS)
 endif()
 
 
