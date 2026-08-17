@@ -219,17 +219,19 @@ int main(int /*argc*/, char* /*argv*/[])
     // receiver treats the sender as a genuine remote peer.  (A single session
     // acting as both sender and receiver would hear its own NACKs and suppress
     // subsequent ones, stalling multi-round rateless repair.)
-    const char* groupAddr = "224.1.2.3";
+    const char* groupAddr = "127.0.0.1";
     const UINT16 groupPort = 6003;
 
     NormSessionHandle txSession = NormCreateSession(instance, groupAddr, groupPort, 1);
     NormSessionHandle rxSession = NormCreateSession(instance, groupAddr, groupPort, 2);
     if ((NORM_SESSION_INVALID == txSession) || (NORM_SESSION_INVALID == rxSession)) return -1;
 
-    NormSetRxPortReuse(txSession, true);
-    NormSetRxPortReuse(rxSession, true);
-    NormSetMulticastLoopback(txSession, true);  // let our data reach the rx session on this host
-    NormSetMulticastLoopback(rxSession, true);  // let our NACKs reach the tx session on this host
+    // Use explicit unicast configuration to avoid SO_REUSEPORT load-balancing on modern OSes
+    // when using the same loopback port.
+    NormSetTxOnly(txSession, true);
+    NormSetTxPort(txSession, 6004, true);
+    NormSetDefaultUnicastNack(rxSession, true);
+
     NormSetTxRate(txSession, 10.0e+06);  // 10 Mbps for a quick loopback run
 
     // Induce loss on the receiver so it must repair via rateless parity.
