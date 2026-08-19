@@ -263,6 +263,13 @@ if(NORM_BUILD_TESTING)
     add_test(NAME normRatelessExhaustionTest COMMAND normRatelessTest)
     set_tests_properties(normRatelessExhaustionTest PROPERTIES ENVIRONMENT
         "NORM_FORCE_DECODE_FAILURE=1;NORM_NDATA=4;NORM_NPARITY=4;NORM_DATA_LEN=2000;NORM_RX_LOSS=50")
+    add_test(NAME normRatelessReNackTest COMMAND normRatelessTest)
+    set_tests_properties(normRatelessReNackTest PROPERTIES ENVIRONMENT
+        "NORM_DECODE_SHORT_COUNT=1;NORM_NDATA=4;NORM_NPARITY=8;NORM_DATA_LEN=2000;NORM_RX_LOSS=30")
+    add_test(NAME normRatelessReNackMultiTest COMMAND normRatelessTest)
+    set_tests_properties(normRatelessReNackMultiTest PROPERTIES ENVIRONMENT
+        "NORM_DECODE_SHORT_COUNT=8;NORM_NDATA=8;NORM_NPARITY=32;NORM_DATA_LEN=20000;NORM_RX_LOSS=40")
     set_tests_properties(normRatelessTest normCustomFecTest normRatelessExhaustionTest
+        normRatelessReNackTest normRatelessReNackMultiTest
         PROPERTIES RUN_SERIAL TRUE TIMEOUT 75)
 endif()

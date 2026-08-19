@@ -78,6 +78,17 @@ static void BuildRatelessPermutation(unsigned int* perm, unsigned int n)
     }
 }
 
+// Decoder instrumentation.  NORM is supposed to honor a *partial* rateless decode
+// by keeping the block pending and NACKing for more repair symbols, then decoding
+// again once they arrive.  NORM_DECODE_SHORT_COUNT forces the first N decode
+// attempts to come up short (recovering nothing) so that recovery path gets
+// exercised -- distinct from NORM_FORCE_DECODE_FAILURE, which never recovers and
+// therefore only reaches the explicit-source-repair fallback.
+static unsigned long mock_short_budget = 0;      // forced short decodes remaining
+static unsigned long mock_decode_calls = 0;      // Decode() invocations
+static unsigned long mock_short_returns = 0;     // returns saying "still missing"
+static unsigned long mock_parity_recoveries = 0; // decodes that fully repaired via parity
+
 class MockRatelessEncoder : public NormEncoder
 {
     public:
@@ -151,10 +162,22 @@ class MockRatelessDecoder : public NormDecoder
             for (unsigned int i = 0; i < numData; i++)
                 if (erased[i]) sourceErasures++;
 
+            mock_decode_calls++;
+
             // Exercise NORM's explicit-source fallback after every advertised
             // repair symbol has been consumed.
             if (getenv("NORM_FORCE_DECODE_FAILURE") != NULL)
             {
+                delete[] erased;
+                return (int)sourceErasures;
+            }
+
+            // Come up short on purpose: recover nothing and report the erasures as
+            // still missing, so NORM must request more symbols and decode again.
+            if ((mock_short_budget > 0) && (sourceErasures > 0))
+            {
+                mock_short_budget--;
+                mock_short_returns++;
                 delete[] erased;
                 return (int)sourceErasures;
             }
@@ -175,6 +198,7 @@ class MockRatelessDecoder : public NormDecoder
                 }
             }
             unsigned int stillMissing = sourceErasures - recovered;
+            if ((recovered > 0) && (0 == stillMissing)) mock_parity_recoveries++;
             delete[] erased;
             return (int)stillMissing;
         }
@@ -251,6 +275,8 @@ int main(int /*argc*/, char* /*argv*/[])
     //   NORM_TX_BUFFER=131072 NORM_DATA_LEN=200000 ./normRatelessTest
     UINT32 txBuffer = (UINT32)EnvULong("NORM_TX_BUFFER", 1024 * 1024);
 
+    mock_short_budget = EnvULong("NORM_DECODE_SHORT_COUNT", 0);
+
     UINT16 numData = (UINT16)EnvULong("NORM_NDATA", 16);
     UINT16 numParity = (UINT16)EnvULong("NORM_NPARITY", 64);
     if (!NormStartSender(txSession, 1, txBuffer, 512, numData, numParity, fecId))
@@ -316,6 +342,29 @@ int main(int /*argc*/, char* /*argv*/[])
     }
     if (running)
         fprintf(stderr, "normRatelessTest error: timed out waiting for object reception\n");
+
+    printf("normRatelessTest: decode attempts %lu, short returns %lu, parity recoveries %lu\n",
+           mock_decode_calls, mock_short_returns, mock_parity_recoveries);
+
+    // When short decodes were requested, completing the transfer is not enough: NORM
+    // could have limped home on explicit source repair alone.  Require evidence that
+    // it honored the partial decode (a short return actually occurred) and that a
+    // later decode of the same block then succeeded via parity.
+    if ((0 == result) && (0 != EnvULong("NORM_DECODE_SHORT_COUNT", 0)))
+    {
+        if (0 == mock_short_returns)
+        {
+            fprintf(stderr, "normRatelessTest: no short decode ever occurred "
+                            "(loss too low to force a decode attempt?). FAIL\n");
+            result = -1;
+        }
+        else if (0 == mock_parity_recoveries)
+        {
+            fprintf(stderr, "normRatelessTest: block never re-decoded after the short "
+                            "return; repaired by explicit source symbols only. FAIL\n");
+            result = -1;
+        }
+    }
 
     NormStopSender(txSession);
     NormStopReceiver(rxSession);
