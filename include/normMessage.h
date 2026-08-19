@@ -9,7 +9,6 @@
 #include <string.h>  // for memcpy(), etc
 #include <math.h>
 #include <stdlib.h>  // for rand(), etc
-#include <atomic>
 
 #ifdef _WIN32_WCE
 #include <stdio.h>
@@ -421,11 +420,11 @@ class NormPayloadId
         // Published layouts are copied into library-owned storage and remain valid for
         // process lifetime.  A NULL layout succeeds only when the id is unclaimed.
         static bool SetFecLayout(UINT8 fecId, const NormFecLayout* layout);
-        static const NormFecLayout* GetFecLayout(UINT8 fecId) {return fec_layouts[fecId].load();}
+        static const NormFecLayout* GetFecLayout(UINT8 fecId) {return fec_layouts[fecId];}
 
         static bool IsValid(UINT8 fecId) 
         {
-            const NormFecLayout* layout = fec_layouts[fecId].load();
+            const NormFecLayout* layout = GetFecLayout(fecId);
             if (layout != NULL)
                 return true;
             switch (fecId)
@@ -446,7 +445,7 @@ class NormPayloadId
         
         static UINT16 GetLength(UINT8 fecId)
         {
-            const NormFecLayout* layout = fec_layouts[fecId].load();
+            const NormFecLayout* layout = GetFecLayout(fecId);
             if (layout != NULL)
                 return layout->payloadIdLength;
             switch (fecId)
@@ -464,7 +463,7 @@ class NormPayloadId
         
         static UINT32 GetFecBlockMask(UINT8 fecId, UINT8 fecM)
         {
-            const NormFecLayout* layout = fec_layouts[fecId].load();
+            const NormFecLayout* layout = GetFecLayout(fecId);
             if (layout != NULL)
                 return layout->blockMask;
             switch (fecId)
@@ -487,7 +486,7 @@ class NormPayloadId
         
         void SetFecPayloadId(UINT32 blockId, UINT16 symbolId, UINT16 blockLen)
         {
-            const NormFecLayout* layout = fec_layouts[fec_id].load();
+            const NormFecLayout* layout = GetFecLayout(fec_id);
             if (layout != NULL && layout->packPayloadId != NULL)
             {
                 layout->packPayloadId(buffer, blockId, symbolId, blockLen);
@@ -533,7 +532,7 @@ class NormPayloadId
         // Message processing methods
         NormBlockId GetFecBlockId() const
         {
-            const NormFecLayout* layout = fec_layouts[fec_id].load();
+            const NormFecLayout* layout = GetFecLayout(fec_id);
             if (layout != NULL && layout->unpackBlockId != NULL)
             {
                 return layout->unpackBlockId(cbuffer);
@@ -571,7 +570,7 @@ class NormPayloadId
         
         UINT16 GetFecSymbolId()  const
         {
-            const NormFecLayout* layout = fec_layouts[fec_id].load();
+            const NormFecLayout* layout = GetFecLayout(fec_id);
             if (layout != NULL && layout->unpackSymbolId != NULL)
             {
                 return layout->unpackSymbolId(cbuffer);
@@ -612,7 +611,7 @@ class NormPayloadId
         
         UINT16 GetFecBlockLength() const
         {
-            const NormFecLayout* layout = fec_layouts[fec_id].load();
+            const NormFecLayout* layout = GetFecLayout(fec_id);
             if (layout != NULL && layout->unpackBlockLength != NULL)
             {
                 return layout->unpackBlockLength(cbuffer);
@@ -631,7 +630,12 @@ class NormPayloadId
         
     private:
         // Registered via NormRegisterFecLayout(); read on the rx thread, so atomic.
-        static std::atomic<const NormFecLayout*> fec_layouts[256];
+        // volatile, not atomic: a reader must not have its load hoisted or cached
+        // across calls, and a pointer-width aligned load or store is indivisible on
+        // every supported target. <atomic> is deliberately not used -- nothing under
+        // src/common or include pulls in the STL, which is what lets the static
+        // library link with no C++ runtime.
+        static const NormFecLayout* volatile fec_layouts[256];
         
         UINT8   fec_id;
         UINT8   fec_m;

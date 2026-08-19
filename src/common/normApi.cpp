@@ -1710,12 +1710,22 @@ bool NormRegisterFecCoder(NormInstanceHandle instanceHandle,
 NORM_API_LINKAGE
 bool NormRegisterFecLayout(NormInstanceHandle instanceHandle, UINT8 fecId, const NormFecLayout* layout)
 {
-    // Validate before touching the process-wide table, so a bad handle can't leave a
-    // registration behind.
-    if (NULL == (NormInstance*)instanceHandle) return false;
-    // Layouts are keyed by fecId process-wide: the NormPayloadId call sites that need
-    // them (FTI/NACK parsing, block mask setup) have no instance context to consult.
-    return NormPayloadId::SetFecLayout(fecId, layout);
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        // Same rule as NormRegisterFecCoder(): a layout describes the payload id wire
+        // format its codec depends on, so refuse to publish one underneath sessions
+        // that may already be parsing with it.
+        if (instance->session_mgr.HasSessions())
+        {
+            instance->dispatcher.ResumeThread();
+            return false;
+        }
+        bool result = NormPayloadId::SetFecLayout(fecId, layout);
+        instance->dispatcher.ResumeThread();
+        return result;
+    }
+    return false;
 }  // end NormRegisterFecLayout()
 
 NORM_API_LINKAGE

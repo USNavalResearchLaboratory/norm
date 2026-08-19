@@ -1,9 +1,22 @@
 #include "normMessage.h"
-#include <mutex>
 
-std::atomic<const NormFecLayout*> NormPayloadId::fec_layouts[256] = {};
+const NormFecLayout* volatile NormPayloadId::fec_layouts[256] = {};
 static NormFecLayout norm_fec_layout_storage[256] = {};
-static std::mutex norm_fec_layout_mutex;
+
+namespace {
+// Publish barrier. Thread suspension orders this writer against *this instance's*
+// protocol thread, but the layout table is process-wide, so another instance's
+// thread can be reading fec_layouts[] while this one writes. The fence keeps the
+// pointer store from being seen before the layout it points at.
+inline void NormFecLayoutPublishBarrier()
+{
+#ifdef WIN32
+    MemoryBarrier();
+#else
+    __sync_synchronize();
+#endif // if/else WIN32/UNIX
+}
+}  // namespace
 
 // Do two layouts describe the same payload id wire format?  Compared field-wise
 // rather than by memcmp() so struct padding can't make equivalent layouts differ.
@@ -24,7 +37,7 @@ bool NormPayloadId::SetFecLayout(UINT8 fecId, const NormFecLayout* layout)
         // Published layouts may be in use by any NORM instance in this process.
         // Keep them immutable for process lifetime so readers and callback targets
         // cannot be invalidated underneath packet processing.
-        return (NULL == fec_layouts[fecId].load());
+        return (NULL == GetFecLayout(fecId));
     }
     if ((0 == layout->payloadIdLength) || (0 != (layout->payloadIdLength & 0x03)) ||
         (0 == layout->blockMask) || (NULL == layout->packPayloadId) ||
@@ -34,16 +47,18 @@ bool NormPayloadId::SetFecLayout(UINT8 fecId, const NormFecLayout* layout)
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(norm_fec_layout_mutex);
-    const NormFecLayout* current = fec_layouts[fecId].load();
+    const NormFecLayout* current = GetFecLayout(fecId);
     if (NULL == current)
     {
         norm_fec_layout_storage[fecId] = *layout;
-        fec_layouts[fecId].store(&norm_fec_layout_storage[fecId]);
+        NormFecLayoutPublishBarrier();
+        fec_layouts[fecId] = &norm_fec_layout_storage[fecId];
         return true;
     }
     if (NormFecLayoutsEquivalent(current, layout))
+    {
         return true;  // same wire format, so nothing to disagree about
+    }
     PLOG(PL_ERROR, "NormPayloadId::SetFecLayout() error: fec_id %u is already registered "
                    "with a different payload id layout\n", fecId);
     return false;

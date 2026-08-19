@@ -883,6 +883,14 @@ bool NormRegisterFecCoder(NormInstanceHandle instanceHandle,
 // fails.  Re-registering an equivalent layout succeeds, so separate NORM instances in
 // one process may each register the codecs they use.  The layout is copied into
 // library-owned storage and remains registered for process lifetime.
+//
+// Call this before creating any session on the instance: registration is refused
+// once the instance has sessions, since a layout describes a wire format those
+// sessions may already be parsing with. One case is deliberately not covered --
+// two instances in one process publishing *different* layouts for the same fecId
+// at the same moment. Closing it needs a process-wide lock, and nothing under
+// src/common or include may pull in the STL, so registration is a startup-time
+// operation by contract rather than by enforcement.
 NORM_API_LINKAGE
 bool NormRegisterFecLayout(NormInstanceHandle instance, UINT8 fecId, const NormFecLayout* layout);
 
