@@ -12,7 +12,7 @@ NormObject::NormObject(NormObject::Type      theType,
                        class NormSenderNode* theSender,
                        const NormObjectId&   transportId)
  : type(theType), session(theSession), sender(theSender), reference_count(1),
-   transport_id(transportId), segment_size(0), pending_info(false), repair_info(false),
+   transport_id(transportId), segment_size(0), pending_info(false), pending_info_repair(false), repair_info(false),
    current_block_id(0), next_segment_id(0), 
    max_pending_block(0), max_pending_segment(0),
    info_ptr(NULL), info_len(0), first_pass(true), accepted(false), notify_on_update(true),
@@ -82,6 +82,7 @@ bool NormObject::Open(const NormObjectSize& objectSize,
                       UINT16                numData,
                       UINT16                numParity)
 {
+    pending_info_repair = false;
     // Note "objectSize" represents actual total object size for
     // DATA or FILE objects, buffer size for STREAM objects
     // In either case, we need our sliding bit masks to be of 
@@ -301,19 +302,16 @@ bool NormObject::HandleInfoRequest(bool holdoff)
     bool increasedRepair = false;
     if (info_ptr || (NormSession::FTI_INFO == session.SenderFtiMode()))
     {
-        if (!repair_info)
+        if (!repair_info && !pending_info)
         {
             increasedRepair = true;
             if (holdoff)
             {
-                if (pending_info)
-                    increasedRepair = false;
-                else
-                    pending_info = true;
+                pending_info = true;
+                pending_info_repair = true;
             }
             else
             {
-                pending_info = true;  // does this really need to be done?
                 repair_info = true;
             }
         }   
@@ -392,7 +390,9 @@ bool NormObject::TxReset(NormBlockId firstBlock, bool requeue)
     {
         increasedRepair = true;
         pending_info = true;
+        pending_info_repair = !requeue;
     }
+    if (requeue) pending_info_repair = false;
     repair_info = false;
     repair_mask.Reset(firstBlock.GetValue());
     repair_mask.Xor(pending_mask);
@@ -415,7 +415,12 @@ bool NormObject::TxReset(NormBlockId firstBlock, bool requeue)
                                               nparity, 
                                               session.SenderAutoParity(), 
                                               segment_size);
-            if (requeue) block->ClearFlag(NormBlock::IN_REPAIR);  // since we're requeuing
+            if (requeue)
+            {
+                block->ClearFlag(NormBlock::IN_REPAIR);  // since we're requeuing
+                block->TxResetOriginalPass(GetBlockSize(blockId),
+                                           session.SenderAutoParity());
+            }
         }
     }
     if (requeue) 
@@ -472,10 +477,11 @@ bool NormObject::TxUpdateBlock(NormBlock*       theBlock,
 bool NormObject::ActivateRepairs()
 {
     bool repairsActivated = false;
-    // Activate repair of info if applicable (TBD - how to flag info message as repair???)
+    // Activate repair of info if applicable.
     if (repair_info)
     {
         pending_info = true;
+        pending_info_repair = true;
         repair_info = false;
         repairsActivated = true;
     }
@@ -1901,10 +1907,17 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
     }
     if (pending_info)
     {
-        // (TBD) set REPAIR_FLAG for retransmitted info
+        if (pending_info_repair)
+            msg->SetFlag(NormObjectMsg::FLAG_REPAIR);
         NormInfoMsg* infoMsg = static_cast<NormInfoMsg*>(msg);
         infoMsg->SetInfo(info_ptr, info_len);
         pending_info = false;
+        pending_info_repair = false;
+        if (!pending_mask.IsSet() && first_pass && !IsStream())
+        {
+            first_pass = false;
+            session.Notify(NormController::TX_OBJECT_SENT, NULL, this);
+        }
         return true;
     }
     // This block gets the next pending block/segment
@@ -1932,6 +1945,15 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
                     //ASSERT(IsRepairPending()); 
                     return false;
                 }
+            }
+            else if (NormObjectSize(0) == object_size)
+            {
+                if (first_pass)
+                {
+                    first_pass = false;
+                    session.Notify(NormController::TX_OBJECT_SENT, NULL, this);
+                }
+                return false;
             }
             else
             {
@@ -1983,7 +2005,10 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
            block->TxInit(blockId, numData, autoParity);  
            //if (blockId < max_pending_block) 
            if (Compare(blockId, max_pending_block) < 0)
+           {
                block->SetFlag(NormBlock::IN_REPAIR);
+               block->TxCompleteOriginalPass();
+           }
            while (!block_buffer.Insert(block))
            {
                //ASSERT(STREAM == type);
@@ -2066,7 +2091,8 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
                 {
                     PLOG(PL_ERROR, "NormObject::NextSenderMsg() node>%lu Warning! can't repair old stream segment\n", 
                                     (unsigned long)LocalNodeId());
-                    block->UnsetPending(segmentId); 
+                    block->UnsetPending(segmentId);
+                    block->TxAdvanceOriginal(segmentId);
                     if (!block->IsPending())
                     {
                         // End of old block reached
@@ -2074,7 +2100,10 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
                         pending_mask.Unset(blockId.GetValue()); 
                         // for EMCON sending, mark NORM_INFO for re-transmission, if applicable
                         if (session.SndrEmcon() && (HaveInfo() || (NormSession::FTI_INFO == session.SenderFtiMode())))
+                        {
+                            if (!pending_info) pending_info_repair = false;
                             pending_info = true;
+                        }
                     }
                     block = NULL;
                     continue;  //return NextSenderMsg(msg);
@@ -2188,9 +2217,11 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
 #endif // if/else SIMULATE
         }
     }  // end while (NULL == block)
-    block->UnsetPending(segmentId); 
-    //if (block->InRepair()) 
-    //    data->SetFlag(NormObjectMsg::FLAG_REPAIR);
+    const bool originalTransmission = block->TxIsOriginalPending(segmentId);
+    block->UnsetPending(segmentId);
+    block->TxAdvanceOriginal(segmentId);
+    if (block->InRepair() && !originalTransmission)
+        data->SetFlag(NormObjectMsg::FLAG_REPAIR);
     data->SetFecPayloadId(fec_id, blockId.GetValue(), segmentId, numData, fec_m);
     if (!block->IsPending()) 
     {
@@ -2199,7 +2230,10 @@ bool NormObject::NextSenderMsg(NormObjectMsg* msg)
         pending_mask.Unset(blockId.GetValue()); 
         // for EMCON sending, mark NORM_INFO for re-transmission, if applicable
         if (session.SndrEmcon() && (HaveInfo() || (NormSession::FTI_INFO == session.SenderFtiMode())))
+        {
+            if (!pending_info) pending_info_repair = false;
             pending_info = true;
+        }
         // Advance sender use of "max_pending_block" so we always
         // know when a block should be flagged as IN_REPAIR
         if (blockId == max_pending_block)
@@ -4649,6 +4683,10 @@ bool NormObjectTable::Remove(NormObject* theObject)
     if (range)
     {
         if ((objectId < range_lo) || (objectId > range_hi)) return false;
+        
+        // Ensure the object is actually in the tree before proceeding
+        if (theObject != tree.Find(objectId.GetValuePtr(), 8*sizeof(UINT16))) 
+            return false;
         if (range > 1)
         {
             if (objectId == range_lo)

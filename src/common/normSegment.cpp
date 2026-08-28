@@ -91,7 +91,8 @@ char* NormSegmentPool::Get()
 // NormBlock Implementation
 
 NormBlock::NormBlock()
- : size(0), segment_table(NULL), erasure_count(0), parity_count(0), next(NULL)
+ : size(0), segment_table(NULL), erasure_count(0), parity_count(0),
+   original_tx_next(0), original_tx_end(0), next(NULL)
 {
 }     
 
@@ -126,6 +127,7 @@ bool NormBlock::Init(UINT16 totalSize)
     parity_count = 0;
     parity_offset = 0;
     seg_size_max = 0;
+    original_tx_next = original_tx_end = 0;
     return true;
 }  // end NormBlock::Init()
 
@@ -145,6 +147,7 @@ void NormBlock::Destroy()
         segment_table = (char**)NULL;
     }
     erasure_count = parity_count = size = 0;
+    original_tx_next = original_tx_end = 0;
 }  // end NormBlock::Destroy()
 
 void NormBlock::EmptyToPool(NormSegmentPool& segmentPool)
@@ -346,6 +349,7 @@ bool NormBlock::TxUpdate(NormSegmentId nextId, NormSegmentId lastId,
             } 
         }   
     }
+    if (increasedRepair) SetFlag(IN_REPAIR);
     return increasedRepair;
 }  // end NormBlock::TxUpdate()
 

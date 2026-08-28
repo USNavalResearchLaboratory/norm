@@ -272,4 +272,19 @@ if(NORM_BUILD_TESTING)
     set_tests_properties(normRatelessTest normCustomFecTest normRatelessExhaustionTest
         normRatelessReNackTest normRatelessReNackMultiTest
         PROPERTIES RUN_SERIAL TRUE TIMEOUT 75)
+    # This test exercises internal sender repair state and message generation,
+    # so compile it with the implementation sources instead of depending on
+    # symbols hidden by shared-library builds.
+    add_executable(normRepairFlagTest
+        tests/normRepairFlagTest.cpp
+        ${PLATFORM_SOURCE_FILES}
+        ${COMMON_SOURCE_FILES})
+    target_link_libraries(normRepairFlagTest PRIVATE protokit::protokit ${PLATFORM_LIBS})
+    target_compile_definitions(normRepairFlagTest PRIVATE ${PLATFORM_DEFINITIONS})
+    target_compile_options(normRepairFlagTest PRIVATE ${PLATFORM_FLAGS})
+    target_include_directories(normRepairFlagTest PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    add_test(NAME normRepairFlagTest COMMAND normRepairFlagTest)
+    set_tests_properties(normRepairFlagTest PROPERTIES TIMEOUT 15)
 endif()

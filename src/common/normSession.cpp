@@ -1433,6 +1433,11 @@ void NormSession::Serve()
                         return;
                     }
                 }
+                else if (0 == obj->GetSize().LSB() && 0 == obj->GetSize().MSB())
+                {
+                    // 0-byte objects have no pending data blocks, so NextSenderMsg correctly returns false.
+                    // This is expected and not an error.
+                }
                 else
                 {
                     PLOG(PL_ERROR, "NormSession::Serve() pending non-stream obj, no message?.\n");
