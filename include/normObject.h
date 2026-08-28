@@ -89,12 +89,14 @@ class NormObject
             info_ptr = NULL;
             info_len = 0;
             pending_info = false;
+            pending_info_repair = false;
         }
         // This is used to bootstrap reception sender
         // is using FTI_INFO FtiMode
         void SetPendingInfo(bool state, UINT8 fecId)
         {
             pending_info = true;
+            pending_info_repair = false;
             fec_id = fecId;
         }
 
@@ -318,6 +320,7 @@ class NormObject
         UINT16                nparity;
         NormBlockBuffer       block_buffer;
         bool                  pending_info;  // set when we need to send or recv info
+        bool                  pending_info_repair;  // sender: pending INFO is reactive repair
         ProtoSlidingMask      pending_mask;
         bool                  repair_info;   // receiver: set when
         ProtoSlidingMask      repair_mask;
