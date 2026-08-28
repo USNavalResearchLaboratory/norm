@@ -12,6 +12,17 @@ set(COMMON src/common)
 option(NORM_BUILD_EXAMPLES "Enables building of the examples in /examples." OFF)
 set(NORM_CUSTOM_PROTOLIB_VERSION OFF CACHE STRING "Set a custom protolib version to use, ./protolib to use the local version")
 
+# Build self-checking tests by default only when NORM is the top-level project.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(NORM_BUILD_TESTING_DEFAULT ON)
+else()
+    set(NORM_BUILD_TESTING_DEFAULT OFF)
+endif()
+option(NORM_BUILD_TESTING "Enables building NORM self-checking tests." ${NORM_BUILD_TESTING_DEFAULT})
+if(NORM_BUILD_TESTING)
+    enable_testing()
+endif()
+
 include(CheckCXXSymbolExists)
 check_cxx_symbol_exists(dirfd "dirent.h" HAVE_DIRFD)
 if(HAVE_DIRFD)
@@ -224,3 +235,20 @@ if(NORM_BUILD_EXAMPLES)
     endforeach()
 endif()
 
+if(NORM_BUILD_TESTING)
+    # This test exercises internal sender repair state and message generation,
+    # so compile it with the implementation sources instead of depending on
+    # symbols hidden by shared-library builds.
+    add_executable(normRepairFlagTest
+        tests/normRepairFlagTest.cpp
+        ${PLATFORM_SOURCE_FILES}
+        ${COMMON_SOURCE_FILES})
+    target_link_libraries(normRepairFlagTest PRIVATE protokit::protokit ${PLATFORM_LIBS})
+    target_compile_definitions(normRepairFlagTest PRIVATE ${PLATFORM_DEFINITIONS})
+    target_compile_options(normRepairFlagTest PRIVATE ${PLATFORM_FLAGS})
+    target_include_directories(normRepairFlagTest PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    add_test(NAME normRepairFlagTest COMMAND normRepairFlagTest)
+    set_tests_properties(normRepairFlagTest PROPERTIES TIMEOUT 15)
+endif()

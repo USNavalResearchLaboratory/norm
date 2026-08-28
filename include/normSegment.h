@@ -114,6 +114,7 @@ class NormBlock
             parity_offset = autoParity;  
             flags = 0;
             seg_size_max = 0;
+            TxResetOriginalPass(ndata, autoParity);
             last_nack_time.GetCurrentTime();
         }
         void TxRecover(NormBlockId& blockId, UINT16 ndata, UINT16 nparity)
@@ -126,6 +127,32 @@ class NormBlock
             parity_offset = nparity; // explicit repair mode ???  
             flags = IN_REPAIR;
             seg_size_max = 0;
+            original_tx_next = original_tx_end = ndata;
+        }
+        void TxResetOriginalPass(UINT16 ndata, UINT16 autoParity)
+        {
+            ASSERT((ndata + autoParity) <= size);
+            original_tx_next = 0;
+            original_tx_end = ndata + autoParity;
+        }
+        void TxCompleteOriginalPass()
+        {
+            original_tx_next = original_tx_end;
+        }
+        bool TxIsOriginalPending(NormSegmentId segmentId) const
+        {
+            return ((segmentId >= original_tx_next) &&
+                    (segmentId < original_tx_end));
+        }
+        void TxAdvanceOriginal(NormSegmentId segmentId)
+        {
+            if (TxIsOriginalPending(segmentId))
+            {
+                // Sender selection is ordered, so first-pass symbols cannot
+                // skip ahead of this frontier.
+                ASSERT(segmentId == original_tx_next);
+                original_tx_next = segmentId + 1;
+            }
         }
         bool TxReset(UINT16 ndata, UINT16 nparity, UINT16 autoParity, 
                      UINT16 segmentSize);
@@ -164,6 +191,7 @@ class NormBlock
             parity_count = 0;
             parity_offset = 0;
             flags = 0;
+            original_tx_next = original_tx_end = 0;
         }
         // Note: This invalidates the repair_mask state.
         bool IsRepairPending(UINT16 ndata, UINT16 nparity); 
@@ -279,6 +307,8 @@ class NormBlock
         UINT16       parity_count;  // how many fresh parity we are currently planning to send
         UINT16       parity_offset; // offset from where our fresh parity will be sent
         UINT16       seg_size_max;
+        NormSegmentId original_tx_next; // first unsent symbol in the original pass
+        NormSegmentId original_tx_end;  // source data plus proactive parity
         
         ProtoBitmask pending_mask;
         ProtoBitmask repair_mask;

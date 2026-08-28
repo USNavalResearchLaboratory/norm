@@ -1,7 +1,5 @@
 TODO:
 
-0) Fix implementation of NORM_DATA_FLAG_REPAIR.
-
 2) Add mechanism to allow window-based control of NORM server
    transmission rate.  
    

@@ -4,6 +4,9 @@
 Version 1.5.10 (in progress)
 =============
     - NormSocket API improvements
+    - Corrected repair flagging for reactive NORM_DATA and NORM_INFO
+      transmissions so receiver synchronization policy can distinguish
+      repair-only traffic from first-pass content.
 
 Version 1.5.9
 =============
