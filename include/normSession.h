@@ -70,6 +70,9 @@ class NormController
                     
 };  // end class NormController
 
+typedef class NormEncoder* (*NormEncoderFactory)();
+typedef class NormDecoder* (*NormDecoderFactory)();
+
 class NormSessionMgr
 {
     friend class NormSession;
@@ -112,6 +115,14 @@ class NormSessionMgr
         NormDataObject::DataFreeFunctionHandle GetDataFreeFunction() const
             {return data_free_func;}
         
+        bool HasSessions() const {return (NULL != top_session);}
+
+        // FEC codec factory registry (shared by all sessions this manager owns)
+        void RegisterFecCoder(UINT8 fecId, NormEncoderFactory encoderFactory, NormDecoderFactory decoderFactory, bool isRateless);
+        NormEncoderFactory GetEncoderFactory(UINT8 fecId) const {return encoder_factories[fecId];}
+        NormDecoderFactory GetDecoderFactory(UINT8 fecId) const {return decoder_factories[fecId];}
+        bool IsRatelessFec(UINT8 fecId) const {return is_rateless_codec[fecId];}
+
     private:   
         ProtoTimerMgr&                          timer_mgr;      
         ProtoSocket::Notifier&                  socket_notifier; 
@@ -121,10 +132,13 @@ class NormSessionMgr
         
         class NormSession*       top_session;  // top of NormSession list
               
+        NormEncoderFactory       encoder_factories[256];
+        NormDecoderFactory       decoder_factories[256];
+        bool                     is_rateless_codec[256];
+
 };  // end class NormSessionMgr
 
-
-class NormSession
+class NormSession : public NormTelemetryContext
 {
     friend class NormSessionMgr;
     
@@ -465,6 +479,14 @@ class NormSession
         void SenderSetExtraParity(UINT16 extraParity)
             {extra_parity = extraParity;}
         
+        // FEC codec factories are registered/owned by the NormSessionMgr so a
+        // single registry is shared across all sessions of a NORM API instance.
+        NormEncoderFactory GetEncoderFactory(UINT8 fecId) const {return session_mgr.GetEncoderFactory(fecId);}
+        NormDecoderFactory GetDecoderFactory(UINT8 fecId) const {return session_mgr.GetDecoderFactory(fecId);}
+        bool IsRatelessFec(UINT8 fecId) const {return session_mgr.IsRatelessFec(fecId);}
+        
+        NormEncoder* GetEncoder() const { return encoder; }
+        
         INT32 Difference(NormBlockId a, NormBlockId b) const
             {return NormBlockId::Difference(a, b, fec_block_mask);}
         int Compare(NormBlockId a, NormBlockId b) const
@@ -521,8 +543,23 @@ class NormSession
         void SenderSetFtiMode(FtiMode ftiMode)
             {fti_mode = ftiMode;}
         
+        // NormTelemetryContext Implementation
+        double GetGrtt() const override { return SenderGrtt(); }
+        double GetTxRateBits() const override { return tx_rate * 8.0; }
+        double GetTxRateBytes() const override { return tx_rate; }
+        double GetLossRate() const override
+        {
+            const NormCCNode* clr = (const NormCCNode*)((NormNodeList*)&cc_node_list)->Head();
+            return (NULL != clr) ? clr->GetLoss() : 0.0;
+        }
+        virtual unsigned int GetGroupSize() const override
+            { return (unsigned int)(gsize_advertised + 0.5); }
+        double GetCurrentTime() const override { ProtoTime t; t.GetCurrentTime(); return t.GetValue(); }
+        
         void SenderEncode(unsigned int segmentId, const char* segment, char** parityVectorList)
             {encoder->Encode(segmentId, segment, parityVectorList);}
+        void SenderEncodeParity(unsigned int parityId, const char** sourceVectorList, unsigned int numData, char* parityVector)
+            {encoder->EncodeParity(parityId, sourceVectorList, numData, parityVector);}
         
         
         NormBlock* SenderGetFreeBlock(NormObjectId objectId, NormBlockId blockId);

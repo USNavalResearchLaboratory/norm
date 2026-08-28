@@ -1,4 +1,6 @@
+#ifndef _NORM_API_BUILD
 #define _NORM_API_BUILD	// force 'dllexport' in "normApi.h"
+#endif // !_NORM_API_BUILD
 #include "normApi.h"
 #include "normSession.h"
 
@@ -1675,6 +1677,56 @@ void NormSetAutoParity(NormSessionHandle sessionHandle, unsigned char autoParity
         instance->dispatcher.ResumeThread();
     }
 }  // end NormSetAutoParity()
+
+NORM_API_LINKAGE
+bool NormRegisterFecCoder(NormInstanceHandle instanceHandle,
+                          UINT8              fecId,
+                          NormEncoderFactory encoderFactory,
+                          NormDecoderFactory decoderFactory,
+                          bool               isRateless)
+{
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        if ((NULL == encoderFactory) || (NULL == decoderFactory))
+        {
+            instance->dispatcher.ResumeThread();
+            return false;
+        }
+        // The registry is instance-wide, so refuse to swap a codec out from
+        // underneath sessions that may already be encoding/decoding with it.
+        if (instance->session_mgr.HasSessions())
+        {
+            instance->dispatcher.ResumeThread();
+            return false;
+        }
+        instance->session_mgr.RegisterFecCoder(fecId, encoderFactory, decoderFactory, isRateless);
+        instance->dispatcher.ResumeThread();
+        return true;
+    }
+    return false;
+}  // end NormRegisterFecCoder()
+
+NORM_API_LINKAGE
+bool NormRegisterFecLayout(NormInstanceHandle instanceHandle, UINT8 fecId, const NormFecLayout* layout)
+{
+    NormInstance* instance = (NormInstance*)instanceHandle;
+    if (instance && instance->dispatcher.SuspendThread())
+    {
+        // Same rule as NormRegisterFecCoder(): a layout describes the payload id wire
+        // format its codec depends on, so refuse to publish one underneath sessions
+        // that may already be parsing with it.
+        if (instance->session_mgr.HasSessions())
+        {
+            instance->dispatcher.ResumeThread();
+            return false;
+        }
+        bool result = NormPayloadId::SetFecLayout(fecId, layout);
+        instance->dispatcher.ResumeThread();
+        return result;
+    }
+    return false;
+}  // end NormRegisterFecLayout()
 
 NORM_API_LINKAGE
 void NormSetGrttEstimate(NormSessionHandle sessionHandle,

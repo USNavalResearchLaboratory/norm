@@ -851,6 +851,49 @@ NORM_API_LINKAGE
 bool NormNodeDenySender(NormNodeId senderId);
 
 #ifdef __cplusplus
+struct NormFecLayout
+{
+    UINT16 payloadIdLength;
+    UINT32 blockMask;
+    void (*packPayloadId)(UINT32* buffer, UINT32 blockId, UINT16 symbolId, UINT16 blockLen);
+    UINT32 (*unpackBlockId)(const UINT32* buffer);
+    UINT16 (*unpackSymbolId)(const UINT32* buffer);
+    UINT16 (*unpackBlockLength)(const UINT32* buffer);
+};
+
+class NormEncoder;
+class NormDecoder;
+typedef NormEncoder* (*NormEncoderFactory)();
+typedef class NormDecoder* (*NormDecoderFactory)();
+
+// Register a custom FEC codec for "fecId" with the given NORM instance.  The
+// registry is shared by every session the instance owns, so this must be called
+// before any session is created (it fails otherwise).
+NORM_API_LINKAGE
+bool NormRegisterFecCoder(NormInstanceHandle instanceHandle,
+                          UINT8              fecId,
+                          NormEncoderFactory encoderFactory,
+                          NormDecoderFactory decoderFactory,
+                          bool               isRateless);
+
+// Describe the FEC payload id wire format for a custom "fecId" (the built-in codecs
+// already know their own).  Since "fecId" is the on-wire codec discriminator, layouts
+// are keyed by it process-wide: any number of codecs may be registered under distinct
+// ids, but claiming an id already held by a layout describing a different wire format
+// fails.  Re-registering an equivalent layout succeeds, so separate NORM instances in
+// one process may each register the codecs they use.  The layout is copied into
+// library-owned storage and remains registered for process lifetime.
+//
+// Call this before creating any session on the instance: registration is refused
+// once the instance has sessions, since a layout describes a wire format those
+// sessions may already be parsing with. One case is deliberately not covered --
+// two instances in one process publishing *different* layouts for the same fecId
+// at the same moment. Closing it needs a process-wide lock, and nothing under
+// src/common or include may pull in the STL, so registration is a startup-time
+// operation by contract rather than by enforcement.
+NORM_API_LINKAGE
+bool NormRegisterFecLayout(NormInstanceHandle instance, UINT8 fecId, const NormFecLayout* layout);
+
 } // end extern "C"
 #endif /* __cplusplus */
 

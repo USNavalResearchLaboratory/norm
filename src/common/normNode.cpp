@@ -221,10 +221,20 @@ bool NormSenderNode::AllocateBuffers(unsigned int   bufferSpace,
     unsigned long segPerBlock = 
         (unsigned long) ((bufferFactor * (double)numData) +
                          ((1.0 - bufferFactor) * (double)numParity) + 0.5);
-    if (segPerBlock > numData) segPerBlock = numData;
-    // If there's no parity, no segment buffering for decoding is required at all!
-    // (Thus, the full rxbuffer space can be used for block state)
-    if (0 == numParity) segPerBlock = 0;
+    if (session.IsRatelessFec(fecId))
+    {
+        // Rateless decoding is not "one erasure per repair symbol": a decode attempt can
+        // fall short and need further repair symbols, so the receiver must retain every
+        // symbol it has received for the block (source and repair alike) across attempts.
+        segPerBlock = numData + numParity;
+    }
+    else
+    {
+        if (segPerBlock > numData) segPerBlock = numData;
+        // If there's no parity, no segment buffering for decoding is required at all!
+        // (Thus, the full rxbuffer space can be used for block state)
+        if (0 == numParity) segPerBlock = 0;
+    }
     unsigned long blockSegmentSpace = segPerBlock * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());    
     unsigned long blockSpace = blockStateSpace + blockSegmentSpace;
     unsigned long numBlocks = bufferSpace / blockSpace;
@@ -287,7 +297,17 @@ bool NormSenderNode::AllocateBuffers(unsigned int   bufferSpace,
     
     if (0 != numParity)
     {
-        switch (fecId)
+        NormDecoderFactory decoderFactory = session.GetDecoderFactory(fecId);
+        if (NULL != decoderFactory)
+        {
+            if (NULL == (decoder = decoderFactory()))
+            {
+                PLOG(PL_FATAL, "NormSenderNode::AllocateBuffers() new custom decoder error\n");
+                Close();
+                return false;
+            }
+        }
+        else switch (fecId)  // no registered codec, so use the built-in one for "fecId"
         {
             case 2:
                 if (8 == fecM)
@@ -1432,9 +1452,28 @@ bool NormSenderNode::GetFtiData(const NormObjectMsg& msg, NormFtiData& ftiData)
             break;
         }
         default:
-            PLOG(PL_ERROR, "NormSenderNode::GetFtiData() node>%lu sender>%lu unknown fec_id type:%d\n",
-                            (unsigned long)LocalNodeId(), (unsigned long)GetId(), (int)fecId);
+        {
+            // The rateless scheme (131) and any codec registered for a custom fecId
+            // share these generic FTI fields; only the FEC payload id format differs,
+            // and that comes from NormRegisterFecLayout() rather than the FTI.
+            if ((131 != fecId) && (NULL == session.GetDecoderFactory(fecId)))
+                break;
+            NormFtiExtension131 fti;
+            while (msg.GetNextExtension(fti))
+            {
+                if (NormHeaderExtension::FTI == fti.GetType())
+                {
+                    ftiData.SetFecInstanceId(fti.GetFecInstanceId());
+                    ftiData.SetFecFieldSize(16);
+                    ftiData.SetSegmentSize(fti.GetSegmentSize());
+                    ftiData.SetFecMaxBlockLen(fti.GetFecMaxBlockLen());
+                    ftiData.SetFecNumParity(fti.GetFecNumParity());
+                    ftiData.SetObjectSize(fti.GetObjectSize());
+                    return true;
+                }
+            }
             break;
+        }
     }  // end switch (fecId)
     PLOG(PL_ERROR, "NormSenderNode::GetFtiData() node>%lu sender>%lu unknown fec_id type:%d\n",
                    (unsigned long)LocalNodeId(), (unsigned long)GetId(), (int)fecId);
