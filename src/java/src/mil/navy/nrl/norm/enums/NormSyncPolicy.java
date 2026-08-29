@@ -12,5 +12,6 @@ package mil.navy.nrl.norm.enums;
 public enum NormSyncPolicy {
   NORM_SYNC_CURRENT,
   NORM_SYNC_STREAM,
-  NORM_SYNC_ALL;
+  NORM_SYNC_ALL,
+  NORM_SYNC_REPAIR;
 }

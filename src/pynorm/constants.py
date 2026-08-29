@@ -75,7 +75,8 @@ class SyncPolicy(enum.Enum):
     '''
     CURRENT = 0
     STREAM  = 1
-    ALL     = 2     
+    ALL     = 2
+    REPAIR  = 3
 
 class TrackingStatus(enum.Enum):    #enum NormTrackingStatus
     NONE      = 0 

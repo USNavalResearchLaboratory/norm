@@ -885,9 +885,11 @@
 
         <para><programlisting>enum <link linkend="NormSyncPolicy"><literal>NormSyncPolicy</literal></link>
 {
-    <literal>NORM_SYNC_CURRENT</literal><literal>,
-    NORM_</literal>SYNC_ALL<literal>
-};</literal></programlisting></para>
+    <literal>NORM_SYNC_CURRENT,
+    NORM_SYNC_STREAM,
+    NORM_SYNC_ALL,
+    NORM_SYNC_REPAIR</literal>
+};</programlisting></para>
 
         <para>The use and interpretation of these values is given in the
         descriptions of the <link
@@ -5286,7 +5288,7 @@ void <link linkend="NormSetDefaultSyncPolicy"><literal>NormSetDefaultSyncPolicy<
           is the behavior observed by the receiver with regards to what
           objects it attempts to reliably receive (via transmissions of
           Negative Acknowledgements to the sender(s) or group as needed).
-          There are currently two synchronization policy types defined:</para>
+          There are currently four synchronization policy types defined:</para>
 
           <informaltable frame="all">
             <tgroup cols="2">
@@ -5299,11 +5301,27 @@ void <link linkend="NormSetDefaultSyncPolicy"><literal>NormSetDefaultSyncPolicy<
                 </row>
 
                 <row>
+                  <entry><para><literal>NORM_SYNC_STREAM</literal></para></entry>
+
+                  <entry><para>Synchronize to the current stream while
+                  attempting recovery from the beginning of its retained
+                  receive window.</para></entry>
+                </row>
+
+                <row>
                   <entry><para><literal>NORM_SYNC_ALL</literal></para></entry>
 
                   <entry><para>Attempt recovery and reliable reception of all
                   objects held in sender transmit object cache and newer
                   objects.</para></entry>
+                </row>
+
+                <row>
+                  <entry><para><literal>NORM_SYNC_REPAIR</literal></para></entry>
+
+                  <entry><para>Attempt reception of the observed current object
+                  and newer objects, allowing repair INFO or first-block DATA
+                  to establish the initial synchronization point.</para></entry>
                 </row>
               </tbody>
             </tgroup>
@@ -5326,6 +5344,16 @@ void <link linkend="NormSetDefaultSyncPolicy"><literal>NormSetDefaultSyncPolicy<
           content. For large scale, loosely-organized multicast applications,
           the <constant>NORM_SYNC_CURRENT</constant> policy is typically
           recommended.</para>
+
+          <para>The <constant>NORM_SYNC_REPAIR</constant> policy uses the same
+          current-object receive window as
+          <constant>NORM_SYNC_CURRENT</constant>, but permits repair
+          <literal>NORM_INFO</literal> or repair <literal>NORM_DATA</literal>
+          from the first FEC block to establish synchronization. It is useful
+          for retained-object and rateless transfers where a receiver should
+          recover the object already in progress without requesting older
+          objects from the sender cache. FTI may arrive in INFO or DATA; this
+          policy does not require in-band FTI.</para>
 
           <para>The <constant>NORM_SYNC_ALL</constant> policy allows newly
           joining receivers much more aggressive behavior as they will
