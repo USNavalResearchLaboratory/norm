@@ -17,6 +17,11 @@
         /// Attempt recovery and reliable reception of all objects
         /// held in sender transmit object cache and newer objects.
         /// </summary>
-        NORM_SYNC_ALL
+        NORM_SYNC_ALL,
+        /// <summary>
+        /// Accept repair traffic for the observed current object without
+        /// requesting older objects from the sender cache.
+        /// </summary>
+        NORM_SYNC_REPAIR
     }
 }

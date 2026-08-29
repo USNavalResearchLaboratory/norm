@@ -1782,7 +1782,8 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
                                 if (presetStream) preset_stream = NULL;  // we're using it up
                                 // This initial "StreamUpdateStatus()" syncs the stream according to our sync policy
                                 NormStreamObject* stream = static_cast<NormStreamObject*>(obj);
-                                if (SYNC_CURRENT == sync_policy)
+                                if ((SYNC_CURRENT == sync_policy) ||
+                                    (SYNC_REPAIR == sync_policy))
                                 {
                                     // Just "sync" to first received blockId 
                                     stream->StreamUpdateStatus(blockId);
@@ -1901,20 +1902,27 @@ void NormSenderNode::HandleObjectMessage(const NormObjectMsg& msg)
 
 bool NormSenderNode::SyncTest(const NormObjectMsg& msg) const
 {
+    // SYNC_CURRENT and SYNC_REPAIR both establish the observed object as the
+    // receiver's current point. Restrict DATA synchronization to block zero
+    // so that a later repair block cannot establish a partial object.
+    bool currentCandidate = msg.FlagIsSet(NormObjectMsg::FLAG_STREAM) ||
+                            (NormMsg::INFO == msg.GetType());
+    if (!currentCandidate && (NormMsg::DATA == msg.GetType()))
+    {
+        const NormDataMsg& data = static_cast<const NormDataMsg&>(msg);
+        currentCandidate =
+            (NormBlockId(0) == data.GetFecBlockId(fti_data.GetFecFieldSize()));
+    }
+
     switch (sync_policy)
     {
         case SYNC_CURRENT:  // default, more conservative "sync policy"
         case SYNC_STREAM:
-	    {
-            // Allow sync on stream at any time
-            bool result = msg.FlagIsSet(NormObjectMsg::FLAG_STREAM);
-            // Allow sync on INFO or block zero DATA message 
-            result = result || (NormMsg::INFO == msg.GetType()) ? 
-                                    true : (NormBlockId(0) == ((const NormDataMsg&)msg).GetFecBlockId(fti_data.GetFecFieldSize()));
-            // Never sync on repair messages
-            result = result && !msg.FlagIsSet(NormObjectMsg::FLAG_REPAIR);
-            return result;
-	    }
+            return currentCandidate &&
+                   !msg.FlagIsSet(NormObjectMsg::FLAG_REPAIR);
+
+        case SYNC_REPAIR:
+            return currentCandidate;
             
         case SYNC_ALL:     // sync on anything
             return true;
@@ -2010,6 +2018,7 @@ void NormSenderNode::Sync(NormObjectId objectId)
         {
             case SYNC_CURRENT:  // this is the usual default
             case SYNC_STREAM:
+            case SYNC_REPAIR:
                 sync_id = next_id = max_pending_object = objectId;
                 break;
             case SYNC_ALL:  // gratuitously sync for anything in our "range"

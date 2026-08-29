@@ -58,8 +58,30 @@ static void TestSyncPolicy(NormSession& session)
     TEST_ASSERT(sender.SyncTest(msg));
     msg.SetFlag(NormObjectMsg::FLAG_REPAIR);
     TEST_ASSERT(!sender.SyncTest(msg));
+
+    sender.SetSyncPolicy(NormSenderNode::SYNC_REPAIR);
+    TEST_ASSERT(sender.SyncTest(msg));
+
     sender.SetSyncPolicy(NormSenderNode::SYNC_ALL);
     TEST_ASSERT(sender.SyncTest(msg));
+
+    NormDataMsg laterBlock;
+    laterBlock.Init();
+    laterBlock.SetFecId(129);
+    laterBlock.SetFecPayloadId(129, 1, 0, 1, 8);
+    laterBlock.SetFlag(NormObjectMsg::FLAG_REPAIR);
+    sender.SetSyncPolicy(NormSenderNode::SYNC_REPAIR);
+    TEST_ASSERT(!sender.SyncTest(laterBlock));
+    sender.SetSyncPolicy(NormSenderNode::SYNC_ALL);
+    TEST_ASSERT(sender.SyncTest(laterBlock));
+
+    NormInfoMsg repairInfo;
+    repairInfo.Init();
+    repairInfo.SetFlag(NormObjectMsg::FLAG_REPAIR);
+    sender.SetSyncPolicy(NormSenderNode::SYNC_CURRENT);
+    TEST_ASSERT(!sender.SyncTest(repairInfo));
+    sender.SetSyncPolicy(NormSenderNode::SYNC_REPAIR);
+    TEST_ASSERT(sender.SyncTest(repairInfo));
 }
 
 static void TestObjectMessageFlags(NormSession& session)
