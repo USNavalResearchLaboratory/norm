@@ -313,3 +313,6 @@ log*.txt
 
 #.NET Extension Library Files
 /src/dotnet/lib
+
+# LLM bits
+.claude

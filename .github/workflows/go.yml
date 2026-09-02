@@ -1,0 +1,84 @@
+name: Go
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  build:
+    name: Go bindings (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    env:
+      CGO_ENABLED: "1"
+
+    defaults:
+      run:
+        working-directory: ./src/go
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup Python
+      uses: actions/setup-python@v5.1.0
+      with:
+        python-version: 3.x
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: 'stable'
+
+    # Build the native NORM library (and generate build/pkgconfig/norm.pc) via the
+    # waf --build-go hook. Go must already be on PATH: `configure --build-go`
+    # probes for the toolchain. Runs from the repo root, not ./src/go.
+    - name: Build NORM (with Go hook)
+      run: ./waf configure --build-go && ./waf build
+      working-directory: .
+
+    # The bindings link libnorm via `#cgo pkg-config: norm`. The waf --build-go
+    # hook writes a build-tree norm.pc under build/pkgconfig pointing at the
+    # in-tree libraries. (Note: build/norm.pc also exists but targets the install
+    # prefix /usr/local, which is empty on a runner — so we use the pkgconfig one
+    # explicitly.) Export the pkg-config + loader paths for the standalone go
+    # steps, and fail loudly if pkg-config cannot resolve norm.
+    - name: Configure pkg-config and loader paths
+      working-directory: .
+      run: |
+        pcdir="$PWD/build/pkgconfig"
+        libs="$PWD/build:$PWD/build/protolib"
+        if [ ! -f "$pcdir/norm.pc" ]; then
+          echo "build-tree norm.pc not found at $pcdir/norm.pc" >&2
+          echo "norm.pc files present under build/:" >&2
+          find "$PWD/build" -name norm.pc >&2 || true
+          exit 1
+        fi
+        echo "PKG_CONFIG_PATH=$pcdir" >> "$GITHUB_ENV"
+        echo "LD_LIBRARY_PATH=$libs" >> "$GITHUB_ENV"
+        echo "DYLD_LIBRARY_PATH=$libs" >> "$GITHUB_ENV"
+        echo "Resolved norm via pkg-config:"
+        PKG_CONFIG_PATH="$pcdir" pkg-config --cflags --libs norm
+
+    - name: Check formatting
+      run: test -z "$(gofmt -l .)" || { echo 'gofmt needed on:'; gofmt -l .; exit 1; }
+
+    - name: Vet
+      run: go vet ./...
+
+    - name: Build
+      run: go build ./...
+
+    # Portable unit tests: link libnorm but do not touch the network.
+    - name: Test
+      run: go test -race ./...
+
+    # Reliable-transfer round-trips over multicast loopback. Best-effort: loopback
+    # delivery is not guaranteed on hosted runners, so this is non-blocking but
+    # still surfaces regressions when it does run.
+    - name: Integration tests (multicast loopback)
+      run: go test -tags norm_integration ./...
+      continue-on-error: true
