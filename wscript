@@ -57,6 +57,12 @@ def options(ctx):
     ctx.add_option('--rust-docs', action='store_true', default=False,
                 help='Generate documentation for Rust bindings')
 
+    # Add Go binding options
+    ctx.add_option('--build-go', action='store_true', default=False,
+                help='Build Go bindings for NORM')
+    ctx.add_option('--go-test', action='store_true', default=False,
+                help='Run Go binding tests after building')
+
 def configure(ctx):
     ctx.recurse('protolib')
 
@@ -69,6 +75,15 @@ def configure(ctx):
             ctx.env.RUST_DOCS = ctx.options.rust_docs
         except ctx.errors.ConfigurationError:
             ctx.fatal('Rust toolchain not found. Install Rust from https://rustup.rs')
+
+    # Configure Go bindings if requested
+    if ctx.options.build_go:
+        try:
+            ctx.find_program('go', var='GO', mandatory=True)
+            ctx.env.BUILD_GO = True
+            ctx.env.GO_TEST = ctx.options.go_test
+        except ctx.errors.ConfigurationError:
+            ctx.fatal('Go toolchain not found. Install Go from https://go.dev/dl/')
 
     # Use this USE variable to add flags to NORM's compilation
     ctx.env.USE_BUILD_NORM += ['BUILD_NORM']
@@ -100,6 +115,17 @@ def build(ctx):
             waf_rust.build_rust_bindings(ctx)
         except ImportError:
             ctx.fatal('Failed to import Rust waf module. Check src/rust/waf_rust.py exists.')
+
+    # Build Go bindings if configured. Registered as a post-build function so it
+    # runs after libnorm has actually been linked (the ctx.shlib below only
+    # declares the task; it has not executed yet at this point in build()).
+    if hasattr(ctx.env, 'BUILD_GO') and ctx.env.BUILD_GO:
+        sys.path.insert(0, os.path.join(ctx.path.abspath(), 'src/go'))
+        try:
+            import waf_go
+            ctx.add_post_fun(waf_go.build_go_bindings)
+        except ImportError:
+            ctx.fatal('Failed to import Go waf module. Check src/go/waf_go.py exists.')
     
     # Setup to install NORM header file
     ctx.install_files("${PREFIX}/include/", "include/normApi.h")
@@ -249,14 +275,17 @@ def build(ctx):
     ctx._parse_targets()
 
     # Generate pkg-config file
-    # Add additional static compilation dependencies based on the system.
-    # libpcap is used by protolib on GNU/Hurd based systems.
-    static_libs = ''
-    if hasattr(ctx.options, 'enable_static_library'):
-        if ctx.options.enable_static_library:
-            static_libs += ' -lstdc++ -lprotokit'
-            if system == "gnu":
-                static_libs += ' -lpcap'
+    # Libs.private lists the transitive native deps a consumer needs when linking
+    # NORM *statically* (pkg-config --static). For dynamic linking these are already
+    # recorded as DT_NEEDED in libnorm.so/.dylib, so plain "-lnorm" suffices.
+    # protolib is folded into libnorm's objects, but its own system deps are not.
+    static_libs = ' -lprotokit -lstdc++ -lpthread'
+    if system == 'darwin':
+        static_libs += ' -lresolv'
+    elif system == 'solaris':
+        static_libs += ' -lnsl -lsocket -lresolv'
+    elif system == 'gnu':
+        static_libs += ' -lpcap'  # libpcap is used by protolib on GNU/Hurd based systems
     ctx(source='norm.pc.in', STATIC_LIBS = static_libs)
     
 def _make_simple_example(ctx, name, path='examples'):
