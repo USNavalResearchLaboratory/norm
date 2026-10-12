@@ -113,7 +113,7 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
         {
             var faker = new Faker();
             var sessionAddress = "224.1.2.3";
-            var sessionPort = faker.Internet.Port();
+            var sessionPort = faker.Random.Int(1024, 65535);
             var localNodeId = NormNode.NORM_NODE_ANY;
 
             _normSession = _normInstance.CreateSession(sessionAddress, sessionPort, localNodeId);
@@ -222,7 +222,7 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
         {
             var faker = new Faker();
             var sessionAddress = "224.1.2.3";
-            var sessionPort = faker.Internet.Port();
+            var sessionPort = faker.Random.Int(1024, 65535);
             var localNodeId = NormNode.NORM_NODE_ANY;
 
             _normSession = _normInstance.CreateSession(sessionAddress, sessionPort, localNodeId);
@@ -245,7 +245,7 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
         {
             var faker = new Faker();
             var sessionAddress = "224.1.2.3";
-            var sessionPort = faker.Internet.Port();
+            var sessionPort = faker.Random.Int(1024, 65535);
             var localNodeId = NormNode.NORM_NODE_ANY;
 
             _normSession = _normInstance.CreateSession(sessionAddress, sessionPort, localNodeId);
