@@ -620,7 +620,7 @@ bool NormMsgr::EnqueueMessageObject()
         // This might happen if a non-acking receiver is present and
         // has nacked for the oldest object in the queue even if all                
         // of our acking receivers have acknowledged it.  
-        fprintf(stderr, "NO VACANCY count:%u max:%u\n", norm_tx_queue_count, norm_tx_queue_max);
+        //fprintf(stderr, "NO VACANCY count:%u max:%u\n", norm_tx_queue_count, norm_tx_queue_max);
         norm_tx_vacancy = false;     
         return false;
     }
@@ -1085,6 +1085,7 @@ int main(int argc, char* argv[])
     }
     
     if (silentReceiver) normMsgr.SetSilentReceiver(true);
+    fprintf(stderr, "setting txloss %f\n", txloss);
     if (txloss > 0.0) normMsgr.SetTxLoss(txloss);
     if (rxloss > 0.0) normMsgr.SetRxLoss(rxloss);
     

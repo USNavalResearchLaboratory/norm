@@ -118,8 +118,9 @@ NormSenderNode::NormSenderNode(class NormSession& theSession, NormNodeId nodeId)
     loss_estimator.SetIgnoreLoss(session.GetEcnIgnoreLoss());
     loss_estimator.SetTolerateLoss(session.GetCCTolerateLoss());
     
-    prev_update_time.tv_sec = 0;
-    prev_update_time.tv_usec = 0;   
+    recv_update_time.tv_sec = 0;
+    recv_update_time.tv_usec = 0;
+    recv_update_interval = 0.0;   
 }
 
 
@@ -686,6 +687,9 @@ void NormSenderNode::HandleCommand(const struct timeval& currentTime,
                     hasCCRateExtension = true;
                     cc_enable = true;
                     send_rate = NormUnquantizeRate(ext.GetSendRate());
+#ifdef NORM_CCD
+                    //ResetDeliveryRate();
+#endif // NORM_CCD
                     // Are we in the cc_node_list?
                     UINT8 flags, rtt;
                     UINT16 loss;
@@ -2417,12 +2421,14 @@ bool NormSenderNode::OnRepairTimeout(ProtoTimer& /*theTimer*/)
                         double ccLoss = slow_start ? 0.0 : LossEstimate();
                         //UINT16 lossQuantized = NormQuantizeLoss(ccLoss);
                         //ext.SetCCLoss(lossQuantized);
-                        UINT16 lossQuantized = NormQuantizeLoss32(ccLoss);
+                        UINT32 lossQuantized = NormQuantizeLoss32(ccLoss);
                         ext.SetCCLoss32(lossQuantized);
                         //if (0.0 == ccLoss)
-                        if (0 == lossQuantized)
+                        //if (0 == lossQuantized)
+                        if (true)  // Adamson - MODIFICATION TO ALWAYS FEEDBACK 2*measured recv_rate
                         {
                             //if (slow_start)   // (TBD) should we only set flag on actual slow_start?
+                            if (0 == lossQuantized)
                                 ext.SetCCFlag(NormCC::START);
                             if (recv_rate > 0.0)
                                 ext.SetCCRate(NormQuantizeRate(2.0 * recv_rate)); 
@@ -2771,24 +2777,36 @@ void NormSenderNode::FragmentNack(NormNackMsg& superNack)
     
 }  // end NormSenderNode::FragmentNack()
 
-void NormSenderNode::UpdateRecvRate(const struct timeval& currentTime, unsigned short msgSize)
+#ifdef NORM_CCD
+void NormSenderNode::UpdateRecvRate(const struct timeval& currentTime, 
+                                    unsigned short        msgSize,
+                                    unsigned short        theSequence,
+                                    bool                  txPair)
+#else
+void NormSenderNode::UpdateRecvRate(const struct timeval& currentTime, 
+                                    unsigned short        msgSize)
+#endif // if/else NORM_CCD
 {
-    if (prev_update_time.tv_sec || prev_update_time.tv_usec)
+    if (recv_update_time.tv_sec || recv_update_time.tv_usec)
     {
-        double interval = (double)(currentTime.tv_sec - prev_update_time.tv_sec);
-        if (currentTime.tv_sec > prev_update_time.tv_sec)
-            interval += 1.0e-06*(double)(currentTime.tv_usec - prev_update_time.tv_usec);
+        double interval = (double)(currentTime.tv_sec - recv_update_time.tv_sec);
+        if (currentTime.tv_sec > recv_update_time.tv_sec)
+            interval += 1.0e-06*(double)(currentTime.tv_usec - recv_update_time.tv_usec);
         else
-            interval -= 1.0e-06*(double)(prev_update_time.tv_usec - currentTime.tv_usec);            
+            interval -= 1.0e-06*(double)(recv_update_time.tv_usec - currentTime.tv_usec);
         double measurementInterval = rtt_confirmed ? rtt_estimate : grtt_estimate;
         // Here, we put a NORM_TICK_MIN sec lower bound on our measurementInterval for the 
         // recv_rate because of the typical limited granularity of our system clock
-        // (Note this can limit our ramp up of data rate during slow start)
+        // (Note this can limit the ramp-up of data rate during slow start)
         if (measurementInterval < NORM_TICK_MIN) measurementInterval = NORM_TICK_MIN;
+        recv_update_interval += interval;
         recv_accumulator.Increment(msgSize); 
-        if (interval > 0.0)
+        // TBD - If the interval is zero, we should add the size of this message to the
+        // previous and recompute the rate to incorporate the "burst" delivery that has
+        // occurred.  This could improve responsiveness of recv rate estimate?!
+        if (recv_update_interval > 0.0)
         {
-            double currentRecvRate = recv_accumulator.GetScaledValue(1.0 / interval);
+            double currentRecvRate = recv_accumulator.GetScaledValue(1.0 / recv_update_interval);
             if ((interval >= measurementInterval) && (currentRecvRate < recv_rate))
             {
                 // Make sure we've allowed sufficient time for a measurement at low rates
@@ -2796,11 +2814,12 @@ void NormSenderNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
                 double minInterval = 4.0 * nominalSize / recv_rate;
                 if (measurementInterval < minInterval) measurementInterval = minInterval;
             }
-            if (interval >= measurementInterval)
+            if (recv_update_interval >= measurementInterval)
             {
                 recv_rate = recv_rate_prev = currentRecvRate; 
-                prev_update_time = currentTime;
+                recv_update_interval = 0.0;
                 recv_accumulator.Reset();
+                ResetDeliveryRate();
             }
             else if (0.0 == recv_rate)
             {
@@ -2814,7 +2833,7 @@ void NormSenderNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
                 double rateDelta = currentRecvRate - recv_rate_prev;
                 if (rateDelta > 0.0)
                 {
-                    double scale = interval / measurementInterval;
+                    double scale = recv_update_interval / measurementInterval;
                     double partialRate = recv_rate_prev + scale*rateDelta;
                     if (partialRate > recv_rate) recv_rate = partialRate;
                 }
@@ -2827,19 +2846,203 @@ void NormSenderNode::UpdateRecvRate(const struct timeval& currentTime, unsigned 
             //TRACE("BURST INIT: accum:%lf tick:%lf rate:%lf kbps\n", recv_accumulator.GetValue(), NORM_TICK_MIN, recv_rate*8.0e-03);
             recv_rate_prev = 0.0;
         }
-        nominal_packet_size += 0.05 * (((double)msgSize) - nominal_packet_size); 
+        nominal_packet_size += 0.05 * (((double)msgSize) - nominal_packet_size);
         //TRACE("UPDATED RECV rate: %lf kbps nsize: %lf\n", 8.0e-3*recv_rate, nominal_packet_size);
+#ifdef NORM_CCD
+        UpdateDeliveryRate(interval, msgSize, theSequence, txPair); 
+        double theTime = currentTime.tv_sec + (double)currentTime.tv_usec*1.0e-06;
+        TRACE("NormSenderNode::UpdateRecvRate() time>%lf rxRate>%lf rdRate>%lf rdsRate>%lf txRate>%lf loss>%lf\n", 
+              theTime, 8.0e-3*recv_rate, 8.0e-3*recv_delivery_rate, 8.0e-3*recv_delivery_snapshot,
+              8.0e-3*send_rate, loss_estimator.LossFraction());
+#endif // NORM_CCD
     }
     else
     {
         //TRACE("RATE INIT ZERO\n");
-        recv_rate = recv_rate_prev = 0.0;  
-        prev_update_time = currentTime;
+        recv_rate = recv_rate_prev = 0.0; 
+        recv_update_interval = 0.0;
         recv_accumulator.Reset();
         nominal_packet_size = msgSize;
+#ifdef NORM_CCD
+        InitDeliveryRate(theSequence);
+#endif // NORM_CCD
     }
-    
+    recv_update_time = currentTime;
 }  // end NormSenderNode::UpdateRecvRate()
+
+#ifdef NORM_CCD
+void NormSenderNode::InitDeliveryRate(unsigned short theSequence)
+{
+    recv_delivery_sequence_prev = theSequence;
+    recv_delivery_burst_size = 0;
+    recv_delivery_interval_prev = 0.0;
+    recv_delivery_rate = -1.0;
+    recv_delivery_snapshot = -1.0;
+    
+}  // end NormSenderNode::InitDeliveryRate()
+
+void NormSenderNode::ResetDeliveryRate()
+{
+    recv_delivery_interval_prev = 0.0;
+    recv_delivery_burst_size = 0;
+    recv_delivery_rate = recv_delivery_snapshot;
+}  // end NormSenderNode::ResetDeliveryRate()
+
+void NormSenderNode::UpdateDeliveryRate(double         interval,
+                                        unsigned short msgSize,
+                                        unsigned short theSequence,
+                                        bool           txPair)
+{
+    // This approach accumluates FLAG_PAIR messages and intervals for a 
+    // delivery rate measurement sync'd to sender NORM_CMD(CC) rate advertisements
+    
+    
+    // Confirm this is "FLAG_PAIR" transmission without a sequence gap
+    // (TBD - provide some degree of out-of-order resiliency)
+    if (0 != msgSize)
+    {
+        // TBD - ignore duplicate sequence, or out-of-order
+        txPair &= (1 == (theSequence - recv_delivery_sequence_prev));
+        recv_delivery_sequence_prev = theSequence;
+    }
+    else
+    {
+        txPair = true; // forcing rate estimation reduction on inactivity
+    }
+    if (txPair)
+    {
+        TRACE("FLAG_PAIR: msgSize>%hu interval>%lf burst>%lu\n", msgSize, interval, recv_delivery_burst_size);
+        recv_delivery_burst_size += msgSize;
+        recv_delivery_interval_prev += interval;
+        if (recv_delivery_interval_prev > 0.0)
+            recv_delivery_snapshot = (double)recv_delivery_burst_size / recv_delivery_interval_prev;
+        else
+            recv_delivery_burst_size = 0;
+        if ((recv_delivery_rate < 0.0) || slow_start)
+            recv_delivery_rate = recv_delivery_snapshot;
+    }
+    else
+    {
+        TRACE("NOOO_PAIR: msgSize>%hu interval>%lf\n", msgSize, interval);
+        //recv_delivery_interval_prev = 0.0;
+        //recv_delivery_burst_size = 0;
+    }
+}  // end NormSenderNode::UpdateDeliveryRate()
+
+void NormSenderNode::UpdateDeliveryRate2(double         interval,
+                                        unsigned short msgSize,
+                                        unsigned short theSequence,
+                                        bool           txPair)
+{
+    // TBD - temporarily accelerate the EWMA when sender advertises changed rate?
+    const double EWMA_P = 0.10;
+    
+    // Confirm this is "FLAG_PAIR" transmission without a sequence gap
+    // (TBD - provide some degree of out-of-order resiliency)
+    if (0 != msgSize)
+    {
+        txPair &= (1 == (theSequence - recv_delivery_sequence_prev));
+        recv_delivery_sequence_prev = theSequence;
+    }
+    else
+    {
+        txPair = true; // forcing rate estimation reduction on inactivity
+    }
+    if (txPair)
+    {
+        TRACE("FLAG_PAIR: msgSize>%hu interval>%lf burst>%lu\n", msgSize, interval, recv_delivery_burst_size);
+        recv_delivery_interval_prev += interval;
+        if (recv_delivery_interval_prev > 0.0)
+        {
+            // Back out previous EWMA value and update with burst info
+            /*if ((recv_delivery_snapshot >= 0) && (recv_delivery_rate >= 0.0))
+            {
+                recv_delivery_rate = (recv_delivery_rate - EWMA_P*recv_delivery_snapshot) / (1.0 - EWMA_P);
+                TRACE("backed up rdRate to %lf ...\n", 8.0e-03*recv_delivery_rate);
+            }
+            */
+            recv_delivery_burst_size += msgSize;
+            double currentRate = (double)recv_delivery_burst_size / recv_delivery_interval_prev; // bytes/sec
+            recv_delivery_snapshot = currentRate;
+            // Since we use the delivery rate to detect saturation congestion,
+            // (no rise in recv_delivery_rate when sender increases rates)
+            // we can safely cap the estimated rate to approximately the advertised sender rate
+            TRACE("update currentRate>%lf burstSize>%lu interval>%lf\n",
+                    8.0e-03*currentRate, recv_delivery_burst_size, recv_delivery_interval_prev);
+            if (currentRate > 1.1*send_rate) currentRate = 1.1*send_rate;
+            // Init or incorporate into EWMA
+            if (recv_delivery_rate < 0.0)
+            {
+                recv_delivery_rate = currentRate;  // initial non-zero tx pair interval
+                recv_delivery_snapshot = EWMA_P * currentRate;
+            }
+            else
+            {
+                recv_delivery_rate += EWMA_P*(currentRate - recv_delivery_rate);
+            }
+        }
+        else
+        {
+            recv_delivery_burst_size = 0;
+        }
+        /*
+        if (interval > 0.0)
+        {
+            recv_delivery_interval_prev = interval;  // save in case of burst delivery
+            recv_delivery_burst_size = msgSize;
+            double currentRate = (double)msgSize / interval; // bytes/sec
+            // Since we use the delivery rate to detect saturation congestion,
+            // (no rise in recv_delivery_rate when sender increases rates)
+            // we can safely cap the estimated rate to approximately the advertises sender rate
+            if (currentRate > 1.4*send_rate) currentRate = 1.4*send_rate;
+            // Init or incorporate into EWMA
+            if (recv_delivery_rate < 0.0)
+            {
+                recv_delivery_rate = currentRate;  // initial non-zero tx pair interval
+                recv_delivery_snapshot = EWMA_P * currentRate;
+            }
+            else
+            {
+                recv_delivery_rate += EWMA_P*(currentRate - recv_delivery_rate);
+            }
+        }
+        else if (recv_delivery_interval_prev > 0.0)
+        {
+            recv_delivery_interval_prev += interval;
+            // Back out previous EWMA value and update with burst info
+            if ((recv_delivery_snapshot >= 0) && (recv_delivery_rate >= 0.0))
+                recv_delivery_rate = (recv_delivery_rate - EWMA_P*recv_delivery_snapshot) / (1.0 - EWMA_P);
+            TRACE("backed up rdRate to %lf ...\n", 8.0e-03*recv_delivery_rate);
+            recv_delivery_burst_size += msgSize;        
+            double currentRate = (double)recv_delivery_burst_size / recv_delivery_interval_prev; // bytes/sec
+            // Since we use the delivery rate to detect saturation congestion,
+            // (no rise in recv_delivery_rate when sender increases rates)
+            // we can safely cap the estimated rate to approximately the advertises sender rate
+            if (currentRate > 1.4*send_rate) currentRate = 1.4*send_rate;
+            // Init or incorporate into EWMA
+            if (recv_delivery_rate < 0.0)
+            {
+                recv_delivery_rate = currentRate;  // initial non-zero tx pair interval
+            }
+            else
+            {
+                recv_delivery_rate += EWMA_P*(currentRate - recv_delivery_rate);
+            }
+        }
+        else
+        {
+            recv_delivery_burst_size = 0;
+        }
+        */
+    }
+    else
+    {
+        TRACE("NOOO_PAIR: msgSize>%hu interval>%lf\n", msgSize, interval);
+        recv_delivery_interval_prev = 0.0;
+        recv_delivery_burst_size = 0;
+    }
+}  // end NormSenderNode::UpdateDeliveryRate()
+#endif // NORM_CCD
 
 void NormSenderNode::Activate(bool isObjectMsg)
 {
@@ -2885,7 +3088,11 @@ bool NormSenderNode::OnActivityTimeout(ProtoTimer& /*theTimer*/)
                         (unsigned long)LocalNodeId(), (unsigned long)GetId());
         struct timeval currentTime;
         ::ProtoSystemTime(currentTime);
+#ifdef NORM_CCD
+        UpdateRecvRate(currentTime, 0, 0, false);
+#else
         UpdateRecvRate(currentTime, 0);
+#endif // if/else NORM_CCD
         if (synchronized)
         {
             // A "blind check" is used to request repair for any known missing data while
@@ -2942,10 +3149,14 @@ bool NormSenderNode::UpdateLossEstimate(const struct timeval& currentTime,
         // for non-clr unicast case instead???
         if (cc_enable && (is_clr || is_plr))// || !session.Address().IsMulticast()))
             cc_feedback_needed = true;
+        //TRACE("UpdateLossEstimate(TRUE) seq:%hu, interval:%lu, fraction:%lf\n", seq, 
+        //      loss_estimator.CurrentLossInterval(), loss_estimator.LossFraction());
         return true;
     }
     else
     {
+        //TRACE("UpdateLossEstimate(FALSE) seq:%hu, interval:%lu, fraction:%lf\n", seq, 
+        //      loss_estimator.CurrentLossInterval(), loss_estimator.LossFraction());
         return false;
     }
 }  // end NormSenderNode::UpdateLossEstimate()
@@ -2983,9 +3194,11 @@ void NormSenderNode::AttachCCFeedback(NormAckMsg& ack)
     UINT32 lossQuantized = NormQuantizeLoss32(ccLoss);
     ext.SetCCLoss32(lossQuantized);
     //if (0.0 == ccLoss)
-    if (0 == lossQuantized)
+    //if (0 == lossQuantized)  // Adamson - MODIFICATION TO ALWAYS FEEDBACK 2*measured recv_rate
+    if (true)
     {
-        ext.SetCCFlag(NormCC::START);
+        if (0 == lossQuantized)
+            ext.SetCCFlag(NormCC::START);
         ext.SetCCRate(NormQuantizeRate(2.0 * recv_rate));
     }
     else
@@ -3447,17 +3660,32 @@ NormNode* NormNodeList::FindNodeById(NormNodeId nodeId) const
     return NULL;
 }  // NormNodeList::Find()
 
+
+void NormNodeList::Prepend(NormNode *theNode)
+{
+    ASSERT(NULL != theNode);
+    theNode->Retain();
+    theNode->left = NULL;
+    theNode->right = head;
+    if (NULL != head)
+        head->left = theNode;
+    else
+        tail = theNode;
+    head = theNode;
+    count++;
+}  // end NormNodeList::Prepend()
+
 void NormNodeList::Append(NormNode *theNode)
 {
     ASSERT(NULL != theNode);
     theNode->Retain();
     theNode->left = tail;
-    if (tail)
+    theNode->right = NULL;
+    if (NULL != tail)
         tail->right = theNode;
     else
         head = theNode;
     tail = theNode;
-    theNode->right = NULL;
     count++;
 }  // end NormNodeList::Append()
 
@@ -3535,8 +3763,7 @@ bool NormLossEstimator::Update(const struct timeval&    currentTime,
     }    
     else if (delta > 0)             // new packet arrival
     {
-        if (ecn || (delta > 1)) 
-            outage = true;
+        if (ecn || (delta > 1)) outage = true;
         index_seq = seq;
     }
     else // (delta <= 0)            // old misordered or duplicate packet

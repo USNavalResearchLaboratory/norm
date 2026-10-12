@@ -71,7 +71,7 @@ NormSession::NormSession(NormSessionMgr &sessionMgr, NormNodeId localNodeId)
       grtt_decrease_delay_count(DEFAULT_GRTT_DECREASE_DELAY),
       grtt_response(false), grtt_current_peak(0.0), grtt_age(0.0), probe_count(1),
       cc_enable(false), cc_adjust(true), cc_sequence(0), cc_slow_start(true), cc_active(false),
-      flow_control_factor(DEFAULT_FLOW_CONTROL_FACTOR),
+      data_active(false), tx_active(false), tx_gap(true), flow_control_factor(DEFAULT_FLOW_CONTROL_FACTOR),
       cmd_count(0), cmd_buffer(NULL), cmd_length(0), syn_status(false),
       ack_ex_buffer(NULL), ack_ex_length(0),
       is_receiver(false), rx_robust_factor(DEFAULT_ROBUST_FACTOR), preset_sender(NULL), unicast_nacks(false),
@@ -117,8 +117,10 @@ NormSession::NormSession(NormSessionMgr &sessionMgr, NormNodeId localNodeId)
     probe_time_last.tv_sec = probe_time_last.tv_usec = 0;
 
     grtt_quantized = NormQuantizeRtt(DEFAULT_GRTT_ESTIMATE);
-    grtt_measured = grtt_advertised = NormUnquantizeRtt(grtt_quantized);
-
+    grtt_advertised = NormUnquantizeRtt(grtt_quantized);
+    //grtt_measured = grtt_advertised;
+    grtt_measured = -1.0;  // initial value to allow first RTT measure init
+    
     gsize_measured = DEFAULT_GSIZE_ESTIMATE;
     gsize_quantized = NormQuantizeGroupSize(DEFAULT_GSIZE_ESTIMATE);
     gsize_advertised = NormUnquantizeGroupSize(gsize_quantized);
@@ -2883,7 +2885,7 @@ void NormSession::HandleReceiveMessage(NormMsg &msg, bool wasUnicast, bool ecnSt
         {
             NormCmdMsg &cmd = static_cast<NormCmdMsg &>(msg);
             if ((NormCmdMsg::CC == cmd.GetFlavor()) &&
-                static_cast<NormCmdCCMsg &>(cmd).SynIsSet())
+                static_cast<NormCmdCCMsg &>(cmd).FlagIsSet(NormCmdCCMsg::FLAG_SYN))
             {
                 syn = true;
             }
@@ -3075,7 +3077,12 @@ void NormSession::ReceiverHandleObjectMessage(const struct timeval &currentTime,
         theSender->SetAddress(msg.GetSource());
         Notify(NormController::REMOTE_SENDER_ADDRESS, theSender, NULL);
     }
+#ifdef NORM_CCD    
+    bool txPair = msg.FlagIsSet(NormObjectMsg::FLAG_PAIR);
+    theSender->UpdateRecvRate(currentTime, msg.GetLength(), msg.GetSequence(), txPair);
+#else
     theSender->UpdateRecvRate(currentTime, msg.GetLength());
+#endif // NORM_CCD
     theSender->UpdateLossEstimate(currentTime, msg.GetSequence(), ecnStatus);
     theSender->IncrementRecvTotal(msg.GetLength()); // for statistics only (TBD) #ifdef NORM_DEBUG
     theSender->HandleObjectMessage(msg);
@@ -3171,12 +3178,28 @@ void NormSession::ReceiverHandleCommand(const struct timeval &currentTime,
         theSender->SetAddress(cmd.GetSource());
         Notify(NormController::REMOTE_SENDER_ADDRESS, theSender, NULL);
     }
-    theSender->UpdateRecvRate(currentTime, cmd.GetLength());
+    
     theSender->UpdateLossEstimate(currentTime, cmd.GetSequence(), ecnStatus);
     theSender->IncrementRecvTotal(cmd.GetLength()); // for statistics only (TBD) #ifdef NORM_DEBUG
     theSender->HandleCommand(currentTime, cmd);
     theSender->CheckCCFeedback(); // this cues immediate CLR cc feedback if loss was detected
-                                  // and cc feedback was not provided in response otherwise
+                                  // and cc feedback was not provided in response otherwise    
+#ifdef NORM_CCD
+    bool txPair;
+    if ((NormCmdMsg::CC == cmd.GetFlavor()) && 
+        static_cast<const NormCmdCCMsg&>(cmd).FlagIsSet(NormCmdCCMsg::FLAG_PAIR))
+    {
+        txPair = true;
+    }
+    else
+    {
+        txPair = false;
+    }
+    theSender->UpdateRecvRate(currentTime, cmd.GetLength(), cmd.GetSequence(), txPair);
+#else
+    theSender->UpdateRecvRate(currentTime, cmd.GetLength());
+#endif // if/else NORM_CCD    
+    
 } // end NormSession::ReceiverHandleCommand()
 
 bool NormSession::InsertRemoteSender(NormSenderNode &sender)
@@ -3259,7 +3282,10 @@ void NormSession::SenderUpdateGrttEstimate(double receiverRtt)
     {
         // Immediately incorporate bigger RTT's
         grtt_decrease_delay_count = DEFAULT_GRTT_DECREASE_DELAY;
-        grtt_measured = 0.25 * grtt_measured + 0.75 * receiverRtt;
+        if (grtt_measured < 0.0)
+            grtt_measured = receiverRtt;
+        else
+            grtt_measured = 0.25 * grtt_measured + 0.75 * receiverRtt;
         //grtt_measured = 0.9 * grtt_measured + 0.1 * receiverRtt;
         if (grtt_measured > grtt_max)
             grtt_measured = grtt_max;
@@ -3309,6 +3335,7 @@ double NormSession::CalculateRate(double size, double rtt, double loss)
     return (size / denom);
 } // end NormSession::CalculateRate()
 
+#ifndef NORM_CCDX
 void NormSession::SenderHandleCCFeedback(struct timeval currentTime,
                                          NormNodeId nodeId,
                                          UINT8 ccFlags,
@@ -3317,38 +3344,25 @@ void NormSession::SenderHandleCCFeedback(struct timeval currentTime,
                                          double ccRate,
                                          UINT16 ccSequence)
 {
-
-    PLOG(PL_DEBUG, "NormSession::SenderHandleCCFeedback() cc feedback recvd at time %lu.%lf  ccRate:%9.3lf ccRtt:%lf ccLoss:%lf ccFlags:%02x\n",
+    PLOG(PL_DEBUG, "NormSession::SenderHandleCCFeedback() cc feedback recvd at time %lu.%lf ccRate:%9.3lf ccRtt:%lf ccLoss:%lf ccFlags:%02x\n",
          (unsigned long)currentTime.tv_sec, ((double)currentTime.tv_usec) * 1.0e-06,
          ccRate * 8.0 / 1000.0, ccRtt, ccLoss, ccFlags);
-    // Keep track of current suppressing feedback
-    // (non-CLR, lowest rate, unconfirmed RTT)
-    if (0 == (ccFlags & NormCC::CLR))
-    {
-        if (suppress_rate < 0.0)
-        {
-            suppress_rate = ccRate;
-            suppress_rtt = ccRtt;
-            suppress_nonconfirmed = (0 == (ccFlags & NormCC::RTT));
-        }
-        else
-        {
-            if (ccRate < suppress_rate)
-                suppress_rate = ccRate;
-            if (ccRtt > suppress_rtt)
-                suppress_rtt = ccRtt;
-            if (0 == (ccFlags & NormCC::RTT))
-                suppress_nonconfirmed = true;
-        }
-    }
-    if (!cc_enable)
-        return;
-
+    double measuredRate = ccRate / 2.0;  // save for diagnostics and other purposes
+       
     // Adjust ccRtt if we already have state on this nodeId
-    NormCCNode *node = (NormCCNode *)cc_node_list.FindNodeById(nodeId);
-    if (node)
+    NormCCNode* node = (NormCCNode*)cc_node_list.FindNodeById(nodeId);
+#ifdef CCD_TRACE
+    double oldRtt = -1.0;
+    if (NULL != node)
+    {
+        oldRtt = node->GetRtt();
         ccRtt = node->UpdateRtt(ccRtt);
-
+    }
+#else
+    if (NULL != node)
+        ccRtt = node->UpdateRtt(ccRtt);
+#endif // CCD_TRACE
+    
     bool ccSlowStart = (0 != (ccFlags & NormCC::START));
 
     if (!ccSlowStart)
@@ -3374,11 +3388,197 @@ void NormSession::SenderHandleCCFeedback(struct timeval currentTime,
             ccRate = calcRate;
         }
     }
-
+    // Keep track of current suppressing feedback
+    // (non-CLR, lowest rate, unconfirmed RTT)
+    if (0 == (ccFlags & NormCC::CLR))
+    {
+        // TBD - should we confirm this is not the CLR?
+        // TBD - should PLR receivers also be ignored for suppression?
+        if (suppress_rate < 0.0)
+        {
+            suppress_rate = ccRate;
+            suppress_rtt = ccRtt;
+            suppress_nonconfirmed = (0 == (ccFlags & NormCC::RTT));
+        }
+        else
+        {
+            // This makes sure the worst case suppression indication
+            // is advertised for CC Feedback suppression from non-PLR/CLR receivers
+            if (ccRate < suppress_rate)
+                suppress_rate = ccRate;
+            if (ccRtt > suppress_rtt)
+                suppress_rtt = ccRtt;
+            if (0 == (ccFlags & NormCC::RTT))
+                suppress_nonconfirmed = true;
+        }
+    }
+    if (!cc_enable) return;
+    
     PLOG(PL_DEBUG, "NormSession::SenderHandleCCFeedback() node>%lu rate>%lf (rtt>%lf loss>%lf slow_start>%d limit>%d)\n",
          (unsigned long)nodeId, ccRate * 8.0 / 1000.0, ccRtt, ccLoss, (0 != (ccFlags & NormCC::START)),
          (0 != (ccFlags & NormCC::LIMIT)));
-
+    
+    // This code processes this feedback, nominally updating current CLR state if it's feedback
+    // from the CLR, or otherwise possibly replacing the CLR or adding (or bumping) a PLR
+    NormNodeListIterator iterator(cc_node_list);
+    NormCCNode* clr = (NormCCNode*)iterator.GetNextNode();
+    double oldClrRate = (NULL != clr) ? clr->GetRate() : -1.0;
+    if (NULL == node)
+    {
+        // Create a new NormCCNode and add to list if there's room
+        bool bumpCheck = true;
+        if (cc_node_list.GetCount() < 5)
+        {
+            if (NULL != (node = new NormCCNode(*this, nodeId)))
+            {
+                node->SetId(nodeId);
+                node->SetRtt(ccRtt);
+                cc_node_list.Append(node);
+                if (NULL == clr)
+                {
+                    clr = node;
+                    node->SetClrStatus(true);
+                    TRACE("Switched to CLR id %lu\n", nodeId);
+                }
+                bumpCheck = false;
+            }
+            else
+            {
+                PLOG(PL_FATAL, "NormSession::SenderHandleCCFeedback() memory allocation error: %s\n", GetErrorString());
+                bumpCheck = true;
+            }
+        }
+        if (bumpCheck)
+        {
+            // Find PLR with highest rate for possible bump by this new receiver
+            NormCCNode* candidate = (NormCCNode*)iterator.GetNextNode();  // points to first PLR _after_ CLR
+            NormCCNode* next;
+            while (NULL != (next = (NormCCNode*)iterator.GetNextNode()))
+            {
+                if (candidate->RateIsLowerThan(*next, 0.0))
+                    candidate = next;
+            }
+            if (NULL == candidate)
+            {
+                // Possibly only a single NormCCNode (or none) is available
+                if (NULL == clr)
+                {
+                    PLOG(PL_FATAL, "NormSession::SenderHandleCCFeedback() error: unable to allocate NormCCNode\n");
+                    return;
+                }
+                if (!clr->IsActive() || !clr->HasRtt() || (ccRate < clr->GetRate()))
+                {
+                    // Replace CLR with this new one
+                    node = clr;
+                    node->SetId(nodeId);
+                    node->SetRtt(ccRtt);
+                    clr->SetClrStatus(false);
+                    node->SetClrStatus(true);
+                    TRACE("Switched to CLR id %lu\n", nodeId);
+                }
+                else
+                {
+                    // feedback doesn't override CLR
+                }
+            }
+            else if (!candidate->IsActive() || !candidate->HasRtt() || (ccRate < candidate->GetRate()))
+            {
+                // This candidate is getting bumped by the new ACKing receiver
+                node = candidate;
+                node->SetId(nodeId);
+                node->SetRtt(ccRtt);
+            }
+            else
+            {
+                return;  // feedback doesn't override CLR or any PLR
+            }
+        }
+    }
+    else
+    {
+        // It's an existing CLR or PLR we are already tracking
+        // First, make sure this is new, non-duplicative feedback
+        // TBD - should we consider tightening the window here?
+        INT16 ccDelta = ccSequence - node->GetCCSequence();
+        if (ccDelta <= 0)
+            return;
+#ifdef CCD_TRACE
+        double rateChange = 0.0;
+        double rttChange = 0.0;
+        // Adjust ccRtt if we already have state on this nodeId
+        if (NULL != node)
+        {
+            rttChange = ccRtt - oldRtt;  // positive value indicates increase, negative indicates decrease
+            double oldRate = node->GetMeasuredRate();
+            rateChange = 8.0e-03*(measuredRate - oldRate);
+            double theTime = (double)currentTime.tv_sec + 1.0e-06 * ((double)currentTime.tv_usec);
+            TRACE("CCD_TRACE: time>%lf txRate>%lf rxRate>%lf rateChange>%lf rtt>%lf rttChange>%lf loss>%lf slow_start>%d\n", 
+                    theTime, 8.0e-03*tx_rate, 8.0e-03*measuredRate, rateChange, ccRtt, rttChange, ccLoss, ccSlowStart);
+        }
+#endif // CCD_TRACE   
+    }
+    
+    ASSERT(NULL != node);
+    
+    // Update the node's state (note RTT was already initialized or updated above)
+    node->SetRttStatus(0 != (ccFlags & NormCC::RTT));
+    node->SetLoss(ccLoss);
+    node->SetRate(ccRate);
+    node->SetMeasuredRate(measuredRate);
+    node->SetCCSequence(ccSequence);
+    node->SetActive(true);
+    node->SetFeedbackTime(currentTime);
+        
+    if (node != clr)
+    {
+        if (node->RateIsLowerThan(*clr, 0.10))  // 0.10 means at least 10% lower to bump CLR
+        {
+            // Demote CLR and replace with "node"
+            clr->SetClrStatus(false);
+            node->SetClrStatus(true);
+            cc_node_list.Remove(node);
+            cc_node_list.Prepend(node);
+            clr = node;
+            TRACE("Switched to CLR id %lu\n", clr->GetId());
+        }
+        else
+        {
+            return; // no impact to current rate
+        }
+    }
+    else  // if (node == clr)
+    {
+        if ((oldClrRate >= 0.0) && (ccRate > oldClrRate))
+        {
+            // We need to scan cc_node_list to see if another node will bump CLR
+            // (Another node we are tracking may have lower rate)
+            iterator.Reset();
+            node = (NormCCNode*)iterator.GetNextNode();
+            NormCCNode* next;
+            while (NULL != (next = (NormCCNode*)iterator.GetNextNode()))
+            {
+                if (next->RateIsLowerThan(*clr, 0.10))
+                    node = next;
+            }
+            if (node != clr)
+            {
+                // Demote CLR and replace with "node"
+                clr->SetClrStatus(false);
+                node->SetClrStatus(true);
+                cc_node_list.Remove(node);
+                cc_node_list.Prepend(node);
+                clr = node;
+                TRACE("Switched to CLR id %lu\n", clr->GetId());
+            }
+        }
+        // else keep current CLR
+    }
+    // We only get to this point if the feedback is for existing
+    // or newly-elected CLR
+    cc_slow_start = ccSlowStart; // use CLR status for our slow_start state
+    AdjustRate(true);
+    
+    /******************* Old (messy) PLR management  code
     // Keep the active CLR (if there is one) at the head of the list
     NormNodeListIterator iterator(cc_node_list);
     NormCCNode *next = (NormCCNode *)iterator.GetNextNode();
@@ -3393,6 +3593,20 @@ void NormSession::SenderHandleCCFeedback(struct timeval currentTime,
             if (ccDelta <= 0)
                 return;
         }
+#ifdef CCD_TRACE
+        double rateChange = 0.0;
+        double rttChange = 0.0;
+        // Adjust ccRtt if we already have state on this nodeId
+        if (NULL != node)
+        {
+            rttChange = ccRtt - oldRtt;  // positive value indicates increase, negative indicates decrease
+            double oldRate = node->GetMeasuredRate();
+            rateChange = 8.0e-03*(measuredRate - oldRate);
+            double theTime = (double)currentTime.tv_sec + 1.0e-06 * ((double)currentTime.tv_usec);
+            TRACE("CCD_TRACE: time>%lf txRate>%lf rxRate>%lf rateChange>%lf rtt>%lf rttChange>%lf loss>%lf slow_start>%d\n", 
+                    theTime, 8.0e-03*tx_rate, 8.0e-03*measuredRate, rateChange, ccRtt, rttChange, ccLoss, ccSlowStart);
+        }
+#endif // CCD_TRACE   
         if ((nodeId == next->GetId()) ||
             (ccRate < next->GetRate()) ||
             ((ccRate < (next->GetRate() * 1.1)) &&
@@ -3412,6 +3626,7 @@ void NormSession::SenderHandleCCFeedback(struct timeval currentTime,
 
             next->SetLoss(ccLoss);
             next->SetRate(ccRate);
+            next->SetMeasuredRate(measuredRate);
             next->SetCCSequence(ccSequence);
             next->SetActive(true);
             next->SetFeedbackTime(currentTime);
@@ -3461,6 +3676,7 @@ void NormSession::SenderHandleCCFeedback(struct timeval currentTime,
         next->SetRtt(ccRtt);
         next->SetLoss(ccLoss);
         next->SetRate(ccRate);
+        next->SetMeasuredRate(measuredRate);
         next->SetCCSequence(ccSequence);
         next->SetActive(true);
         next->SetFeedbackTime(currentTime);
@@ -3543,7 +3759,434 @@ void NormSession::SenderHandleCCFeedback(struct timeval currentTime,
             candidate->SetActive(true);
         }
     }
-} // end NormSession::SenderHandleCCFeedback()
+***********************************/
+    
+} // end NormSession::SenderHandleCCFeedback(CC | CCL | CCE)
+
+void NormSession::AdjustRate(bool onResponse)
+{
+    const NormCCNode *clr = (const NormCCNode *)cc_node_list.Head();
+    double ccRtt = clr ? clr->GetRtt() : grtt_measured;
+    double ccLoss = clr ? clr->GetLoss() : 0.0;
+    double txRate = tx_rate;
+    double oldRate = txRate;
+#ifdef CCD_TRACE
+    double damper = 0.0;
+    double rttMean = 0.0;
+    double rttSample = 0.0;
+    double rtt = 0.0;
+#endif // CCD_TRACE
+    if (onResponse)
+    {
+        if (!cc_active)
+        {
+            cc_active = true;
+            Notify(NormController::CC_ACTIVE, NULL, NULL);
+        }
+        if (data_active) // adjust only if actively transmitting
+        {
+            // Adjust rate based on CLR feedback and
+            // adjust probe schedule
+            ASSERT(NULL != clr);
+            // (TBD) check feedback age
+            if (cc_slow_start)
+            {
+                txRate = clr->GetRate();
+                // Don't adjust rate more than double per RTT during slow start
+                double rateDouble = 2.0*tx_rate;
+                if (0.0 == txRate)
+                    txRate = rateDouble;
+                else if (txRate > rateDouble)
+                    txRate = rateDouble;
+                if (GetDebugLevel() >= 6)
+                {
+                    double sentRate = 8.0e-03 * sent_accumulator.GetScaledValue(1.0 / (report_timer.GetInterval() - report_timer.GetTimeRemaining()));
+                    PLOG(PL_DETAIL, "NormSession::AdjustRate(slow start:%s) clr>%lu newRate>%lf (oldRate>%lf sentRate>%lf clrRate>%lf\n",
+                         onResponse ? "true" : "false", (unsigned long)clr->GetId(), 8.0e-03 * txRate, 8.0e-03 * tx_rate, sentRate, 8.0e-03 * clr->GetRate());
+                }
+                // Compute but don't use damper during slow start
+                damper = clr->GetRttSqMean() / sqrt(clr->GetRttSample());
+                if (damper < 0.5)
+                    damper = 0.5;
+                else if (damper > 2.0)
+                    damper = 2.0;
+            }
+            else
+            {
+                double clrRate = clr->GetRate();
+                if (clrRate > txRate)
+                {
+                    double maxRate = txRate * 2;
+                    txRate = MIN(clrRate, maxRate);
+                }
+                else
+                {
+                    txRate = clrRate;
+                }
+
+                // Here, we use the most recent CLR rtt sample to "damp" oscillation
+                damper = clr->GetRttSqMean() / sqrt(clr->GetRttSample());
+                if (damper < 0.5)
+                    damper = 0.5;
+                else if (damper > 2.0)
+                    damper = 2.0;
+#ifdef CCD_TRACE
+                rttMean = clr->GetRttSqMean();
+                rttSample = clr->GetRttSample();
+                rtt = clr->GetRtt();
+#endif  // end CCD_TRACE                
+                txRate *= damper;
+                PLOG(PL_DETAIL, "NormSession::AdjustRate(stdy state:%s) clr>%lu newRate>%lf (rtt>%lf loss>%lf)\n",
+                     onResponse ? "true" : "false", (unsigned long)clr->GetId(), 8.0e-03 * txRate, clr->GetRtt(), clr->GetLoss());
+            }
+        }  // end if data_active
+        if (!address.IsMulticast())
+        {
+            // For unicast, adjust the probe timeout right away
+            double probeInterval = GetProbeInterval(); // based on CLR RTT, etc
+            TRACE("probe_timer interval current:%lf new:%lf grtt measured:%lf advertised:%lf\n", probe_timer.GetInterval(), probeInterval, grtt_measured, grtt_advertised);
+            if (probe_timer.GetInterval() > probeInterval)
+            {
+                // reduce to speed up rate increase
+                double elapsed = probe_timer.GetInterval() - probe_timer.GetTimeRemaining();
+                if (probeInterval > elapsed)
+                    probeInterval -= elapsed;
+                else
+                    probeInterval = 0.0;
+                TRACE("   rescheduling probe: active:%d new interval:%lf\n", probe_timer.IsActive(), probeInterval);
+                probe_timer.SetInterval(probeInterval);
+                if (probe_timer.IsActive())
+                    probe_timer.Reschedule();
+            }
+        }
+    }
+    else if (!data_active)
+    {
+        // reduce rate if no active data transmission (TBD - should we also do this if no active CLR?)
+        // (TBD) Perhaps we want to be less aggressive here someday
+        txRate *= 0.5;
+    }
+    else if (clr && clr->IsActive())
+    {
+        // No change with active feedback from receiver(s)
+        // (TBD) fix CC feedback aging ...
+        /*int feedbackAge  = abs((int)cc_sequence - (int)clr->GetCCSequence());
+        DMSG(0, "NormSession::AdjustRate() feedback age>%d (%d - %d\n", 
+                feedbackAge, cc_sequence, clr->GetCCSequence());
+        
+        if (feedbackAge > 50)
+        {
+            double linRate = txRate - segment_size;
+            linRate = MAX(linRate, 0.0);
+            double expRate = txRate * 0.5;
+            if (feedbackAge > 4)
+                txRate = MIN(linRate, expRate);
+            else
+                txRate = MAX(linRate, expRate);
+            
+        }*/
+    }
+    else
+    {
+        // reduce rate by half if no active clr
+        txRate *= 0.5;
+    }
+
+    // Keep "tx_rate" within default or user set rate bounds (if any)
+    double minRate;
+    if (tx_rate_min > 0.0)
+    {
+        minRate = tx_rate_min;
+    }
+    else
+    {
+        // Don't let txRate below MIN(one segment per grtt, one segment per second)
+        if (grtt_measured > 1.0)
+            minRate = ((double)segment_size) / grtt_measured;
+        else
+            minRate = (double)(segment_size);
+    }
+    if (txRate <= minRate)
+    {
+        txRate = minRate;
+        if ((NULL == clr) || (!clr->IsActive()))
+        {
+            // Post notification that no cc feedback is being received
+            if (cc_active)
+            {
+                cc_active = false;
+                Notify(NormController::CC_INACTIVE, NULL, NULL);
+            }
+        }
+    }
+    // Limit rate to tx_rate_max if that has been set
+    if ((tx_rate_max >= 0.0) && (txRate > tx_rate_max))
+        txRate = tx_rate_max;
+    if (txRate != tx_rate)
+    {
+        // TBD - don't adjust rate more than double per RTT all the time???
+        //double rateDouble = 2.0*tx_rate;
+        //if (txRate > rateDouble) txRate = rateDouble;
+        if (cc_adjust)
+            SetTxRateInternal(txRate);
+        if (!posted_tx_rate_changed)
+        {
+            // TBD - make API notification filtering more consistent
+            // (e.g., "notify_on_rate_update" like for grtt, etc
+            //  putting API code in charge of resetting these API
+            //  state variables).
+            posted_tx_rate_changed = true;
+            Notify(NormController::TX_RATE_CHANGED, (NormSenderNode *)NULL, (NormObject *)NULL);
+        }
+    }
+
+    struct timeval currentTime;
+    ::ProtoSystemTime(currentTime);
+    double theTime = (double)currentTime.tv_sec + 1.0e-06 * ((double)currentTime.tv_usec);
+    //PLOG(PL_DEBUG, "SenderRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n", theTime, 8.0e-03 * txRate, ccRtt, ccLoss);
+    //TRACE("SenderRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n", theTime, 8.0e-03*txRate, ccRtt, ccLoss);
+    double calcRate = NormSession::CalculateRate(nominal_packet_size, ccRtt, ccLoss);
+    TRACE("SenderRateTracking(%s) time>%lf rate>%lf oldRate>%lf clrRate>%lf rxRate>%lf rtt>%lf damper>%lf loss>%lf calcRate>%lf size>%lf%s\n\n",
+          onResponse ? "true" : "false", theTime, 8.0e-03*txRate, 8.0e-03*oldRate, 
+          clr ? 8.0e-03*clr->GetRate() : 0.0, clr ? 8.0e-03*clr->GetMeasuredRate() : 0.0,
+          ccRtt, damper, ccLoss, calcRate*8.0e-03,
+          nominal_packet_size, cc_slow_start ? " (slow start)" : "");
+    //ASSERT((NULL == clr) || (txRate <= clr->GetRate()));
+} // end NormSession::AdjustRate(CC | CCL | CCE)
+
+#else // NORM_CCD
+
+void NormSession::AdjustRate(bool onResponse)
+{
+    const NormCCNode *clr = (const NormCCNode *)cc_node_list.Head();
+    double ccRtt = clr ? clr->GetRtt() : grtt_measured;
+    double ccLoss = clr ? clr->GetLoss() : 0.0;
+    double txRate = tx_rate;
+    double oldRate = txRate;
+    double damper = 0.0;
+    
+    
+    if (!onResponse)
+    {
+        // This is a timeout-driven rate adjustment.  For NORM_CCD, adjustment behavior
+        // is driven by the NORM_CCD (BBR-like) state
+        switch (ccd_state)
+        {
+            case CcdState::START:
+            {
+                if ((NULL != clr) && (clr->IsActive())
+                {
+                    txRate = clr->GetRate();
+                    // Don't adjust rate more than double per RTT during slow start
+                    double rateDouble = 2.0*tx_rate;
+                    if (0.0 == txRate)
+                        txRate = rateDouble;
+                    else if (txRate > rateDouble)
+                        txRate = rateDouble;
+                    
+                    
+                    
+                    
+                }
+                else
+                {   
+                    txRate *= 0.5; // note rate will be floored to min rate
+                }
+                break;
+            }
+            case Ccdtate::DRAIN:
+                break;
+            case CcdState::CRUISE:
+                break;
+            case CcdState::REFILL:
+                break;
+            case CcdState::PROBE_UP:
+                break;
+            case CcdState::PROBE_DOWN:
+                break;
+            case CcdState::PROBE_RTT:
+                break;
+            case CcdState::INVALID: // NORM_CCD not active
+                ASSERT(0);
+                break;
+        }
+    
+    
+    if (onResponse)
+    {
+        if (!cc_active)
+        {
+            cc_active = true;
+            Notify(NormController::CC_ACTIVE, NULL, NULL);
+        }
+        if (data_active) // adjust only if actively transmitting
+        {
+            // Adjust rate based on CLR feedback and
+            // adjust probe schedule
+            ASSERT(NULL != clr);
+            // (TBD) check feedback age
+            if (cc_slow_start)
+            {
+                txRate = clr->GetRate();
+                // Don't adjust rate more than double per RTT during slow start
+                double rateDouble = 2.0*tx_rate;
+                if (0.0 == txRate)
+                    txRate = rateDouble;
+                else if (txRate > rateDouble)
+                    txRate = rateDouble;
+                if (GetDebugLevel() >= 6)
+                {
+                    double sentRate = 8.0e-03 * sent_accumulator.GetScaledValue(1.0 / (report_timer.GetInterval() - report_timer.GetTimeRemaining()));
+                    PLOG(PL_DETAIL, "NormSession::AdjustRate(CC slow start:%s) clr>%lu newRate>%lf (oldRate>%lf sentRate>%lf clrRate>%lf\n",
+                         onResponse ? "true" : "false", (unsigned long)clr->GetId(), 8.0e-03 * txRate, 8.0e-03 * tx_rate, sentRate, 8.0e-03 * clr->GetRate());
+                }
+            }
+            else  // !cc_slow_start
+            {
+                double clrRate = clr->GetRate();
+                if (clrRate > txRate)
+                {
+                    double maxRate = txRate * 2;
+                    txRate = MIN(clrRate, maxRate);
+                }
+                else
+                {
+                    txRate = clrRate;
+                }
+
+                // Here, we use the most recent CLR rtt sample to "damp" oscillation
+                damper = clr->GetRttSqMean() / sqrt(clr->GetRttSample());
+                if (damper < 0.5)
+                {
+                    damper = 0.5;
+                }
+                else if (damper > 2.0)
+                {
+                    TRACE("DAMPER>%lf rttMean>%lf rttSample>%lf rtt>%lf\n", damper, 
+                          clr->GetRttSqMean(), sqrt(clr->GetRttSample()), clr->GetRtt());
+                    damper = 2.0;
+                }
+                txRate *= damper;
+                PLOG(PL_DETAIL, "NormSession::AdjustRate(CC stdy state:%s) clr>%lu newRate>%lf (rtt>%lf loss>%lf)\n",
+                     onResponse ? "true" : "false", (unsigned long)clr->GetId(), 8.0e-03 * txRate, clr->GetRtt(), clr->GetLoss());
+            }  // end if/else cc_slow_start 
+        }  // end if data_active
+        
+        if (!address.IsMulticast())
+        {
+            // For unicast, adjust the probe timeout right away
+            double probeInterval = GetProbeInterval(); // based on CLR RTT, etc
+            TRACE("probe_timer interval current:%lf new:%lf grtt measured:%lf advertised:%lf\n", probe_timer.GetInterval(), probeInterval, grtt_measured, grtt_advertised);
+            if (probe_timer.GetInterval() > probeInterval)
+            {
+                // reduce to speed up rate increase
+                double elapsed = probe_timer.GetInterval() - probe_timer.GetTimeRemaining();
+                if (probeInterval > elapsed)
+                    probeInterval -= elapsed;
+                else
+                    probeInterval = 0.0;
+                TRACE("   rescheduling probe: active:%d new interval:%lf\n", probe_timer.IsActive(), probeInterval);
+                probe_timer.SetInterval(probeInterval);
+                if (probe_timer.IsActive())
+                    probe_timer.Reschedule();
+            }
+        }
+    }
+    else if (!data_active)
+    {
+        // reduce rate if no active data transmission
+        // (TBD) Perhaps we want to be less aggressive here someday
+        txRate *= 0.5;
+    }
+    else if (clr && clr->IsActive())
+    {
+        // No change with active feedback from receiver(s)
+        // (TBD) fix CC feedback aging ...
+        /*int feedbackAge  = abs((int)cc_sequence - (int)clr->GetCCSequence());
+        DMSG(0, "NormSession::AdjustRate() feedback age>%d (%d - %d\n", 
+                feedbackAge, cc_sequence, clr->GetCCSequence());
+        
+        if (feedbackAge > 50)
+        {
+            double linRate = txRate - segment_size;
+            linRate = MAX(linRate, 0.0);
+            double expRate = txRate * 0.5;
+            if (feedbackAge > 4)
+                txRate = MIN(linRate, expRate);
+            else
+                txRate = MAX(linRate, expRate);
+            
+        }*/
+    }
+    else
+    {
+        // reduce rate by half if no active clr
+        txRate *= 0.5;
+    }
+
+    // Keep "tx_rate" within default or user set rate bounds (if any)
+    double minRate;
+    if (tx_rate_min > 0.0)
+    {
+        minRate = tx_rate_min;
+    }
+    else
+    {
+        // Don't let txRate below MIN(one segment per grtt, one segment per second)
+        if (grtt_measured > 1.0)
+            minRate = ((double)segment_size) / grtt_measured;
+        else
+            minRate = (double)(segment_size);
+    }
+    if (txRate <= minRate)
+    {
+        txRate = minRate;
+        if ((NULL == clr) || (!clr->IsActive()))
+        {
+            // Post notification that no cc feedback is being received
+            if (cc_active)
+            {
+                cc_active = false;
+                Notify(NormController::CC_INACTIVE, NULL, NULL);
+            }
+        }
+    }
+    // Limit rate to tx_rate_max if that has been set
+    if ((tx_rate_max >= 0.0) && (txRate > tx_rate_max))
+        txRate = tx_rate_max;
+    if (txRate != tx_rate)
+    {
+        // TBD - don't adjust rate more than double per RTT all the time???
+        //double rateDouble = 2.0*tx_rate;
+        //if (txRate > rateDouble) txRate = rateDouble;
+        if (cc_adjust)
+            SetTxRateInternal(txRate);
+        if (!posted_tx_rate_changed)
+        {
+            // TBD - make API notification filtering more consistent
+            // (e.g., "notify_on_rate_update" like for grtt, etc
+            //  putting API code in charge of resetting these API
+            //  state variables).
+            posted_tx_rate_changed = true;
+            Notify(NormController::TX_RATE_CHANGED, (NormSenderNode *)NULL, (NormObject *)NULL);
+        }
+    }
+
+    struct timeval currentTime;
+    ::ProtoSystemTime(currentTime);
+    double theTime = (double)currentTime.tv_sec + 1.0e-06 * ((double)currentTime.tv_usec);
+    //PLOG(PL_DEBUG, "SenderRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n", theTime, 8.0e-03 * txRate, ccRtt, ccLoss);
+    //TRACE("SenderRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n", theTime, 8.0e-03*txRate, ccRtt, ccLoss);
+    double calcRate = NormSession::CalculateRate(nominal_packet_size, ccRtt, ccLoss);
+    TRACE("SenderRateTracking(%s) time>%lf rate>%lf oldRate>%lf clrRate>%lf rxRate>%lf rtt>%lf damper>%lf loss>%lf calcRate>%lf size>%lf%s\n\n",
+          onResponse ? "true" : "false", theTime, 8.0e-03*txRate, 8.0e-03*oldRate, 
+          clr ? 8.0e-03*clr->GetRate() : 0.0, clr ? 8.0e-03*clr->GetMeasuredRate() : 0.0,
+          ccRtt, damper, ccLoss, calcRate*8.0e-03,
+          nominal_packet_size, cc_slow_start ? " (slow start)" : "");
+    //ASSERT((NULL == clr) || (txRate <= clr->GetRate()));
+} // end NormSession::AdjustRate(CCD)
+
+#endif // NORM_CCD
 
 void NormSession::SenderHandleAckMessage(const struct timeval &currentTime, const NormAckMsg &ack, bool wasUnicast)
 {
@@ -3554,6 +4197,7 @@ void NormSession::SenderHandleAckMessage(const struct timeval &currentTime, cons
     PLOG(PL_DEBUG, "NormSession::SenderHandleAckMessage() node>%lu sender received ACK from node>%lu rtt>%lf\n",
          (unsigned long)LocalNodeId(), (unsigned long)ack.GetSourceId(), receiverRtt);
 
+    // TBD - look out for duplicate ACKs, etc here before incorporating feedback
     if (receiverRtt >= 0.0)
         SenderUpdateGrttEstimate(receiverRtt);
 
@@ -4775,7 +5419,7 @@ bool NormSession::OnRepairTimeout(ProtoTimer & /*theTimer*/)
 } // end NormSession::OnRepairTimeout()
 
 // (TBD) Should pass current system time to ProtoTimer timeout handlers
-//       for more efficiency ...
+//       for more efficiency (less system calls) ...
 bool NormSession::OnTxTimeout(ProtoTimer & /*theTimer*/)
 {
     NormMsg *msg;
@@ -4824,6 +5468,8 @@ bool NormSession::OnTxTimeout(ProtoTimer & /*theTimer*/)
     if (NULL != msg)
     {
         // Do "packet pairing of NORM_CMD(CC) and subsequent message (usually NORM_DATA), if any
+        // (This was an interim idea to support alternative congestion control, but should
+        // 
         //unsigned int msgLength = msg->GetLength();
 
         unsigned int msgLength = tx_residual;
@@ -4839,12 +5485,47 @@ bool NormSession::OnTxTimeout(ProtoTimer & /*theTimer*/)
         {
             msgLength += msg->GetLength();
         }
-
+        
+#ifdef NORM_CCD
+        // Use 'tx_gap' status to determined FLAG_PAIR marking
+        switch (msg->GetType())
+        {
+            case NormMsg::CMD:
+            {
+                NormCmdMsg* cmdMsg = static_cast<NormCmdMsg*>(msg);
+                if (NormCmdMsg::CC == cmdMsg->GetFlavor())
+                {
+                    NormCmdCCMsg* ccMsg = static_cast<NormCmdCCMsg*>(cmdMsg);
+                    if (tx_gap)
+                        ccMsg->ClearFlag(NormCmdCCMsg::FLAG_PAIR);
+                    else
+                        ccMsg->SetFlag(NormCmdCCMsg::FLAG_PAIR);
+                }
+                break;
+            }
+            case NormMsg::DATA:
+            case NormMsg::INFO:
+            {
+                NormObjectMsg* objMsg = static_cast<NormObjectMsg*>(msg);
+                objMsg->SetFlag(NormObjectMsg::FLAG_PAIR);
+                    if (tx_gap)
+                        objMsg->ClearFlag(NormObjectMsg::FLAG_PAIR);
+                    else
+                        objMsg->SetFlag(NormObjectMsg::FLAG_PAIR);
+                break;
+            }
+            default:
+                break;
+        }
+#endif // NORM_CCD
+        
         switch (SendMessage(*msg))
         {
             case MSG_SEND_OK:
                 if (tx_rate > 0.0)
                     tx_timer.SetInterval(GetTxInterval(msgLength, tx_rate));
+                //TRACE("set tx interval: %lf len>%u rate>%lf\n",
+                //        GetTxInterval(msgLength, tx_rate), msgLength, 8.0e-03*tx_rate);
                 if (advertise_repairs)
                 {
                     advertise_repairs = false;
@@ -4860,6 +5541,8 @@ bool NormSession::OnTxTimeout(ProtoTimer & /*theTimer*/)
                 // when an interim repair request should be serviced first
                 // instead ???
                 //if (message_queue.IsEmpty() && IsSender()) Serve();
+                tx_active = true;
+                tx_gap = false;
                 return true; // reinstall tx_timer
 
             case MSG_SEND_BLOCKED:
@@ -4869,6 +5552,8 @@ bool NormSession::OnTxTimeout(ProtoTimer & /*theTimer*/)
                 if (tx_timer.IsActive())
                     tx_timer.Deactivate();
                 tx_socket->StartOutputNotification();
+                tx_active = false;
+                tx_gap = true;
                 return false; // since timer was deactivated
 
             case MSG_SEND_FAILED:
@@ -4880,23 +5565,41 @@ bool NormSession::OnTxTimeout(ProtoTimer & /*theTimer*/)
                     tx_timer.SetInterval(GetTxInterval(msgLength, tx_rate));
                 else if (0.0 == tx_timer.GetInterval())
                     tx_timer.SetInterval(0.001);
+                tx_active = false;
+                tx_gap = true;
                 return true; // timer will be reactivated
             }
     }
     else
     {
         // 1) Prompt for next sender message
-        if (IsSender())
+        if (IsSender()) 
             Serve();
-
         if (message_queue.IsEmpty())
         {
-            if (tx_timer.IsActive())
-                tx_timer.Deactivate();
-            // Check that any possible notifications posted in
-            // the previous call to Serve() may have caused a
-            // change in sender state making it ready to send
-            //if (IsSender()) Serve();
+            // This extra logic doesn't seem to be necessary for good tx_gap checks?
+            if (tx_active)
+            {
+                // Schedule a new zero TxTimeout to provide follow-up Serve() opportunity
+                // in case previous call to Serve() caused a change in sender state due to
+                // notifications posted (e.g., TX_QUEUE_EMPTY) and app response
+                // This enables "seamless" tx_gap checks
+                tx_active = false;
+                tx_timer.SetInterval(0.0);
+                // The use of ProtoTimer::Reschedule() here forces a break from the
+                // current timer service loop to give the application thread a chance
+                // to do its thing (e.g, enqueue new data)
+                if (tx_timer.IsActive())
+                    tx_timer.Reschedule();
+                else
+                    ActivateTimer(tx_timer);
+            }
+            else 
+            {
+                tx_gap = true;
+                if (tx_timer.IsActive())
+                    tx_timer.Deactivate();
+            }
             return false;
         }
         else
@@ -4947,7 +5650,7 @@ NormSession::MessageStatus NormSession::SendMessage(NormMsg &msg)
                     if (0 != probe_tos)
                         sendRaw = true;  // so probe will be marked accordingly
                     if (syn_status)
-                        ccMsg.SetSyn();
+                        ccMsg.SetFlag(NormCmdCCMsg::FLAG_SYN);
                     break;
                 }
                 case NormCmdMsg::SQUELCH:
@@ -5104,7 +5807,7 @@ NormSession::MessageStatus NormSession::SendMessage(NormMsg &msg)
     if (isProbe)
     {
         probe_pending = false;
-        probe_data_check = true;
+        probe_data_check = true;  // this has to get cleared before another probe can be set
         if (probe_reset)
         {
             probe_reset = false;
@@ -5281,6 +5984,8 @@ bool NormSession::OnProbeTimeout(ProtoTimer & /*theTimer*/)
 {
     // 1) Temporarily kill probe_timer if CMD(CC) not yet tx'd
     //    (or if data has not been sent since last probe)
+    //TRACE("OnProbeTimeout() probe_pending:%d data_active:%d data check:%d slow_start:%d tx_rate:%lf\n",
+    //        probe_pending, data_active, probe_data_check, cc_slow_start, 8.0e-03*tx_rate);
     if (probe_pending || (data_active && probe_data_check) || (0.0 == tx_rate))
     {
         probe_reset = true;
@@ -5384,7 +6089,8 @@ bool NormSession::OnProbeTimeout(ProtoTimer & /*theTimer*/)
         grtt_interval = grtt_interval_max;
 
     // 3) Build a NORM_CMD(CC) message
-    NormCmdCCMsg *cmd = (NormCmdCCMsg *)GetMessageFromPool();
+    TRACE("   building NORM_CMD(CC) message ...\n");
+    NormCmdCCMsg *cmd = static_cast<NormCmdCCMsg*>(GetMessageFromPool());
     if (!cmd)
     {
         PLOG(PL_FATAL, "NormSession::OnProbeTimeout() node>%lu message_pool empty! can't probe\n",
@@ -5411,8 +6117,8 @@ bool NormSession::OnProbeTimeout(ProtoTimer & /*theTimer*/)
         // Iterate over cc_node_list and append cc_nodes ...
         // (we also check cc_node "activity status here)
         NormNodeListIterator iterator(cc_node_list);
-        NormCCNode *next;
-        while ((next = (NormCCNode *)iterator.GetNextNode()))
+        NormCCNode* next;
+        while ((next = static_cast<NormCCNode*>(iterator.GetNextNode())))
         {
             if (next->IsActive())
             {
@@ -5456,7 +6162,7 @@ bool NormSession::OnProbeTimeout(ProtoTimer & /*theTimer*/)
                 INT16 ccSeqDelta = cc_sequence - next->GetCCSequence();
                 if ((feedbackAge > maxFeedbackAge) && (ccSeqDelta > (INT16)(20 * probe_count)))
                 {
-                    PLOG(PL_DEBUG, "Deactivating cc node feedbackAge:%lf sec maxAge:%lf sec ccSeqDelta:%u\n",
+                    PLOG(PL_DEBUG, "NormSession::OnProbeTimeout() deactivating cc node feedbackAge:%lf sec maxAge:%lf sec ccSeqDelta:%u\n",
                          feedbackAge, maxFeedbackAge, ccSeqDelta);
                     next->SetActive(false);
                 }
@@ -5487,8 +6193,8 @@ double NormSession::GetProbeInterval()
 {
     if (cc_enable && data_active)
     {
-        const NormCCNode *clr = static_cast<const NormCCNode *>(cc_node_list.Head());
-        if (NULL != clr)
+        const NormCCNode* clr = static_cast<const NormCCNode*>(cc_node_list.Head());
+        if ((NULL != clr) && (clr->IsActive()))
         {
             double probeInterval = (clr->IsActive() ? MIN(grtt_advertised, clr->GetRtt()) : grtt_advertised);
             // For "large" RTT (100 msec or bigger), we need to possibly probe more
@@ -5518,183 +6224,15 @@ double NormSession::GetProbeInterval()
                 probeCount = probe_count;
 
             // Don't send more than one CLR probe per RTT during slow_start
-            return (cc_slow_start ? probeInterval : (probeInterval / (double)probeCount));
+            grtt_interval = (cc_slow_start ? probeInterval : (probeInterval / (double)probeCount));
         }
         else
         {
-            return grtt_advertised;
+            TRACE("probeInterval update clr NULL interval:%lf\n", grtt_interval);
         }
     }
-    else
-    {
-        return grtt_interval;
-    }
+    return grtt_interval;
 } // end NormSession::GetProbeInterval()
-
-void NormSession::AdjustRate(bool onResponse)
-{
-    const NormCCNode *clr = (const NormCCNode *)cc_node_list.Head();
-    double ccRtt = clr ? clr->GetRtt() : grtt_measured;
-    double ccLoss = clr ? clr->GetLoss() : 0.0;
-    double txRate = tx_rate;
-    if (onResponse)
-    {
-        if (!cc_active)
-        {
-            cc_active = true;
-            Notify(NormController::CC_ACTIVE, NULL, NULL);
-        }
-        if (data_active) // adjust only if actively transmitting
-        {
-            // Adjust rate based on CLR feedback and
-            // adjust probe schedule
-            ASSERT(NULL != clr);
-            // (TBD) check feedback age
-            if (cc_slow_start)
-            {
-                txRate = clr->GetRate();
-                // Don't adjust rate more than double per RTT during slow start
-                double rateDouble = 2.0*tx_rate;
-                if (txRate > rateDouble) txRate = rateDouble;
-                if (GetDebugLevel() >= 6)
-                {
-                    double sentRate = 8.0e-03 * sent_accumulator.GetScaledValue(1.0 / (report_timer.GetInterval() - report_timer.GetTimeRemaining()));
-                    PLOG(PL_DETAIL, "NormSession::AdjustRate(slow start) clr>%lu newRate>%lf (oldRate>%lf sentRate>%lf clrRate>%lf\n",
-                         (unsigned long)clr->GetId(), 8.0e-03 * txRate, 8.0e-03 * tx_rate, sentRate, 8.0e-03 * clr->GetRate());
-                }
-            }
-            else
-            {
-                double clrRate = clr->GetRate();
-                if (clrRate > txRate)
-                {
-                    double maxRate = txRate * 2;
-                    txRate = MIN(clrRate, maxRate);
-                }
-                else
-                {
-                    txRate = clrRate;
-                }
-
-                // Here, we use the most recent CLR rtt sample to "damp" oscillation
-                double damper = clr->GetRttSqMean() / sqrt(clr->GetRttSample());
-                if (damper < 0.5)
-                    damper = 0.5;
-                else if (damper > 2.0)
-                    damper = 2.0;
-                txRate *= damper;
-                PLOG(PL_DETAIL, "NormSession::AdjustRate(stdy state) clr>%lu newRate>%lf (rtt>%lf loss>%lf)\n",
-                     (unsigned long)clr->GetId(), 8.0e-03 * txRate, clr->GetRtt(), clr->GetLoss());
-            }
-        }
-        if (!address.IsMulticast())
-        {
-            // For unicast, adjust the probe timeout right away
-            double probeInterval = GetProbeInterval(); // based on CLR RTT, etc
-            if (probe_timer.GetInterval() > probeInterval)
-            {
-                // reduce to speed up rate increase
-                double elapsed = probe_timer.GetInterval() - probe_timer.GetTimeRemaining();
-                if (probeInterval > elapsed)
-                    probeInterval -= elapsed;
-                else
-                    probeInterval = 0.0;
-                probe_timer.SetInterval(probeInterval);
-                if (probe_timer.IsActive())
-                    probe_timer.Reschedule();
-            }
-        }
-    }
-    else if (!data_active)
-    {
-        // reduce rate if no active data transmission
-        // (TBD) Perhaps we want to be less aggressive here someday
-        txRate *= 0.5;
-    }
-    else if (clr && clr->IsActive())
-    {
-        // (TBD) fix CC feedback aging ...
-        /*int feedbackAge  = abs((int)cc_sequence - (int)clr->GetCCSequence());
-        DMSG(0, "NormSession::AdjustRate() feedback age>%d (%d - %d\n", 
-                feedbackAge, cc_sequence, clr->GetCCSequence());
-        
-        if (feedbackAge > 50)
-        {
-            double linRate = txRate - segment_size;
-            linRate = MAX(linRate, 0.0);
-            double expRate = txRate * 0.5;
-            if (feedbackAge > 4)
-                txRate = MIN(linRate, expRate);
-            else
-                txRate = MAX(linRate, expRate);
-            
-        }*/
-    }
-    else
-    {
-        // reduce rate by half if no active clr
-        txRate *= 0.5;
-    }
-
-    // Keep "tx_rate" within default or user set rate bounds (if any)
-    double minRate;
-    if (tx_rate_min > 0.0)
-    {
-        minRate = tx_rate_min;
-    }
-    else
-    {
-        // Don't let txRate below MIN(one segment per grtt, one segment per second)
-        if (grtt_measured > 1.0)
-            minRate = ((double)segment_size) / grtt_measured;
-        else
-            minRate = (double)(segment_size);
-    }
-    if (txRate <= minRate)
-    {
-        txRate = minRate;
-        if ((NULL == clr) || (!clr->IsActive()))
-        {
-            // Post notification that no cc feedback is being received
-            if (cc_active)
-            {
-                cc_active = false;
-                Notify(NormController::CC_INACTIVE, NULL, NULL);
-            }
-        }
-    }
-    // Limit rate to tx_rate_max if that has been set
-    if ((tx_rate_max >= 0.0) && (txRate > tx_rate_max))
-        txRate = tx_rate_max;
-    if (txRate != tx_rate)
-    {
-        // TBD - don't adjust rate more than double per RTT all the time???
-        //double rateDouble = 2.0*tx_rate;
-        //if (txRate > rateDouble) txRate = rateDouble;
-        if (cc_adjust)
-            SetTxRateInternal(txRate);
-        if (!posted_tx_rate_changed)
-        {
-            // TBD - make API notification filtering more consistent
-            // (e.g., "notify_on_rate_update" like for grtt, etc
-            //  putting API code in charge of resetting these API
-            //  state variables).
-            posted_tx_rate_changed = true;
-            Notify(NormController::TX_RATE_CHANGED, (NormSenderNode *)NULL, (NormObject *)NULL);
-        }
-    }
-
-    struct timeval currentTime;
-    ::ProtoSystemTime(currentTime);
-    double theTime = (double)currentTime.tv_sec + 1.0e-06 * ((double)currentTime.tv_usec);
-    PLOG(PL_DEBUG, "SenderRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n", theTime, 8.0e-03 * txRate, ccRtt, ccLoss);
-    //TRACE("SenderRateTracking time>%lf rate>%lf rtt>%lf loss>%lf\n", theTime, 8.0e-03*txRate, ccRtt, ccLoss);
-    //double calcRate = NormSession::CalculateRate(nominal_packet_size, ccRtt, ccLoss);
-    //TRACE("SenderRateTracking time>%lf rate>%lf clrRate>%lf rtt>%lf loss>%lf calcRate>%lf size>%lf%s\n\n",
-    //      theTime, 8.0e-03*txRate, clr ? 8.0e-03*clr->GetRate() : 0.0, ccRtt, ccLoss, calcRate*8.0e-03,
-    //      nominal_packet_size, cc_slow_start ? " (slow start)" : "");
-    //ASSERT((NULL == clr) || (txRate <= clr->GetRate()));
-} // end NormSession::AdjustRate()
 
 bool NormSession::OnReportTimeout(ProtoTimer & /*theTimer*/)
 {

@@ -6,6 +6,8 @@
 #include "normEncoder.h"
 #include "protokit.h"
 
+#define CCD_TRACE  // enables some instrumention code to support NORM_CCD development
+
 class NormNode
 {
     friend class NormNodeTree;
@@ -252,7 +254,7 @@ class NormCCNode : public NormNode
        NormCCNode(class NormSession& theSession, NormNodeId nodeId);
        ~NormCCNode();
        
-       enum {ACTIVE_MAX = 7};
+       enum {HINDEX_MAX = 7};
        
        bool IsClr() const {return is_clr;}
        bool IsPlr() const {return is_plr;}
@@ -264,6 +266,7 @@ class NormCCNode : public NormNode
        double GetRttSqMean() const {return rtt_sqmean;}
        double GetLoss() const {return loss;}
        double GetRate() const {return rate;}
+       double GetMeasuredRate() const {return rate_measured;}
        UINT16 GetCCSequence() const {return cc_sequence;}
        const struct timeval& GetFeedbackTime()
            {return feedback_time;}
@@ -277,17 +280,60 @@ class NormCCNode : public NormNode
        {
            rtt_sqmean = sqrt(value);
            rtt = rtt_sample = value;
-       }
-       double UpdateRtt(double value)
-       {
-           rtt_sample = value;  // save last rtt sample
-           rtt_sqmean = 0.9*rtt_sqmean + 0.1*sqrt(value);
-           rtt = 0.9*rtt + 0.1*value;   
+#ifdef CCD_TRACE
+            // Init rtt_history
+            rtt_min = value;
+            for (unsigned int i = 0; i <= HINDEX_MAX; i++)
+                rtt_history[i] = value;
+            rtt_index = 0;
+#endif // CCD_TRACE
+        }
+        double UpdateRtt(double value)
+        {
+            rtt_sample = value;  // save last rtt sample
+            rtt_sqmean = 0.9*rtt_sqmean + 0.1*sqrt(value);
+            rtt = 0.9*rtt + 0.1*value;   
+#ifdef CCD_TRACE
+            // Update rtt_history (replace oldest value) and rtt_min
+            double oldValue = rtt_history[rtt_index];
+            rtt_history[rtt_index] = value;
+            rtt_index = (HINDEX_MAX == rtt_index) ? 0 : rtt_index + 1;
+            if ((value <= rtt_min)  || (rtt_min < 0.0))
+            {
+                rtt_min = value;  // no search needed
+            }
+            else if (oldValue <= rtt_min)
+            {
+                // Find new rtt_min
+                double rttMin = rtt_history[0];
+                for (unsigned int i = 1; i <= HINDEX_MAX; i++)
+                {
+                    if (rtt_history[i] < rttMin) rttMin = rtt_history[i];
+                }
+                rtt_min = rttMin;
+            }
+            // else no change in rtt_min
+#endif  // CCD_TRACE  
            return rtt;
        }
-       void SetLoss(double value) {loss = value;}
-       void SetRate(double value) {rate = value;}
-       void SetCCSequence(UINT16 value) {cc_sequence = value;}
+       
+        void SetLoss(double value) {loss = value;}
+        void SetRate(double value) {rate = value;}
+        void SetMeasuredRate(double value) {rate_measured = value;}
+        void SetCCSequence(UINT16 value) {cc_sequence = value;}
+       
+        bool RateIsLowerThan(const NormCCNode& node, double hysteresis)
+        {
+            // Setting a non-zero "hysteresis" scales the
+            // rate comparison (e.g. 0.10 is 10% hysteresis)
+            if (IsActive() && !node.IsActive())
+                return true;
+            if (HasRtt() && !node.HasRtt())
+                return true;
+            if ((1.0+hysteresis)*GetRate() < node.GetRate())
+                return true;
+            return false;
+        }
        
     private:
         bool            is_clr;         // true if worst path representative
@@ -295,15 +341,24 @@ class NormCCNode : public NormNode
         bool            rtt_confirmed;
         bool            is_active;
         struct timeval  feedback_time;  // time of last received feedback
-        double          rtt;            // in seconds
-        
-        
-        double          rtt_sqmean;  // ave sqrt(rtt), EWMA smoothed
-        double          rtt_sample;  // last rtt sample value
+        double          rtt;            // in seconds (smoothed average)
+        double          rtt_sqmean;     // ave sqrt(rtt), EWMA smoothed
+        double          rtt_sample;     // last rtt sample value
         
         double          loss;           // loss fraction
-        double          rate;           // in bytes per second
+        double          rate;           // in bytes per second (calculated rate for this receiver)
+        double          rate_measured;  // in bytes per second (receiver rate measuremnt)
         UINT16          cc_sequence;
+        
+#ifdef CCD_TRACE
+        
+        double          rtt_history[HINDEX_MAX+1];
+        unsigned int    rtt_index;
+        //double          rate_history[HINDEX_MAX+1];
+        double          rtt_min;
+        //double          rate_max;
+#endif // CCD_TRACE
+
 };  // end class NormCCNode
 
 class NormSenderNode : public NormNode, public ProtoTree::Item
@@ -369,9 +424,25 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         double GetRttEstimate() const {return rtt_estimate;}
         
         void CheckCCFeedback();
-        
+#ifdef NORM_CCD
+        void UpdateRecvRate(const struct timeval& currentTime,
+                            unsigned short        msgSize,
+                            unsigned short        theSequence,
+                            bool                  txPair);
+        void InitDeliveryRate(unsigned short theSequence);
+        void ResetDeliveryRate();
+        void UpdateDeliveryRate(double         interval,
+                                unsigned short msgSize,
+                                unsigned short theSequence,
+                                bool           txPair);
+        void UpdateDeliveryRate2(double         interval,
+                                 unsigned short msgSize,
+                                 unsigned short theSequence,
+                                 bool           txPair);
+#else
         void UpdateRecvRate(const struct timeval& currentTime,
                             unsigned short        msgSize);
+#endif // if/else NORM_CCD
         
         void HandleCommand(const struct timeval& currentTime,
                            const NormCmdMsg&     cmd);
@@ -658,7 +729,7 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         
         // Watermark acknowledgement
         ProtoTimer              ack_timer;
-	    bool			        ack_pending;
+        bool                    ack_pending;
         NormObjectId            watermark_object_id;
         NormBlockId             watermark_block_id;
         NormSegmentId           watermark_segment_id;
@@ -692,10 +763,17 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         double                  send_rate;         // sender advertised rate
         double                  recv_rate;         // measured recv rate
         double                  recv_rate_prev;    // for recv_rate measurement
-        struct timeval          prev_update_time;  // for recv_rate measurement
+        struct timeval          recv_update_time;  // for recv_rate measurement
+        double                  recv_update_interval;
         Accumulator             recv_accumulator;  // for recv_rate measurement
         double                  nominal_packet_size;
-        
+#ifdef NORM_CCD
+        unsigned short          recv_delivery_sequence_prev;
+        unsigned int            recv_delivery_burst_size;
+        double                  recv_delivery_interval_prev;
+        double                  recv_delivery_rate;
+        double                  recv_delivery_snapshot;
+#endif // NORM_CCD
         // Buffering of app-defined commands received from Remote sender
         CmdBuffer*              cmd_buffer_head;  // the oldest received command is here (for FIFO)
         CmdBuffer*              cmd_buffer_tail;  // newly-received commands appended here
@@ -716,6 +794,9 @@ class NormSenderNode : public NormNode, public ProtoTree::Item
         
 };  // end class NormSenderNode
     
+// TBD - change bespoke NormNodeTree, NormNodeList, etc to use ProtoQueue classes
+//       that allow NormNodes to be indexed in multiple ways (ProtoIndexedQueue) and/or
+//       be a member of a simple linked list (ProtoSimpleQueue)
     
 // Used for binary trees of NormNodes sorted by NormNodeId
 // (TBD - update to use ProtoTree instead?
@@ -761,6 +842,7 @@ class NormNodeList
         unsigned int GetCount() {return count;}
         NormNode* FindNodeById(NormNodeId nodeId) const;
         void Append(NormNode* theNode);
+        void Prepend(NormNode* theNode);
         void Remove(NormNode* theNode);
         void DeleteNode(NormNode* theNode)
         {

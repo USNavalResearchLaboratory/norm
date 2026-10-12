@@ -658,6 +658,21 @@ class NormSession
         bool SenderQueueSquelch(NormObjectId objectId);
                    
     private:
+#ifdef NORM_CCD
+        // used for NORM_CCD
+        enum CcdState
+        {
+            INVALID, // NORM_CCD not active
+            START,
+            DRAIN,
+            CRUISE,
+            REFILL,
+            PROBE_UP,
+            PROBE_DOWN,
+            PROBE_RTT
+        };
+#endif // NORM_CCD
+    
         // Only NormSessionMgr can create/delete sessions
         NormSession(NormSessionMgr& sessionMgr, NormNodeId localNodeId);
         ~NormSession();
@@ -857,9 +872,14 @@ class NormSession
         NormNodeList                    cc_node_list;
         bool                            cc_slow_start;
         bool                            cc_active;
+#ifdef NORM_CCD
+        CcdState                        ccd_state;
+#endif        
         NormNode::Accumulator           sent_accumulator;  // for sentRate measurement
         double                          nominal_packet_size;
         bool                            data_active;       // true when actively sending data
+        bool                            tx_active;
+        bool                            tx_gap;
         double                          flow_control_factor;
         ProtoTimer                      flow_control_timer;
         NormObjectId                    flow_control_object;
