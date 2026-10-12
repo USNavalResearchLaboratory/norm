@@ -1,5 +1,5 @@
 {
-  "image": "mcr.microsoft.com/devcontainers/cpp:1.0.0-buster",
+  "image": "mcr.microsoft.com/devcontainers/cpp:debian-12",
   "features": {
     "ghcr.io/devcontainers/features/python:1": {
       "version": "3.11"
