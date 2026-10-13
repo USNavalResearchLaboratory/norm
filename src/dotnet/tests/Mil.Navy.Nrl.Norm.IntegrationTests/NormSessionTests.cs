@@ -1916,6 +1916,13 @@ namespace Mil.Navy.Nrl.Norm.IntegrationTests
         }
 
         [Fact]
+        public void SetsDefaultSyncPolicy_NORM_SYNC_REPAIR()
+        {
+            var syncPolicy = NormSyncPolicy.NORM_SYNC_REPAIR;
+            _normSession.SetDefaultSyncPolicy(syncPolicy);
+        }
+
+        [Fact]
         public void SetsDefaultNackingMode_NORM_NACK_NONE()
         {
             var nackingMode = NormNackingMode.NORM_NACK_NONE;

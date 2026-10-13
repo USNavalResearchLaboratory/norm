@@ -3119,6 +3119,7 @@ bool NormStreamObject::StreamUpdateStatus(NormBlockId blockId)
             read_offset = 0;
             sender->DecrementResyncCount();  // correction since stream sync here will falsely increment
             if ((NormSenderNode::SYNC_CURRENT != sender->GetSyncPolicy()) &&
+                (NormSenderNode::SYNC_REPAIR != sender->GetSyncPolicy()) &&
                 (0 != blockId.GetValue()))
             {
                 stream_broken = true;

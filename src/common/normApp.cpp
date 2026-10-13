@@ -207,6 +207,7 @@ class NormApp : public NormController, public ProtoApp
         bool                process_aborted_files;
         bool                preallocate_sender;
         NormSenderNode::RepairBoundary repair_boundary;
+        NormSenderNode::SyncPolicy sync_policy;
         
         // Debug parameters
         bool                tracing;
@@ -248,7 +249,8 @@ NormApp::NormApp()
    acking_flushes(false), watermark_pending(false), rx_buffer_size(1024*1024), rx_sock_buffer_size(0),
    rx_cache_path(NULL), post_processor(NULL), unicast_nacks(false), silent_receiver(false), 
    low_delay(false), realtime(false), rx_robust_factor(NormSession::DEFAULT_ROBUST_FACTOR), rx_persistent(true), process_aborted_files(false),
-   preallocate_sender(false), repair_boundary(NormSenderNode::BLOCK_BOUNDARY), tracing(false), tx_loss(0.0), rx_loss(0.0)
+   preallocate_sender(false), repair_boundary(NormSenderNode::BLOCK_BOUNDARY),
+   sync_policy(NormSenderNode::SYNC_CURRENT), tracing(false), tx_loss(0.0), rx_loss(0.0)
 {
     control_pipe.SetListener(this, &NormApp::OnControlEvent);
     control_pipe.SetNotifier(&GetSocketNotifier());
@@ -343,6 +345,7 @@ const char* const NormApp::cmd_list[] =
     "+moutput",      // recv message stream output
     "+sendfile",     // file/directory list to transmit
     "+info",         // 'on' | 'off' to enable/disable file info (name) transmission (default = 'on')
+    "+sync",         // receiver synchronization policy: 'current', 'stream', 'repair', or 'all'
     "+interval",     // delay time (sec) between files (0.0 sec default)
     "+repeatcount",  // How many times to repeat the file/directory list tx
     "+rinterval",    // Interval (sec) between file/directory list repeats
@@ -416,6 +419,7 @@ void NormApp::ShowHelp()
         "   +moutput,      // receiver message stream output\n"
         "   +sendfile,     // file/directory list to transmit\n"
         "   +info,         // 'on' | 'off' to enable/disable file info (name) transmission (default = 'on')\n"
+        "   +sync,         // receiver synchronization policy: 'current', 'stream', 'repair', or 'all'\n"
         "   +interval,     // delay time (sec) between files (0.0 sec default)\n"
         "   +repeatcount,  // How many times to repeat the file/directory list tx\n"
         "   +rinterval,    // Interval (sec) between file/directory list repeats\n"
@@ -882,6 +886,23 @@ bool NormApp::OnCommand(const char* cmd, const char* val)
             PLOG(PL_FATAL, "NormApp::OnCommand(info) invalid argument!\n");   
             return false;
         }
+    }
+    else if (!strncmp("sync", cmd, len))
+    {
+        if (!strcmp("current", val))
+            sync_policy = NormSenderNode::SYNC_CURRENT;
+        else if (!strcmp("stream", val))
+            sync_policy = NormSenderNode::SYNC_STREAM;
+        else if (!strcmp("repair", val))
+            sync_policy = NormSenderNode::SYNC_REPAIR;
+        else if (!strcmp("all", val))
+            sync_policy = NormSenderNode::SYNC_ALL;
+        else
+        {
+            PLOG(PL_FATAL, "NormApp::OnCommand(sync) invalid policy!\n");
+            return false;
+        }
+        if (NULL != session) session->ReceiverSetDefaultSyncPolicy(sync_policy);
     }
     else if (!strncmp("interval", cmd, len))
     {
@@ -2383,6 +2404,7 @@ bool NormApp::OnStartup(int argc, const char*const* argv)
                 session->RcvrSetRealtime(true);           
             session->SetRxRobustFactor(rx_robust_factor);
             session->ReceiverSetDefaultRepairBoundary(repair_boundary);
+            session->ReceiverSetDefaultSyncPolicy(sync_policy);
             if (!session->StartReceiver(rx_buffer_size))
             {
                 PLOG(PL_FATAL, "NormApp::OnStartup() start receiver error!\n");

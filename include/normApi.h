@@ -146,7 +146,8 @@ typedef enum NormSyncPolicy
 {
     NORM_SYNC_CURRENT,  // attempt to receiver current/new objects only, join mid-stream
     NORM_SYNC_STREAM,   // sync to current stream, but to beginning of stream
-    NORM_SYNC_ALL       // attempt to receive old and new objects
+    NORM_SYNC_ALL,      // attempt to receive old and new objects
+    NORM_SYNC_REPAIR    // accept current-object repair traffic as an initial sync point
 } NORM_API_LINKAGE NormSyncPolicy;
 
 typedef enum NormRepairBoundary

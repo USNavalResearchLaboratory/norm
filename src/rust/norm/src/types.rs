@@ -242,6 +242,8 @@ pub enum SyncPolicy {
     Stream = NormSyncPolicy_NORM_SYNC_STREAM as u32,
     /// Sync to all data, old and new
     All = NormSyncPolicy_NORM_SYNC_ALL as u32,
+    /// Accept repair traffic for the observed current object only
+    Repair = NormSyncPolicy_NORM_SYNC_REPAIR as u32,
 }
 
 impl From<NormSyncPolicy> for SyncPolicy {
@@ -250,6 +252,7 @@ impl From<NormSyncPolicy> for SyncPolicy {
             NormSyncPolicy_NORM_SYNC_CURRENT => SyncPolicy::Current,
             NormSyncPolicy_NORM_SYNC_STREAM => SyncPolicy::Stream,
             NormSyncPolicy_NORM_SYNC_ALL => SyncPolicy::All,
+            NormSyncPolicy_NORM_SYNC_REPAIR => SyncPolicy::Repair,
             _ => SyncPolicy::Current,
         }
     }
@@ -261,6 +264,7 @@ impl From<SyncPolicy> for NormSyncPolicy {
             SyncPolicy::Current => NormSyncPolicy_NORM_SYNC_CURRENT,
             SyncPolicy::Stream => NormSyncPolicy_NORM_SYNC_STREAM,
             SyncPolicy::All => NormSyncPolicy_NORM_SYNC_ALL,
+            SyncPolicy::Repair => NormSyncPolicy_NORM_SYNC_REPAIR,
         }
     }
 }
