@@ -3,6 +3,7 @@
 
 // PROTOLIB includes
 #include "protokit.h"
+#include "normApi.h"
 
 // standard includes
 #include <string.h>  // for memcpy(), etc
@@ -393,6 +394,8 @@ class NormHeaderExtension
 // FEC Payload Id content.  The FEC Payload
 // Id format is dependent upon the "fec_id" (FEC Type)
 // and, in some cases, its field size ("m") parameter
+struct NormFecLayout;
+
 class NormPayloadId
 {
     public:
@@ -400,15 +403,36 @@ class NormPayloadId
         {
             RS  = 2,   // fully-specified, general purpose Reed-Solomon
             RS8 = 5,   // fully-specified 8-bit Reed-Solmon per RFC 5510
-            SB  = 129  // partially-specified "small block" codes
+            SB  = 129, // partially-specified "small block" codes
+            RL  = 131  // partially-specified "rateless" codes
         };
+        // Several NormPayloadId call sites (FTI/NACK parsing, block mask setup) have no
+        // session or controller handy to supply the layout for a custom "fecId", so the
+        // layouts registered via NormRegisterFecLayout() are also kept here and used
+        // whenever the caller doesn't pass one explicitly.
+        //
+        // The table is keyed by "fecId", which is the on-wire codec discriminator, so
+        // any number of codecs coexist here as long as they use distinct ids.  Claiming
+        // an id already held by a layout describing a *different* wire format is refused:
+        // that would mean two payload id formats sharing one discriminator, which cannot
+        // interoperate on a group no matter how the layouts are scoped.  Re-registering
+        // an equivalent layout (as separate NORM instances in one process do) is allowed.
+        // Published layouts are copied into library-owned storage and remain valid for
+        // process lifetime.  A NULL layout succeeds only when the id is unclaimed.
+        static bool SetFecLayout(UINT8 fecId, const NormFecLayout* layout);
+        static const NormFecLayout* GetFecLayout(UINT8 fecId) {return fec_layouts[fecId];}
+
         static bool IsValid(UINT8 fecId) 
         {
+            const NormFecLayout* layout = GetFecLayout(fecId);
+            if (layout != NULL)
+                return true;
             switch (fecId)
             {
                 case 2:
                 case 5:
                 case 129:
+                case RL:
                     return true;
                 default:
                     return false;
@@ -421,10 +445,14 @@ class NormPayloadId
         
         static UINT16 GetLength(UINT8 fecId)
         {
+            const NormFecLayout* layout = GetFecLayout(fecId);
+            if (layout != NULL)
+                return layout->payloadIdLength;
             switch (fecId)
             {
                 case 2:
                 case 5:
+                case RL:
                     return 4;
                 case 129:
                     return 8;
@@ -435,6 +463,9 @@ class NormPayloadId
         
         static UINT32 GetFecBlockMask(UINT8 fecId, UINT8 fecM)
         {
+            const NormFecLayout* layout = GetFecLayout(fecId);
+            if (layout != NULL)
+                return layout->blockMask;
             switch (fecId)
             {
                 case 2:
@@ -446,6 +477,8 @@ class NormPayloadId
                     return 0x00ffffff;      // 24-bit blockId
                 case 129:
                     return 0xffffffff;      // 32-bit blockId
+                case RL:
+                    return 0x0000ffff;      // 16-bit blockId
                 default:
                     return 0x00000000;      // invalid fecId
             }
@@ -453,6 +486,12 @@ class NormPayloadId
         
         void SetFecPayloadId(UINT32 blockId, UINT16 symbolId, UINT16 blockLen)
         {
+            const NormFecLayout* layout = GetFecLayout(fec_id);
+            if (layout != NULL && layout->packPayloadId != NULL)
+            {
+                layout->packPayloadId(buffer, blockId, symbolId, blockLen);
+                return;
+            }
             switch (fec_id)
             {
                 case 2:
@@ -473,17 +512,31 @@ class NormPayloadId
                     *buffer = htonl(blockId);  // 3 + 1 bytes
                     break;
                 case 129:
+                {
                     *buffer = htonl(blockId);  // 4 bytes
                     UINT16* ptr = (UINT16*)(buffer + 1);
                     ptr[0] = htons(blockLen);  // 2 bytes
                     ptr[1] = htons(symbolId);  // 2 bytes
                     break;
             }   
+                case RL:
+                {
+                    UINT16* payloadId = (UINT16*)buffer;
+                    payloadId[0] = htons(blockId);  // 2 bytes
+                    payloadId[1] = htons(symbolId); // 2 bytes
+                    break;
+                }
+            }   
         }
         
         // Message processing methods
         NormBlockId GetFecBlockId() const
         {
+            const NormFecLayout* layout = GetFecLayout(fec_id);
+            if (layout != NULL && layout->unpackBlockId != NULL)
+            {
+                return layout->unpackBlockId(cbuffer);
+            }
             switch (fec_id)
             {
                 case 2:
@@ -504,6 +557,11 @@ class NormPayloadId
                 }
                 case 129:
                     return ntohl(*cbuffer);
+                case RL:
+                {
+                    UINT16* blockId = (UINT16*)cbuffer;
+                    return ntohs(*blockId);
+                }
                 default:
                     ASSERT(0);
                     return 0;
@@ -512,6 +570,11 @@ class NormPayloadId
         
         UINT16 GetFecSymbolId()  const
         {
+            const NormFecLayout* layout = GetFecLayout(fec_id);
+            if (layout != NULL && layout->unpackSymbolId != NULL)
+            {
+                return layout->unpackSymbolId(cbuffer);
+            }
             switch (fec_id)
             {
                 case 2:
@@ -535,6 +598,11 @@ class NormPayloadId
                     UINT16* ptr = (UINT16*)(cbuffer + 1);
                     return ntohs(ptr[1]);
                 }
+                case RL:
+                {
+                    UINT16* payloadId = (UINT16*)cbuffer;
+                    return ntohs(payloadId[1]);
+                }
                 default:
                     ASSERT(0);
                     return 0;
@@ -543,6 +611,11 @@ class NormPayloadId
         
         UINT16 GetFecBlockLength() const
         {
+            const NormFecLayout* layout = GetFecLayout(fec_id);
+            if (layout != NULL && layout->unpackBlockLength != NULL)
+            {
+                return layout->unpackBlockLength(cbuffer);
+            }
             if (129 == fec_id)
             {
                 UINT16* blockLen = (UINT16*)(cbuffer + 1);
@@ -555,8 +628,15 @@ class NormPayloadId
         }        
                 
         
-        
     private:
+        // Registered via NormRegisterFecLayout(); read on the rx thread, so atomic.
+        // volatile, not atomic: a reader must not have its load hoisted or cached
+        // across calls, and a pointer-width aligned load or store is indivisible on
+        // every supported target. <atomic> is deliberately not used -- nothing under
+        // src/common or include pulls in the STL, which is what lets the static
+        // library link with no C++ runtime.
+        static const NormFecLayout* volatile fec_layouts[256];
+        
         UINT8   fec_id;
         UINT8   fec_m;
         union
@@ -1027,6 +1107,57 @@ class NormFtiExtension129 : public NormHeaderExtension
             FEC_NPARITY_OFFSET  = ((FEC_NDATA_OFFSET*2)+2)/2
         };
 };  // end class NormFtiExtension129
+
+class NormFtiExtension131 : public NormHeaderExtension
+{
+    public:
+        virtual void Init(UINT32* theBuffer, UINT16 numBytes)
+        {
+            AttachBuffer(theBuffer, numBytes);
+            SetType(FTI);
+            SetWords(4);
+        }        
+        void SetFecInstanceId(UINT16 instanceId)
+            { ((UINT16*)buffer)[FEC_INSTANCE_OFFSET] = htons(instanceId);}
+        void SetFecMaxBlockLen(UINT16 ndata)
+            {((UINT16*)buffer)[FEC_NDATA_OFFSET] = htons(ndata);}
+        void SetFecNumParity(UINT16 nparity)
+            {((UINT16*)buffer)[FEC_NPARITY_OFFSET] = htons(nparity);}
+        void SetSegmentSize(UINT16 segmentSize)
+            {((UINT16*)buffer)[SEG_SIZE_OFFSET] = htons(segmentSize);}
+        void SetObjectSize(const NormObjectSize& objectSize)
+        {
+            ((UINT16*)buffer)[OBJ_SIZE_MSB_OFFSET] = htons(objectSize.MSB());
+            buffer[OBJ_SIZE_LSB_OFFSET] = htonl(objectSize.LSB());
+        }
+        
+        UINT16 GetFecInstanceId() const
+        {
+            return (ntohs(((UINT16*)buffer)[FEC_INSTANCE_OFFSET]));
+        }
+        UINT16 GetFecMaxBlockLen() const
+            {return (ntohs(((UINT16*)buffer)[FEC_NDATA_OFFSET]));}
+        UINT16 GetFecNumParity() const
+            {return (ntohs(((UINT16*)buffer)[FEC_NPARITY_OFFSET]));}
+        UINT16 GetSegmentSize() const
+            {return (ntohs(((UINT16*)buffer)[SEG_SIZE_OFFSET]));}
+        NormObjectSize GetObjectSize() const
+        {
+            return NormObjectSize(ntohs(((UINT16*)buffer)[OBJ_SIZE_MSB_OFFSET]), 
+                                  ntohl(buffer[OBJ_SIZE_LSB_OFFSET]));   
+        }
+    
+    private:
+        enum
+        {
+            OBJ_SIZE_MSB_OFFSET = (LENGTH_OFFSET + 1)/2,
+            OBJ_SIZE_LSB_OFFSET = ((OBJ_SIZE_MSB_OFFSET*2)+2)/4,
+            FEC_INSTANCE_OFFSET = ((OBJ_SIZE_LSB_OFFSET*4)+4)/2,
+            SEG_SIZE_OFFSET     = ((FEC_INSTANCE_OFFSET*2)+2)/2,
+            FEC_NDATA_OFFSET    = ((SEG_SIZE_OFFSET*2)+2)/2,
+            FEC_NPARITY_OFFSET  = ((FEC_NDATA_OFFSET*2)+2)/2
+        };
+};  // end class NormFtiExtension131
 
 
 class NormInfoMsg : public NormObjectMsg

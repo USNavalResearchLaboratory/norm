@@ -761,6 +761,21 @@ bool NormSession::StartSender(UINT16 instanceId,
                               UINT16 numParity,
                               UINT8  fecId)
 {
+    if ((0 != fecId) && !NormPayloadId::IsValid(fecId))
+    {
+        PLOG(PL_FATAL, "NormSession::StartSender() error: no payload-id layout registered "
+                       "for fec_id %u (see NormRegisterFecLayout())\n", fecId);
+        return false;
+    }
+    // A rateless fecId has no built-in codec -- without a registered one we would
+    // silently build a Reed-Solomon encoder while advertising "fecId" on the wire, and
+    // every receiver would then reject the stream as an unknown fecId.  Fail up front.
+    if (IsRatelessFec(fecId) && (NULL == GetEncoderFactory(fecId)))
+    {
+        PLOG(PL_FATAL, "NormSession::StartSender() error: no FEC codec registered for "
+                       "rateless fec_id %u (see NormRegisterFecCoder())\n", fecId);
+        return false;
+    }
     UINT16 blockSize = numData + numParity;
     if (blockSize <= 255)
         fec_m = 8;
@@ -805,17 +820,23 @@ bool NormSession::StartSender(UINT16 instanceId,
     unsigned long maskSize = blockSize >> 3;
     if (0 != (blockSize & 0x07))
         maskSize++;
+    // A rateless sender synthesizes repair symbols on demand from the block's source
+    // symbols (see NormObject::CalculateBlockParity()), so it must also cache the
+    // source vectors -- budget numData + numParity segments per block instead of just
+    // the numParity a block code needs for its precomputed parity.
+    unsigned long segmentsPerBlock = IsRatelessFec(fecId) ? (numData + numParity) : numParity;
+
     unsigned long blockSpace = sizeof(NormBlock) +
                                blockSize * sizeof(char *) +
                                2 * maskSize +
-                               numParity * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());
+                               segmentsPerBlock * (segmentSize + NormDataMsg::GetStreamPayloadHeaderLength());
 
     unsigned long numBlocks = bufferSpace / blockSpace;
     if (bufferSpace > (numBlocks * blockSpace))
         numBlocks++;
     if (numBlocks < 2)
         numBlocks = 2;
-    unsigned long numSegments = numBlocks * numParity;
+    unsigned long numSegments = numBlocks * segmentsPerBlock;
 
     if (!block_pool.Init((UINT32)numBlocks, blockSize))
     {
@@ -836,7 +857,18 @@ bool NormSession::StartSender(UINT16 instanceId,
         if (NULL != encoder)
             delete encoder;
 
-        if (blockSize <= 255)
+        NormEncoderFactory encoderFactory = GetEncoderFactory(fecId);
+        if (NULL != encoderFactory)
+        {
+            if (NULL == (encoder = encoderFactory()))
+            {
+                PLOG(PL_FATAL, "NormSession::StartSender() new custom encoder error\n");
+                StopSender();
+                return false;
+            }
+            fec_id = fecId;
+        }
+        else if (blockSize <= 255)
         {
 #ifdef ASSUME_MDP_FEC
             if (NULL == (encoder = new NormEncoderMDP))
@@ -4243,6 +4275,10 @@ void NormSession::SenderHandleNackMessage(const struct timeval &currentTime, Nor
                             tx_repair_block_min = nextBlockId;
                             tx_repair_segment_min = (nextSegmentId < nextBlockSize) ? nextSegmentId : (nextBlockSize - 1);
                         }
+                        if (GetEncoder() && GetEncoder()->IsRateless()) {
+                            numErasures = GetEncoder()->CalculateReactiveParity(nextBlockId.GetValue(), numErasures, *this);
+                            if (numErasures > nparity) numErasures = nparity;
+                        }
                         block->HandleSegmentRequest(nextSegmentId, lastSegmentId,
                                                     nextBlockSize, nparity,
                                                     numErasures);
@@ -5795,7 +5831,18 @@ NormSessionMgr::NormSessionMgr(ProtoTimerMgr &timerMgr,
     : timer_mgr(timerMgr), socket_notifier(socketNotifier), channel_notifier(channelNotifier),
       controller(NULL), data_free_func(NULL), top_session(NULL)
 {
+    memset(encoder_factories, 0, sizeof(encoder_factories));
+    memset(decoder_factories, 0, sizeof(decoder_factories));
+    memset(is_rateless_codec, 0, sizeof(is_rateless_codec));
+    is_rateless_codec[NormPayloadId::RL] = true; // Built-in RL codec
 }
+
+void NormSessionMgr::RegisterFecCoder(UINT8 fecId, NormEncoderFactory encoderFactory, NormDecoderFactory decoderFactory, bool isRateless)
+{
+    encoder_factories[fecId] = encoderFactory;
+    decoder_factories[fecId] = decoderFactory;
+    is_rateless_codec[fecId] = isRateless;
+} // end NormSessionMgr::RegisterFecCoder()
 
 NormSessionMgr::~NormSessionMgr()
 {

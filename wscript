@@ -258,6 +258,7 @@ def build(ctx):
             'chant',
             'normClient',
             'normServer',
+            'normRatelessTest',
             #'wintest'  # Windows only (can uncomment on Windows)
             ):
         _make_simple_example(ctx, example)

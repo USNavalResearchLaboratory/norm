@@ -181,3 +181,18 @@ jobs:
           message(FATAL_ERROR "Bad exit status")
         endif()
         execute_process(COMMAND ccache -s)
+    - name: Test
+      shell: cmake -P {0}
+      run: |
+        # NOTE: run from inside "build" rather than with "--test-dir", which the
+        #       pinned CMake ($ENV{CMAKE_VERSION}) predates (it arrived in 3.20).
+        execute_process(
+          COMMAND ${{ steps.cmake_and_ninja.outputs.cmake_dir }}/ctest
+            --output-on-failure
+            -C $ENV{BUILD_TYPE}
+          WORKING_DIRECTORY build
+          RESULT_VARIABLE result
+        )
+        if (NOT result EQUAL 0)
+          message(FATAL_ERROR "Tests failed")
+        endif()
