@@ -16,6 +16,12 @@ exclude:
     # here just duplicates every finding across every consumer.
     - submodules/
     - protolib/
+    # Upstream NORM code HD never builds or ships (HD links libnorm only). Craig's
+    # decision, 2026-11-20 (FER-14, FER-41): the demo apps' file post-processor,
+    # which execvp()s the operator's own configured command from an argv array
+    # (no shell), and the Android library.
+    - PostProcess
+    - android/
     # Build output and local scratch, never committed intentionally.
     - build/
     - build_asan/
