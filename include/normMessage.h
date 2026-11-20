@@ -666,7 +666,17 @@ class NormMsg
             if (result)
             {
                 UINT16 nextLength = ((UINT8*)(buffer + nextOffset))[1] << 2;
-                ext.AttachBuffer(buffer+nextOffset, nextLength);
+                // A variable-length extension (type < 128) with a zero length field
+                // is malformed and would never advance the iteration (infinite loop)
+                if ((0 == nextLength) && (((UINT8*)(buffer + nextOffset))[0] < 128))
+                {
+                    result = false;
+                    ext.AttachBuffer((UINT32*)NULL, 0);
+                }
+                else
+                {
+                    ext.AttachBuffer(buffer+nextOffset, nextLength);
+                }
             }
             else
             {
